@@ -33,6 +33,9 @@ export default async function ProjectTasksPage(props: {
     notFound();
   }
 
+  const projectId = project.id;
+  const projectClientId = project.client_id;
+
   const { data: users } = await supabase
     .from("users")
     .select("id,full_name,email")
@@ -41,7 +44,7 @@ export default async function ProjectTasksPage(props: {
   const { data: tasks } = await supabase
     .from("tasks")
     .select("id,title,status,priority,start_date,due_date,assignee_user_id,parent_task_id")
-    .eq("project_id", project.id)
+    .eq("project_id", projectId)
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
 
@@ -57,12 +60,12 @@ export default async function ProjectTasksPage(props: {
     const parentTaskId = String(formData.get("parent_task_id") || "");
 
     if (!title) {
-      redirect(`/projects/${project.id}/tasks?error=Title%20is%20required`);
+      redirect(`/projects/${projectId}/tasks?error=Title%20is%20required`);
     }
 
     const payload: Record<string, unknown> = {
-      client_id: project.client_id,
-      project_id: project.id,
+      client_id: projectClientId,
+      project_id: projectId,
       title,
       status,
       priority,
@@ -80,10 +83,10 @@ export default async function ProjectTasksPage(props: {
     const { error } = await supabase.from("tasks").insert(payload);
 
     if (error) {
-      redirect(`/projects/${project.id}/tasks?error=${encodeURIComponent(error.message)}`);
+      redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/projects/${project.id}/tasks`);
+    revalidatePath(`/projects/${projectId}/tasks`);
   }
 
   async function updateTaskInline(formData: FormData) {
@@ -96,7 +99,7 @@ export default async function ProjectTasksPage(props: {
     const startDate = String(formData.get("start_date") || "").trim();
     const dueDate = String(formData.get("due_date") || "").trim();
     const updates: Record<string, string | null> = {};
-    const returnTo = `/projects/${project.id}/tasks`;
+    const returnTo = `/projects/${projectId}/tasks`;
 
     if (!taskId) {
       redirect(`${returnTo}?error=Missing%20task%20id`);
@@ -130,7 +133,7 @@ export default async function ProjectTasksPage(props: {
       .from("tasks")
       .update(updates)
       .eq("id", taskId)
-      .eq("project_id", project.id);
+      .eq("project_id", projectId);
 
     if (error) {
       redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
@@ -146,7 +149,7 @@ export default async function ProjectTasksPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {project.name} . Tasks
         </h1>
-        <ProjectTabs projectId={project.id} active="tasks" />
+        <ProjectTabs projectId={projectId} active="tasks" />
       </section>
 
       {searchParams?.error ? (

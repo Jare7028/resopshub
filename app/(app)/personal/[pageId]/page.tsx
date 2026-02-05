@@ -120,10 +120,15 @@ export default async function PersonalPage(props: {
     notFound();
   }
 
+  const pageId = page.id;
+  const sectionId = page.section_id;
+
   const { data: sections } = await supabase
     .from("personal_sections")
     .select("id,title")
     .order("sort_order", { ascending: true });
+
+  const sectionTitle = sections?.find((section) => section.id === sectionId)?.title;
 
   const { data: users } = await supabase
     .from("users")
@@ -140,16 +145,28 @@ export default async function PersonalPage(props: {
     ? lastEditedByUser.full_name || lastEditedByUser.email
     : null;
 
+  const getUserLabel = (
+    relation:
+      | { full_name?: string | null; email?: string | null }
+      | { full_name?: string | null; email?: string | null }[]
+      | null
+      | undefined,
+    fallback: string
+  ) => {
+    const user = Array.isArray(relation) ? relation[0] : relation;
+    return user?.full_name || user?.email || fallback;
+  };
+
   const { data: sectionMembers } = await supabase
     .from("personal_section_members")
     .select("id,user_id,role,users(full_name,email)")
-    .eq("section_id", page.section_id)
+    .eq("section_id", sectionId)
     .order("created_at", { ascending: true });
 
   const { data: pageMembers } = await supabase
     .from("personal_page_members")
     .select("id,user_id,role,users(full_name,email)")
-    .eq("page_id", page.id)
+    .eq("page_id", pageId)
     .order("created_at", { ascending: true });
 
   async function updatePageDetails(formData: FormData) {
@@ -159,7 +176,7 @@ export default async function PersonalPage(props: {
     const sectionId = String(formData.get("section_id") || "").trim();
 
     if (!title) {
-      redirect(`/personal/${page.id}?error=Title%20is%20required`);
+      redirect(`/personal/${pageId}?error=Title%20is%20required`);
     }
 
     const { error } = await supabase
@@ -169,13 +186,13 @@ export default async function PersonalPage(props: {
         section_id: sectionId || null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", page.id);
+      .eq("id", pageId);
 
     if (error) {
-      redirect(`/personal/${page.id}?error=${encodeURIComponent(error.message)}`);
+      redirect(`/personal/${pageId}?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/personal/${page.id}`);
+    revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
   }
 
@@ -191,15 +208,15 @@ export default async function PersonalPage(props: {
 
     await supabase.from("personal_section_members").upsert(
       {
-        section_id: page.section_id,
+        section_id: sectionId,
         user_id: userId,
         role,
       },
       { onConflict: "section_id,user_id" }
     );
 
-    await syncSectionShareMode(supabase, page.section_id);
-    revalidatePath(`/personal/${page.id}`);
+    await syncSectionShareMode(supabase, sectionId);
+    revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
   }
 
@@ -218,7 +235,7 @@ export default async function PersonalPage(props: {
       .update({ role })
       .eq("id", memberId);
 
-    revalidatePath(`/personal/${page.id}`);
+    revalidatePath(`/personal/${pageId}`);
   }
 
   async function removeSectionMember(formData: FormData) {
@@ -231,8 +248,8 @@ export default async function PersonalPage(props: {
     }
 
     await supabase.from("personal_section_members").delete().eq("id", memberId);
-    await syncSectionShareMode(supabase, page.section_id);
-    revalidatePath(`/personal/${page.id}`);
+    await syncSectionShareMode(supabase, sectionId);
+    revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
   }
 
@@ -248,15 +265,15 @@ export default async function PersonalPage(props: {
 
     await supabase.from("personal_page_members").upsert(
       {
-        page_id: page.id,
+        page_id: pageId,
         user_id: userId,
         role,
       },
       { onConflict: "page_id,user_id" }
     );
 
-    await syncPageShareMode(supabase, page.id, page.section_id);
-    revalidatePath(`/personal/${page.id}`);
+    await syncPageShareMode(supabase, pageId, sectionId);
+    revalidatePath(`/personal/${pageId}`);
   }
 
   async function updatePageMember(formData: FormData) {
@@ -274,8 +291,8 @@ export default async function PersonalPage(props: {
       .update({ role })
       .eq("id", memberId);
 
-    await syncPageShareMode(supabase, page.id, page.section_id);
-    revalidatePath(`/personal/${page.id}`);
+    await syncPageShareMode(supabase, pageId, sectionId);
+    revalidatePath(`/personal/${pageId}`);
   }
 
   async function removePageMember(formData: FormData) {
@@ -288,8 +305,8 @@ export default async function PersonalPage(props: {
     }
 
     await supabase.from("personal_page_members").delete().eq("id", memberId);
-    await syncPageShareMode(supabase, page.id, page.section_id);
-    revalidatePath(`/personal/${page.id}`);
+    await syncPageShareMode(supabase, pageId, sectionId);
+    revalidatePath(`/personal/${pageId}`);
   }
 
   return (
@@ -301,7 +318,7 @@ export default async function PersonalPage(props: {
           </p>
           <h1 className="text-2xl font-semibold text-slate-900">{page.title}</h1>
           <p className="text-sm text-slate-600">
-            {page.personal_sections?.title || "General"} -{" "}
+            {sectionTitle || "General"} -{" "}
             {shareModeLabels[page.share_mode] || "Private"}
           </p>
         </div>
@@ -373,7 +390,7 @@ export default async function PersonalPage(props: {
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
                   >
                     <span className="text-slate-600">
-                      {member.users?.full_name || member.users?.email || "Unknown user"}
+                      {getUserLabel(member.users, "Unknown user")}
                     </span>
                     <form className="flex items-center gap-2" action={updateSectionMember}>
                       <input type="hidden" name="member_id" value={member.id} />
@@ -448,7 +465,7 @@ export default async function PersonalPage(props: {
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
                   >
                     <span className="text-slate-600">
-                      {member.users?.full_name || member.users?.email || "Unknown user"}
+                      {getUserLabel(member.users, "Unknown user")}
                     </span>
                     <form className="flex items-center gap-2" action={updatePageMember}>
                       <input type="hidden" name="member_id" value={member.id} />

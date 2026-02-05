@@ -51,6 +51,20 @@ export default async function NotesPage(props: {
 
   const { data: notes } = await request;
 
+  const getRelationName = (
+    relation:
+      | { name?: string | null }
+      | { name?: string | null }[]
+      | null
+      | undefined,
+    fallback: string
+  ) => {
+    if (Array.isArray(relation)) {
+      return relation[0]?.name ?? fallback;
+    }
+    return relation?.name ?? fallback;
+  };
+
   async function deleteNote(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -146,7 +160,7 @@ export default async function NotesPage(props: {
                 notes.map((note) => (
                   <tr key={note.id} className="border-t border-slate-200">
                     <td className="px-4 py-3 font-medium text-slate-900">
-                      {note.clients?.name || "Unknown client"}
+                      {getRelationName(note.clients, "Unknown client")}
                     </td>
                     <td className="px-4 py-3 text-slate-700 whitespace-pre-line">
                       {note.content}

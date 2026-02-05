@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { type ChangeEvent } from "react";
@@ -18,7 +18,7 @@ type ProjectOption = {
   id: string;
   name: string;
   client_id: string | null;
-  clients?: { name: string | null } | null;
+  clients?: { name: string | null } | { name: string | null }[] | null;
 };
 
 type TaskRow = {
@@ -31,8 +31,8 @@ type TaskRow = {
   assignee_user_id: string | null;
   client_id: string | null;
   project_id: string | null;
-  projects?: { name: string | null } | null;
-  clients?: { name: string | null } | null;
+  projects?: { name: string | null } | { name: string | null }[] | null;
+  clients?: { name: string | null } | { name: string | null }[] | null;
 };
 
 type TaskInlineRowProps = {
@@ -54,6 +54,20 @@ export default function TaskInlineRow({
   priorityOptions,
   onUpdate,
 }: TaskInlineRowProps) {
+  const getRelationName = (
+    relation:
+      | { name?: string | null }
+      | { name?: string | null }[]
+      | null
+      | undefined,
+    fallback = ""
+  ) => {
+    if (Array.isArray(relation)) {
+      return relation[0]?.name ?? fallback;
+    }
+    return relation?.name ?? fallback;
+  };
+
   const handleChange = (
     event: ChangeEvent<HTMLSelectElement | HTMLInputElement>
   ) => {
@@ -97,12 +111,15 @@ export default function TaskInlineRow({
             onChange={handleChange}
           >
             <option value="">N/A</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-                {project.clients?.name ? ` — ${project.clients.name}` : ""}
-              </option>
-            ))}
+            {projects.map((project) => {
+              const projectClientName = getRelationName(project.clients, "");
+              return (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                  {projectClientName ? ` - ${projectClientName}` : ""}
+                </option>
+              );
+            })}
           </select>
         </form>
       </td>
@@ -190,3 +207,5 @@ export default function TaskInlineRow({
     </tr>
   );
 }
+
+

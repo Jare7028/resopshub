@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const taskStatuses = ["backlog", "in_progress", "blocked", "completed", "cancelled"] as const;
@@ -136,6 +136,20 @@ export default async function DashboardPage(props: {
     );
   });
 
+  const getRelationName = (
+    relation:
+      | { name?: string | null }
+      | { name?: string | null }[]
+      | null
+      | undefined,
+    fallback: string
+  ) => {
+    if (Array.isArray(relation)) {
+      return relation[0]?.name ?? fallback;
+    }
+    return relation?.name ?? fallback;
+  };
+
   const clientWorkloadMap = new Map<
     string,
     {
@@ -151,7 +165,7 @@ export default async function DashboardPage(props: {
 
   openTasks.forEach((task) => {
     const clientId = task.client_id;
-    const clientName = task.clients?.name || "Unknown";
+    const clientName = getRelationName(task.clients, "Unknown");
     if (!clientId) {
       return;
     }
@@ -280,8 +294,8 @@ export default async function DashboardPage(props: {
     if (!projectHealthMap.has(task.project_id)) {
       projectHealthMap.set(task.project_id, {
         projectId: task.project_id,
-        projectName: task.projects?.name || "Untitled project",
-        clientName: task.clients?.name || "Unknown",
+        projectName: getRelationName(task.projects, "Untitled project"),
+        clientName: getRelationName(task.clients, "Unknown"),
         open: 0,
         blocked: 0,
         overdue: 0,
@@ -330,11 +344,11 @@ export default async function DashboardPage(props: {
   const { data: recentTasks } = await activityQuery;
 
   const recentActivity = (recentTasks || []).map((task) => ({
-    item: `Task created: ${task.title}`,
-    meta: `${task.clients?.name ?? "No client"} · ${
-      task.created_at ? new Date(task.created_at).toLocaleDateString("en-US") : "-"
-    }`,
-  }));
+  item: `Task created: ${task.title}`,
+  meta: `${getRelationName(task.clients, "No client")} · ${
+    task.created_at ? new Date(task.created_at).toLocaleDateString("en-US") : "-"
+  }`,
+}));
 
   const newTasksLabel =
     selectedRange === "all"
@@ -668,3 +682,5 @@ export default async function DashboardPage(props: {
     </div>
   );
 }
+
+

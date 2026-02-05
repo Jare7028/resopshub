@@ -15,7 +15,7 @@ type ProjectRow = {
   start_date: string | null;
   end_date: string | null;
   client_id: string | null;
-  clients?: { name: string | null } | null;
+  clients?: { name: string | null } | { name: string | null }[] | null;
 };
 
 type ProjectInlineRowProps = {

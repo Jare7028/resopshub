@@ -85,6 +85,20 @@ export default async function PersonalHome(props: {
 
   const { data: pages } = await pagesRequest;
 
+  const getRelationTitle = (
+    relation:
+      | { title?: string | null }
+      | { title?: string | null }[]
+      | null
+      | undefined,
+    fallback: string
+  ) => {
+    if (Array.isArray(relation)) {
+      return relation[0]?.title ?? fallback;
+    }
+    return relation?.title ?? fallback;
+  };
+
   async function createSection(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -417,7 +431,7 @@ export default async function PersonalHome(props: {
                         </Link>
                       </td>
                       <td className="px-6 py-3 text-slate-600">
-                        {page.personal_sections?.title || "General"}
+                        {getRelationTitle(page.personal_sections, "General")}
                       </td>
                       <td className="px-6 py-3 text-slate-600">
                         {shareModeLabels[page.share_mode] || "Private"}

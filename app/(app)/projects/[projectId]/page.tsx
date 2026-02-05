@@ -22,11 +22,28 @@ export default async function ProjectOverviewPage(props: {
     notFound();
   }
 
+  const projectId = project.id;
+  const projectCode = project.code || "";
+
+  const getRelationName = (
+    relation:
+      | { name?: string | null }
+      | { name?: string | null }[]
+      | null
+      | undefined,
+    fallback: string
+  ) => {
+    if (Array.isArray(relation)) {
+      return relation[0]?.name ?? fallback;
+    }
+    return relation?.name ?? fallback;
+  };
+
   async function updateProject(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
     const name = String(formData.get("name") || "").trim();
-    const code = String(formData.get("code") || project.code || "").trim();
+    const code = String(formData.get("code") || projectCode).trim();
     const status = String(formData.get("status") || "planned");
     const description = String(formData.get("description") || "").trim();
     const startDate = String(formData.get("start_date") || "");
@@ -34,7 +51,7 @@ export default async function ProjectOverviewPage(props: {
     const budget = String(formData.get("budget") || "").trim();
 
     if (!name) {
-      redirect(`/projects/${project.id}?error=Name%20is%20required`);
+      redirect(`/projects/${projectId}?error=Name%20is%20required`);
     }
 
     const { error } = await supabase
@@ -48,14 +65,14 @@ export default async function ProjectOverviewPage(props: {
         end_date: endDate || null,
         budget: budget ? Number(budget) : null,
       })
-      .eq("id", project.id);
+      .eq("id", projectId);
 
     if (error) {
-      redirect(`/projects/${project.id}?error=${encodeURIComponent(error.message)}`);
+      redirect(`/projects/${projectId}?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/projects/${project.id}`);
-    redirect(`/projects/${project.id}?success=Saved`);
+    revalidatePath(`/projects/${projectId}`);
+    redirect(`/projects/${projectId}?success=Saved`);
   }
 
   return (
@@ -65,10 +82,12 @@ export default async function ProjectOverviewPage(props: {
           Project
         </p>
         <h1 className="text-3xl font-semibold text-slate-900">{project.name}</h1>
-        <p className="text-sm text-slate-600">Client: {project.clients?.name ?? "--"}</p>
+        <p className="text-sm text-slate-600">
+          Client: {getRelationName(project.clients, "--")}
+        </p>
       </section>
 
-      <ProjectTabs projectId={project.id} active="overview" />
+      <ProjectTabs projectId={projectId} active="overview" />
 
       {searchParams?.error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">

@@ -129,6 +129,20 @@ export default async function TasksPage(props: {
 
   const { data: tasks } = await request;
 
+  const getRelationName = (
+    relation:
+      | { name?: string | null }
+      | { name?: string | null }[]
+      | null
+      | undefined,
+    fallback = ""
+  ) => {
+    if (Array.isArray(relation)) {
+      return relation[0]?.name ?? fallback;
+    }
+    return relation?.name ?? fallback;
+  };
+
   async function seedAdminUser() {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -370,12 +384,15 @@ export default async function TasksPage(props: {
               defaultValue=""
             >
               <option value="">Project (N/A)</option>
-              {projects?.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                  {project.clients?.name ? ` — ${project.clients.name}` : ""}
-                </option>
-              ))}
+              {projects?.map((project) => {
+                const projectClientName = getRelationName(project.clients, "");
+                return (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                    {projectClientName ? ` - ${projectClientName}` : ""}
+                  </option>
+                );
+              })}
             </select>
             <select
               name="assignee_user_id"
@@ -503,12 +520,15 @@ export default async function TasksPage(props: {
               className="rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
               <option value="all">All projects</option>
-              {projects?.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                  {project.clients?.name ? ` — ${project.clients.name}` : ""}
-                </option>
-              ))}
+              {projects?.map((project) => {
+                const projectClientName = getRelationName(project.clients, "");
+                return (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                    {projectClientName ? ` - ${projectClientName}` : ""}
+                  </option>
+                );
+              })}
             </select>
             <button
               type="submit"

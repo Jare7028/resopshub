@@ -19,7 +19,7 @@ type ProjectOption = {
   id: string;
   name: string;
   client_id: string | null;
-  clients?: { name: string | null } | null;
+  clients?: { name: string | null } | { name: string | null }[] | null;
 };
 
 type TaskRow = {
@@ -33,8 +33,8 @@ type TaskRow = {
   assignee_user_id: string | null;
   client_id: string | null;
   project_id: string | null;
-  projects?: { name: string | null } | null;
-  clients?: { name: string | null } | null;
+  projects?: { name: string | null } | { name: string | null }[] | null;
+  clients?: { name: string | null } | { name: string | null }[] | null;
 };
 
 type TasksViewProps = {

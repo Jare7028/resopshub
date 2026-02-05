@@ -35,6 +35,26 @@ export default async function TaskDetailPage(props: {
     notFound();
   }
 
+  const taskId = task.id;
+  const taskStatus = task.status;
+  const taskPriority = task.priority;
+  const taskClientId = task.client_id;
+  const taskProjectId = task.project_id;
+
+  const getRelationName = (
+    relation:
+      | { name?: string | null }
+      | { name?: string | null }[]
+      | null
+      | undefined,
+    fallback: string
+  ) => {
+    if (Array.isArray(relation)) {
+      return relation[0]?.name ?? fallback;
+    }
+    return relation?.name ?? fallback;
+  };
+
   const { data: users } = await supabase
     .from("users")
     .select("id,full_name,email")
@@ -60,14 +80,14 @@ export default async function TaskDetailPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
     const title = String(formData.get("title") || "").trim();
-    const status = String(formData.get("status") || task.status);
-    const priority = String(formData.get("priority") || task.priority);
+    const status = String(formData.get("status") || taskStatus);
+    const priority = String(formData.get("priority") || taskPriority);
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
     const assignee = String(formData.get("assignee_user_id") || "");
 
     if (!title) {
-      redirect(`/tasks/${task.id}?error=Task%20name%20is%20required`);
+      redirect(`/tasks/${taskId}?error=Task%20name%20is%20required`);
     }
 
     const { error } = await supabase
@@ -80,14 +100,14 @@ export default async function TaskDetailPage(props: {
         due_date: dueDate || null,
         assignee_user_id: assignee || null,
       })
-      .eq("id", task.id);
+      .eq("id", taskId);
 
     if (error) {
-      redirect(`/tasks/${task.id}?error=${encodeURIComponent(error.message)}`);
+      redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/tasks/${task.id}`);
-    redirect(`/tasks/${task.id}?success=Saved`);
+    revalidatePath(`/tasks/${taskId}`);
+    redirect(`/tasks/${taskId}?success=Saved`);
   }
 
   async function createSubtask(formData: FormData) {
@@ -101,13 +121,13 @@ export default async function TaskDetailPage(props: {
     const assignee = String(formData.get("assignee_user_id") || "");
 
     if (!title) {
-      redirect(`/tasks/${task.id}?error=Subtask%20title%20is%20required`);
+      redirect(`/tasks/${taskId}?error=Subtask%20title%20is%20required`);
     }
 
     const payload: Record<string, unknown> = {
-      client_id: task.client_id,
-      project_id: task.project_id,
-      parent_task_id: task.id,
+      client_id: taskClientId,
+      project_id: taskProjectId,
+      parent_task_id: taskId,
       title,
       status,
       priority,
@@ -124,11 +144,11 @@ export default async function TaskDetailPage(props: {
     const { error } = await supabase.from("tasks").insert(payload);
 
     if (error) {
-      redirect(`/tasks/${task.id}?error=${encodeURIComponent(error.message)}`);
+      redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/tasks/${task.id}`);
-    redirect(`/tasks/${task.id}?success=Subtask%20created`);
+    revalidatePath(`/tasks/${taskId}`);
+    redirect(`/tasks/${taskId}?success=Subtask%20created`);
   }
 
   return (
@@ -142,13 +162,13 @@ export default async function TaskDetailPage(props: {
           <p>
             Client:{" "}
             <Link href={`/clients/${task.client_id}`} className="hover:underline">
-              {task.clients?.name ?? "View client"}
+              {getRelationName(task.clients, "View client")}
             </Link>
           </p>
           <p>
             Project:{" "}
             <Link href={`/projects/${task.project_id}`} className="hover:underline">
-              {task.projects?.name ?? "View project"}
+              {getRelationName(task.projects, "View project")}
             </Link>
           </p>
         </div>
