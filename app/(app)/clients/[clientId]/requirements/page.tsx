@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -9,6 +9,7 @@ export default async function ClientRequirementsPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -23,7 +24,7 @@ export default async function ClientRequirementsPage(props: {
   const { data: requirements } = await supabase
     .from("requirements")
     .select("id,start_date,billable_hours,notes,created_at")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   async function createRequirement(formData: FormData) {
@@ -35,25 +36,25 @@ export default async function ClientRequirementsPage(props: {
     const billableHours = Number(billableHoursRaw);
 
     if (!startDate) {
-      redirect(`/clients/${client.id}/requirements?error=Start%20date%20is%20required`);
+      redirect(`/clients/${clientId}/requirements?error=Start%20date%20is%20required`);
     }
 
     if (!billableHoursRaw || Number.isNaN(billableHours) || billableHours < 0) {
-      redirect(`/clients/${client.id}/requirements?error=Billable%20hours%20must%20be%20a%20valid%20number`);
+      redirect(`/clients/${clientId}/requirements?error=Billable%20hours%20must%20be%20a%20valid%20number`);
     }
 
     const { error } = await supabase.from("requirements").insert({
-      client_id: client.id,
+      client_id: clientId,
       start_date: startDate,
       billable_hours: billableHours,
       notes: notes || null,
     });
 
     if (error) {
-      redirect(`/clients/${client.id}/requirements?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/requirements?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/requirements`);
+    revalidatePath(`/clients/${clientId}/requirements`);
   }
 
   return (
@@ -62,7 +63,7 @@ export default async function ClientRequirementsPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Requirements
         </h1>
-        <ClientTabs clientId={client.id} active="requirements" />
+        <ClientTabs clientId={clientId} active="requirements" />
       </section>
 
       {searchParams?.error ? (
@@ -154,4 +155,5 @@ export default async function ClientRequirementsPage(props: {
     </div>
   );
 }
+
 

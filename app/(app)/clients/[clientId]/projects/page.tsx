@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
@@ -34,6 +34,7 @@ export default async function ClientProjectsPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -48,7 +49,7 @@ export default async function ClientProjectsPage(props: {
   const { data: projects } = await supabase
     .from("projects")
     .select("id,name,status,start_date,end_date")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   async function createProject(formData: FormData) {
@@ -60,13 +61,13 @@ export default async function ClientProjectsPage(props: {
     const endDate = String(formData.get("end_date") || "");
 
     if (!name) {
-      redirect(`/clients/${client.id}/projects?error=Name%20is%20required`);
+      redirect(`/clients/${clientId}/projects?error=Name%20is%20required`);
     }
 
     const code = await ensureUniqueProjectCode(toProjectCode(name));
 
     const { error } = await supabase.from("projects").insert({
-      client_id: client.id,
+      client_id: clientId,
       name,
       code,
       status,
@@ -75,19 +76,19 @@ export default async function ClientProjectsPage(props: {
     });
 
     if (error) {
-      redirect(`/clients/${client.id}/projects?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/projects`);
+    revalidatePath(`/clients/${clientId}/projects`);
   }
 
   return (
     <div className="space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold text-slate-900">
-          {client.name} · Projects
+          {client.name} � Projects
         </h1>
-        <ClientTabs clientId={client.id} active="projects" />
+        <ClientTabs clientId={clientId} active="projects" />
       </section>
 
       {searchParams?.error ? (
@@ -190,4 +191,5 @@ export default async function ClientProjectsPage(props: {
     </div>
   );
 }
+
 

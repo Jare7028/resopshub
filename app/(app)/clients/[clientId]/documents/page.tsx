@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -11,6 +11,7 @@ export default async function ClientDocumentsPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -25,7 +26,7 @@ export default async function ClientDocumentsPage(props: {
   const { data: documents } = await supabase
     .from("documents")
     .select("id,filename,storage_path,visibility,size_bytes,created_at")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   async function uploadDocument(formData: FormData) {
@@ -35,11 +36,11 @@ export default async function ClientDocumentsPage(props: {
     const visibility = String(formData.get("visibility") || "internal");
 
     if (!file || file.size === 0) {
-      redirect(`/clients/${client.id}/documents?error=File%20is%20required`);
+      redirect(`/clients/${clientId}/documents?error=File%20is%20required`);
     }
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const path = `${client.id}/${Date.now()}_${safeName}`;
+    const path = `${clientId}/${Date.now()}_${safeName}`;
 
     const arrayBuffer = await file.arrayBuffer();
     const { error: uploadError } = await supabase.storage
@@ -49,11 +50,11 @@ export default async function ClientDocumentsPage(props: {
       });
 
     if (uploadError) {
-      redirect(`/clients/${client.id}/documents?error=${encodeURIComponent(uploadError.message)}`);
+      redirect(`/clients/${clientId}/documents?error=${encodeURIComponent(uploadError.message)}`);
     }
 
     const { error } = await supabase.from("documents").insert({
-      client_id: client.id,
+      client_id: clientId,
       filename: file.name,
       storage_path: path,
       mime_type: file.type || null,
@@ -62,10 +63,10 @@ export default async function ClientDocumentsPage(props: {
     });
 
     if (error) {
-      redirect(`/clients/${client.id}/documents?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/documents?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/documents`);
+    revalidatePath(`/clients/${clientId}/documents`);
   }
 
   return (
@@ -74,7 +75,7 @@ export default async function ClientDocumentsPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Documents
         </h1>
-        <ClientTabs clientId={client.id} active="documents" />
+        <ClientTabs clientId={clientId} active="documents" />
       </section>
 
       {searchParams?.error ? (
@@ -145,4 +146,5 @@ export default async function ClientDocumentsPage(props: {
     </div>
   );
 }
+
 

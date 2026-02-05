@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -13,6 +13,7 @@ export default async function ClientNotesPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -27,7 +28,7 @@ export default async function ClientNotesPage(props: {
   const { data: notes } = await supabase
     .from("notes")
     .select("id,content,visibility,created_at,user_id")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   async function createNote(formData: FormData) {
@@ -37,14 +38,14 @@ export default async function ClientNotesPage(props: {
     const visibility = String(formData.get("visibility") || "internal");
 
     if (!content) {
-      redirect(`/clients/${client.id}/notes?error=Note%20content%20is%20required`);
+      redirect(`/clients/${clientId}/notes?error=Note%20content%20is%20required`);
     }
 
     const { data: authData } = await supabase.auth.getUser();
     const authUser = authData.user;
 
     if (!authUser) {
-      redirect(`/clients/${client.id}/notes?error=You%20must%20be%20signed%20in%20to%20add%20notes`);
+      redirect(`/clients/${clientId}/notes?error=You%20must%20be%20signed%20in%20to%20add%20notes`);
     }
 
     const fallbackName =
@@ -75,13 +76,13 @@ export default async function ClientNotesPage(props: {
         });
 
         if (userError) {
-          redirect(`/clients/${client.id}/notes?error=${encodeURIComponent(userError.message)}`);
+          redirect(`/clients/${clientId}/notes?error=${encodeURIComponent(userError.message)}`);
         }
       }
     }
 
     const { error } = await supabase.from("notes").insert({
-      client_id: client.id,
+      client_id: clientId,
       project_id: null,
       content,
       visibility,
@@ -89,12 +90,12 @@ export default async function ClientNotesPage(props: {
     });
 
     if (error) {
-      redirect(`/clients/${client.id}/notes?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/notes?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/notes`);
-    revalidatePath(`/clients/${client.id}`);
-    redirect(`/clients/${client.id}/notes?success=Saved`);
+    revalidatePath(`/clients/${clientId}/notes`);
+    revalidatePath(`/clients/${clientId}`);
+    redirect(`/clients/${clientId}/notes?success=Saved`);
   }
 
   async function deleteNote(formData: FormData) {
@@ -110,15 +111,15 @@ export default async function ClientNotesPage(props: {
       .from("notes")
       .delete()
       .eq("id", noteId)
-      .eq("client_id", client.id);
+      .eq("client_id", clientId);
 
     if (error) {
-      redirect(`/clients/${client.id}/notes?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/notes?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/notes`);
-    revalidatePath(`/clients/${client.id}`);
-    redirect(`/clients/${client.id}/notes?success=Note%20deleted`);
+    revalidatePath(`/clients/${clientId}/notes`);
+    revalidatePath(`/clients/${clientId}`);
+    redirect(`/clients/${clientId}/notes?success=Note%20deleted`);
   }
 
   return (
@@ -127,7 +128,7 @@ export default async function ClientNotesPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Notes
         </h1>
-        <ClientTabs clientId={client.id} active="notes" />
+        <ClientTabs clientId={clientId} active="notes" />
       </section>
 
       {searchParams?.error ? (
@@ -226,3 +227,4 @@ export default async function ClientNotesPage(props: {
     </div>
   );
 }
+

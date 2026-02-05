@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -11,6 +11,7 @@ export default async function ClientKpisPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -25,7 +26,7 @@ export default async function ClientKpisPage(props: {
   const { data: kpis } = await supabase
     .from("client_kpis")
     .select("id,position,name,value,note,updated_at")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("position", { ascending: true });
 
   const byPosition = new Map<number, typeof kpis[number]>();
@@ -48,14 +49,14 @@ export default async function ClientKpisPage(props: {
         await supabase
           .from("client_kpis")
           .delete()
-          .eq("client_id", client.id)
+          .eq("client_id", clientId)
           .eq("position", position);
         continue;
       }
 
       const { error } = await supabase.from("client_kpis").upsert(
         {
-          client_id: client.id,
+          client_id: clientId,
           position,
           name: name || null,
           value: value || null,
@@ -65,11 +66,11 @@ export default async function ClientKpisPage(props: {
       );
 
       if (error) {
-        redirect(`/clients/${client.id}/kpis?error=${encodeURIComponent(error.message)}`);
+        redirect(`/clients/${clientId}/kpis?error=${encodeURIComponent(error.message)}`);
       }
     }
 
-    revalidatePath(`/clients/${client.id}/kpis`);
+    revalidatePath(`/clients/${clientId}/kpis`);
   }
 
   return (
@@ -78,7 +79,7 @@ export default async function ClientKpisPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . KPIs
         </h1>
-        <ClientTabs clientId={client.id} active="kpis" />
+        <ClientTabs clientId={clientId} active="kpis" />
       </section>
 
       {searchParams?.error ? (
@@ -166,4 +167,5 @@ export default async function ClientKpisPage(props: {
     </div>
   );
 }
+
 

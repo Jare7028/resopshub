@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -22,6 +22,7 @@ export default async function ClientTasksPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -36,7 +37,7 @@ export default async function ClientTasksPage(props: {
   const { data: projects } = await supabase
     .from("projects")
     .select("id,name")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   const { data: users } = await supabase
@@ -49,7 +50,7 @@ export default async function ClientTasksPage(props: {
     .select(
       "id,title,status,priority,start_date,due_date,assignee_user_id,project_id,projects(name)"
     )
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
 
@@ -65,11 +66,11 @@ export default async function ClientTasksPage(props: {
     const assigneeUserId = String(formData.get("assignee_user_id") || "");
 
     if (!title || !projectId) {
-      redirect(`/clients/${client.id}/tasks?error=Title%20and%20project%20are%20required`);
+      redirect(`/clients/${clientId}/tasks?error=Title%20and%20project%20are%20required`);
     }
 
     const payload: Record<string, unknown> = {
-      client_id: client.id,
+      client_id: clientId,
       project_id: projectId,
       title,
       status,
@@ -87,10 +88,10 @@ export default async function ClientTasksPage(props: {
     const { error } = await supabase.from("tasks").insert(payload);
 
     if (error) {
-      redirect(`/clients/${client.id}/tasks?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/tasks?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/tasks`);
+    revalidatePath(`/clients/${clientId}/tasks`);
   }
 
   async function updateTaskInline(formData: FormData) {
@@ -104,7 +105,7 @@ export default async function ClientTasksPage(props: {
     const startDate = String(formData.get("start_date") || "").trim();
     const dueDate = String(formData.get("due_date") || "").trim();
     const updates: Record<string, string | null> = {};
-    const returnTo = `/clients/${client.id}/tasks`;
+    const returnTo = `/clients/${clientId}/tasks`;
 
     if (!taskId) {
       redirect(`${returnTo}?error=Missing%20task%20id`);
@@ -142,7 +143,7 @@ export default async function ClientTasksPage(props: {
       .from("tasks")
       .update(updates)
       .eq("id", taskId)
-      .eq("client_id", client.id);
+      .eq("client_id", clientId);
 
     if (error) {
       redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
@@ -158,7 +159,7 @@ export default async function ClientTasksPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Tasks
         </h1>
-        <ClientTabs clientId={client.id} active="tasks" />
+        <ClientTabs clientId={clientId} active="tasks" />
       </section>
 
       {searchParams?.error ? (
@@ -288,5 +289,6 @@ export default async function ClientTasksPage(props: {
     </div>
   );
 }
+
 
 

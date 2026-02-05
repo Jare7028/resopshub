@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "./_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -14,6 +14,7 @@ export default async function ClientOverviewPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -30,7 +31,7 @@ export default async function ClientOverviewPage(props: {
   const { data: clientNotes, error: clientNotesError } = await supabase
     .from("notes")
     .select("id,content,created_at,user_id")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   async function updateClient(formData: FormData) {
@@ -47,7 +48,7 @@ export default async function ClientOverviewPage(props: {
     const notes = String(formData.get("notes") || "").trim();
 
     if (!name) {
-      redirect(`/clients/${client.id}?error=${encodeURIComponent("Name is required")}`);
+      redirect(`/clients/${clientId}?error=${encodeURIComponent("Name is required")}`);
     }
 
     const { error } = await supabase
@@ -63,15 +64,15 @@ export default async function ClientOverviewPage(props: {
         hq_address: hqAddress || null,
         notes: notes || null,
       })
-      .eq("id", client.id);
+      .eq("id", clientId);
 
     if (error) {
-      redirect(`/clients/${client.id}?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}`);
-    revalidatePath(`/clients/${client.id}/notes`);
-    redirect(`/clients/${client.id}?success=Saved`);
+    revalidatePath(`/clients/${clientId}`);
+    revalidatePath(`/clients/${clientId}/notes`);
+    redirect(`/clients/${clientId}?success=Saved`);
   }
 
   async function deleteNote(formData: FormData) {
@@ -87,14 +88,14 @@ export default async function ClientOverviewPage(props: {
       .from("notes")
       .delete()
       .eq("id", noteId)
-      .eq("client_id", client.id);
+      .eq("client_id", clientId);
 
     if (error) {
-      redirect(`/clients/${client.id}?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}`);
-    redirect(`/clients/${client.id}?success=Note%20deleted`);
+    revalidatePath(`/clients/${clientId}`);
+    redirect(`/clients/${clientId}?success=Note%20deleted`);
   }
 
   async function createNote(formData: FormData) {
@@ -104,14 +105,14 @@ export default async function ClientOverviewPage(props: {
     const visibility = String(formData.get("visibility") || "internal");
 
     if (!content) {
-      redirect(`/clients/${client.id}?error=Note%20content%20is%20required`);
+      redirect(`/clients/${clientId}?error=Note%20content%20is%20required`);
     }
 
     const { data: authData } = await supabase.auth.getUser();
     const authUser = authData.user;
 
     if (!authUser) {
-      redirect(`/clients/${client.id}?error=You%20must%20be%20signed%20in%20to%20add%20notes`);
+      redirect(`/clients/${clientId}?error=You%20must%20be%20signed%20in%20to%20add%20notes`);
     }
 
     const fallbackName =
@@ -142,13 +143,13 @@ export default async function ClientOverviewPage(props: {
         });
 
         if (userError) {
-          redirect(`/clients/${client.id}?error=${encodeURIComponent(userError.message)}`);
+          redirect(`/clients/${clientId}?error=${encodeURIComponent(userError.message)}`);
         }
       }
     }
 
     const { error } = await supabase.from("notes").insert({
-      client_id: client.id,
+      client_id: clientId,
       project_id: null,
       content,
       visibility,
@@ -156,11 +157,11 @@ export default async function ClientOverviewPage(props: {
     });
 
     if (error) {
-      redirect(`/clients/${client.id}?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}`);
-    redirect(`/clients/${client.id}?success=Note%20saved`);
+    revalidatePath(`/clients/${clientId}`);
+    redirect(`/clients/${clientId}?success=Note%20saved`);
   }
 
   return (
@@ -172,7 +173,7 @@ export default async function ClientOverviewPage(props: {
         <h1 className="text-3xl font-semibold text-slate-900">{client.name}</h1>
       </section>
 
-      <ClientTabs clientId={client.id} active="overview" />
+      <ClientTabs clientId={clientId} active="overview" />
 
       {searchParams?.error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
@@ -376,4 +377,5 @@ export default async function ClientOverviewPage(props: {
     </div>
   );
 }
+
 

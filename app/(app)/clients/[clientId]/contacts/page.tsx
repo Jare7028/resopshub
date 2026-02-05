@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -9,6 +9,7 @@ export default async function ClientContactsPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
@@ -23,7 +24,7 @@ export default async function ClientContactsPage(props: {
   const { data: contacts } = await supabase
     .from("client_contacts")
     .select("id,full_name,title,email,phone,is_primary")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   async function createContact(formData: FormData) {
@@ -36,11 +37,11 @@ export default async function ClientContactsPage(props: {
     const isPrimary = formData.get("is_primary") === "on";
 
     if (!fullName) {
-      redirect(`/clients/${client.id}/contacts?error=Name%20is%20required`);
+      redirect(`/clients/${clientId}/contacts?error=Name%20is%20required`);
     }
 
     const { error } = await supabase.from("client_contacts").insert({
-      client_id: client.id,
+      client_id: clientId,
       full_name: fullName,
       title: title || null,
       email: email || null,
@@ -49,11 +50,11 @@ export default async function ClientContactsPage(props: {
     });
 
     if (error) {
-      redirect(`/clients/${client.id}/contacts?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/contacts?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/contacts`);
-    redirect(`/clients/${client.id}/contacts?success=Saved`);
+    revalidatePath(`/clients/${clientId}/contacts`);
+    redirect(`/clients/${clientId}/contacts?success=Saved`);
   }
 
   async function updateContact(formData: FormData) {
@@ -67,7 +68,7 @@ export default async function ClientContactsPage(props: {
     const isPrimary = formData.get("is_primary") === "on";
 
     if (!contactId || !fullName) {
-      redirect(`/clients/${client.id}/contacts?error=Contact%20name%20is%20required`);
+      redirect(`/clients/${clientId}/contacts?error=Contact%20name%20is%20required`);
     }
 
     const { error } = await supabase
@@ -82,11 +83,11 @@ export default async function ClientContactsPage(props: {
       .eq("id", contactId);
 
     if (error) {
-      redirect(`/clients/${client.id}/contacts?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/contacts?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/contacts`);
-    redirect(`/clients/${client.id}/contacts?success=Updated`);
+    revalidatePath(`/clients/${clientId}/contacts`);
+    redirect(`/clients/${clientId}/contacts?success=Updated`);
   }
 
   async function deleteContact(formData: FormData) {
@@ -104,20 +105,20 @@ export default async function ClientContactsPage(props: {
       .eq("id", contactId);
 
     if (error) {
-      redirect(`/clients/${client.id}/contacts?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/contacts?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/contacts`);
-    redirect(`/clients/${client.id}/contacts?success=Deleted`);
+    revalidatePath(`/clients/${clientId}/contacts`);
+    redirect(`/clients/${clientId}/contacts?success=Deleted`);
   }
 
   return (
     <div className="space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold text-slate-900">
-          {client.name} · Contacts
+          {client.name} � Contacts
         </h1>
-        <ClientTabs clientId={client.id} active="contacts" />
+        <ClientTabs clientId={clientId} active="contacts" />
       </section>
 
       {(searchParams?.error || searchParams?.success) && (
@@ -242,4 +243,5 @@ export default async function ClientContactsPage(props: {
     </div>
   );
 }
+
 
