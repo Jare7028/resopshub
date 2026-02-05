@@ -45,6 +45,8 @@ type TasksViewProps = {
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   onUpdate: (formData: FormData) => void;
+  hideCompleted: boolean;
+  toggleUrl: string;
 };
 
 const statusColors: Record<string, string> = {
@@ -86,6 +88,8 @@ export default function TasksView({
   statusOptions,
   priorityOptions,
   onUpdate,
+  hideCompleted,
+  toggleUrl,
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt">("table");
 
@@ -142,8 +146,17 @@ export default function TasksView({
 
   return (
     <>
-      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-        <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
+          <a
+            href={toggleUrl}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            aria-pressed={hideCompleted}
+          >
+            {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
+          </a>
+        </div>
         <div className="flex items-center gap-2 text-sm">
           <button
             type="button"
