@@ -6,21 +6,36 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "next lint"
   },
   "dependencies": {
-    "next": "16.1.5",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "@floating-ui/dom": "^1.7.5",
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.93.1",
+    "@tiptap/extension-highlight": "^3.18.0",
+    "@tiptap/extension-image": "^3.18.0",
+    "@tiptap/extension-placeholder": "^3.18.0",
+    "@tiptap/extension-table": "^3.18.0",
+    "@tiptap/extension-table-cell": "^3.18.0",
+    "@tiptap/extension-table-header": "^3.18.0",
+    "@tiptap/extension-table-row": "^3.18.0",
+    "@tiptap/extension-task-item": "^3.18.0",
+    "@tiptap/extension-task-list": "^3.18.0",
+    "@tiptap/extension-underline": "^3.18.0",
+    "@tiptap/react": "^3.18.0",
+    "@tiptap/starter-kit": "^3.18.0",
+    "next": "^15.1.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
+    "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.1.5",
-    "tailwindcss": "^4",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "15.1.5",
+    "tailwindcss": "^4.0.0",
     "typescript": "^5"
   }
 }
