@@ -11,11 +11,12 @@ export default async function ClientBillingPage(props: {
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
+  const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
     .select("id,name")
-    .eq("id", params.clientId)
+    .eq("id", clientId)
     .single();
 
   if (!client) {
@@ -25,19 +26,19 @@ export default async function ClientBillingPage(props: {
   const { data: billingProfile } = await supabase
     .from("billing_profiles")
     .select("id,display_name,billing_address,currency,tax_id,payment_terms,default_rate")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .maybeSingle();
 
   const { data: projects } = await supabase
     .from("projects")
     .select("id,name")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   const { data: records } = await supabase
     .from("billing_records")
     .select("id,invoice_number,amount,status,due_date,projects(name)")
-    .eq("client_id", client.id)
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
   async function saveBillingProfile(formData: FormData) {
@@ -51,11 +52,11 @@ export default async function ClientBillingPage(props: {
     const defaultRate = String(formData.get("default_rate") || "").trim();
 
     if (!displayName) {
-      redirect(`/clients/${client.id}/billing?error=Billing%20profile%20name%20is%20required`);
+      redirect(`/clients/${clientId}/billing?error=Billing%20profile%20name%20is%20required`);
     }
 
     const payload = {
-      client_id: client.id,
+      client_id: clientId,
       display_name: displayName,
       billing_address: billingAddress || null,
       currency,
@@ -69,11 +70,11 @@ export default async function ClientBillingPage(props: {
       : await supabase.from("billing_profiles").insert(payload);
 
     if (error) {
-      redirect(`/clients/${client.id}/billing?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/billing`);
-    redirect(`/clients/${client.id}/billing?success=Saved`);
+    revalidatePath(`/clients/${clientId}/billing`);
+    redirect(`/clients/${clientId}/billing?success=Saved`);
   }
 
   async function createBillingRecord(formData: FormData) {
@@ -86,11 +87,11 @@ export default async function ClientBillingPage(props: {
     const projectId = String(formData.get("project_id") || "");
 
     if (!amount) {
-      redirect(`/clients/${client.id}/billing?error=Amount%20is%20required`);
+      redirect(`/clients/${clientId}/billing?error=Amount%20is%20required`);
     }
 
     const { error } = await supabase.from("billing_records").insert({
-      client_id: client.id,
+      client_id: clientId,
       billing_profile_id: billingProfile?.id || null,
       invoice_number: invoiceNumber || null,
       amount,
@@ -100,10 +101,10 @@ export default async function ClientBillingPage(props: {
     });
 
     if (error) {
-      redirect(`/clients/${client.id}/billing?error=${encodeURIComponent(error.message)}`);
+      redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(error.message)}`);
     }
 
-    revalidatePath(`/clients/${client.id}/billing`);
+    revalidatePath(`/clients/${clientId}/billing`);
   }
 
   return (
@@ -112,7 +113,7 @@ export default async function ClientBillingPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} · Billing
         </h1>
-        <ClientTabs clientId={client.id} active="billing" />
+        <ClientTabs clientId={clientId} active="billing" />
       </section>
 
       {searchParams?.error ? (
