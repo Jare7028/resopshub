@@ -10,8 +10,9 @@ const statusOptions = ["active", "disabled"] as const;
 export default async function AdminUsersPage({
   searchParams,
 }: {
-  searchParams?: { error?: string; success?: string };
+  searchParams?: Promise<{ error?: string; success?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const adminEnabled = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -226,16 +227,16 @@ export default async function AdminUsersPage({
         </Link>
       </section>
 
-      {(searchParams?.error || searchParams?.success) && (
+      {(resolvedSearchParams?.error || resolvedSearchParams?.success) && (
         <div className="space-y-2">
-          {searchParams?.error ? (
+          {resolvedSearchParams?.error ? (
             <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-              {searchParams.error}
+              {resolvedSearchParams.error}
             </p>
           ) : null}
-          {searchParams?.success ? (
+          {resolvedSearchParams?.success ? (
             <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-              {searchParams.success}
+              {resolvedSearchParams.success}
             </p>
           ) : null}
         </div>
