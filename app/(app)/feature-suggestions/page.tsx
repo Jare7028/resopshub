@@ -6,10 +6,13 @@ type SuggestionRow = {
   id: string;
   title: string;
   details: string | null;
+  status: string | null;
   created_at: string;
   created_by: string | null;
   users?: { full_name?: string | null; email?: string | null } | null;
 };
+
+const statusOptions = ["idea", "planned", "completed", "rejected"] as const;
 
 export default async function FeatureSuggestionsPage(props: {
   searchParams?: Promise<{ error?: string; success?: string }>;
@@ -35,7 +38,7 @@ export default async function FeatureSuggestionsPage(props: {
 
   const { data: suggestions } = await supabase
     .from("feature_suggestions")
-    .select("id,title,details,created_at,created_by,users(full_name,email)")
+    .select("id,title,details,status,created_at,created_by,users(full_name,email)")
     .order("created_at", { ascending: false });
 
   const { data: votes } = await supabase
@@ -154,6 +157,33 @@ export default async function FeatureSuggestionsPage(props: {
     redirect("/feature-suggestions");
   }
 
+  async function updateStatus(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const suggestionId = String(formData.get("suggestion_id") || "").trim();
+    const status = String(formData.get("status") || "").trim();
+
+    if (!suggestionId || !status) {
+      redirect("/feature-suggestions?error=Missing%20status%20update");
+    }
+
+    if (!statusOptions.includes(status as (typeof statusOptions)[number])) {
+      redirect("/feature-suggestions?error=Invalid%20status");
+    }
+
+    const { error } = await supabase
+      .from("feature_suggestions")
+      .update({ status })
+      .eq("id", suggestionId);
+
+    if (error) {
+      redirect(`/feature-suggestions?error=${encodeURIComponent(error.message)}`);
+    }
+
+    revalidatePath("/feature-suggestions");
+    redirect("/feature-suggestions");
+  }
+
   const suggestionRows = (suggestions || []) as SuggestionRow[];
 
   return (
@@ -222,9 +252,14 @@ export default async function FeatureSuggestionsPage(props: {
               return (
                 <div key={suggestion.id} className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
-                    <p className="text-base font-semibold text-slate-900">
-                      {suggestion.title}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-base font-semibold text-slate-900">
+                        {suggestion.title}
+                      </p>
+                      <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">
+                        {suggestion.status || "idea"}
+                      </span>
+                    </div>
                     {suggestion.details ? (
                       <p className="text-sm text-slate-600">
                         {suggestion.details}
@@ -233,6 +268,30 @@ export default async function FeatureSuggestionsPage(props: {
                     <p className="text-xs text-slate-500">
                       Suggested by {authorName}
                     </p>
+                    <form action={updateStatus} className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="hidden"
+                        name="suggestion_id"
+                        value={suggestion.id}
+                      />
+                      <select
+                        name="status"
+                        defaultValue={suggestion.status || "idea"}
+                        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                      >
+                        {statusOptions.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                      >
+                        Update status
+                      </button>
+                    </form>
                   </div>
                   <form action={toggleVote} className="flex items-center gap-3">
                     <input
