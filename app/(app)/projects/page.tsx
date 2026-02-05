@@ -10,6 +10,17 @@ export default async function ProjectsPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = authData.user?.id;
+  if (!authUserId) {
+    redirect("/login");
+  }
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", authUserId)
+    .maybeSingle();
+  const isAdmin = currentUser?.role === "admin";
   const selectedClient = (searchParams?.client || "").trim();
   const selectedStatus = (searchParams?.status || "").trim();
   const returnParams = new URLSearchParams();
@@ -42,7 +53,34 @@ export default async function ProjectsPage(props: {
     request = request.eq("status", selectedStatus);
   }
 
-  const { data: projects } = await request;
+  let projects: Array<{
+    id: string;
+    name: string;
+    status: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    client_id: string | null;
+    clients?: { name?: string | null } | { name?: string | null }[] | null;
+  }> = [];
+
+  if (isAdmin) {
+    const { data } = await request;
+    projects = data || [];
+  } else {
+    const { data: assignments } = await supabase
+      .from("project_users")
+      .select("project_id")
+      .eq("user_id", authUserId);
+    const assignedIds = (assignments || [])
+      .map((assignment) => assignment.project_id)
+      .filter(Boolean) as string[];
+    if (assignedIds.length) {
+      const { data } = await request.in("id", assignedIds);
+      projects = data || [];
+    } else {
+      projects = [];
+    }
+  }
 
   async function updateProjectInline(formData: FormData) {
     "use server";

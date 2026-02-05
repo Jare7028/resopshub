@@ -12,6 +12,17 @@ export default async function ProjectOverviewPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = authData.user?.id;
+  if (!authUserId) {
+    redirect("/login");
+  }
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("id,role")
+    .eq("id", authUserId)
+    .maybeSingle();
+  const isAdmin = currentUser?.role === "admin";
   const { data: project } = await supabase
     .from("projects")
     .select("id,name,code,status,description,start_date,end_date,budget,client_id,clients(name)")
@@ -24,6 +35,31 @@ export default async function ProjectOverviewPage(props: {
 
   const projectId = project.id;
   const projectCode = project.code || "";
+
+  if (!isAdmin) {
+    const { data: assignment } = await supabase
+      .from("project_users")
+      .select("user_id")
+      .eq("project_id", projectId)
+      .eq("user_id", authUserId)
+      .maybeSingle();
+    if (!assignment) {
+      redirect("/projects?error=Not%20assigned%20to%20that%20project");
+    }
+  }
+
+  const { data: users } = await supabase
+    .from("users")
+    .select("id,full_name,email")
+    .order("full_name", { ascending: true });
+
+  const { data: assignments } = await supabase
+    .from("project_users")
+    .select("user_id")
+    .eq("project_id", projectId);
+  const assignedUserIds = new Set(
+    (assignments || []).map((assignment) => assignment.user_id).filter(Boolean)
+  );
 
   const getRelationName = (
     relation:
@@ -38,6 +74,31 @@ export default async function ProjectOverviewPage(props: {
     }
     return relation?.name ?? fallback;
   };
+
+  async function updateProjectAssignments(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const selectedIds = formData
+      .getAll("assigned_user_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+
+    await supabase.from("project_users").delete().eq("project_id", projectId);
+
+    if (selectedIds.length) {
+      const inserts = selectedIds.map((userId) => ({
+        project_id: projectId,
+        user_id: userId,
+      }));
+      const { error } = await supabase.from("project_users").insert(inserts);
+      if (error) {
+        redirect(`/projects/${projectId}?error=${encodeURIComponent(error.message)}`);
+      }
+    }
+
+    revalidatePath(`/projects/${projectId}`);
+    redirect(`/projects/${projectId}?success=Assignments%20updated`);
+  }
 
   async function updateProject(formData: FormData) {
     "use server";
@@ -99,6 +160,41 @@ export default async function ProjectOverviewPage(props: {
           {searchParams.success}
         </p>
       ) : null}
+
+      <section className="rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Project access</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Choose who can see this project.
+        </p>
+        {users?.length ? (
+          <form action={updateProjectAssignments} className="mt-4 space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {users.map((user) => (
+                <label
+                  key={user.id}
+                  className="flex items-center gap-2 text-sm text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    name="assigned_user_ids"
+                    value={user.id}
+                    defaultChecked={assignedUserIds.has(user.id)}
+                  />
+                  <span>{user.full_name || user.email}</span>
+                </label>
+              ))}
+            </div>
+            <button
+              type="submit"
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+            >
+              Save access
+            </button>
+          </form>
+        ) : (
+          <p className="mt-4 text-sm text-slate-500">No users found.</p>
+        )}
+      </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Project details</h2>

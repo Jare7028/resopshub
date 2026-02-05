@@ -23,6 +23,17 @@ export default async function ProjectTasksPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = authData.user?.id;
+  if (!authUserId) {
+    redirect("/login");
+  }
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", authUserId)
+    .maybeSingle();
+  const isAdmin = currentUser?.role === "admin";
   const { data: project } = await supabase
     .from("projects")
     .select("id,name,client_id")
@@ -35,6 +46,18 @@ export default async function ProjectTasksPage(props: {
 
   const projectId = project.id;
   const projectClientId = project.client_id;
+
+  if (!isAdmin) {
+    const { data: assignment } = await supabase
+      .from("project_users")
+      .select("user_id")
+      .eq("project_id", projectId)
+      .eq("user_id", authUserId)
+      .maybeSingle();
+    if (!assignment) {
+      redirect("/projects?error=Not%20assigned%20to%20that%20project");
+    }
+  }
 
   const { data: users } = await supabase
     .from("users")

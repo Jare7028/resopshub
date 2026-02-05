@@ -36,6 +36,17 @@ export default async function ClientProjectsPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = authData.user?.id;
+  if (!authUserId) {
+    redirect("/login");
+  }
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", authUserId)
+    .maybeSingle();
+  const isAdmin = currentUser?.role === "admin";
   const { data: client } = await supabase
     .from("clients")
     .select("id,name")
@@ -46,11 +57,36 @@ export default async function ClientProjectsPage(props: {
     notFound();
   }
 
-  const { data: projects } = await supabase
+  let projects: Array<{
+    id: string;
+    name: string;
+    status: string | null;
+    start_date: string | null;
+    end_date: string | null;
+  }> = [];
+
+  let projectsQuery = supabase
     .from("projects")
     .select("id,name,status,start_date,end_date")
     .eq("client_id", clientId)
     .order("created_at", { ascending: false });
+
+  if (isAdmin) {
+    const { data } = await projectsQuery;
+    projects = data || [];
+  } else {
+    const { data: assignments } = await supabase
+      .from("project_users")
+      .select("project_id")
+      .eq("user_id", authUserId);
+    const assignedIds = (assignments || [])
+      .map((assignment) => assignment.project_id)
+      .filter(Boolean) as string[];
+    if (assignedIds.length) {
+      const { data } = await projectsQuery.in("id", assignedIds);
+      projects = data || [];
+    }
+  }
 
   async function createProject(formData: FormData) {
     "use server";
@@ -66,17 +102,28 @@ export default async function ClientProjectsPage(props: {
 
     const code = await ensureUniqueProjectCode(toProjectCode(name));
 
-    const { error } = await supabase.from("projects").insert({
+    const { data: created, error } = await supabase
+      .from("projects")
+      .insert({
       client_id: clientId,
       name,
       code,
       status,
       start_date: startDate || null,
       end_date: endDate || null,
-    });
+      })
+      .select("id")
+      .single();
 
     if (error) {
       redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(error.message)}`);
+    }
+
+    if (created?.id && authUserId) {
+      await supabase.from("project_users").insert({
+        project_id: created.id,
+        user_id: authUserId,
+      });
     }
 
     revalidatePath(`/clients/${clientId}/projects`);
