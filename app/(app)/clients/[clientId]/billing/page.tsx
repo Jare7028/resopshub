@@ -288,7 +288,12 @@ export default async function ClientBillingPage(props: {
                       {record.invoice_number || "-"}
                     </td>
                     <td className="px-6 py-3 text-slate-600">
-                      {record.projects?.name ?? "-"}
+                      {(() => {
+                        const project = Array.isArray(record.projects)
+                          ? record.projects[0]
+                          : record.projects;
+                        return project?.name ?? "-";
+                      })()}
                     </td>
                     <td className="px-6 py-3 text-slate-600">
                       ${record.amount?.toFixed(2)}
