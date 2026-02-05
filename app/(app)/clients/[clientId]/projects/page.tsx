@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
@@ -86,7 +86,7 @@ export default async function ClientProjectsPage(props: {
     <div className="space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold text-slate-900">
-          {client.name} � Projects
+          {client.name} · Projects
         </h1>
         <ClientTabs clientId={clientId} active="projects" />
       </section>
@@ -191,5 +191,6 @@ export default async function ClientProjectsPage(props: {
     </div>
   );
 }
+
 
 
