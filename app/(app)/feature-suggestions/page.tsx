@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import FeatureSuggestionControls from "./FeatureSuggestionControls";
 import FeatureSuggestionStatus from "./FeatureSuggestionStatus";
 
 type SuggestionRow = {
@@ -15,12 +16,14 @@ type SuggestionRow = {
 const statusOptions = ["idea", "planned", "completed", "rejected"] as const;
 
 export default async function FeatureSuggestionsPage(props: {
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; hide?: string; sort?: string }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const authEmail = authData.user?.email;
+  const hideCompleted = (searchParams?.hide || "0").trim() === "1";
+  const selectedSort = (searchParams?.sort || "latest").trim();
 
   if (!authEmail) {
     redirect("/login");
@@ -36,10 +39,16 @@ export default async function FeatureSuggestionsPage(props: {
     redirect("/tasks?error=Missing%20user%20profile");
   }
 
-  const { data: suggestions, error: suggestionsError } = await supabase
+  let suggestionsQuery = supabase
     .from("feature_suggestions")
     .select("id,title,details,status,created_at,created_by")
     .order("created_at", { ascending: false });
+
+  if (hideCompleted) {
+    suggestionsQuery = suggestionsQuery.not("status", "in", "(completed,rejected)");
+  }
+
+  const { data: suggestions, error: suggestionsError } = await suggestionsQuery;
 
   const { data: votes } = await supabase
     .from("feature_suggestion_votes")
@@ -184,7 +193,7 @@ export default async function FeatureSuggestionsPage(props: {
     redirect("/feature-suggestions");
   }
 
-  const suggestionRows = (suggestions || []) as SuggestionRow[];
+  let suggestionRows = (suggestions || []) as SuggestionRow[];
   const authorIds = Array.from(
     new Set(
       suggestionRows.map((row) => row.created_by).filter(Boolean) as string[]
@@ -199,6 +208,17 @@ export default async function FeatureSuggestionsPage(props: {
       .in("id", authorIds);
     (authors || []).forEach((author) => {
       authorMap.set(author.id, { full_name: author.full_name, email: author.email });
+    });
+  }
+
+  if (selectedSort === "most_upvoted") {
+    suggestionRows = [...suggestionRows].sort((a, b) => {
+      const aVotes = voteCounts.get(a.id) || 0;
+      const bVotes = voteCounts.get(b.id) || 0;
+      if (bVotes !== aVotes) {
+        return bVotes - aVotes;
+      }
+      return a.created_at < b.created_at ? 1 : -1;
     });
   }
 
@@ -259,7 +279,13 @@ export default async function FeatureSuggestionsPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Ideas</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Ideas</h2>
+            <FeatureSuggestionControls
+              hideCompleted={hideCompleted}
+              selectedSort={selectedSort === "most_upvoted" ? "most_upvoted" : "latest"}
+            />
+          </div>
         </div>
         <div className="divide-y divide-slate-200">
           {suggestionRows.length ? (
