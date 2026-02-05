@@ -3,7 +3,7 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { Editor } from "@tiptap/core";
-import { EditorContent, TiptapBubbleMenu, useEditor } from "@tiptap/react";
+import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import Underline from "@tiptap/extension-underline";
@@ -604,7 +604,7 @@ export default function NoteEditorClient({
       </div>
 
       <div className="mt-4" onContextMenu={handleContextMenu}>
-        <TiptapBubbleMenu
+        <BubbleMenu
           editor={editor}
           tippyOptions={{ duration: 150 }}
           className="rounded-md border border-slate-200 bg-white p-1 shadow-md"
@@ -625,7 +625,7 @@ export default function NoteEditorClient({
               </button>
             ))}
           </div>
-        </TiptapBubbleMenu>
+        </BubbleMenu>
         <EditorContent editor={editor} />
       </div>
 
