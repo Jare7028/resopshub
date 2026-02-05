@@ -29,6 +29,7 @@ export default async function TasksPage(props: {
     due?: string;
     client?: string;
     project?: string;
+    hide?: string;
     error?: string;
     success?: string;
   }>;
@@ -41,6 +42,7 @@ export default async function TasksPage(props: {
   const selectedDue = (searchParams?.due || "all").trim();
   const selectedClient = (searchParams?.client || "all").trim();
   const selectedProject = (searchParams?.project || "all").trim();
+  const hideCompleted = (searchParams?.hide || "0").trim() === "1";
   const returnParams = new URLSearchParams();
 
   if (selectedStatus !== "all") {
@@ -67,7 +69,18 @@ export default async function TasksPage(props: {
     returnParams.set("project", selectedProject);
   }
 
+  if (hideCompleted) {
+    returnParams.set("hide", "1");
+  }
+
   const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
+  const toggleParams = new URLSearchParams(returnParams);
+  if (hideCompleted) {
+    toggleParams.delete("hide");
+  } else {
+    toggleParams.set("hide", "1");
+  }
+  const toggleUrl = toggleParams.toString() ? `/tasks?${toggleParams}` : "/tasks";
 
   const { data: users } = await supabase
     .from("users")
@@ -112,6 +125,10 @@ export default async function TasksPage(props: {
 
   if (selectedProject !== "all") {
     request = request.eq("project_id", selectedProject);
+  }
+
+  if (hideCompleted) {
+    request = request.not("status", "in", "(completed,cancelled)");
   }
 
   const today = new Date();
@@ -316,7 +333,16 @@ export default async function TasksPage(props: {
   return (
     <div className="space-y-8">
       <section className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Tasks</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-slate-900">Tasks</h1>
+          <a
+            href={toggleUrl}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            aria-pressed={hideCompleted}
+          >
+            {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
+          </a>
+        </div>
         <p className="text-sm text-slate-600">
           Review tasks across all clients and projects.
         </p>
