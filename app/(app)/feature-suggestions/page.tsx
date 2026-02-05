@@ -298,6 +298,7 @@ export default async function FeatureSuggestionsPage(props: {
                         name="status"
                         defaultValue={suggestion.status || "idea"}
                         className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        onChange={(event) => event.currentTarget.form?.requestSubmit()}
                       >
                         {statusOptions.map((status) => (
                           <option key={status} value={status}>
@@ -305,12 +306,6 @@ export default async function FeatureSuggestionsPage(props: {
                           </option>
                         ))}
                       </select>
-                      <button
-                        type="submit"
-                        className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
-                      >
-                        Update status
-                      </button>
                     </form>
                   </div>
                   <form action={toggleVote} className="flex items-center gap-3">
