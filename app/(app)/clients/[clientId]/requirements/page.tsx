@@ -3,13 +3,12 @@ import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export default async function ClientRequirementsPage({
-  params,
-  searchParams,
-}: {
-  params: { clientId: string };
-  searchParams?: { error?: string };
+export default async function ClientRequirementsPage(props: {
+  params: Promise<{ clientId: string }>;
+  searchParams?: Promise<{ error?: string }>;
 }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")

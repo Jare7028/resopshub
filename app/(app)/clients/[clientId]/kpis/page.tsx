@@ -5,13 +5,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const KPI_SLOTS = [1, 2, 3] as const;
 
-export default async function ClientKpisPage({
-  params,
-  searchParams,
-}: {
-  params: { clientId: string };
-  searchParams?: { error?: string };
+export default async function ClientKpisPage(props: {
+  params: Promise<{ clientId: string }>;
+  searchParams?: Promise<{ error?: string }>;
 }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")

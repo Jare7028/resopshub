@@ -69,11 +69,15 @@ function buildSearchLink(params: {
   return `/search?${searchParams.toString()}`;
 }
 
-export default async function SearchPage({
-  searchParams,
-}: {
-  searchParams?: { q?: string; type?: string; section?: string; client?: string };
+export default async function SearchPage(props: {
+  searchParams?: Promise<{
+    q?: string;
+    type?: string;
+    section?: string;
+    client?: string;
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const rawQuery = typeof searchParams?.q === "string" ? searchParams.q : "";
   const query = rawQuery.trim();

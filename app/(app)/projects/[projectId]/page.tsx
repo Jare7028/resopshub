@@ -5,13 +5,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
 
-export default async function ProjectOverviewPage({
-  params,
-  searchParams,
-}: {
-  params: { projectId: string };
-  searchParams?: { error?: string; success?: string };
+export default async function ProjectOverviewPage(props: {
+  params: Promise<{ projectId: string }>;
+  searchParams?: Promise<{ error?: string; success?: string }>;
 }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: project } = await supabase
     .from("projects")

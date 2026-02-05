@@ -1,11 +1,10 @@
 ﻿import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams?: { error?: string };
+export default async function LoginPage(props: {
+  searchParams?: Promise<{ error?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
 

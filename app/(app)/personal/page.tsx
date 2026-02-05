@@ -26,17 +26,16 @@ function getSelectedMembers(formData: FormData, ownerId: string) {
     }));
 }
 
-export default async function PersonalHome({
-  searchParams,
-}: {
-  searchParams?: {
+export default async function PersonalHome(props: {
+  searchParams?: Promise<{
     section?: string;
     filter?: string;
     sort?: string;
     q?: string;
     error?: string;
-  };
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const user = authData.user;

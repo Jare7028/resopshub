@@ -5,11 +5,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
 
-export default async function ClientsPage({
-  searchParams,
-}: {
-  searchParams?: { q?: string; status?: string; error?: string };
+export default async function ClientsPage(props: {
+  searchParams?: Promise<{ q?: string; status?: string; error?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const query = (searchParams?.q || "").trim();
   const status = (searchParams?.status || "").trim();

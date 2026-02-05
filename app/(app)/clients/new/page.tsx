@@ -26,11 +26,10 @@ const ensureUniqueClientCode = async (base: string) => {
   return `${safeBase}-${Date.now()}`;
 };
 
-export default async function NewClientPage({
-  searchParams,
-}: {
-  searchParams?: { error?: string };
+export default async function NewClientPage(props: {
+  searchParams?: Promise<{ error?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   async function createClient(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();

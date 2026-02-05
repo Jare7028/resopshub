@@ -96,11 +96,10 @@ async function syncSectionShareMode(supabase: SupabaseServerClient, sectionId: s
   }
 }
 
-export default async function PersonalPage({
-  params,
-}: {
-  params: { pageId: string };
+export default async function PersonalPage(props: {
+  params: Promise<{ pageId: string }>;
 }) {
+  const params = await props.params;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const user = authData.user;

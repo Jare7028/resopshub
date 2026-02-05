@@ -3,11 +3,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-export default async function NotesPage({
-  searchParams,
-}: {
-  searchParams?: { client?: string; user?: string; date_from?: string; date_to?: string };
+export default async function NotesPage(props: {
+  searchParams?: Promise<{
+    client?: string;
+    user?: string;
+    date_from?: string;
+    date_to?: string;
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const selectedClient = (searchParams?.client || "").trim();
   const selectedUser = (searchParams?.user || "").trim();

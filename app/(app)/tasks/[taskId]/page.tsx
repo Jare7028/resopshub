@@ -16,13 +16,12 @@ const statusOptions = [
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
-export default async function TaskDetailPage({
-  params,
-  searchParams,
-}: {
-  params: { taskId: string };
-  searchParams?: { error?: string; success?: string };
+export default async function TaskDetailPage(props: {
+  params: Promise<{ taskId: string }>;
+  searchParams?: Promise<{ error?: string; success?: string }>;
 }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: task } = await supabase
     .from("tasks")

@@ -28,13 +28,12 @@ const ensureUniqueProjectCode = async (base: string) => {
   return `${safeBase}-${Date.now()}`;
 };
 
-export default async function ClientProjectsPage({
-  params,
-  searchParams,
-}: {
-  params: { clientId: string };
-  searchParams?: { error?: string };
+export default async function ClientProjectsPage(props: {
+  params: Promise<{ clientId: string }>;
+  searchParams?: Promise<{ error?: string }>;
 }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")

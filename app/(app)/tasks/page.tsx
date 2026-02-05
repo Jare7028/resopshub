@@ -21,10 +21,8 @@ const dueDateFilters = [
 ] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
-export default async function TasksPage({
-  searchParams,
-}: {
-  searchParams?: {
+export default async function TasksPage(props: {
+  searchParams?: Promise<{
     status?: string;
     priority?: string;
     assignee?: string;
@@ -33,8 +31,9 @@ export default async function TasksPage({
     project?: string;
     error?: string;
     success?: string;
-  };
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const selectedStatus = (searchParams?.status || "all").trim();
   const selectedPriority = (searchParams?.priority || "all").trim();

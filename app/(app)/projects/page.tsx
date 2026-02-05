@@ -5,11 +5,10 @@ import ProjectInlineRow from "./ProjectInlineRow";
 
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
 
-export default async function ProjectsPage({
-  searchParams,
-}: {
-  searchParams?: { client?: string; status?: string; error?: string };
+export default async function ProjectsPage(props: {
+  searchParams?: Promise<{ client?: string; status?: string; error?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const selectedClient = (searchParams?.client || "").trim();
   const selectedStatus = (searchParams?.status || "").trim();

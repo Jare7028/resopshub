@@ -16,18 +16,17 @@ function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams?: {
+export default async function DashboardPage(props: {
+  searchParams?: Promise<{
     range?: string;
     client?: string;
     project?: string;
     user?: string;
     status?: string;
     priority?: string;
-  };
+  }>;
 }) {
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
 
   const selectedRange = (searchParams?.range || "all").trim();

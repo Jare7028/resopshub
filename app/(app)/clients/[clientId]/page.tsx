@@ -8,13 +8,12 @@ export const dynamic = "force-dynamic";
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
 const visibilityOptions = ["internal", "client_shared"] as const;
 
-export default async function ClientOverviewPage({
-  params,
-  searchParams,
-}: {
-  params: { clientId: string };
-  searchParams?: { error?: string; success?: string };
+export default async function ClientOverviewPage(props: {
+  params: Promise<{ clientId: string }>;
+  searchParams?: Promise<{ error?: string; success?: string }>;
 }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")

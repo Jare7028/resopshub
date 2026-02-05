@@ -5,13 +5,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const visibilityOptions = ["internal", "client_shared"] as const;
 
-export default async function ClientDocumentsPage({
-  params,
-  searchParams,
-}: {
-  params: { clientId: string };
-  searchParams?: { error?: string };
+export default async function ClientDocumentsPage(props: {
+  params: Promise<{ clientId: string }>;
+  searchParams?: Promise<{ error?: string }>;
 }) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: client } = await supabase
     .from("clients")
