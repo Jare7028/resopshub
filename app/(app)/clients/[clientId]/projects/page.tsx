@@ -37,15 +37,16 @@ export default async function ClientProjectsPage(props: {
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData.user?.id;
-  if (!authUserId) {
+  const authEmail = authData.user?.email;
+  if (!authEmail) {
     redirect("/login");
   }
   const { data: currentUser } = await supabase
     .from("users")
-    .select("role")
-    .eq("id", authUserId)
+    .select("id,role")
+    .eq("email", authEmail)
     .maybeSingle();
+  const currentUserId = currentUser?.id;
   const isAdmin = currentUser?.role === "admin";
   const { data: client } = await supabase
     .from("clients")
@@ -74,11 +75,11 @@ export default async function ClientProjectsPage(props: {
   if (isAdmin) {
     const { data } = await projectsQuery;
     projects = data || [];
-  } else {
+  } else if (currentUserId) {
     const { data: assignments } = await supabase
       .from("project_users")
       .select("project_id")
-      .eq("user_id", authUserId);
+      .eq("user_id", currentUserId);
     const assignedIds = (assignments || [])
       .map((assignment) => assignment.project_id)
       .filter(Boolean) as string[];
@@ -119,10 +120,10 @@ export default async function ClientProjectsPage(props: {
       redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(error.message)}`);
     }
 
-    if (created?.id && authUserId) {
+    if (created?.id && currentUserId) {
       await supabase.from("project_users").insert({
         project_id: created.id,
-        user_id: authUserId,
+        user_id: currentUserId,
       });
     }
 

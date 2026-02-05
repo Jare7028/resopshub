@@ -11,15 +11,16 @@ export default async function ProjectsPage(props: {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData.user?.id;
-  if (!authUserId) {
+  const authEmail = authData.user?.email;
+  if (!authEmail) {
     redirect("/login");
   }
   const { data: currentUser } = await supabase
     .from("users")
-    .select("role")
-    .eq("id", authUserId)
+    .select("id,role")
+    .eq("email", authEmail)
     .maybeSingle();
+  const currentUserId = currentUser?.id;
   const isAdmin = currentUser?.role === "admin";
   const selectedClient = (searchParams?.client || "").trim();
   const selectedStatus = (searchParams?.status || "").trim();
@@ -67,10 +68,13 @@ export default async function ProjectsPage(props: {
     const { data } = await request;
     projects = data || [];
   } else {
+    if (!currentUserId) {
+      projects = [];
+    } else {
     const { data: assignments } = await supabase
       .from("project_users")
       .select("project_id")
-      .eq("user_id", authUserId);
+      .eq("user_id", currentUserId);
     const assignedIds = (assignments || [])
       .map((assignment) => assignment.project_id)
       .filter(Boolean) as string[];
@@ -79,6 +83,7 @@ export default async function ProjectsPage(props: {
       projects = data || [];
     } else {
       projects = [];
+    }
     }
   }
 

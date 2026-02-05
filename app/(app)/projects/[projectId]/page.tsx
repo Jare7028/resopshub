@@ -13,15 +13,16 @@ export default async function ProjectOverviewPage(props: {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData.user?.id;
-  if (!authUserId) {
+  const authEmail = authData.user?.email;
+  if (!authEmail) {
     redirect("/login");
   }
   const { data: currentUser } = await supabase
     .from("users")
     .select("id,role")
-    .eq("id", authUserId)
+    .eq("email", authEmail)
     .maybeSingle();
+  const currentUserId = currentUser?.id;
   const isAdmin = currentUser?.role === "admin";
   const { data: project } = await supabase
     .from("projects")
@@ -36,16 +37,18 @@ export default async function ProjectOverviewPage(props: {
   const projectId = project.id;
   const projectCode = project.code || "";
 
-  if (!isAdmin) {
+  if (!isAdmin && currentUserId) {
     const { data: assignment } = await supabase
       .from("project_users")
       .select("user_id")
       .eq("project_id", projectId)
-      .eq("user_id", authUserId)
+      .eq("user_id", currentUserId)
       .maybeSingle();
     if (!assignment) {
       redirect("/projects?error=Not%20assigned%20to%20that%20project");
     }
+  } else if (!isAdmin && !currentUserId) {
+    redirect("/projects?error=User%20profile%20missing");
   }
 
   const { data: users } = await supabase
