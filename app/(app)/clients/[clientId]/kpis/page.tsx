@@ -29,9 +29,17 @@ export default async function ClientKpisPage(props: {
     .eq("client_id", clientId)
     .order("position", { ascending: true });
 
-  const byPosition = new Map<number, typeof kpis[number]>();
-  kpis?.forEach((kpi) => {
-    byPosition.set(kpi.position, kpi);
+  type KpiRow = {
+    id: string;
+    position: number;
+    name: string | null;
+    value: string | null;
+    note: string | null;
+    updated_at: string | null;
+  };
+  const byPosition = new Map<number, KpiRow>();
+  (kpis ?? []).forEach((kpi) => {
+    byPosition.set(Number(kpi.position), kpi as KpiRow);
   });
 
   async function saveKpis(formData: FormData) {
