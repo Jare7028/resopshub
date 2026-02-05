@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const taskStatuses = ["backlog", "in_progress", "blocked", "completed", "cancelled"] as const;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
 const projectActiveStatuses = ["planned", "active", "on_hold"] as const;
+const suggestionStatuses = ["idea", "planned", "completed", "rejected"] as const;
 
 const rangeOptions = [
   { value: "all", label: "All time" },
@@ -29,6 +30,36 @@ export default async function DashboardPage(props: {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
 
+  const { data: authData } = await supabase.auth.getUser();
+  const authEmail = authData.user?.email;
+  if (!authEmail) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+        <p className="text-sm text-slate-600">Please sign in to view reporting.</p>
+      </div>
+    );
+  }
+
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("id,role")
+    .eq("email", authEmail)
+    .maybeSingle();
+
+  const currentUserId = currentUser?.id || null;
+  const isAdmin = currentUser?.role === "admin";
+  if (!currentUserId) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+        <p className="text-sm text-slate-600">
+          Create a user profile before viewing reporting.
+        </p>
+      </div>
+    );
+  }
+
   const selectedRange = (searchParams?.range || "all").trim();
   const selectedClient = (searchParams?.client || "all").trim();
   const selectedProject = (searchParams?.project || "all").trim();
@@ -41,10 +72,39 @@ export default async function DashboardPage(props: {
     .select("id,name")
     .order("name", { ascending: true });
 
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id,name,status,client_id,updated_at")
-    .order("name", { ascending: true });
+  let assignedProjectIds: string[] = [];
+  if (!isAdmin) {
+    const { data: assignments } = await supabase
+      .from("project_users")
+      .select("project_id")
+      .eq("user_id", currentUserId);
+    assignedProjectIds = (assignments || [])
+      .map((assignment) => assignment.project_id)
+      .filter(Boolean) as string[];
+  }
+  const assignedProjectIdSet = new Set(assignedProjectIds);
+
+  let projects: Array<{
+    id: string;
+    name: string;
+    status: string | null;
+    client_id: string | null;
+    updated_at?: string | null;
+  }> = [];
+
+  if (isAdmin || assignedProjectIds.length) {
+    let projectsQuery = supabase
+      .from("projects")
+      .select("id,name,status,client_id,updated_at")
+      .order("name", { ascending: true });
+
+    if (!isAdmin) {
+      projectsQuery = projectsQuery.in("id", assignedProjectIds);
+    }
+
+    const { data: projectData } = await projectsQuery;
+    projects = projectData || [];
+  }
 
   const { data: users } = await supabase
     .from("users")
@@ -69,38 +129,64 @@ export default async function DashboardPage(props: {
     rangeStart = start.toISOString();
   }
 
-  let tasksQuery = supabase
-    .from("tasks")
-    .select(
-      "id,title,status,priority,due_date,assignee_user_id,project_id,client_id,created_at,projects(id,name,status),clients(id,name)"
-    )
-    .is("parent_task_id", null);
+  let tasks: Array<{
+    id: string;
+    title: string;
+    status: string | null;
+    priority: string | null;
+    due_date: string | null;
+    assignee_user_id: string | null;
+    project_id: string | null;
+    client_id: string | null;
+    created_at: string | null;
+    projects?: { id?: string | null; name?: string | null; status?: string | null } | { id?: string | null; name?: string | null; status?: string | null }[] | null;
+    clients?: { id?: string | null; name?: string | null } | { id?: string | null; name?: string | null }[] | null;
+  }> = [];
 
-  if (selectedClient !== "all") {
-    tasksQuery = tasksQuery.eq("client_id", selectedClient);
+  const canQueryTasks =
+    isAdmin ||
+    (assignedProjectIds.length > 0 &&
+      (selectedProject === "all" || assignedProjectIdSet.has(selectedProject)));
+
+  if (canQueryTasks) {
+    let tasksQuery = supabase
+      .from("tasks")
+      .select(
+        "id,title,status,priority,due_date,assignee_user_id,project_id,client_id,created_at,projects(id,name,status),clients(id,name)"
+      )
+      .is("parent_task_id", null);
+
+    if (selectedClient !== "all") {
+      tasksQuery = tasksQuery.eq("client_id", selectedClient);
+    }
+
+    if (selectedProject !== "all") {
+      tasksQuery = tasksQuery.eq("project_id", selectedProject);
+    }
+
+    if (selectedUser !== "all") {
+      tasksQuery = tasksQuery.eq("assignee_user_id", selectedUser);
+    }
+
+    if (selectedStatus !== "all") {
+      tasksQuery = tasksQuery.eq("status", selectedStatus);
+    }
+
+    if (selectedPriority !== "all") {
+      tasksQuery = tasksQuery.eq("priority", selectedPriority);
+    }
+
+    if (rangeStart) {
+      tasksQuery = tasksQuery.gte("created_at", rangeStart).lte("created_at", now.toISOString());
+    }
+
+    if (!isAdmin) {
+      tasksQuery = tasksQuery.in("project_id", assignedProjectIds);
+    }
+
+    const { data: taskData } = await tasksQuery;
+    tasks = (taskData || []) as typeof tasks;
   }
-
-  if (selectedProject !== "all") {
-    tasksQuery = tasksQuery.eq("project_id", selectedProject);
-  }
-
-  if (selectedUser !== "all") {
-    tasksQuery = tasksQuery.eq("assignee_user_id", selectedUser);
-  }
-
-  if (selectedStatus !== "all") {
-    tasksQuery = tasksQuery.eq("status", selectedStatus);
-  }
-
-  if (selectedPriority !== "all") {
-    tasksQuery = tasksQuery.eq("priority", selectedPriority);
-  }
-
-  if (rangeStart) {
-    tasksQuery = tasksQuery.gte("created_at", rangeStart).lte("created_at", now.toISOString());
-  }
-
-  const { data: tasks } = await tasksQuery;
 
   const openTasks = (tasks || []).filter(
     (task) => task.status !== "completed" && task.status !== "cancelled"
@@ -109,6 +195,12 @@ export default async function DashboardPage(props: {
   const blockedTasks = openTasks.filter((task) => task.status === "blocked");
   const overdueTasks = openTasks.filter(
     (task) => task.due_date && task.due_date < todayIso
+  );
+  const nextWeek = new Date(now);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  const nextWeekIso = toIsoDate(nextWeek);
+  const dueSoonTasks = openTasks.filter(
+    (task) => task.due_date && task.due_date >= todayIso && task.due_date <= nextWeekIso
   );
 
   const activeProjects = (projects || []).filter((project) =>
@@ -259,6 +351,12 @@ export default async function DashboardPage(props: {
     statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
   });
 
+  const allStatusCounts = new Map<string, number>();
+  (tasks || []).forEach((task) => {
+    const status = task.status || "unknown";
+    allStatusCounts.set(status, (allStatusCounts.get(status) || 0) + 1);
+  });
+
   const priorityCounts = new Map<string, number>();
   openTasks.forEach((task) => {
     const priority = task.priority || "unknown";
@@ -279,6 +377,15 @@ export default async function DashboardPage(props: {
       label: priority,
       value: priorityCounts.get(priority) || 0,
       percent: Math.round(((priorityCounts.get(priority) || 0) / totalOpen) * 100),
+    }))
+    .filter((item) => item.value > 0);
+
+  const totalAllTasks = (tasks || []).length || 1;
+  const allStatusDistribution = taskStatuses
+    .map((status) => ({
+      label: status.replace("_", " "),
+      value: allStatusCounts.get(status) || 0,
+      percent: Math.round(((allStatusCounts.get(status) || 0) / totalAllTasks) * 100),
     }))
     .filter((item) => item.value > 0);
 
@@ -341,6 +448,10 @@ export default async function DashboardPage(props: {
     activityQuery = activityQuery.gte("created_at", rangeStart).lte("created_at", now.toISOString());
   }
 
+  if (!isAdmin && assignedProjectIds.length) {
+    activityQuery = activityQuery.in("project_id", assignedProjectIds);
+  }
+
   const { data: recentTasks } = await activityQuery;
 
   const recentActivity = (recentTasks || []).map((task) => ({
@@ -355,10 +466,42 @@ export default async function DashboardPage(props: {
       ? "Total tasks"
       : `New tasks (${rangeOptions.find((option) => option.value === selectedRange)?.label ?? ""})`;
 
+  const { data: suggestionRows } = await supabase
+    .from("feature_suggestions")
+    .select("id,title,status,created_at")
+    .order("created_at", { ascending: false });
+
+  const { data: suggestionVotes } = await supabase
+    .from("feature_suggestion_votes")
+    .select("suggestion_id");
+
+  const suggestionVoteCounts = new Map<string, number>();
+  (suggestionVotes || []).forEach((vote) => {
+    suggestionVoteCounts.set(
+      vote.suggestion_id,
+      (suggestionVoteCounts.get(vote.suggestion_id) || 0) + 1
+    );
+  });
+
+  const suggestionStatusCounts = new Map<string, number>();
+  (suggestionRows || []).forEach((row) => {
+    const status = row.status || "idea";
+    suggestionStatusCounts.set(
+      status,
+      (suggestionStatusCounts.get(status) || 0) + 1
+    );
+  });
+
+  const ideasCount = suggestionStatusCounts.get("idea") || 0;
+  const plannedCount = suggestionStatusCounts.get("planned") || 0;
+  const completedCount = suggestionStatusCounts.get("completed") || 0;
+  const rejectedCount = suggestionStatusCounts.get("rejected") || 0;
+
   const snapshotCards = [
     { label: "Open tasks", value: openTasks.length.toString(), accent: "text-slate-900" },
     { label: "Blocked tasks", value: blockedTasks.length.toString(), accent: "text-amber-600" },
     { label: "Overdue tasks", value: overdueTasks.length.toString(), accent: "text-red-600" },
+    { label: "Due in 7 days", value: dueSoonTasks.length.toString(), accent: "text-amber-700" },
     {
       label: "Active projects",
       value: filteredProjects.length.toString(),
@@ -369,7 +512,20 @@ export default async function DashboardPage(props: {
       value: (tasks || []).length.toString(),
       accent: "text-slate-900",
     },
+    {
+      label: "Ideas",
+      value: ideasCount.toString(),
+      accent: "text-slate-900",
+    },
   ];
+
+  const topSuggestions = (suggestionRows || [])
+    .map((row) => ({
+      ...row,
+      votes: suggestionVoteCounts.get(row.id) || 0,
+    }))
+    .sort((a, b) => b.votes - a.votes || (a.created_at < b.created_at ? 1 : -1))
+    .slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -612,6 +768,80 @@ export default async function DashboardPage(props: {
             ) : (
               <p className="text-sm text-slate-500">No open tasks yet.</p>
             )}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">All tasks by status</h2>
+          <div className="mt-4 space-y-3">
+            {allStatusDistribution.length ? (
+              allStatusDistribution.map((item) => (
+                <div key={item.label}>
+                  <div className="flex items-center justify-between text-sm text-slate-600">
+                    <span>{item.label}</span>
+                    <span>{item.value}</span>
+                  </div>
+                  <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-slate-700"
+                      style={{ width: `${item.percent}%` }}
+                    />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">No tasks yet.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Feature suggestions</h2>
+          <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+              Idea: {ideasCount}
+            </span>
+            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+              Planned: {plannedCount}
+            </span>
+            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+              Completed: {completedCount}
+            </span>
+            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+              Rejected: {rejectedCount}
+            </span>
+          </div>
+          <div className="mt-4 space-y-3">
+            {topSuggestions.length ? (
+              topSuggestions.map((idea) => (
+                <div
+                  key={idea.id}
+                  className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <div className="space-y-1">
+                    <p className="font-medium text-slate-900">{idea.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {idea.status || "idea"}
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold text-slate-600">
+                    {idea.votes} vote{idea.votes === 1 ? "" : "s"}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">No suggestions yet.</p>
+            )}
+          </div>
+          <div className="mt-4">
+            <Link
+              href="/feature-suggestions"
+              className="text-sm font-semibold text-slate-700 hover:underline"
+            >
+              View all suggestions
+            </Link>
           </div>
         </div>
       </section>
