@@ -38,7 +38,7 @@ export default async function ClientOverviewPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
     const name = String(formData.get("name") || "").trim();
-    const code = String(formData.get("code") || client.code || "").trim();
+    const code = String(formData.get("code") || "").trim();
     const status = String(formData.get("status") || "active");
     const industry = String(formData.get("industry") || "").trim();
     const website = String(formData.get("website") || "").trim();
