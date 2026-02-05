@@ -9,7 +9,6 @@ type SuggestionRow = {
   status: string | null;
   created_at: string;
   created_by: string | null;
-  users?: { full_name?: string | null; email?: string | null } | null;
 };
 
 const statusOptions = ["idea", "planned", "completed", "rejected"] as const;
@@ -36,9 +35,9 @@ export default async function FeatureSuggestionsPage(props: {
     redirect("/tasks?error=Missing%20user%20profile");
   }
 
-  const { data: suggestions } = await supabase
+  const { data: suggestions, error: suggestionsError } = await supabase
     .from("feature_suggestions")
-    .select("id,title,details,status,created_at,created_by,users(full_name,email)")
+    .select("id,title,details,status,created_at,created_by")
     .order("created_at", { ascending: false });
 
   const { data: votes } = await supabase
@@ -185,6 +184,22 @@ export default async function FeatureSuggestionsPage(props: {
   }
 
   const suggestionRows = (suggestions || []) as SuggestionRow[];
+  const authorIds = Array.from(
+    new Set(
+      suggestionRows.map((row) => row.created_by).filter(Boolean) as string[]
+    )
+  );
+  const authorMap = new Map<string, { full_name?: string | null; email?: string | null }>();
+
+  if (authorIds.length) {
+    const { data: authors } = await supabase
+      .from("users")
+      .select("id,full_name,email")
+      .in("id", authorIds);
+    (authors || []).forEach((author) => {
+      authorMap.set(author.id, { full_name: author.full_name, email: author.email });
+    });
+  }
 
   return (
     <div className="space-y-8">
@@ -197,8 +212,13 @@ export default async function FeatureSuggestionsPage(props: {
         </p>
       </section>
 
-      {(searchParams?.error || searchParams?.success) && (
+      {(searchParams?.error || searchParams?.success || suggestionsError) && (
         <div className="space-y-2">
+          {suggestionsError ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+              {suggestionsError.message}
+            </p>
+          ) : null}
           {searchParams?.error ? (
             <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
               {searchParams.error}
@@ -245,10 +265,10 @@ export default async function FeatureSuggestionsPage(props: {
             suggestionRows.map((suggestion) => {
               const votesForSuggestion = voteCounts.get(suggestion.id) || 0;
               const hasVoted = userVotes.has(suggestion.id);
-              const authorName =
-                suggestion.users?.full_name ||
-                suggestion.users?.email ||
-                "Unknown";
+              const author = suggestion.created_by
+                ? authorMap.get(suggestion.created_by)
+                : null;
+              const authorName = author?.full_name || author?.email || "Unknown";
               return (
                 <div key={suggestion.id} className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
