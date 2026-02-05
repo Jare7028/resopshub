@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import FeatureSuggestionStatus from "./FeatureSuggestionStatus";
 
 type SuggestionRow = {
   id: string;
@@ -288,25 +289,12 @@ export default async function FeatureSuggestionsPage(props: {
                     <p className="text-xs text-slate-500">
                       Suggested by {authorName}
                     </p>
-                    <form action={updateStatus} className="flex flex-wrap items-center gap-2">
-                      <input
-                        type="hidden"
-                        name="suggestion_id"
-                        value={suggestion.id}
-                      />
-                      <select
-                        name="status"
-                        defaultValue={suggestion.status || "idea"}
-                        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                        onChange={(event) => event.currentTarget.form?.requestSubmit()}
-                      >
-                        {statusOptions.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    </form>
+                    <FeatureSuggestionStatus
+                      suggestionId={suggestion.id}
+                      defaultStatus={suggestion.status || "idea"}
+                      statusOptions={statusOptions}
+                      onUpdate={updateStatus}
+                    />
                   </div>
                   <form action={toggleVote} className="flex items-center gap-3">
                     <input
