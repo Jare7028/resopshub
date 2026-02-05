@@ -607,7 +607,7 @@ export default function NoteEditorClient({
       <div className="mt-4" onContextMenu={handleContextMenu}>
         <BubbleMenu
           editor={editor}
-          tippyOptions={{ duration: 150 }}
+          options={{ duration: 150 }}
           className="rounded-md border border-slate-200 bg-white p-1 shadow-md"
         >
           <div className="flex flex-wrap items-center gap-1">
