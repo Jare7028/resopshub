@@ -64,11 +64,11 @@ export default function ProjectTaskInlineRow({
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="assignee_user_ids" value="" />
-          <details className="relative">
-            <summary className="w-full cursor-pointer list-none rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700">
+          <details className="relative w-full min-w-[12rem]">
+            <summary className="w-full cursor-pointer list-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
               {assigneeLabel}
             </summary>
-            <div className="absolute z-10 mt-1 w-56 max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+            <div className="absolute z-10 mt-1 w-full min-w-[16rem] max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg">
               {users?.length ? (
                 users.map((user) => (
                   <label
