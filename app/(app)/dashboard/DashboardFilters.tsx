@@ -58,7 +58,7 @@ export default function DashboardFilters({
   initialFilters: DashboardFiltersState;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [filters, setFilters] = useState<DashboardFiltersState>(initialFilters);
 
   const initialKey = useMemo(
@@ -184,14 +184,6 @@ export default function DashboardFilters({
           </option>
         ))}
       </select>
-
-      <button
-        type="submit"
-        className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-        disabled={isPending}
-      >
-        {isPending ? "Saving…" : "Apply filters"}
-      </button>
     </form>
   );
 }
