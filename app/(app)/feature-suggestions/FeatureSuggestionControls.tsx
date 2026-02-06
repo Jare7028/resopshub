@@ -17,9 +17,7 @@ export default function FeatureSuggestionControls({
 
   const params = useMemo(() => {
     const next = new URLSearchParams(searchParams?.toString());
-    if (!hideCompleted) {
-      next.delete("hide");
-    }
+    next.set("hide", hideCompleted ? "1" : "0");
     if (selectedSort === "latest") {
       next.delete("sort");
     }
@@ -28,11 +26,7 @@ export default function FeatureSuggestionControls({
 
   const updateParams = (nextHide: boolean, nextSort: string) => {
     const next = new URLSearchParams(params.toString());
-    if (nextHide) {
-      next.set("hide", "1");
-    } else {
-      next.delete("hide");
-    }
+    next.set("hide", nextHide ? "1" : "0");
     if (nextSort && nextSort !== "latest") {
       next.set("sort", nextSort);
     } else {

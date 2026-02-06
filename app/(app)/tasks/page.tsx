@@ -42,7 +42,7 @@ export default async function TasksPage(props: {
   const selectedDue = (searchParams?.due || "all").trim();
   const selectedClient = (searchParams?.client || "all").trim();
   const selectedProject = (searchParams?.project || "all").trim();
-  const hideCompleted = (searchParams?.hide || "0").trim() === "1";
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const returnParams = new URLSearchParams();
 
   if (selectedStatus !== "all") {
@@ -69,17 +69,11 @@ export default async function TasksPage(props: {
     returnParams.set("project", selectedProject);
   }
 
-  if (hideCompleted) {
-    returnParams.set("hide", "1");
-  }
+  returnParams.set("hide", hideCompleted ? "1" : "0");
 
   const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
   const toggleParams = new URLSearchParams(returnParams);
-  if (hideCompleted) {
-    toggleParams.delete("hide");
-  } else {
-    toggleParams.set("hide", "1");
-  }
+  toggleParams.set("hide", hideCompleted ? "0" : "1");
   const toggleUrl = toggleParams.toString() ? `/tasks?${toggleParams}` : "/tasks";
 
   const { data: users } = await supabase

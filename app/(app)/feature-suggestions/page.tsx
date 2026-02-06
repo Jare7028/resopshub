@@ -22,7 +22,7 @@ export default async function FeatureSuggestionsPage(props: {
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const authEmail = authData.user?.email;
-  const hideCompleted = (searchParams?.hide || "0").trim() === "1";
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const selectedSort = (searchParams?.sort || "latest").trim();
 
   if (!authEmail) {
