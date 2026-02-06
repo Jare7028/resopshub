@@ -3,7 +3,7 @@
 
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid not null references public.users (id) on delete cascade,
   actor_user_id uuid references auth.users (id) on delete set null,
   type text not null,
   task_id uuid references public.tasks (id) on delete set null,
@@ -42,6 +42,14 @@ create policy notifications_update_own
   with check (auth.uid() = user_id);
 
 grant select, update on public.notifications to authenticated;
+
+-- Ensure FK aligns with public.users for assignees coming from the app.
+alter table public.notifications
+  drop constraint if exists notifications_user_id_fkey;
+
+alter table public.notifications
+  add constraint notifications_user_id_fkey
+  foreign key (user_id) references public.users (id) on delete cascade;
 
 create or replace function public.handle_task_notifications()
 returns trigger
@@ -172,4 +180,3 @@ create trigger tasks_notify_update
 after update on public.tasks
 for each row
 execute function public.handle_task_notifications();
-
