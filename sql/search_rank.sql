@@ -6,20 +6,66 @@ alter table tasks
   add column if not exists content_text text;
 
 alter table personal_pages
-  add column if not exists search_vector tsvector generated always as (
-    to_tsvector('english', concat_ws(' ', title, content_text))
-  ) stored;
+  drop column if exists search_vector;
+
+alter table personal_pages
+  add column if not exists search_vector tsvector;
 
 alter table tasks
-  add column if not exists search_vector tsvector generated always as (
-    to_tsvector('english', concat_ws(' ', title, content_text))
-  ) stored;
+  drop column if exists search_vector;
+
+alter table tasks
+  add column if not exists search_vector tsvector;
 
 create index if not exists personal_pages_search_vector_idx
   on personal_pages using gin (search_vector);
 
 create index if not exists tasks_search_vector_idx
   on tasks using gin (search_vector);
+
+create or replace function public.update_search_vector()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_table_name = 'personal_pages' then
+    new.search_vector := to_tsvector(
+      'english',
+      concat_ws(' ', coalesce(new.title, ''), coalesce(new.content_text, ''))
+    );
+  elsif tg_table_name = 'tasks' then
+    new.search_vector := to_tsvector(
+      'english',
+      concat_ws(' ', coalesce(new.title, ''), coalesce(new.content_text, ''))
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists personal_pages_search_vector_update on personal_pages;
+create trigger personal_pages_search_vector_update
+before insert or update of title, content_text on personal_pages
+for each row
+execute function public.update_search_vector();
+
+drop trigger if exists tasks_search_vector_update on tasks;
+create trigger tasks_search_vector_update
+before insert or update of title, content_text on tasks
+for each row
+execute function public.update_search_vector();
+
+update personal_pages
+set search_vector = to_tsvector(
+  'english',
+  concat_ws(' ', coalesce(title, ''), coalesce(content_text, ''))
+);
+
+update tasks
+set search_vector = to_tsvector(
+  'english',
+  concat_ws(' ', coalesce(title, ''), coalesce(content_text, ''))
+);
 
 create table if not exists public.search_history (
   id uuid primary key default gen_random_uuid(),
