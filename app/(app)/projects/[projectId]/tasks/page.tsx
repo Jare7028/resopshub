@@ -6,6 +6,12 @@ import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import ProjectTaskInlineRow from "./ProjectTaskInlineRow";
 import AssigneeMultiSelect from "@/app/(app)/tasks/_components/AssigneeMultiSelect";
+import {
+  DEFAULT_RECURRENCE_TZ,
+  firstMondayOnOrAfter,
+  formatYmdInTimeZone,
+  getNextOccurrence,
+} from "@/lib/recurrence";
 
 const statusOptions = [
   "backlog",
@@ -105,13 +111,14 @@ export default async function ProjectTasksPage(props: {
     const status = String(formData.get("status") || "backlog");
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
-    const dueDate = String(formData.get("due_date") || "");
+    let dueDate = String(formData.get("due_date") || "");
     const assigneeUserId = String(formData.get("assignee_user_id") || "");
     const assigneeIds = formData
       .getAll("assignee_user_ids")
       .map((value) => String(value).trim())
       .filter(Boolean);
     const parentTaskId = String(formData.get("parent_task_id") || "");
+    const recurrenceRule = String(formData.get("recurrence_rule") || "").trim();
 
     if (!title) {
       redirect(`/projects/${projectId}/tasks?error=Title%20is%20required`);
@@ -120,6 +127,16 @@ export default async function ProjectTasksPage(props: {
     const primaryAssignee =
       assigneeIds.find((value) => value !== "unassigned") ||
       (assigneeUserId || "");
+
+    let recurrenceNextDate: string | null = null;
+    if (recurrenceRule === "monthly:first_monday") {
+      const today = formatYmdInTimeZone(new Date(), DEFAULT_RECURRENCE_TZ);
+      const firstOccurrence = dueDate || firstMondayOnOrAfter(today);
+      if (!dueDate) {
+        dueDate = firstOccurrence;
+      }
+      recurrenceNextDate = getNextOccurrence(recurrenceRule, firstOccurrence);
+    }
 
     const payload: Record<string, unknown> = {
       client_id: projectClientId,
@@ -133,6 +150,12 @@ export default async function ProjectTasksPage(props: {
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };
+
+    if (recurrenceRule && recurrenceNextDate) {
+      payload.recurrence_rule = recurrenceRule;
+      payload.recurrence_next_date = recurrenceNextDate;
+      payload.recurrence_timezone = DEFAULT_RECURRENCE_TZ;
+    }
 
     if (startDate) {
       payload.start_date = startDate;
@@ -308,6 +331,16 @@ export default async function ProjectTasksPage(props: {
                 {priority}
               </option>
             ))}
+          </select>
+          <select
+            name="recurrence_rule"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            defaultValue=""
+          >
+            <option value="">No recurrence</option>
+            <option value="monthly:first_monday">
+              First Monday of every month
+            </option>
           </select>
           <input
             type="date"

@@ -7,6 +7,12 @@ import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "./TasksView";
 import TasksFilters from "./TasksFilters";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
+import {
+  DEFAULT_RECURRENCE_TZ,
+  firstMondayOnOrAfter,
+  formatYmdInTimeZone,
+  getNextOccurrence,
+} from "@/lib/recurrence";
 
 const statusOptions = [
   "backlog",
@@ -242,12 +248,13 @@ export default async function TasksPage(props: {
     const status = String(formData.get("status") || "backlog");
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
-    const dueDate = String(formData.get("due_date") || "");
+    let dueDate = String(formData.get("due_date") || "");
     const assigneeUserId = String(formData.get("assignee_user_id") || "");
     const assigneeIds = formData
       .getAll("assignee_user_ids")
       .map((value) => String(value).trim())
       .filter(Boolean);
+    const recurrenceRule = String(formData.get("recurrence_rule") || "").trim();
     const clientIdRaw = String(formData.get("client_id") || "").trim();
     const projectIdRaw = String(formData.get("project_id") || "").trim();
     let clientId = clientIdRaw || null;
@@ -281,6 +288,16 @@ export default async function TasksPage(props: {
       assigneeIds.find((value) => value !== "unassigned") ||
       (assigneeUserId || "");
 
+    let recurrenceNextDate: string | null = null;
+    if (recurrenceRule === "monthly:first_monday") {
+      const today = formatYmdInTimeZone(new Date(), DEFAULT_RECURRENCE_TZ);
+      const firstOccurrence = dueDate || firstMondayOnOrAfter(today);
+      if (!dueDate) {
+        dueDate = firstOccurrence;
+      }
+      recurrenceNextDate = getNextOccurrence(recurrenceRule, firstOccurrence);
+    }
+
     const payload: Record<string, unknown> = {
       client_id: clientId,
       project_id: projectId,
@@ -292,6 +309,12 @@ export default async function TasksPage(props: {
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };
+
+    if (recurrenceRule && recurrenceNextDate) {
+      payload.recurrence_rule = recurrenceRule;
+      payload.recurrence_next_date = recurrenceNextDate;
+      payload.recurrence_timezone = DEFAULT_RECURRENCE_TZ;
+    }
 
     if (startDate) {
       payload.start_date = startDate;
@@ -527,27 +550,37 @@ export default async function TasksPage(props: {
                 </option>
               ))}
             </select>
-          <select
-            name="priority"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue="medium"
-          >
-            {priorityOptions.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
+            <select
+              name="priority"
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              defaultValue="medium"
+            >
+              {priorityOptions.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priority}
+                </option>
+              ))}
+            </select>
+            <select
+              name="recurrence_rule"
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              defaultValue=""
+            >
+              <option value="">No recurrence</option>
+              <option value="monthly:first_monday">
+                First Monday of every month
               </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            name="start_date"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            name="due_date"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
+            </select>
+            <input
+              type="date"
+              name="start_date"
+              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <input
+              type="date"
+              name="due_date"
+              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
             <button
               type="submit"
               className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
