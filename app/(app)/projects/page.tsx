@@ -4,6 +4,28 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ProjectInlineRow from "./ProjectInlineRow";
 
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
+const toProjectCode = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+
+const ensureUniqueProjectCode = async (base: string) => {
+  const supabase = createSupabaseServerClient();
+  const safeBase = base || "project";
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = attempt === 0 ? safeBase : `${safeBase}-${attempt + 1}`;
+    const { data } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("code", candidate)
+      .maybeSingle();
+    if (!data) {
+      return candidate;
+    }
+  }
+  return `${safeBase}-${Date.now()}`;
+};
 
 export default async function ProjectsPage(props: {
   searchParams?: Promise<{ client?: string; status?: string; hide?: string; error?: string }>;
@@ -146,12 +168,55 @@ export default async function ProjectsPage(props: {
     redirect(returnTo);
   }
 
+  async function createProject(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const name = String(formData.get("name") || "").trim();
+    const clientId = String(formData.get("client_id") || "").trim();
+    const status = String(formData.get("status") || "planned");
+    const startDate = String(formData.get("start_date") || "");
+    const endDate = String(formData.get("end_date") || "");
+
+    if (!name) {
+      redirect(`/projects?error=Name%20is%20required`);
+    }
+
+    const code = await ensureUniqueProjectCode(toProjectCode(name));
+
+    const { data: created, error } = await supabase
+      .from("projects")
+      .insert({
+        name,
+        code,
+        status,
+        client_id: clientId || null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      redirect(`/projects?error=${encodeURIComponent(error.message)}`);
+    }
+
+    if (created?.id && currentUserId) {
+      await supabase.from("project_users").insert({
+        project_id: created.id,
+        user_id: currentUserId,
+      });
+    }
+
+    revalidatePath("/projects");
+    redirect("/projects");
+  }
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold text-slate-900">Projects</h1>
         <p className="text-sm text-slate-600">
-          View all projects across clients. Use a client record to create new work.
+          View all projects across clients. Create projects with or without a client.
         </p>
       </section>
 
@@ -160,6 +225,57 @@ export default async function ProjectsPage(props: {
           {searchParams.error}
         </p>
       ) : null}
+
+      <section className="rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Add project</h2>
+        <form action={createProject} className="mt-4 grid gap-4 md:grid-cols-5">
+          <input
+            name="name"
+            placeholder="Project name"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm md:col-span-2"
+            required
+          />
+          <select
+            name="client_id"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            defaultValue=""
+          >
+            <option value="">No client</option>
+            {clients?.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name}
+              </option>
+            ))}
+          </select>
+          <select
+            name="status"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            defaultValue="planned"
+          >
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status.replace("_", " ")}
+              </option>
+            ))}
+          </select>
+          <input
+            type="date"
+            name="start_date"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+          />
+          <input
+            type="date"
+            name="end_date"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+          />
+          <button
+            type="submit"
+            className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+          >
+            Create project
+          </button>
+        </form>
+      </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Filters</h2>
