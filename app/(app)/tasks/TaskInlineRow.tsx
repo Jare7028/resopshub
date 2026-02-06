@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type UserOption = {
   id: string;
@@ -78,16 +79,59 @@ export default function TaskInlineRow({
 
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const assigneeRef = useRef<HTMLDivElement | null>(null);
+  const assigneeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const assigneeMenuRef = useRef<HTMLDivElement | null>(null);
+  const [assigneeMenuStyle, setAssigneeMenuStyle] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+  const [assigneeMounted, setAssigneeMounted] = useState(false);
+
+  useEffect(() => {
+    setAssigneeMounted(true);
+  }, []);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
-      if (!assigneeRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (assigneeButtonRef.current?.contains(target)) {
+        return;
+      }
+      if (assigneeMenuRef.current?.contains(target)) {
+        return;
+      }
+      if (!assigneeRef.current?.contains(target)) {
         setAssigneeOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  useEffect(() => {
+    if (!assigneeOpen) {
+      return;
+    }
+    const updatePosition = () => {
+      if (!assigneeButtonRef.current) {
+        return;
+      }
+      const rect = assigneeButtonRef.current.getBoundingClientRect();
+      setAssigneeMenuStyle({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 256),
+      });
+    };
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [assigneeOpen]);
 
   const assigneeLabel = (() => {
     if (!assigneeUserIds.length) {
@@ -192,6 +236,7 @@ export default function TaskInlineRow({
           <div className="relative w-full min-w-[12rem]" ref={assigneeRef}>
             <button
               type="button"
+              ref={assigneeButtonRef}
               className="relative w-full rounded-md border border-slate-300 bg-white px-3 py-2 pr-8 text-left text-sm text-slate-700"
               onClick={() => setAssigneeOpen((open) => !open)}
               aria-haspopup="listbox"
@@ -213,29 +258,41 @@ export default function TaskInlineRow({
                 </svg>
               </span>
             </button>
-            {assigneeOpen ? (
-              <div className="absolute z-10 mt-1 w-full min-w-[16rem] max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg">
-                {users?.length ? (
-                  users.map((user) => (
-                    <label
-                      key={user.id}
-                      className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
-                    >
-                      <input
-                        type="checkbox"
-                        name="assignee_user_ids"
-                        value={user.id}
-                        defaultChecked={assigneeUserIds.includes(user.id)}
-                        onChange={handleChange}
-                      />
-                      <span>{user.full_name || user.email}</span>
-                    </label>
-                  ))
-                ) : (
-                  <p className="px-2 py-1 text-sm text-slate-500">No users</p>
-                )}
-              </div>
-            ) : null}
+            {assigneeOpen && assigneeMounted && assigneeMenuStyle
+              ? createPortal(
+                  <div
+                    ref={assigneeMenuRef}
+                    className="z-50 max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+                    style={{
+                      position: "fixed",
+                      top: assigneeMenuStyle.top,
+                      left: assigneeMenuStyle.left,
+                      width: assigneeMenuStyle.width,
+                    }}
+                  >
+                    {users?.length ? (
+                      users.map((user) => (
+                        <label
+                          key={user.id}
+                          className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <input
+                            type="checkbox"
+                            name="assignee_user_ids"
+                            value={user.id}
+                            defaultChecked={assigneeUserIds.includes(user.id)}
+                            onChange={handleChange}
+                          />
+                          <span>{user.full_name || user.email}</span>
+                        </label>
+                      ))
+                    ) : (
+                      <p className="px-2 py-1 text-sm text-slate-500">No users</p>
+                    )}
+                  </div>,
+                  document.body
+                )
+              : null}
           </div>
         </form>
       </td>
