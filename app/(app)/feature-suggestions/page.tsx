@@ -466,11 +466,48 @@ export default async function FeatureSuggestionsPage(props: {
       redirect("/login");
     }
 
-    const { data: profile } = await supabase
+    const authUserId = authData.user.id;
+    const authEmail = authData.user.email || "";
+    const authFullName =
+      (authData.user.user_metadata?.full_name as string | undefined) ||
+      authEmail.split("@")[0] ||
+      "Team member";
+
+    let { data: profile } = await supabase
       .from("users")
       .select("id")
-      .eq("id", authData.user.id)
+      .eq("id", authUserId)
       .maybeSingle();
+
+    if (!profile) {
+      const { data: emailMatch } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", authEmail)
+        .maybeSingle();
+
+      if (emailMatch?.id) {
+        profile = emailMatch;
+      } else {
+        const { error: insertError } = await supabase.from("users").insert({
+          id: authUserId,
+          email: authEmail,
+          full_name: authFullName,
+          role: "member",
+          status: "active",
+        });
+
+        if (insertError) {
+          redirect(
+            buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
+              error: insertError.message,
+            })
+          );
+        }
+
+        profile = { id: authUserId };
+      }
+    }
 
     if (!profile?.id) {
       redirect(
