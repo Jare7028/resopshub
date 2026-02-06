@@ -6,7 +6,7 @@ import DashboardFilters from "./DashboardFilters";
 const taskStatuses = ["backlog", "in_progress", "blocked", "completed", "cancelled"] as const;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
 const projectActiveStatuses = ["planned", "active", "on_hold"] as const;
-const suggestionStatuses = ["idea", "planned", "completed", "rejected"] as const;
+const suggestionStatuses = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
 
 const rangeOptions = [
   { value: "all", label: "All time" },
@@ -18,6 +18,13 @@ const rangeOptions = [
 function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
+
+const formatSuggestionStatusLabel = (status: string) =>
+  status
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 
 export default async function DashboardPage(props: {
   searchParams?: Promise<{
@@ -549,6 +556,7 @@ export default async function DashboardPage(props: {
   });
 
   const ideasCount = suggestionStatusCounts.get("idea") || 0;
+  const needsCheckingCount = suggestionStatusCounts.get("needs_checking") || 0;
   const plannedCount = suggestionStatusCounts.get("planned") || 0;
   const completedCount = suggestionStatusCounts.get("completed") || 0;
   const rejectedCount = suggestionStatusCounts.get("rejected") || 0;
@@ -571,6 +579,11 @@ export default async function DashboardPage(props: {
     {
       label: "Ideas",
       value: ideasCount.toString(),
+      accent: "text-slate-900",
+    },
+    {
+      label: "Needs checking",
+      value: needsCheckingCount.toString(),
       accent: "text-slate-900",
     },
   ];
@@ -797,6 +810,9 @@ export default async function DashboardPage(props: {
               Idea: {ideasCount}
             </span>
             <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+              Needs checking: {needsCheckingCount}
+            </span>
+            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
               Planned: {plannedCount}
             </span>
             <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
@@ -816,7 +832,7 @@ export default async function DashboardPage(props: {
                   <div className="space-y-1">
                     <p className="font-medium text-slate-900">{idea.title}</p>
                     <p className="text-xs text-slate-500">
-                      {idea.status || "idea"}
+                      {formatSuggestionStatusLabel(idea.status || "idea")}
                     </p>
                   </div>
                   <span className="text-xs font-semibold text-slate-600">

@@ -13,6 +13,13 @@ export default function FeatureSuggestionStatus({
   statusOptions,
   onUpdate,
 }: FeatureSuggestionStatusProps) {
+  const formatStatusLabel = (status: string) =>
+    status
+      .split("_")
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
   return (
     <form action={onUpdate} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="suggestion_id" value={suggestionId} />
@@ -24,7 +31,7 @@ export default function FeatureSuggestionStatus({
       >
         {statusOptions.map((status) => (
           <option key={status} value={status}>
-            {status}
+            {formatStatusLabel(status)}
           </option>
         ))}
       </select>

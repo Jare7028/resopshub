@@ -13,7 +13,14 @@ type SuggestionRow = {
   created_by: string | null;
 };
 
-const statusOptions = ["idea", "planned", "completed", "rejected"] as const;
+const statusOptions = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
+
+const formatStatusLabel = (status: string) =>
+  status
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 
 export default async function FeatureSuggestionsPage(props: {
   searchParams?: Promise<{ error?: string; success?: string; hide?: string; sort?: string }>;
@@ -304,7 +311,7 @@ export default async function FeatureSuggestionsPage(props: {
                         {suggestion.title}
                       </p>
                       <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">
-                        {suggestion.status || "idea"}
+                        {formatStatusLabel(suggestion.status || "idea")}
                       </span>
                     </div>
                     {suggestion.details ? (
