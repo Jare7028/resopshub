@@ -52,4 +52,18 @@ create policy feature_suggestion_comments_insert_own
   for insert
   with check (auth.uid() = user_id);
 
+drop policy if exists feature_suggestion_comments_insert_email on feature_suggestion_comments;
+create policy feature_suggestion_comments_insert_email
+  on feature_suggestion_comments
+  for insert
+  with check (
+    auth.uid() is not null
+    and exists (
+      select 1
+      from users u
+      where u.id = feature_suggestion_comments.user_id
+        and u.email = auth.email()
+    )
+  );
+
 grant select, insert on feature_suggestion_comments to authenticated;
