@@ -6,7 +6,7 @@ import ProjectInlineRow from "./ProjectInlineRow";
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
 
 export default async function ProjectsPage(props: {
-  searchParams?: Promise<{ client?: string; status?: string; error?: string }>;
+  searchParams?: Promise<{ client?: string; status?: string; hide?: string; error?: string }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
@@ -24,6 +24,7 @@ export default async function ProjectsPage(props: {
   const isAdmin = currentUser?.role === "admin";
   const selectedClient = (searchParams?.client || "").trim();
   const selectedStatus = (searchParams?.status || "").trim();
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const returnParams = new URLSearchParams();
 
   if (selectedClient && selectedClient !== "all") {
@@ -34,7 +35,12 @@ export default async function ProjectsPage(props: {
     returnParams.set("status", selectedStatus);
   }
 
+  returnParams.set("hide", hideCompleted ? "1" : "0");
+
   const returnTo = returnParams.toString() ? `/projects?${returnParams}` : "/projects";
+  const toggleParams = new URLSearchParams(returnParams);
+  toggleParams.set("hide", hideCompleted ? "0" : "1");
+  const toggleUrl = toggleParams.toString() ? `/projects?${toggleParams}` : "/projects";
 
   const { data: clients } = await supabase
     .from("clients")
@@ -52,6 +58,9 @@ export default async function ProjectsPage(props: {
 
   if (selectedStatus && selectedStatus !== "all") {
     request = request.eq("status", selectedStatus);
+  }
+  if (hideCompleted) {
+    request = request.not("status", "in", "(completed,cancelled)");
   }
 
   let projects: Array<{
@@ -155,6 +164,7 @@ export default async function ProjectsPage(props: {
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Filters</h2>
         <form className="mt-4 grid gap-4 md:grid-cols-3">
+          <input type="hidden" name="hide" value={hideCompleted ? "1" : "0"} />
           <select
             name="client"
             defaultValue={selectedClient || "all"}
@@ -189,8 +199,17 @@ export default async function ProjectsPage(props: {
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
+          <a
+            href={toggleUrl}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            aria-pressed={hideCompleted}
+          >
+            {hideCompleted
+              ? "Show completed & cancelled"
+              : "Hide completed & cancelled"}
+          </a>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
