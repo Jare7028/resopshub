@@ -102,7 +102,7 @@ export default function ProjectTaskInlineRow({
               </span>
             </button>
             {assigneeOpen ? (
-              <div className="absolute z-10 mt-1 w-full min-w-[16rem] rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+              <div className="absolute z-10 mt-1 w-full min-w-[16rem] max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg">
                 {users?.length ? (
                   users.map((user) => (
                     <label
