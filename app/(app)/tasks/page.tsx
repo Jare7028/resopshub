@@ -6,6 +6,7 @@ import { extractPlainText } from "@/lib/tiptapText";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "./TasksView";
 import TasksFilters from "./TasksFilters";
+import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
 
 const statusOptions = [
   "backlog",
@@ -509,22 +510,11 @@ export default async function TasksPage(props: {
                 );
               })}
             </select>
-            <div className="md:col-span-2 grid gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Assignees
-              </label>
-              <select
+            <div className="md:col-span-2 relative">
+              <AssigneeMultiSelect
+                users={users || []}
                 name="assignee_user_ids"
-                multiple
-                className="h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                {users?.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.full_name || user.email}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-400">Hold Ctrl/Cmd to select multiple.</p>
+              />
             </div>
             <select
               name="status"

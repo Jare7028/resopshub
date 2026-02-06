@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import ProjectTaskInlineRow from "./ProjectTaskInlineRow";
+import AssigneeMultiSelect from "@/app/(app)/tasks/_components/AssigneeMultiSelect";
 
 const statusOptions = [
   "backlog",
@@ -280,22 +281,11 @@ export default async function ProjectTasksPage(props: {
               </option>
             ))}
           </select>
-          <div className="grid gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Assignees
-            </label>
-            <select
+          <div className="relative">
+            <AssigneeMultiSelect
+              users={users || []}
               name="assignee_user_ids"
-              multiple
-              className="h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              {users?.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name || user.email}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-slate-400">Hold Ctrl/Cmd to select multiple.</p>
+            />
           </div>
           <select
             name="status"
