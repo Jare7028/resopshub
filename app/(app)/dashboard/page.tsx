@@ -1,5 +1,7 @@
 ﻿import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
+import DashboardFilters from "./DashboardFilters";
 
 const taskStatuses = ["backlog", "in_progress", "blocked", "completed", "cancelled"] as const;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
@@ -60,12 +62,51 @@ export default async function DashboardPage(props: {
     );
   }
 
-  const selectedRange = (searchParams?.range || "all").trim();
-  const selectedClient = (searchParams?.client || "all").trim();
-  const selectedProject = (searchParams?.project || "all").trim();
-  const selectedUser = (searchParams?.user || "all").trim();
-  const selectedStatus = (searchParams?.status || "all").trim();
-  const selectedPriority = (searchParams?.priority || "all").trim();
+  const cookieStore = await cookies();
+  const savedFilters = (() => {
+    const raw = cookieStore.get("resopshub_dashboard_filters")?.value;
+    if (!raw) return {};
+    try {
+      return JSON.parse(decodeURIComponent(raw)) as Record<string, unknown>;
+    } catch {
+      try {
+        return JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    }
+  })();
+
+  const getSaved = (key: string) => {
+    const value = savedFilters[key];
+    return typeof value === "string" ? value : undefined;
+  };
+
+  let selectedRange = (searchParams?.range ?? getSaved("range") ?? "all").trim();
+  let selectedClient = (searchParams?.client ?? getSaved("client") ?? "all").trim();
+  let selectedProject = (searchParams?.project ?? getSaved("project") ?? "all").trim();
+  let selectedUser = (searchParams?.user ?? getSaved("user") ?? "all").trim();
+  let selectedStatus = (searchParams?.status ?? getSaved("status") ?? "all").trim();
+  let selectedPriority = (searchParams?.priority ?? getSaved("priority") ?? "all").trim();
+
+  const allowedRangeValues = new Set<string>(
+    rangeOptions.map((option) => option.value)
+  );
+  if (!allowedRangeValues.has(selectedRange)) {
+    selectedRange = "all";
+  }
+  if (
+    selectedStatus !== "all" &&
+    !taskStatuses.includes(selectedStatus as (typeof taskStatuses)[number])
+  ) {
+    selectedStatus = "all";
+  }
+  if (
+    selectedPriority !== "all" &&
+    !taskPriorities.includes(selectedPriority as (typeof taskPriorities)[number])
+  ) {
+    selectedPriority = "all";
+  }
 
   const { data: clients } = await supabase
     .from("clients")
@@ -110,6 +151,21 @@ export default async function DashboardPage(props: {
     .from("users")
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
+
+  const clientIdSet = new Set((clients || []).map((client) => client.id));
+  if (selectedClient !== "all" && !clientIdSet.has(selectedClient)) {
+    selectedClient = "all";
+  }
+
+  const projectIdSet = new Set((projects || []).map((project) => project.id));
+  if (selectedProject !== "all" && !projectIdSet.has(selectedProject)) {
+    selectedProject = "all";
+  }
+
+  const userIdSet = new Set((users || []).map((user) => user.id));
+  if (selectedUser !== "all" && !userIdSet.has(selectedUser)) {
+    selectedUser = "all";
+  }
 
   const now = new Date();
   const todayIso = toIsoDate(now);
@@ -542,85 +598,22 @@ export default async function DashboardPage(props: {
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <form className="grid gap-3 md:grid-cols-6">
-          <select
-            name="range"
-            defaultValue={selectedRange}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            {rangeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            name="client"
-            defaultValue={selectedClient}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All clients</option>
-            {clients?.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-          <select
-            name="project"
-            defaultValue={selectedProject}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All projects</option>
-            {projects?.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <select
-            name="user"
-            defaultValue={selectedUser}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All users</option>
-            {users?.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.full_name || user.email}
-              </option>
-            ))}
-          </select>
-          <select
-            name="status"
-            defaultValue={selectedStatus}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All statuses</option>
-            {taskStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status.replace("_", " ")}
-              </option>
-            ))}
-          </select>
-          <select
-            name="priority"
-            defaultValue={selectedPriority}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All priorities</option>
-            {taskPriorities.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-          >
-            Apply filters
-          </button>
-        </form>
+        <DashboardFilters
+          rangeOptions={rangeOptions}
+          clients={clients || []}
+          projects={projects || []}
+          users={users || []}
+          statusOptions={taskStatuses}
+          priorityOptions={taskPriorities}
+          initialFilters={{
+            range: selectedRange,
+            client: selectedClient,
+            project: selectedProject,
+            user: selectedUser,
+            status: selectedStatus,
+            priority: selectedPriority,
+          }}
+        />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
