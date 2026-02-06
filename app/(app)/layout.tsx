@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import PersonalNavSections from "./PersonalNavSections";
+import NotificationBell from "./_components/NotificationBell";
 
 const navLinks = [
   { href: "/dashboard", label: "Dashboard" },
@@ -107,14 +108,17 @@ export default async function AppLayout({
               <p className="text-sm text-slate-500">Signed in as</p>
               <p className="text-sm font-semibold text-slate-900">{email}</p>
             </div>
-            <form action={signOut}>
-              <button
-                type="submit"
-                className="text-sm font-semibold text-slate-700 hover:text-slate-900"
-              >
-                Sign out
-              </button>
-            </form>
+            <div className="flex items-center gap-3">
+              <NotificationBell userId={user.id} />
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                >
+                  Sign out
+                </button>
+              </form>
+            </div>
           </header>
           <main className="flex-1 px-6 py-8">{children}</main>
         </div>
