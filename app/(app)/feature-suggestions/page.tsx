@@ -38,13 +38,36 @@ export default async function FeatureSuggestionsPage(props: {
 
   const { data: currentUser } = await supabase
     .from("users")
-    .select("id,full_name,email")
+    .select("id,full_name,email,role")
     .eq("email", authEmail)
     .maybeSingle();
 
   if (!currentUser?.id) {
     redirect("/tasks?error=Missing%20user%20profile");
   }
+
+  const isAdmin = currentUser.role === "admin";
+
+  const baseParams = new URLSearchParams();
+  baseParams.set("hide", hideCompleted ? "1" : "0");
+  if (selectedSort && selectedSort !== "latest") {
+    baseParams.set("sort", selectedSort);
+  }
+  const buildReturnUrl = (message?: { error?: string; success?: string }) => {
+    const params = new URLSearchParams(baseParams.toString());
+    if (message?.error) {
+      params.set("error", message.error);
+      params.delete("success");
+    }
+    if (message?.success) {
+      params.set("success", message.success);
+      params.delete("error");
+    }
+    const query = params.toString();
+    return query ? `/feature-suggestions?${query}` : "/feature-suggestions";
+  };
+
+  const returnTo = buildReturnUrl();
 
   let suggestionsQuery = supabase
     .from("feature_suggestions")
@@ -81,7 +104,7 @@ export default async function FeatureSuggestionsPage(props: {
     const details = String(formData.get("details") || "").trim();
 
     if (!title) {
-      redirect("/feature-suggestions?error=Title%20is%20required");
+      redirect(buildReturnUrl({ error: "Title is required" }));
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -98,7 +121,7 @@ export default async function FeatureSuggestionsPage(props: {
       .maybeSingle();
 
     if (!user?.id) {
-      redirect("/feature-suggestions?error=Missing%20user%20profile");
+      redirect(buildReturnUrl({ error: "Missing user profile" }));
     }
 
     const { error } = await supabase.from("feature_suggestions").insert({
@@ -108,11 +131,11 @@ export default async function FeatureSuggestionsPage(props: {
     });
 
     if (error) {
-      redirect(`/feature-suggestions?error=${encodeURIComponent(error.message)}`);
+      redirect(buildReturnUrl({ error: error.message }));
     }
 
     revalidatePath("/feature-suggestions");
-    redirect("/feature-suggestions?success=Suggestion%20submitted");
+    redirect(buildReturnUrl({ success: "Suggestion submitted" }));
   }
 
   async function toggleVote(formData: FormData) {
@@ -121,7 +144,7 @@ export default async function FeatureSuggestionsPage(props: {
     const suggestionId = String(formData.get("suggestion_id") || "").trim();
 
     if (!suggestionId) {
-      redirect("/feature-suggestions?error=Missing%20suggestion%20id");
+      redirect(buildReturnUrl({ error: "Missing suggestion id" }));
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -138,7 +161,7 @@ export default async function FeatureSuggestionsPage(props: {
       .maybeSingle();
 
     if (!user?.id) {
-      redirect("/feature-suggestions?error=Missing%20user%20profile");
+      redirect(buildReturnUrl({ error: "Missing user profile" }));
     }
 
     const { data: existing } = await supabase
@@ -156,7 +179,7 @@ export default async function FeatureSuggestionsPage(props: {
         .eq("user_id", user.id);
 
       if (error) {
-        redirect(`/feature-suggestions?error=${encodeURIComponent(error.message)}`);
+        redirect(buildReturnUrl({ error: error.message }));
       }
     } else {
       const { error } = await supabase.from("feature_suggestion_votes").insert({
@@ -165,12 +188,12 @@ export default async function FeatureSuggestionsPage(props: {
       });
 
       if (error) {
-        redirect(`/feature-suggestions?error=${encodeURIComponent(error.message)}`);
+        redirect(buildReturnUrl({ error: error.message }));
       }
     }
 
     revalidatePath("/feature-suggestions");
-    redirect("/feature-suggestions");
+    redirect(returnTo);
   }
 
   async function updateStatus(formData: FormData) {
@@ -180,11 +203,11 @@ export default async function FeatureSuggestionsPage(props: {
     const status = String(formData.get("status") || "").trim();
 
     if (!suggestionId || !status) {
-      redirect("/feature-suggestions?error=Missing%20status%20update");
+      redirect(buildReturnUrl({ error: "Missing status update" }));
     }
 
     if (!statusOptions.includes(status as (typeof statusOptions)[number])) {
-      redirect("/feature-suggestions?error=Invalid%20status");
+      redirect(buildReturnUrl({ error: "Invalid status" }));
     }
 
     const { error } = await supabase
@@ -193,11 +216,77 @@ export default async function FeatureSuggestionsPage(props: {
       .eq("id", suggestionId);
 
     if (error) {
-      redirect(`/feature-suggestions?error=${encodeURIComponent(error.message)}`);
+      redirect(buildReturnUrl({ error: error.message }));
     }
 
     revalidatePath("/feature-suggestions");
-    redirect("/feature-suggestions");
+    redirect(returnTo);
+  }
+
+  async function updateSuggestion(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const suggestionId = String(formData.get("suggestion_id") || "").trim();
+    const title = String(formData.get("title") || "").trim();
+    const details = String(formData.get("details") || "").trim();
+
+    if (!suggestionId) {
+      redirect(buildReturnUrl({ error: "Missing suggestion id" }));
+    }
+
+    if (!title) {
+      redirect(buildReturnUrl({ error: "Title is required" }));
+    }
+
+    const { data: authData } = await supabase.auth.getUser();
+    const authEmail = authData.user?.email;
+    if (!authEmail) {
+      redirect("/login");
+    }
+
+    const { data: editorUser } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", authEmail)
+      .maybeSingle();
+
+    if (!editorUser?.id) {
+      redirect(buildReturnUrl({ error: "Missing user profile" }));
+    }
+
+    const { data: existing, error: existingError } = await supabase
+      .from("feature_suggestions")
+      .select("id,created_by")
+      .eq("id", suggestionId)
+      .maybeSingle();
+
+    if (existingError) {
+      redirect(buildReturnUrl({ error: existingError.message }));
+    }
+
+    if (!existing?.id) {
+      redirect(buildReturnUrl({ error: "Suggestion not found" }));
+    }
+
+    const canEdit = editorUser.role === "admin" || existing.created_by === editorUser.id;
+    if (!canEdit) {
+      redirect(buildReturnUrl({ error: "Not allowed to edit this idea" }));
+    }
+
+    const { error } = await supabase
+      .from("feature_suggestions")
+      .update({
+        title,
+        details: details || null,
+      })
+      .eq("id", suggestionId);
+
+    if (error) {
+      redirect(buildReturnUrl({ error: error.message }));
+    }
+
+    revalidatePath("/feature-suggestions");
+    redirect(buildReturnUrl({ success: "Saved" }));
   }
 
   let suggestionRows = (suggestions || []) as SuggestionRow[];
@@ -328,6 +417,38 @@ export default async function FeatureSuggestionsPage(props: {
                       statusOptions={statusOptions}
                       onUpdate={updateStatus}
                     />
+                    {isAdmin || suggestion.created_by === currentUser.id ? (
+                      <details className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <summary className="cursor-pointer select-none text-xs font-semibold text-slate-700">
+                          Edit idea
+                        </summary>
+                        <form action={updateSuggestion} className="mt-3 grid gap-3">
+                          <input
+                            type="hidden"
+                            name="suggestion_id"
+                            value={suggestion.id}
+                          />
+                          <input
+                            name="title"
+                            defaultValue={suggestion.title}
+                            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                            required
+                          />
+                          <textarea
+                            name="details"
+                            rows={4}
+                            defaultValue={suggestion.details || ""}
+                            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          />
+                          <button
+                            type="submit"
+                            className="w-fit rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                          >
+                            Save changes
+                          </button>
+                        </form>
+                      </details>
+                    ) : null}
                   </div>
                   <form action={toggleVote} className="flex items-center gap-3">
                     <input
