@@ -2,6 +2,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import DashboardFilters from "./DashboardFilters";
+import { parseCsvParam } from "@/lib/queryParams";
 
 const taskStatuses = ["backlog", "in_progress", "blocked", "completed", "cancelled"] as const;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
@@ -29,11 +30,11 @@ const formatSuggestionStatusLabel = (status: string) =>
 export default async function DashboardPage(props: {
   searchParams?: Promise<{
     range?: string;
-    client?: string;
-    project?: string;
-    user?: string;
-    status?: string;
-    priority?: string;
+    client?: string | string[];
+    project?: string | string[];
+    user?: string | string[];
+    status?: string | string[];
+    priority?: string | string[];
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -90,11 +91,33 @@ export default async function DashboardPage(props: {
   };
 
   let selectedRange = (searchParams?.range ?? getSaved("range") ?? "all").trim();
-  let selectedClient = (searchParams?.client ?? getSaved("client") ?? "all").trim();
-  let selectedProject = (searchParams?.project ?? getSaved("project") ?? "all").trim();
-  let selectedUser = (searchParams?.user ?? getSaved("user") ?? "all").trim();
-  let selectedStatus = (searchParams?.status ?? getSaved("status") ?? "all").trim();
-  let selectedPriority = (searchParams?.priority ?? getSaved("priority") ?? "all").trim();
+
+  const getSavedList = (key: string) => parseCsvParam(savedFilters[key]);
+
+  const selectedClientIds =
+    searchParams?.client !== undefined
+      ? parseCsvParam(searchParams.client)
+      : getSavedList("client");
+
+  const selectedProjectIds =
+    searchParams?.project !== undefined
+      ? parseCsvParam(searchParams.project)
+      : getSavedList("project");
+
+  const selectedUserIds =
+    searchParams?.user !== undefined
+      ? parseCsvParam(searchParams.user)
+      : getSavedList("user");
+
+  let selectedStatuses =
+    searchParams?.status !== undefined
+      ? parseCsvParam(searchParams.status)
+      : getSavedList("status");
+
+  let selectedPriorities =
+    searchParams?.priority !== undefined
+      ? parseCsvParam(searchParams.priority)
+      : getSavedList("priority");
 
   const allowedRangeValues = new Set<string>(
     rangeOptions.map((option) => option.value)
@@ -102,18 +125,14 @@ export default async function DashboardPage(props: {
   if (!allowedRangeValues.has(selectedRange)) {
     selectedRange = "all";
   }
-  if (
-    selectedStatus !== "all" &&
-    !taskStatuses.includes(selectedStatus as (typeof taskStatuses)[number])
-  ) {
-    selectedStatus = "all";
-  }
-  if (
-    selectedPriority !== "all" &&
-    !taskPriorities.includes(selectedPriority as (typeof taskPriorities)[number])
-  ) {
-    selectedPriority = "all";
-  }
+
+  selectedStatuses = selectedStatuses.filter((status) =>
+    taskStatuses.includes(status as (typeof taskStatuses)[number])
+  );
+
+  selectedPriorities = selectedPriorities.filter((priority) =>
+    taskPriorities.includes(priority as (typeof taskPriorities)[number])
+  );
 
   const { data: clients } = await supabase
     .from("clients")
@@ -160,19 +179,13 @@ export default async function DashboardPage(props: {
     .order("full_name", { ascending: true });
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
-  if (selectedClient !== "all" && !clientIdSet.has(selectedClient)) {
-    selectedClient = "all";
-  }
+  const filteredClientIds = selectedClientIds.filter((id) => clientIdSet.has(id));
 
   const projectIdSet = new Set((projects || []).map((project) => project.id));
-  if (selectedProject !== "all" && !projectIdSet.has(selectedProject)) {
-    selectedProject = "all";
-  }
+  const filteredProjectIds = selectedProjectIds.filter((id) => projectIdSet.has(id));
 
   const userIdSet = new Set((users || []).map((user) => user.id));
-  if (selectedUser !== "all" && !userIdSet.has(selectedUser)) {
-    selectedUser = "all";
-  }
+  const filteredUserIds = selectedUserIds.filter((id) => userIdSet.has(id));
 
   const now = new Date();
   const todayIso = toIsoDate(now);
@@ -206,10 +219,7 @@ export default async function DashboardPage(props: {
     clients?: { id?: string | null; name?: string | null } | { id?: string | null; name?: string | null }[] | null;
   }> = [];
 
-  const canQueryTasks =
-    isAdmin ||
-    (assignedProjectIds.length > 0 &&
-      (selectedProject === "all" || assignedProjectIdSet.has(selectedProject)));
+  const canQueryTasks = isAdmin || assignedProjectIds.length > 0;
 
   if (canQueryTasks) {
     let tasksQuery = supabase
@@ -219,24 +229,24 @@ export default async function DashboardPage(props: {
       )
       .is("parent_task_id", null);
 
-    if (selectedClient !== "all") {
-      tasksQuery = tasksQuery.eq("client_id", selectedClient);
+    if (filteredClientIds.length) {
+      tasksQuery = tasksQuery.in("client_id", filteredClientIds);
     }
 
-    if (selectedProject !== "all") {
-      tasksQuery = tasksQuery.eq("project_id", selectedProject);
+    if (filteredProjectIds.length) {
+      tasksQuery = tasksQuery.in("project_id", filteredProjectIds);
     }
 
-    if (selectedUser !== "all") {
-      tasksQuery = tasksQuery.eq("assignee_user_id", selectedUser);
+    if (filteredUserIds.length) {
+      tasksQuery = tasksQuery.in("assignee_user_id", filteredUserIds);
     }
 
-    if (selectedStatus !== "all") {
-      tasksQuery = tasksQuery.eq("status", selectedStatus);
+    if (selectedStatuses.length) {
+      tasksQuery = tasksQuery.in("status", selectedStatuses);
     }
 
-    if (selectedPriority !== "all") {
-      tasksQuery = tasksQuery.eq("priority", selectedPriority);
+    if (selectedPriorities.length) {
+      tasksQuery = tasksQuery.in("priority", selectedPriorities);
     }
 
     if (rangeStart) {
@@ -271,10 +281,10 @@ export default async function DashboardPage(props: {
   );
 
   const filteredProjects = activeProjects.filter((project) => {
-    if (selectedClient !== "all" && project.client_id !== selectedClient) {
+    if (filteredClientIds.length && !filteredClientIds.includes(project.client_id || "")) {
       return false;
     }
-    if (selectedProject !== "all" && project.id !== selectedProject) {
+    if (filteredProjectIds.length && !filteredProjectIds.includes(project.id)) {
       return false;
     }
     return true;
@@ -495,16 +505,16 @@ export default async function DashboardPage(props: {
     .order("created_at", { ascending: false })
     .limit(6);
 
-  if (selectedClient !== "all") {
-    activityQuery = activityQuery.eq("client_id", selectedClient);
+  if (filteredClientIds.length) {
+    activityQuery = activityQuery.in("client_id", filteredClientIds);
   }
 
-  if (selectedProject !== "all") {
-    activityQuery = activityQuery.eq("project_id", selectedProject);
+  if (filteredProjectIds.length) {
+    activityQuery = activityQuery.in("project_id", filteredProjectIds);
   }
 
-  if (selectedUser !== "all") {
-    activityQuery = activityQuery.eq("assignee_user_id", selectedUser);
+  if (filteredUserIds.length) {
+    activityQuery = activityQuery.in("assignee_user_id", filteredUserIds);
   }
 
   if (rangeStart) {
@@ -620,11 +630,11 @@ export default async function DashboardPage(props: {
           priorityOptions={taskPriorities}
           initialFilters={{
             range: selectedRange,
-            client: selectedClient,
-            project: selectedProject,
-            user: selectedUser,
-            status: selectedStatus,
-            priority: selectedPriority,
+            client: filteredClientIds,
+            project: filteredProjectIds,
+            user: filteredUserIds,
+            status: selectedStatuses,
+            priority: selectedPriorities,
           }}
         />
       </section>

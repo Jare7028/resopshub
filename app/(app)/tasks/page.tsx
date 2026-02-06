@@ -3,7 +3,9 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "./TasksView";
+import TasksFilters from "./TasksFilters";
 
 const statusOptions = [
   "backlog",
@@ -23,12 +25,12 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function TasksPage(props: {
   searchParams?: Promise<{
-    status?: string;
-    priority?: string;
-    assignee?: string;
+    status?: string | string[];
+    priority?: string | string[];
+    assignee?: string | string[];
     due?: string;
-    client?: string;
-    project?: string;
+    client?: string | string[];
+    project?: string | string[];
     hide?: string;
     error?: string;
     success?: string;
@@ -36,45 +38,28 @@ export default async function TasksPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const selectedStatus = (searchParams?.status || "all").trim();
-  const selectedPriority = (searchParams?.priority || "all").trim();
-  const selectedAssignee = (searchParams?.assignee || "all").trim();
-  const selectedDue = (searchParams?.due || "all").trim();
-  const selectedClient = (searchParams?.client || "all").trim();
-  const selectedProject = (searchParams?.project || "all").trim();
+
+  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
+  const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
+  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
+  const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
+  const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
+  let selectedDue = (searchParams?.due || "all").trim();
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
-  const returnParams = new URLSearchParams();
 
-  if (selectedStatus !== "all") {
-    returnParams.set("status", selectedStatus);
+  const allowedDueValues = new Set<string>(
+    dueDateFilters.map((filter) => filter.value)
+  );
+  if (!allowedDueValues.has(selectedDue)) {
+    selectedDue = "all";
   }
 
-  if (selectedPriority !== "all") {
-    returnParams.set("priority", selectedPriority);
-  }
-
-  if (selectedAssignee !== "all") {
-    returnParams.set("assignee", selectedAssignee);
-  }
-
-  if (selectedDue !== "all") {
-    returnParams.set("due", selectedDue);
-  }
-
-  if (selectedClient !== "all") {
-    returnParams.set("client", selectedClient);
-  }
-
-  if (selectedProject !== "all") {
-    returnParams.set("project", selectedProject);
-  }
-
-  returnParams.set("hide", hideCompleted ? "1" : "0");
-
-  const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
-  const toggleParams = new URLSearchParams(returnParams);
-  toggleParams.set("hide", hideCompleted ? "0" : "1");
-  const toggleUrl = toggleParams.toString() ? `/tasks?${toggleParams}` : "/tasks";
+  const selectedStatuses = selectedStatusesRaw.filter((status) =>
+    statusOptions.includes(status as (typeof statusOptions)[number])
+  );
+  const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
+    priorityOptions.includes(priority as (typeof priorityOptions)[number])
+  );
 
   const { data: users } = await supabase
     .from("users")
@@ -91,6 +76,33 @@ export default async function TasksPage(props: {
     .select("id,name,client_id,clients(name)")
     .order("name", { ascending: true });
 
+  const userIdSet = new Set((users || []).map((user) => user.id));
+  const selectedAssignees = selectedAssigneesRaw.filter(
+    (value) => value === "unassigned" || userIdSet.has(value)
+  );
+
+  const clientIdSet = new Set((clients || []).map((client) => client.id));
+  const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
+
+  const projectIdSet = new Set((projects || []).map((project) => project.id));
+  const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
+
+  const returnParams = new URLSearchParams();
+  setCsvParam(returnParams, "status", selectedStatuses);
+  setCsvParam(returnParams, "priority", selectedPriorities);
+  setCsvParam(returnParams, "assignee", selectedAssignees);
+  if (selectedDue !== "all") {
+    returnParams.set("due", selectedDue);
+  }
+  setCsvParam(returnParams, "client", selectedClientIds);
+  setCsvParam(returnParams, "project", selectedProjectIds);
+  returnParams.set("hide", hideCompleted ? "1" : "0");
+
+  const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
+  const toggleParams = new URLSearchParams(returnParams);
+  toggleParams.set("hide", hideCompleted ? "0" : "1");
+  const toggleUrl = toggleParams.toString() ? `/tasks?${toggleParams}` : "/tasks";
+
   let request = supabase
     .from("tasks")
     .select(
@@ -99,29 +111,38 @@ export default async function TasksPage(props: {
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
 
-  if (selectedStatus !== "all") {
-    request = request.eq("status", selectedStatus);
+  if (selectedStatuses.length) {
+    request = request.in("status", selectedStatuses);
   }
 
-  if (selectedPriority !== "all") {
-    request = request.eq("priority", selectedPriority);
+  if (selectedPriorities.length) {
+    request = request.in("priority", selectedPriorities);
   }
 
-  if (selectedAssignee === "unassigned") {
+  const wantsUnassigned = selectedAssignees.includes("unassigned");
+  const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
+
+  if (wantsUnassigned && selectedAssigneeIds.length) {
+    request = request.or(
+      `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
+    );
+  } else if (wantsUnassigned) {
     request = request.is("assignee_user_id", null);
-  } else if (selectedAssignee !== "all") {
-    request = request.eq("assignee_user_id", selectedAssignee);
+  } else if (selectedAssigneeIds.length) {
+    request = request.in("assignee_user_id", selectedAssigneeIds);
   }
 
-  if (selectedClient !== "all") {
-    request = request.eq("client_id", selectedClient);
+  if (selectedClientIds.length) {
+    request = request.in("client_id", selectedClientIds);
   }
 
-  if (selectedProject !== "all") {
-    request = request.eq("project_id", selectedProject);
+  if (selectedProjectIds.length) {
+    request = request.in("project_id", selectedProjectIds);
   }
 
-  if (hideCompleted) {
+  const wantsCompletedStatuses =
+    selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+  if (hideCompleted && !wantsCompletedStatuses) {
     request = request.not("status", "in", "(completed,cancelled)");
   }
 
@@ -464,90 +485,23 @@ export default async function TasksPage(props: {
           Filters
         </summary>
         <div className="border-t border-slate-200 px-6 pb-6">
-          <form className="mt-4 grid gap-4 md:grid-cols-6">
-            <select
-              name="status"
-              defaultValue={selectedStatus}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="all">All statuses</option>
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status.replace("_", " ")}
-                </option>
-              ))}
-            </select>
-            <select
-              name="priority"
-              defaultValue={selectedPriority}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="all">All priorities</option>
-              {priorityOptions.map((priority) => (
-                <option key={priority} value={priority}>
-                  {priority}
-                </option>
-              ))}
-            </select>
-            <select
-              name="assignee"
-              defaultValue={selectedAssignee}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="all">All assignees</option>
-              <option value="unassigned">Unassigned</option>
-              {users?.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name || user.email}
-                </option>
-              ))}
-            </select>
-            <select
-              name="due"
-              defaultValue={selectedDue}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              {dueDateFilters.map((filter) => (
-                <option key={filter.value} value={filter.value}>
-                  {filter.label}
-                </option>
-              ))}
-            </select>
-            <select
-              name="client"
-              defaultValue={selectedClient}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="all">All clients</option>
-              {clients?.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
-            <select
-              name="project"
-              defaultValue={selectedProject}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="all">All projects</option>
-              {projects?.map((project) => {
-                const projectClientName = getRelationName(project.clients, "");
-                return (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                    {projectClientName ? ` - ${projectClientName}` : ""}
-                  </option>
-                );
-              })}
-            </select>
-            <button
-              type="submit"
-              className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-            >
-              Apply filters
-            </button>
-          </form>
+          <TasksFilters
+            statusOptions={statusOptions}
+            priorityOptions={priorityOptions}
+            dueOptions={dueDateFilters}
+            users={users || []}
+            clients={clients || []}
+            projects={projects || []}
+            hideCompleted={hideCompleted}
+            initialFilters={{
+              status: selectedStatuses,
+              priority: selectedPriorities,
+              assignee: selectedAssignees,
+              due: selectedDue,
+              client: selectedClientIds,
+              project: selectedProjectIds,
+            }}
+          />
         </div>
       </details>
 

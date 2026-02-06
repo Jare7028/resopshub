@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import MultiSelect from "../_components/MultiSelect";
 
 type RangeOption = { value: string; label: string };
 type ClientOption = { id: string; name: string };
@@ -10,11 +11,11 @@ type UserOption = { id: string; full_name: string | null; email: string | null }
 
 type DashboardFiltersState = {
   range: string;
-  client: string;
-  project: string;
-  user: string;
-  status: string;
-  priority: string;
+  client: string[];
+  project: string[];
+  user: string[];
+  status: string[];
+  priority: string[];
 };
 
 const COOKIE_NAME = "resopshub_dashboard_filters";
@@ -22,11 +23,11 @@ const COOKIE_NAME = "resopshub_dashboard_filters";
 function buildQuery(filters: DashboardFiltersState) {
   const params = new URLSearchParams();
   if (filters.range && filters.range !== "all") params.set("range", filters.range);
-  if (filters.client && filters.client !== "all") params.set("client", filters.client);
-  if (filters.project && filters.project !== "all") params.set("project", filters.project);
-  if (filters.user && filters.user !== "all") params.set("user", filters.user);
-  if (filters.status && filters.status !== "all") params.set("status", filters.status);
-  if (filters.priority && filters.priority !== "all") params.set("priority", filters.priority);
+  if (filters.client.length) params.set("client", filters.client.join(","));
+  if (filters.project.length) params.set("project", filters.project.join(","));
+  if (filters.user.length) params.set("user", filters.user.join(","));
+  if (filters.status.length) params.set("status", filters.status.join(","));
+  if (filters.priority.length) params.set("priority", filters.priority.join(","));
   return params.toString();
 }
 
@@ -84,8 +85,8 @@ export default function DashboardFilters({
   );
 
   const update = useCallback(
-    <K extends keyof DashboardFiltersState>(key: K, value: string) => {
-      const next = { ...filters, [key]: value };
+    <K extends keyof DashboardFiltersState>(key: K, value: DashboardFiltersState[K]) => {
+      const next = { ...filters, [key]: value } as DashboardFiltersState;
       setFilters(next);
       apply(next);
     },
@@ -115,75 +116,49 @@ export default function DashboardFilters({
         ))}
       </select>
 
-      <select
-        name="client"
-        value={filters.client}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => update("client", event.target.value)}
-      >
-        <option value="all">All clients</option>
-        {clients.map((client) => (
-          <option key={client.id} value={client.id}>
-            {client.name}
-          </option>
-        ))}
-      </select>
+      <MultiSelect
+        options={clients.map((client) => ({ value: client.id, label: client.name }))}
+        selectedValues={filters.client}
+        placeholder="All clients"
+        onChange={(next) => update("client", next)}
+      />
 
-      <select
-        name="project"
-        value={filters.project}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => update("project", event.target.value)}
-      >
-        <option value="all">All projects</option>
-        {projects.map((project) => (
-          <option key={project.id} value={project.id}>
-            {project.name}
-          </option>
-        ))}
-      </select>
+      <MultiSelect
+        options={projects.map((project) => ({ value: project.id, label: project.name }))}
+        selectedValues={filters.project}
+        placeholder="All projects"
+        onChange={(next) => update("project", next)}
+      />
 
-      <select
-        name="user"
-        value={filters.user}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => update("user", event.target.value)}
-      >
-        <option value="all">All users</option>
-        {users.map((user) => (
-          <option key={user.id} value={user.id}>
-            {user.full_name || user.email}
-          </option>
-        ))}
-      </select>
+      <MultiSelect
+        options={users.map((user) => ({
+          value: user.id,
+          label: user.full_name || user.email || "Unnamed user",
+        }))}
+        selectedValues={filters.user}
+        placeholder="All users"
+        onChange={(next) => update("user", next)}
+      />
 
-      <select
-        name="status"
-        value={filters.status}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => update("status", event.target.value)}
-      >
-        <option value="all">All statuses</option>
-        {statusOptions.map((status) => (
-          <option key={status} value={status}>
-            {status.replace("_", " ")}
-          </option>
-        ))}
-      </select>
+      <MultiSelect
+        options={statusOptions.map((status) => ({
+          value: status,
+          label: status.replace("_", " "),
+        }))}
+        selectedValues={filters.status}
+        placeholder="All statuses"
+        onChange={(next) => update("status", next)}
+      />
 
-      <select
-        name="priority"
-        value={filters.priority}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => update("priority", event.target.value)}
-      >
-        <option value="all">All priorities</option>
-        {priorityOptions.map((priority) => (
-          <option key={priority} value={priority}>
-            {priority}
-          </option>
-        ))}
-      </select>
+      <MultiSelect
+        options={priorityOptions.map((priority) => ({
+          value: priority,
+          label: priority,
+        }))}
+        selectedValues={filters.priority}
+        placeholder="All priorities"
+        onChange={(next) => update("priority", next)}
+      />
     </form>
   );
 }
