@@ -13,6 +13,14 @@ type SuggestionRow = {
   created_by: string | null;
 };
 
+type SuggestionCommentRow = {
+  id: string;
+  suggestion_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+};
+
 const statusOptions = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
 
 const formatStatusLabel = (status: string) =>
@@ -40,7 +48,13 @@ function buildFeatureSuggestionsReturnUrl(
 }
 
 export default async function FeatureSuggestionsPage(props: {
-  searchParams?: Promise<{ error?: string; success?: string; hide?: string; sort?: string }>;
+  searchParams?: Promise<{
+    error?: string;
+    success?: string;
+    hide?: string;
+    sort?: string;
+    open?: string;
+  }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
@@ -48,6 +62,7 @@ export default async function FeatureSuggestionsPage(props: {
   const authEmail = authData.user?.email;
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const selectedSort = (searchParams?.sort || "latest").trim();
+  const openCommentsForSuggestionId = (searchParams?.open || "").trim();
 
   if (!authEmail) {
     redirect("/login");
@@ -84,9 +99,17 @@ export default async function FeatureSuggestionsPage(props: {
 
   const { data: suggestions, error: suggestionsError } = await suggestionsQuery;
 
-  const { data: votes } = await supabase
-    .from("feature_suggestion_votes")
-    .select("suggestion_id,user_id");
+  let suggestionRows = (suggestions || []) as SuggestionRow[];
+  const suggestionIds = suggestionRows.map((row) => row.id);
+
+  const votes: { suggestion_id: string; user_id: string }[] = suggestionIds.length
+    ? ((
+        await supabase
+          .from("feature_suggestion_votes")
+          .select("suggestion_id,user_id")
+          .in("suggestion_id", suggestionIds)
+      ).data as { suggestion_id: string; user_id: string }[]) || []
+    : [];
 
   const voteCounts = new Map<string, number>();
   const userVotes = new Set<string>();
@@ -98,6 +121,32 @@ export default async function FeatureSuggestionsPage(props: {
     );
     if (vote.user_id === currentUser.id) {
       userVotes.add(vote.suggestion_id);
+    }
+  });
+
+  const comments: SuggestionCommentRow[] = suggestionIds.length
+    ? ((
+        await supabase
+          .from("feature_suggestion_comments")
+          .select("id,suggestion_id,user_id,body,created_at")
+          .in("suggestion_id", suggestionIds)
+          .order("created_at", { ascending: true })
+      ).data as SuggestionCommentRow[]) || []
+    : [];
+
+  const commentCounts = new Map<string, number>();
+  const commentsBySuggestionId = new Map<string, SuggestionCommentRow[]>();
+
+  (comments || []).forEach((comment) => {
+    commentCounts.set(
+      comment.suggestion_id,
+      (commentCounts.get(comment.suggestion_id) || 0) + 1
+    );
+    const existing = commentsBySuggestionId.get(comment.suggestion_id);
+    if (existing) {
+      existing.push(comment);
+    } else {
+      commentsBySuggestionId.set(comment.suggestion_id, [comment]);
     }
   });
 
@@ -353,21 +402,23 @@ export default async function FeatureSuggestionsPage(props: {
     redirect(buildFeatureSuggestionsReturnUrl(returnBaseQuery, { success: "Saved" }));
   }
 
-  let suggestionRows = (suggestions || []) as SuggestionRow[];
-  const authorIds = Array.from(
+  const userIds = Array.from(
     new Set(
-      suggestionRows.map((row) => row.created_by).filter(Boolean) as string[]
+      [
+        ...suggestionRows.map((row) => row.created_by).filter(Boolean),
+        ...comments.map((comment) => comment.user_id).filter(Boolean),
+      ] as string[]
     )
   );
-  const authorMap = new Map<string, { full_name?: string | null; email?: string | null }>();
+  const userMap = new Map<string, { full_name?: string | null; email?: string | null }>();
 
-  if (authorIds.length) {
-    const { data: authors } = await supabase
+  if (userIds.length) {
+    const { data: users } = await supabase
       .from("users")
       .select("id,full_name,email")
-      .in("id", authorIds);
-    (authors || []).forEach((author) => {
-      authorMap.set(author.id, { full_name: author.full_name, email: author.email });
+      .in("id", userIds);
+    (users || []).forEach((user) => {
+      userMap.set(user.id, { full_name: user.full_name, email: user.email });
     });
   }
 
@@ -380,6 +431,71 @@ export default async function FeatureSuggestionsPage(props: {
       }
       return a.created_at < b.created_at ? 1 : -1;
     });
+  }
+
+  async function createComment(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const suggestionId = String(formData.get("suggestion_id") || "").trim();
+    const body = String(formData.get("body") || "").trim();
+
+    const params = new URLSearchParams(returnBaseQuery);
+    if (suggestionId) {
+      params.set("open", suggestionId);
+    }
+    const baseQueryWithOpen = params.toString();
+
+    if (!suggestionId) {
+      redirect(
+        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
+          error: "Missing suggestion id",
+        })
+      );
+    }
+
+    if (!body) {
+      redirect(
+        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
+          error: "Comment is required",
+        })
+      );
+    }
+
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user?.id) {
+      redirect("/login");
+    }
+
+    const { data: profile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+
+    if (!profile?.id) {
+      redirect(
+        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
+          error: "Missing user profile",
+        })
+      );
+    }
+
+    const { error } = await supabase.from("feature_suggestion_comments").insert({
+      suggestion_id: suggestionId,
+      user_id: profile.id,
+      body,
+    });
+
+    if (error) {
+      redirect(
+        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, { error: error.message })
+      );
+    }
+
+    revalidatePath("/feature-suggestions");
+    redirect(
+      buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, { success: "Comment added" })
+    );
   }
 
   return (
@@ -453,9 +569,12 @@ export default async function FeatureSuggestionsPage(props: {
               const votesForSuggestion = voteCounts.get(suggestion.id) || 0;
               const hasVoted = userVotes.has(suggestion.id);
               const author = suggestion.created_by
-                ? authorMap.get(suggestion.created_by)
+                ? userMap.get(suggestion.created_by)
                 : null;
               const authorName = author?.full_name || author?.email || "Unknown";
+              const commentCount = commentCounts.get(suggestion.id) || 0;
+              const suggestionComments =
+                commentsBySuggestionId.get(suggestion.id) || [];
               return (
                 <div key={suggestion.id} className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
@@ -465,6 +584,9 @@ export default async function FeatureSuggestionsPage(props: {
                       </p>
                       <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">
                         {formatStatusLabel(suggestion.status || "idea")}
+                      </span>
+                      <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                        {commentCount} comment{commentCount === 1 ? "" : "s"}
                       </span>
                     </div>
                     {suggestion.details ? (
@@ -481,6 +603,66 @@ export default async function FeatureSuggestionsPage(props: {
                       statusOptions={statusOptions}
                       onUpdate={updateStatus}
                     />
+                    <details
+                      open={openCommentsForSuggestionId === suggestion.id}
+                      className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <summary className="cursor-pointer select-none text-xs font-semibold text-slate-700">
+                        Comments ({commentCount})
+                      </summary>
+                      <div className="mt-3 space-y-3">
+                        {suggestionComments.length ? (
+                          <div className="space-y-2">
+                            {suggestionComments.map((comment) => {
+                              const commenter = userMap.get(comment.user_id);
+                              const commenterName =
+                                commenter?.full_name ||
+                                commenter?.email ||
+                                "Unknown";
+                              return (
+                                <div
+                                  key={comment.id}
+                                  className="rounded-md border border-slate-200 bg-white p-3"
+                                >
+                                  <p className="text-xs text-slate-500">
+                                    {commenterName} ·{" "}
+                                    {new Date(comment.created_at).toLocaleString()}
+                                  </p>
+                                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                                    {comment.body}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-500">
+                            No comments yet.
+                          </p>
+                        )}
+
+                        <form action={createComment} className="grid gap-2">
+                          <input
+                            type="hidden"
+                            name="suggestion_id"
+                            value={suggestion.id}
+                          />
+                          <textarea
+                            name="body"
+                            rows={3}
+                            placeholder="Add a comment..."
+                            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                            required
+                          />
+                          <button
+                            type="submit"
+                            className="w-fit rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                          >
+                            Add comment
+                          </button>
+                        </form>
+                      </div>
+                    </details>
                     {isAdmin || suggestion.created_by === currentUser.id ? (
                       <details className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
                         <summary className="cursor-pointer select-none text-xs font-semibold text-slate-700">
