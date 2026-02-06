@@ -109,6 +109,7 @@ export default async function SearchPage(props: {
   );
 
   let results: SearchResult[] = [];
+  let searchError: string | null = null;
 
   if (query) {
     const { data: authData } = await supabase.auth.getUser();
@@ -126,7 +127,7 @@ export default async function SearchPage(props: {
       );
     }
 
-    const { data } = await supabase.rpc("search_notes", {
+    const { data, error } = await supabase.rpc("search_notes", {
       query_text: query,
       filter_type: typeFilter,
       filter_section_id: sectionId,
@@ -134,7 +135,119 @@ export default async function SearchPage(props: {
       result_limit: 60,
     });
 
-    results = (data || []) as SearchResult[];
+    if (error) {
+      searchError = error.message;
+    } else {
+      results = (data || []) as SearchResult[];
+    }
+
+    if (searchError) {
+      const fallbackResults: SearchResult[] = [];
+      const likeQuery = `%${query}%`;
+
+      if (typeFilter === "all" || typeFilter === "personal") {
+        let personalQuery = supabase
+          .from("personal_pages")
+          .select("id,title,content_text,updated_at,last_edited_at,section_id,personal_sections(title)")
+          .order("updated_at", { ascending: false })
+          .limit(60);
+
+        if (sectionId) {
+          personalQuery = personalQuery.eq("section_id", sectionId);
+        }
+
+        personalQuery = personalQuery.or(
+          `title.ilike.${likeQuery},content_text.ilike.${likeQuery}`
+        );
+
+        const { data: personalData } = await personalQuery;
+        const personalRows =
+          (personalData as Array<{
+            id: string;
+            title: string;
+            content_text: string | null;
+            updated_at: string | null;
+            last_edited_at: string | null;
+            personal_sections?: { title?: string | null } | { title?: string | null }[] | null;
+          }> | null) || [];
+
+        personalRows.forEach((row) => {
+          const sectionTitle = Array.isArray(row.personal_sections)
+            ? row.personal_sections[0]?.title
+            : row.personal_sections?.title;
+          fallbackResults.push({
+            result_type: "personal",
+            result_id: row.id,
+            title: row.title,
+            content_text: row.content_text,
+            rank: null,
+            section_title: sectionTitle || "General",
+            client_name: null,
+            project_name: null,
+            updated_at: row.updated_at,
+            last_edited_at: row.last_edited_at,
+          });
+        });
+      }
+
+      if (typeFilter === "all" || typeFilter === "task") {
+        let taskQuery = supabase
+          .from("tasks")
+          .select("id,title,content_text,updated_at,last_edited_at,client_id,project_id,clients(name),projects(name)")
+          .order("updated_at", { ascending: false })
+          .limit(60);
+
+        if (clientId) {
+          taskQuery = taskQuery.eq("client_id", clientId);
+        }
+
+        taskQuery = taskQuery.or(
+          `title.ilike.${likeQuery},content_text.ilike.${likeQuery}`
+        );
+
+        const { data: taskData } = await taskQuery;
+        const taskRows =
+          (taskData as Array<{
+            id: string;
+            title: string;
+            content_text: string | null;
+            updated_at: string | null;
+            last_edited_at: string | null;
+            clients?: { name?: string | null } | { name?: string | null }[] | null;
+            projects?: { name?: string | null } | { name?: string | null }[] | null;
+          }> | null) || [];
+
+        taskRows.forEach((row) => {
+          const clientName = Array.isArray(row.clients)
+            ? row.clients[0]?.name
+            : row.clients?.name;
+          const projectName = Array.isArray(row.projects)
+            ? row.projects[0]?.name
+            : row.projects?.name;
+          fallbackResults.push({
+            result_type: "task",
+            result_id: row.id,
+            title: row.title,
+            content_text: row.content_text,
+            rank: null,
+            section_title: null,
+            client_name: clientName || null,
+            project_name: projectName || null,
+            updated_at: row.updated_at,
+            last_edited_at: row.last_edited_at,
+          });
+        });
+      }
+
+      fallbackResults.sort((a, b) => {
+        const aDate = a.last_edited_at || a.updated_at || "";
+        const bDate = b.last_edited_at || b.updated_at || "";
+        if (aDate === bDate) return 0;
+        return aDate < bDate ? 1 : -1;
+      });
+
+      results = fallbackResults.slice(0, 60);
+    }
   }
 
   const { data: recentHistory } = await supabase
@@ -255,6 +368,12 @@ export default async function SearchPage(props: {
               Results ({results.length})
             </h2>
           </div>
+          {searchError ? (
+            <div className="border-b border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-700">
+              Search index is not configured. Showing fallback results. Run
+              `search_rank.sql` in Supabase to enable full-text search.
+            </div>
+          ) : null}
           <div className="divide-y divide-slate-200">
             {results.length ? (
               results.map((result) => {
