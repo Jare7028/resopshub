@@ -6,11 +6,13 @@ import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import ProjectTaskInlineRow from "./ProjectTaskInlineRow";
 import AssigneeMultiSelect from "@/app/(app)/tasks/_components/AssigneeMultiSelect";
+import RecurrenceFields from "@/app/(app)/tasks/_components/RecurrenceFields";
 import {
   DEFAULT_RECURRENCE_TZ,
-  firstMondayOnOrAfter,
+  getFirstOccurrence,
   formatYmdInTimeZone,
   getNextOccurrence,
+  type RecurrenceConfig,
 } from "@/lib/recurrence";
 
 const statusOptions = [
@@ -118,7 +120,19 @@ export default async function ProjectTasksPage(props: {
       .map((value) => String(value).trim())
       .filter(Boolean);
     const parentTaskId = String(formData.get("parent_task_id") || "");
-    const recurrenceRule = String(formData.get("recurrence_rule") || "").trim();
+    const recurrenceFrequency = String(formData.get("recurrence_frequency") || "").trim();
+    const recurrenceInterval = Number(formData.get("recurrence_interval") || 1) || 1;
+    const recurrenceStartRaw = String(formData.get("recurrence_start_date") || "").trim();
+    const recurrenceEndRaw = String(formData.get("recurrence_end_date") || "").trim();
+    const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
+    const recurrenceMonthMode = String(formData.get("recurrence_month_mode") || "day");
+    const recurrenceMonthDay = Number(formData.get("recurrence_month_day") || 0) || null;
+    const recurrenceMonthWeek = Number(formData.get("recurrence_month_week") || 0) || null;
+    const recurrenceMonthWeekday = Number(formData.get("recurrence_month_weekday") || 0) || null;
+    const recurrenceWeekdays = formData
+      .getAll("recurrence_weekdays")
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value));
 
     if (!title) {
       redirect(`/projects/${projectId}/tasks?error=Title%20is%20required`);
@@ -128,14 +142,43 @@ export default async function ProjectTasksPage(props: {
       assigneeIds.find((value) => value !== "unassigned") ||
       (assigneeUserId || "");
 
+    let recurrenceConfig: RecurrenceConfig | null = null;
     let recurrenceNextDate: string | null = null;
-    if (recurrenceRule === "monthly:first_monday") {
+    if (recurrenceFrequency) {
       const today = formatYmdInTimeZone(new Date(), DEFAULT_RECURRENCE_TZ);
-      const firstOccurrence = dueDate || firstMondayOnOrAfter(today);
-      if (!dueDate) {
+      const startDate = recurrenceStartRaw || dueDate || today;
+      const endDate = recurrenceEndRaw || null;
+      const monthDay =
+        recurrenceMonthMode === "day"
+          ? recurrenceMonthDay || Number(startDate.split("-")[2])
+          : null;
+      const monthWeek = recurrenceMonthMode === "weekday" ? recurrenceMonthWeek : null;
+      const monthWeekday =
+        recurrenceMonthMode === "weekday"
+          ? recurrenceMonthWeekday
+          : null;
+
+      recurrenceConfig = {
+        frequency: recurrenceFrequency as RecurrenceConfig["frequency"],
+        interval: Math.max(recurrenceInterval, 1),
+        startDate,
+        endDate,
+        weekdays: recurrenceWeekdays.length ? recurrenceWeekdays : null,
+        monthDay,
+        monthWeek,
+        monthWeekday,
+      };
+
+      const firstOccurrence = dueDate || getFirstOccurrence(recurrenceConfig);
+      if (!dueDate && firstOccurrence) {
         dueDate = firstOccurrence;
       }
-      recurrenceNextDate = getNextOccurrence(recurrenceRule, firstOccurrence);
+      if (firstOccurrence) {
+        recurrenceNextDate = getNextOccurrence(recurrenceConfig, firstOccurrence);
+        if (endDate && recurrenceNextDate && recurrenceNextDate > endDate) {
+          recurrenceNextDate = null;
+        }
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -151,8 +194,16 @@ export default async function ProjectTasksPage(props: {
       content_text: defaultContentText,
     };
 
-    if (recurrenceRule && recurrenceNextDate) {
-      payload.recurrence_rule = recurrenceRule;
+    if (recurrenceConfig && recurrenceNextDate) {
+      payload.recurrence_frequency = recurrenceConfig.frequency;
+      payload.recurrence_interval = recurrenceConfig.interval;
+      payload.recurrence_weekdays = recurrenceConfig.weekdays;
+      payload.recurrence_month_day = recurrenceConfig.monthDay;
+      payload.recurrence_month_week = recurrenceConfig.monthWeek;
+      payload.recurrence_month_weekday = recurrenceConfig.monthWeekday;
+      payload.recurrence_start_date = recurrenceConfig.startDate;
+      payload.recurrence_end_date = recurrenceConfig.endDate;
+      payload.recurrence_lead_days = recurrenceLeadDays;
       payload.recurrence_next_date = recurrenceNextDate;
       payload.recurrence_timezone = DEFAULT_RECURRENCE_TZ;
     }
@@ -332,16 +383,7 @@ export default async function ProjectTasksPage(props: {
               </option>
             ))}
           </select>
-          <select
-            name="recurrence_rule"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue=""
-          >
-            <option value="">No recurrence</option>
-            <option value="monthly:first_monday">
-              First Monday of every month
-            </option>
-          </select>
+          <RecurrenceFields className="md:col-span-6" />
           <input
             type="date"
             name="start_date"

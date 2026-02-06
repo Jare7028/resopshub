@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   DEFAULT_RECURRENCE_TZ,
+  addDaysToYmd,
   formatYmdInTimeZone,
   getNextOccurrence,
+  getFirstOccurrence,
+  type RecurrenceConfig,
 } from "@/lib/recurrence";
 
 export async function GET(request: Request) {
@@ -31,10 +34,10 @@ export async function GET(request: Request) {
   const { data: recurringTasks, error } = await supabase
     .from("tasks")
     .select(
-      "id,title,priority,client_id,project_id,assignee_user_id,content,content_text,recurrence_rule,recurrence_next_date,recurrence_timezone"
+      "id,title,priority,client_id,project_id,assignee_user_id,content,content_text,recurrence_frequency,recurrence_interval,recurrence_weekdays,recurrence_month_day,recurrence_month_week,recurrence_month_weekday,recurrence_start_date,recurrence_end_date,recurrence_lead_days,recurrence_next_date,recurrence_timezone"
     )
-    .not("recurrence_rule", "is", null)
-    .lte("recurrence_next_date", today);
+    .not("recurrence_frequency", "is", null)
+    .not("recurrence_next_date", "is", null);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -66,15 +69,47 @@ export async function GET(request: Request) {
   let createdCount = 0;
 
   for (const task of recurringTasks) {
-    const rule = task.recurrence_rule as string | null;
-    const occurrenceDate = (task.recurrence_next_date as string | null) || today;
-    if (!rule) {
+    const frequency = task.recurrence_frequency as RecurrenceConfig["frequency"] | null;
+    const occurrenceDate = task.recurrence_next_date as string | null;
+    if (!frequency || !occurrenceDate) {
       continue;
     }
 
-    const nextDate = getNextOccurrence(rule, occurrenceDate);
-    if (!nextDate) {
+    const leadDays = (task.recurrence_lead_days as number | null) ?? 7;
+    const triggerDate = addDaysToYmd(occurrenceDate, -leadDays);
+    if (today < triggerDate) {
       continue;
+    }
+
+    const recurrenceStart =
+      (task.recurrence_start_date as string | null) || occurrenceDate;
+    const config: RecurrenceConfig = {
+      frequency,
+      interval: (task.recurrence_interval as number | null) ?? 1,
+      weekdays: (task.recurrence_weekdays as number[] | null) ?? null,
+      monthDay: (task.recurrence_month_day as number | null) ?? null,
+      monthWeek: (task.recurrence_month_week as number | null) ?? null,
+      monthWeekday: (task.recurrence_month_weekday as number | null) ?? null,
+      startDate: recurrenceStart,
+      endDate: (task.recurrence_end_date as string | null) ?? null,
+    };
+
+    const endDate = config.endDate;
+    if (endDate && occurrenceDate > endDate) {
+      await supabase
+        .from("tasks")
+        .update({ recurrence_next_date: null })
+        .eq("id", task.id);
+      continue;
+    }
+
+    let nextDate = getNextOccurrence(config, occurrenceDate);
+    if (!nextDate) {
+      nextDate = getFirstOccurrence(config);
+    }
+
+    if (endDate && nextDate && nextDate > endDate) {
+      nextDate = null;
     }
 
     const { data: created, error: createError } = await supabase
