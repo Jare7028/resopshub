@@ -154,7 +154,6 @@ export default function TasksView({
           <a
             href={toggleUrl}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-            aria-pressed={hideCompleted}
           >
             {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
           </a>

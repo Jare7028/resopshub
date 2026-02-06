@@ -663,7 +663,7 @@ export default function NoteEditorClient({
               ))
             ) : (
               <div className="px-3 py-2 text-xs text-slate-500">
-                No commands match "{slashMenu.query}".
+                No commands match &quot;{slashMenu.query}&quot;.
               </div>
             )}
           </div>

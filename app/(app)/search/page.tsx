@@ -415,7 +415,7 @@ export default async function SearchPage(props: {
               })
             ) : (
               <p className="px-6 py-6 text-sm text-slate-500">
-                No results found for "{query}".
+                No results found for &quot;{query}&quot;.
               </p>
             )}
           </div>

@@ -7,8 +7,6 @@ import { parseCsvParam } from "@/lib/queryParams";
 const taskStatuses = ["backlog", "in_progress", "blocked", "completed", "cancelled"] as const;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
 const projectActiveStatuses = ["planned", "active", "on_hold"] as const;
-const suggestionStatuses = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
-
 const rangeOptions = [
   { value: "all", label: "All time" },
   { value: "7d", label: "Last 7 days" },
@@ -149,8 +147,6 @@ export default async function DashboardPage(props: {
       .map((assignment) => assignment.project_id)
       .filter(Boolean) as string[];
   }
-  const assignedProjectIdSet = new Set(assignedProjectIds);
-
   let projects: Array<{
     id: string;
     name: string;

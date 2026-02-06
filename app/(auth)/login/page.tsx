@@ -112,7 +112,7 @@ export default async function LoginPage(props: {
       <div className="rounded-md border border-slate-200 bg-white p-4">
         <p className="text-sm font-semibold text-slate-900">Forgot password?</p>
         <p className="mt-1 text-xs text-slate-600">
-          Enter your email and we'll send a reset link.
+          Enter your email and we&apos;ll send a reset link.
         </p>
         <form action={sendPasswordReset} className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input
@@ -132,7 +132,7 @@ export default async function LoginPage(props: {
       </div>
 
       <p className="text-xs text-slate-500">
-        If you see "Email logins are disabled", enable Email auth in Supabase.
+        If you see &quot;Email logins are disabled&quot;, enable Email auth in Supabase.
       </p>
     </div>
   );

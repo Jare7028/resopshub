@@ -66,7 +66,7 @@ export default async function ClientProjectsPage(props: {
     end_date: string | null;
   }> = [];
 
-  let projectsQuery = supabase
+  const projectsQuery = supabase
     .from("projects")
     .select("id,name,status,start_date,end_date")
     .eq("client_id", clientId)

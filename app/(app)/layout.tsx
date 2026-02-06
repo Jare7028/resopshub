@@ -1,4 +1,5 @@
-﻿import Link from "next/link";
+import Link from "next/link";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import PersonalNavSections from "./PersonalNavSections";
@@ -80,7 +81,13 @@ export default async function AppLayout({
         <aside className="w-64 border-r app-border app-surface">
           <div className="px-6 py-6">
             <Link href="/clients" className="flex items-center">
-              <img src="/logo.png" alt="ResOpsHub" className="h-8 w-auto" />
+              <Image
+                src="/logo.png"
+                alt="ResOpsHub"
+                width={128}
+                height={32}
+                className="h-8 w-auto"
+              />
             </Link>
           </div>
           <nav className="px-3">
@@ -126,3 +133,4 @@ export default async function AppLayout({
     </div>
   );
 }
+

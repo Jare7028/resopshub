@@ -250,7 +250,7 @@ export default async function TasksPage(props: {
     const clientIdRaw = String(formData.get("client_id") || "").trim();
     const projectIdRaw = String(formData.get("project_id") || "").trim();
     let clientId = clientIdRaw || null;
-    let projectId = projectIdRaw || null;
+    const projectId = projectIdRaw || null;
 
     if (!title) {
       const errorUrl = returnTo.includes("?")
