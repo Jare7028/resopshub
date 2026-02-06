@@ -42,6 +42,7 @@ type TasksViewProps = {
   users: UserOption[];
   clients: ClientOption[];
   projects: ProjectOption[];
+  assigneesByTask: Record<string, string[]>;
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   onUpdate: (formData: FormData) => void;
@@ -85,6 +86,7 @@ export default function TasksView({
   users,
   clients,
   projects,
+  assigneesByTask,
   statusOptions,
   priorityOptions,
   onUpdate,
@@ -193,7 +195,7 @@ export default function TasksView({
                 <th className="px-6 py-3">Project</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3">Priority</th>
-                <th className="px-6 py-3">Assignee</th>
+                <th className="px-6 py-3">Assignees</th>
                 <th className="px-6 py-3">Start</th>
                 <th className="px-6 py-3">Due</th>
               </tr>
@@ -204,6 +206,7 @@ export default function TasksView({
                   <TaskInlineRow
                     key={task.id}
                     task={task}
+                    assigneeUserIds={assigneesByTask[task.id] || []}
                     users={users}
                     clients={clients}
                     projects={projects}

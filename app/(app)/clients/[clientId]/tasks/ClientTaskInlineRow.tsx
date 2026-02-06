@@ -27,6 +27,7 @@ type TaskRow = {
 
 type ClientTaskInlineRowProps = {
   task: TaskRow;
+  assigneeUserIds: string[];
   users: UserOption[];
   projects: ProjectOption[];
   statusOptions: readonly string[];
@@ -36,6 +37,7 @@ type ClientTaskInlineRowProps = {
 
 export default function ClientTaskInlineRow({
   task,
+  assigneeUserIds,
   users,
   projects,
   statusOptions,
@@ -80,13 +82,13 @@ export default function ClientTaskInlineRow({
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
           <select
-            name="assignee_user_id"
-            aria-label="Assignee"
-            defaultValue={task.assignee_user_id || ""}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+            name="assignee_user_ids"
+            aria-label="Assignees"
+            multiple
+            defaultValue={assigneeUserIds}
+            className="h-24 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
             onChange={handleChange}
           >
-            <option value="">Unassigned</option>
             {users?.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.full_name || user.email}

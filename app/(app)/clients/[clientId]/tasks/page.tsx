@@ -54,6 +54,29 @@ export default async function ClientTasksPage(props: {
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
 
+  const taskIds = (tasks || []).map((task) => task.id).filter(Boolean);
+  const assigneesByTask: Record<string, string[]> = {};
+  if (taskIds.length) {
+    const { data: assigneeRows } = await supabase
+      .from("task_assignees")
+      .select("task_id,user_id")
+      .in("task_id", taskIds);
+    (assigneeRows || []).forEach((row) => {
+      if (!assigneesByTask[row.task_id]) {
+        assigneesByTask[row.task_id] = [];
+      }
+      assigneesByTask[row.task_id].push(row.user_id);
+    });
+  }
+  (tasks || []).forEach((task) => {
+    if (!assigneesByTask[task.id]) {
+      assigneesByTask[task.id] = [];
+    }
+    if (task.assignee_user_id && !assigneesByTask[task.id].includes(task.assignee_user_id)) {
+      assigneesByTask[task.id].push(task.assignee_user_id);
+    }
+  });
+
   async function createTask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -133,6 +156,10 @@ export default async function ClientTasksPage(props: {
     const status = String(formData.get("status") || "").trim();
     const priority = String(formData.get("priority") || "").trim();
     const assignee = String(formData.get("assignee_user_id") || "").trim();
+    const assigneeIds = formData
+      .getAll("assignee_user_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
     const startDate = String(formData.get("start_date") || "").trim();
     const dueDate = String(formData.get("due_date") || "").trim();
     const updates: Record<string, string | null> = {};
@@ -158,6 +185,23 @@ export default async function ClientTasksPage(props: {
       updates.assignee_user_id = assignee || null;
     }
 
+    if (formData.has("assignee_user_ids")) {
+      const uniqueIds = Array.from(new Set(assigneeIds));
+      await supabase.from("task_assignees").delete().eq("task_id", taskId);
+      if (uniqueIds.length) {
+        const inserts = uniqueIds.map((userId) => ({
+          task_id: taskId,
+          user_id: userId,
+        }));
+        const { error: assigneeError } = await supabase
+          .from("task_assignees")
+          .insert(inserts);
+        if (assigneeError) {
+          redirect(`${returnTo}?error=${encodeURIComponent(assigneeError.message)}`);
+        }
+      }
+      updates.assignee_user_id = uniqueIds[0] || null;
+    }
     if (formData.has("start_date")) {
       updates.start_date = startDate || null;
     }
@@ -304,6 +348,7 @@ export default async function ClientTasksPage(props: {
                   <ClientTaskInlineRow
                     key={task.id}
                     task={task}
+                    assigneeUserIds={assigneesByTask[task.id] || []}
                     users={users || []}
                     projects={projects || []}
                     statusOptions={statusOptions}
