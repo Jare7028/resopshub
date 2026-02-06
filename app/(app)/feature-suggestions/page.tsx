@@ -22,6 +22,23 @@ const formatStatusLabel = (status: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
+function buildFeatureSuggestionsReturnUrl(
+  baseQuery: string,
+  message?: { error?: string; success?: string }
+) {
+  const params = new URLSearchParams(baseQuery);
+  if (message?.error) {
+    params.set("error", message.error);
+    params.delete("success");
+  }
+  if (message?.success) {
+    params.set("success", message.success);
+    params.delete("error");
+  }
+  const query = params.toString();
+  return query ? `/feature-suggestions?${query}` : "/feature-suggestions";
+}
+
 export default async function FeatureSuggestionsPage(props: {
   searchParams?: Promise<{ error?: string; success?: string; hide?: string; sort?: string }>;
 }) {
@@ -53,21 +70,8 @@ export default async function FeatureSuggestionsPage(props: {
   if (selectedSort && selectedSort !== "latest") {
     baseParams.set("sort", selectedSort);
   }
-  const buildReturnUrl = (message?: { error?: string; success?: string }) => {
-    const params = new URLSearchParams(baseParams.toString());
-    if (message?.error) {
-      params.set("error", message.error);
-      params.delete("success");
-    }
-    if (message?.success) {
-      params.set("success", message.success);
-      params.delete("error");
-    }
-    const query = params.toString();
-    return query ? `/feature-suggestions?${query}` : "/feature-suggestions";
-  };
-
-  const returnTo = buildReturnUrl();
+  const returnBaseQuery = baseParams.toString();
+  const returnTo = buildFeatureSuggestionsReturnUrl(returnBaseQuery);
 
   let suggestionsQuery = supabase
     .from("feature_suggestions")
@@ -104,7 +108,11 @@ export default async function FeatureSuggestionsPage(props: {
     const details = String(formData.get("details") || "").trim();
 
     if (!title) {
-      redirect(buildReturnUrl({ error: "Title is required" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Title is required",
+        })
+      );
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -121,7 +129,11 @@ export default async function FeatureSuggestionsPage(props: {
       .maybeSingle();
 
     if (!user?.id) {
-      redirect(buildReturnUrl({ error: "Missing user profile" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Missing user profile",
+        })
+      );
     }
 
     const { error } = await supabase.from("feature_suggestions").insert({
@@ -131,11 +143,17 @@ export default async function FeatureSuggestionsPage(props: {
     });
 
     if (error) {
-      redirect(buildReturnUrl({ error: error.message }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
+      );
     }
 
     revalidatePath("/feature-suggestions");
-    redirect(buildReturnUrl({ success: "Suggestion submitted" }));
+    redirect(
+      buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+        success: "Suggestion submitted",
+      })
+    );
   }
 
   async function toggleVote(formData: FormData) {
@@ -144,7 +162,11 @@ export default async function FeatureSuggestionsPage(props: {
     const suggestionId = String(formData.get("suggestion_id") || "").trim();
 
     if (!suggestionId) {
-      redirect(buildReturnUrl({ error: "Missing suggestion id" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Missing suggestion id",
+        })
+      );
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -161,7 +183,11 @@ export default async function FeatureSuggestionsPage(props: {
       .maybeSingle();
 
     if (!user?.id) {
-      redirect(buildReturnUrl({ error: "Missing user profile" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Missing user profile",
+        })
+      );
     }
 
     const { data: existing } = await supabase
@@ -179,7 +205,9 @@ export default async function FeatureSuggestionsPage(props: {
         .eq("user_id", user.id);
 
       if (error) {
-        redirect(buildReturnUrl({ error: error.message }));
+        redirect(
+          buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
+        );
       }
     } else {
       const { error } = await supabase.from("feature_suggestion_votes").insert({
@@ -188,7 +216,9 @@ export default async function FeatureSuggestionsPage(props: {
       });
 
       if (error) {
-        redirect(buildReturnUrl({ error: error.message }));
+        redirect(
+          buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
+        );
       }
     }
 
@@ -203,11 +233,17 @@ export default async function FeatureSuggestionsPage(props: {
     const status = String(formData.get("status") || "").trim();
 
     if (!suggestionId || !status) {
-      redirect(buildReturnUrl({ error: "Missing status update" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Missing status update",
+        })
+      );
     }
 
     if (!statusOptions.includes(status as (typeof statusOptions)[number])) {
-      redirect(buildReturnUrl({ error: "Invalid status" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: "Invalid status" })
+      );
     }
 
     const { error } = await supabase
@@ -216,7 +252,9 @@ export default async function FeatureSuggestionsPage(props: {
       .eq("id", suggestionId);
 
     if (error) {
-      redirect(buildReturnUrl({ error: error.message }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
+      );
     }
 
     revalidatePath("/feature-suggestions");
@@ -231,11 +269,19 @@ export default async function FeatureSuggestionsPage(props: {
     const details = String(formData.get("details") || "").trim();
 
     if (!suggestionId) {
-      redirect(buildReturnUrl({ error: "Missing suggestion id" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Missing suggestion id",
+        })
+      );
     }
 
     if (!title) {
-      redirect(buildReturnUrl({ error: "Title is required" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Title is required",
+        })
+      );
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -251,7 +297,11 @@ export default async function FeatureSuggestionsPage(props: {
       .maybeSingle();
 
     if (!editorUser?.id) {
-      redirect(buildReturnUrl({ error: "Missing user profile" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Missing user profile",
+        })
+      );
     }
 
     const { data: existing, error: existingError } = await supabase
@@ -261,16 +311,28 @@ export default async function FeatureSuggestionsPage(props: {
       .maybeSingle();
 
     if (existingError) {
-      redirect(buildReturnUrl({ error: existingError.message }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: existingError.message,
+        })
+      );
     }
 
     if (!existing?.id) {
-      redirect(buildReturnUrl({ error: "Suggestion not found" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Suggestion not found",
+        })
+      );
     }
 
     const canEdit = editorUser.role === "admin" || existing.created_by === editorUser.id;
     if (!canEdit) {
-      redirect(buildReturnUrl({ error: "Not allowed to edit this idea" }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Not allowed to edit this idea",
+        })
+      );
     }
 
     const { error } = await supabase
@@ -282,11 +344,13 @@ export default async function FeatureSuggestionsPage(props: {
       .eq("id", suggestionId);
 
     if (error) {
-      redirect(buildReturnUrl({ error: error.message }));
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
+      );
     }
 
     revalidatePath("/feature-suggestions");
-    redirect(buildReturnUrl({ success: "Saved" }));
+    redirect(buildFeatureSuggestionsReturnUrl(returnBaseQuery, { success: "Saved" }));
   }
 
   let suggestionRows = (suggestions || []) as SuggestionRow[];
