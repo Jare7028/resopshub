@@ -3,6 +3,7 @@ create table if not exists feature_suggestions (
   title text not null,
   details text,
   status text not null default 'idea',
+  type text not null default 'new_feature',
   created_by uuid references users(id) on delete set null,
   created_at timestamp with time zone not null default now()
 );
@@ -18,6 +19,9 @@ create index if not exists feature_suggestion_votes_user_id_idx on feature_sugge
 
 alter table feature_suggestions
   add column if not exists status text not null default 'idea';
+
+alter table feature_suggestions
+  add column if not exists type text not null default 'new_feature';
 
 -- Comments on feature suggestions (visible to all authenticated users).
 create table if not exists feature_suggestion_comments (

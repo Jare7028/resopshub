@@ -9,6 +9,7 @@ type SuggestionRow = {
   title: string;
   details: string | null;
   status: string | null;
+  type: string | null;
   created_at: string;
   created_by: string | null;
 };
@@ -90,7 +91,7 @@ export default async function FeatureSuggestionsPage(props: {
 
   let suggestionsQuery = supabase
     .from("feature_suggestions")
-    .select("id,title,details,status,created_at,created_by")
+    .select("id,title,details,status,type,created_at,created_by")
     .order("created_at", { ascending: false });
 
   if (hideCompleted) {
@@ -155,6 +156,15 @@ export default async function FeatureSuggestionsPage(props: {
     const supabase = createSupabaseServerClient();
     const title = String(formData.get("title") || "").trim();
     const details = String(formData.get("details") || "").trim();
+    const type = String(formData.get("type") || "new_feature").trim();
+
+    if (!["bug", "improvement", "new_feature"].includes(type)) {
+      redirect(
+        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
+          error: "Invalid request type",
+        })
+      );
+    }
 
     if (!title) {
       redirect(
@@ -188,6 +198,7 @@ export default async function FeatureSuggestionsPage(props: {
     const { error } = await supabase.from("feature_suggestions").insert({
       title,
       details: details || null,
+      type,
       created_by: user.id,
     });
 
@@ -575,6 +586,15 @@ export default async function FeatureSuggestionsPage(props: {
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             required
           />
+          <select
+            name="type"
+            defaultValue="new_feature"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="bug">Bug</option>
+            <option value="improvement">Improvement</option>
+            <option value="new_feature">New Feature</option>
+          </select>
           <textarea
             name="details"
             rows={4}
@@ -619,6 +639,9 @@ export default async function FeatureSuggestionsPage(props: {
                       <p className="text-base font-semibold text-slate-900">
                         {suggestion.title}
                       </p>
+                      <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">
+                        {(suggestion.type || "new_feature").replace("_", " ")}
+                      </span>
                       <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">
                         {formatStatusLabel(suggestion.status || "idea")}
                       </span>
