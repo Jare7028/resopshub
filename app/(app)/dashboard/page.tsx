@@ -571,21 +571,27 @@ export default async function DashboardPage(props: {
   const completedCount = suggestionStatusCounts.get("completed") || 0;
   const rejectedCount = suggestionStatusCounts.get("rejected") || 0;
 
-  const snapshotCards = [
+  const taskSnapshotCards = [
     { label: "Open tasks", value: openTasks.length.toString(), accent: "text-slate-900" },
     { label: "Blocked tasks", value: blockedTasks.length.toString(), accent: "text-amber-600" },
     { label: "Overdue tasks", value: overdueTasks.length.toString(), accent: "text-red-600" },
     { label: "Due in 7 days", value: dueSoonTasks.length.toString(), accent: "text-amber-700" },
     {
-      label: "Active projects",
-      value: filteredProjects.length.toString(),
-      accent: "text-slate-900",
-    },
-    {
       label: newTasksLabel,
       value: (tasks || []).length.toString(),
       accent: "text-slate-900",
     },
+  ];
+
+  const projectSnapshotCards = [
+    {
+      label: "Active projects",
+      value: filteredProjects.length.toString(),
+      accent: "text-slate-900",
+    },
+  ];
+
+  const featureSnapshotCards = [
     {
       label: "Ideas",
       value: ideasCount.toString(),
@@ -639,16 +645,63 @@ export default async function DashboardPage(props: {
         />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        {snapshotCards.map((card) => (
-          <div
-            key={card.label}
-            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-          >
-            <p className="text-xs uppercase tracking-wide text-slate-400">{card.label}</p>
-            <p className={`mt-2 text-2xl font-semibold ${card.accent}`}>{card.value}</p>
+      <section className="space-y-6">
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Tasks
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            {taskSnapshotCards.map((card) => (
+              <div
+                key={card.label}
+                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <p className="text-xs uppercase tracking-wide text-slate-400">
+                  {card.label}
+                </p>
+                <p className={`mt-2 text-2xl font-semibold ${card.accent}`}>{card.value}</p>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Projects
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            {projectSnapshotCards.map((card) => (
+              <div
+                key={card.label}
+                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <p className="text-xs uppercase tracking-wide text-slate-400">
+                  {card.label}
+                </p>
+                <p className={`mt-2 text-2xl font-semibold ${card.accent}`}>{card.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Feature Requests
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            {featureSnapshotCards.map((card) => (
+              <div
+                key={card.label}
+                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <p className="text-xs uppercase tracking-wide text-slate-400">
+                  {card.label}
+                </p>
+                <p className={`mt-2 text-2xl font-semibold ${card.accent}`}>{card.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
