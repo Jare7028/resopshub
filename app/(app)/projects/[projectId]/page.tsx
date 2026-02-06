@@ -165,9 +165,9 @@ export default async function ProjectOverviewPage(props: {
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Project access</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Project assignees</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Choose who can see this project.
+          Choose who is assigned to this project.
         </p>
         {users?.length ? (
           <form action={updateProjectAssignments} className="mt-4 space-y-4">
@@ -191,7 +191,7 @@ export default async function ProjectOverviewPage(props: {
               type="submit"
               className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
             >
-              Save access
+              Save assignees
             </button>
           </form>
         ) : (

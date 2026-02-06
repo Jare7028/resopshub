@@ -219,6 +219,10 @@ export default async function TasksPage(props: {
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
     const assigneeUserId = String(formData.get("assignee_user_id") || "");
+    const assigneeIds = formData
+      .getAll("assignee_user_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
     const clientIdRaw = String(formData.get("client_id") || "").trim();
     const projectIdRaw = String(formData.get("project_id") || "").trim();
     let clientId = clientIdRaw || null;
@@ -248,6 +252,10 @@ export default async function TasksPage(props: {
       clientId = project?.client_id || null;
     }
 
+    const primaryAssignee =
+      assigneeIds.find((value) => value !== "unassigned") ||
+      (assigneeUserId || "");
+
     const payload: Record<string, unknown> = {
       client_id: clientId,
       project_id: projectId,
@@ -255,7 +263,7 @@ export default async function TasksPage(props: {
       status,
       priority,
       due_date: dueDate || null,
-      assignee_user_id: assigneeUserId || null,
+      assignee_user_id: primaryAssignee || null,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };
@@ -264,13 +272,39 @@ export default async function TasksPage(props: {
       payload.start_date = startDate;
     }
 
-    const { error } = await supabase.from("tasks").insert(payload);
+    const { data: created, error } = await supabase
+      .from("tasks")
+      .insert(payload)
+      .select("id")
+      .single();
 
     if (error) {
       const errorUrl = returnTo.includes("?")
         ? `${returnTo}&error=${encodeURIComponent(error.message)}`
         : `${returnTo}?error=${encodeURIComponent(error.message)}`;
       redirect(errorUrl);
+    }
+
+    const taskId = created?.id;
+    if (taskId && assigneeIds.length) {
+      const uniqueIds = Array.from(
+        new Set(assigneeIds.filter((value) => value !== "unassigned"))
+      );
+      if (uniqueIds.length) {
+        const inserts = uniqueIds.map((userId) => ({
+          task_id: taskId,
+          user_id: userId,
+        }));
+        const { error: assigneeError } = await supabase
+          .from("task_assignees")
+          .insert(inserts);
+        if (assigneeError) {
+          const errorUrl = returnTo.includes("?")
+            ? `${returnTo}&error=${encodeURIComponent(assigneeError.message)}`
+            : `${returnTo}?error=${encodeURIComponent(assigneeError.message)}`;
+          redirect(errorUrl);
+        }
+      }
     }
 
     revalidatePath("/tasks");
@@ -426,18 +460,23 @@ export default async function TasksPage(props: {
                 );
               })}
             </select>
-            <select
-              name="assignee_user_id"
-              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              defaultValue=""
-            >
-              <option value="">Unassigned</option>
-              {users?.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name || user.email}
-                </option>
-              ))}
-            </select>
+            <div className="md:col-span-2 grid gap-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Assignees
+              </label>
+              <select
+                name="assignee_user_ids"
+                multiple
+                className="h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                {users?.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name || user.email}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400">Hold Ctrl/Cmd to select multiple.</p>
+            </div>
             <select
               name="status"
               className="rounded-md border border-slate-300 px-3 py-2 text-sm"

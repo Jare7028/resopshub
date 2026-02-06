@@ -40,6 +40,7 @@ export default async function TaskDetailPage(props: {
   const taskPriority = task.priority;
   const taskClientId = task.client_id;
   const taskProjectId = task.project_id;
+  const taskAssigneeUserId = task.assignee_user_id;
 
   const getRelationName = (
     relation:
@@ -59,6 +60,17 @@ export default async function TaskDetailPage(props: {
     .from("users")
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
+
+  const { data: taskAssignees } = await supabase
+    .from("task_assignees")
+    .select("user_id")
+    .eq("task_id", taskId);
+  const assignedUserIds = new Set(
+    (taskAssignees || []).map((row) => row.user_id).filter(Boolean)
+  );
+  if (task.assignee_user_id) {
+    assignedUserIds.add(task.assignee_user_id);
+  }
 
   const assigneeMap = new Map(
     users?.map((user) => [user.id, user.full_name || user.email]) || []
@@ -108,6 +120,43 @@ export default async function TaskDetailPage(props: {
 
     revalidatePath(`/tasks/${taskId}`);
     redirect(`/tasks/${taskId}?success=Saved`);
+  }
+
+  async function updateTaskAssignees(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const selectedIds = formData
+      .getAll("assignee_user_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+
+    await supabase.from("task_assignees").delete().eq("task_id", taskId);
+
+    const uniqueIds = Array.from(new Set(selectedIds));
+    if (uniqueIds.length) {
+      const inserts = uniqueIds.map((userId) => ({
+        task_id: taskId,
+        user_id: userId,
+      }));
+      const { error } = await supabase.from("task_assignees").insert(inserts);
+      if (error) {
+        redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
+      }
+    }
+
+    const primaryAssignee = uniqueIds[0] || null;
+    if (primaryAssignee !== taskAssigneeUserId) {
+      const { error: updateError } = await supabase
+        .from("tasks")
+        .update({ assignee_user_id: primaryAssignee })
+        .eq("id", taskId);
+      if (updateError) {
+        redirect(`/tasks/${taskId}?error=${encodeURIComponent(updateError.message)}`);
+      }
+    }
+
+    revalidatePath(`/tasks/${taskId}`);
+    redirect(`/tasks/${taskId}?success=Assignees%20updated`);
   }
 
   async function createSubtask(formData: FormData) {
@@ -242,14 +291,10 @@ export default async function TaskDetailPage(props: {
               </select>
             </div>
             <div className="grid gap-1">
-              <label
-                htmlFor="task-assignee"
-                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Assignee
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Primary assignee
               </label>
               <select
-                id="task-assignee"
                 name="assignee_user_id"
                 defaultValue={task.assignee_user_id || ""}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
@@ -299,6 +344,42 @@ export default async function TaskDetailPage(props: {
               Save task
             </button>
           </form>
+        </div>
+      </details>
+
+      <details className="rounded-lg border border-slate-200 bg-white">
+        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
+          Task assignees
+        </summary>
+        <div className="border-t border-slate-200 px-6 pb-6">
+          {users?.length ? (
+            <form action={updateTaskAssignees} className="mt-4 space-y-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {users.map((user) => (
+                  <label
+                    key={user.id}
+                    className="flex items-center gap-2 text-sm text-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      name="assignee_user_ids"
+                      value={user.id}
+                      defaultChecked={assignedUserIds.has(user.id)}
+                    />
+                    <span>{user.full_name || user.email}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="submit"
+                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+              >
+                Save assignees
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">No users found.</p>
+          )}
         </div>
       </details>
 
