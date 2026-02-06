@@ -76,6 +76,17 @@ export default function TaskInlineRow({
     event.currentTarget.form?.requestSubmit();
   };
 
+  const assigneeLabel = (() => {
+    if (!assigneeUserIds.length) {
+      return "Unassigned";
+    }
+    if (assigneeUserIds.length > 1) {
+      return "Multiple";
+    }
+    const assignee = users.find((user) => user.id === assigneeUserIds[0]);
+    return assignee?.full_name || assignee?.email || "Assigned";
+  })();
+
   return (
     <tr className="border-t border-slate-200">
       <td className="px-6 py-3 font-medium text-slate-900">
@@ -164,20 +175,33 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
-          <select
-            name="assignee_user_ids"
-            aria-label="Assignees"
-            multiple
-            defaultValue={assigneeUserIds}
-            className="h-24 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-            onChange={handleChange}
-          >
-            {users?.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.full_name || user.email}
-              </option>
-            ))}
-          </select>
+          <input type="hidden" name="assignee_user_ids" value="" />
+          <details className="relative">
+            <summary className="w-full cursor-pointer list-none rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700">
+              {assigneeLabel}
+            </summary>
+            <div className="absolute z-10 mt-1 w-56 max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+              {users?.length ? (
+                users.map((user) => (
+                  <label
+                    key={user.id}
+                    className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      name="assignee_user_ids"
+                      value={user.id}
+                      defaultChecked={assigneeUserIds.includes(user.id)}
+                      onChange={handleChange}
+                    />
+                    <span>{user.full_name || user.email}</span>
+                  </label>
+                ))
+              ) : (
+                <p className="px-2 py-1 text-sm text-slate-500">No users</p>
+              )}
+            </div>
+          </details>
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">

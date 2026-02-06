@@ -276,7 +276,29 @@ export default async function DashboardPage(props: {
     (task) => task.due_date && task.due_date >= todayIso && task.due_date <= nextWeekIso
   );
 
-  const activeProjects = (projects || []).filter((project) =>
+  const filteredProjectsAllStatuses = (projects || []).filter((project) => {
+    if (filteredClientIds.length && !filteredClientIds.includes(project.client_id || "")) {
+      return false;
+    }
+    if (filteredProjectIds.length && !filteredProjectIds.includes(project.id)) {
+      return false;
+    }
+    return true;
+  });
+
+  const projectStatusCounts = new Map<string, number>();
+  filteredProjectsAllStatuses.forEach((project) => {
+    const status = project.status || "planned";
+    projectStatusCounts.set(status, (projectStatusCounts.get(status) || 0) + 1);
+  });
+
+  const plannedProjectsCount = projectStatusCounts.get("planned") || 0;
+  const activeProjectsCount = projectStatusCounts.get("active") || 0;
+  const onHoldProjectsCount = projectStatusCounts.get("on_hold") || 0;
+  const completedProjectsCount = projectStatusCounts.get("completed") || 0;
+  const cancelledProjectsCount = projectStatusCounts.get("cancelled") || 0;
+
+  const activeProjects = filteredProjectsAllStatuses.filter((project) =>
     projectActiveStatuses.includes(project.status as (typeof projectActiveStatuses)[number])
   );
 
@@ -585,9 +607,29 @@ export default async function DashboardPage(props: {
 
   const projectSnapshotCards = [
     {
-      label: "Active projects",
-      value: filteredProjects.length.toString(),
+      label: "Planned projects",
+      value: plannedProjectsCount.toString(),
       accent: "text-slate-900",
+    },
+    {
+      label: "Active projects",
+      value: activeProjectsCount.toString(),
+      accent: "text-emerald-600",
+    },
+    {
+      label: "On hold projects",
+      value: onHoldProjectsCount.toString(),
+      accent: "text-amber-700",
+    },
+    {
+      label: "Completed projects",
+      value: completedProjectsCount.toString(),
+      accent: "text-slate-500",
+    },
+    {
+      label: "Cancelled projects",
+      value: cancelledProjectsCount.toString(),
+      accent: "text-rose-500",
     },
   ];
 
@@ -601,6 +643,21 @@ export default async function DashboardPage(props: {
       label: "Needs checking",
       value: needsCheckingCount.toString(),
       accent: "text-slate-900",
+    },
+    {
+      label: "Planned",
+      value: plannedCount.toString(),
+      accent: "text-slate-900",
+    },
+    {
+      label: "Completed",
+      value: completedCount.toString(),
+      accent: "text-slate-500",
+    },
+    {
+      label: "Rejected",
+      value: rejectedCount.toString(),
+      accent: "text-rose-500",
     },
   ];
 
