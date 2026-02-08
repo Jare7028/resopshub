@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isAuthorizedCronRequest } from "@/lib/cron";
 import {
   DEFAULT_RECURRENCE_TZ,
   addDaysToYmd,
@@ -8,15 +9,54 @@ import {
   getFirstOccurrence,
   type RecurrenceConfig,
 } from "@/lib/recurrence";
+import crypto from "node:crypto";
+
+const RECURRENCE_INSTANCE_NAMESPACE = "92a3d19a-19f4-47c2-8f18-7fcbb0f2b0c2";
+
+function uuidToBytes(uuid: string) {
+  const hex = uuid.replace(/-/g, "");
+  if (!/^[0-9a-f]{32}$/i.test(hex)) {
+    throw new Error(`Invalid UUID: ${uuid}`);
+  }
+  return Buffer.from(hex, "hex");
+}
+
+function bytesToUuid(bytes: Uint8Array) {
+  const hex = Buffer.from(bytes).toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(
+    16,
+    20
+  )}-${hex.slice(20)}`;
+}
+
+// Deterministic UUID to make cron re-runs safe (1 template task + 1 due date = 1 instance task id).
+function uuidv5(name: string, namespaceUuid: string) {
+  const namespaceBytes = uuidToBytes(namespaceUuid);
+  const nameBytes = Buffer.from(name, "utf8");
+  const hash = crypto
+    .createHash("sha1")
+    .update(Buffer.concat([namespaceBytes, nameBytes]))
+    .digest();
+
+  const bytes = Buffer.from(hash.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50; // version 5
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+  return bytesToUuid(bytes);
+}
+
+function isDuplicateKeyError(error: { code?: string; message?: string }) {
+  if (error.code === "23505") {
+    return true;
+  }
+  const message = (error.message || "").toLowerCase();
+  return message.includes("duplicate key") || message.includes("already exists");
+}
 
 export async function GET(request: Request) {
-  const isVercelCron = Boolean(request.headers.get("x-vercel-cron"));
-  const cronSecret = process.env.CRON_SECRET;
-  const url = new URL(request.url);
-  const providedSecret = url.searchParams.get("secret");
-  const secretOk = Boolean(cronSecret && providedSecret === cronSecret);
-
-  if (process.env.NODE_ENV === "production" && !isVercelCron && !secretOk) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    !isAuthorizedCronRequest(request)
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -27,8 +67,9 @@ export async function GET(request: Request) {
     );
   }
 
-  const timeZone = DEFAULT_RECURRENCE_TZ;
-  const today = formatYmdInTimeZone(new Date(), timeZone);
+  const defaultTimeZone = DEFAULT_RECURRENCE_TZ;
+  const now = new Date();
+  const todayInDefaultTimeZone = formatYmdInTimeZone(now, defaultTimeZone);
   const supabase = createSupabaseAdminClient();
 
   const { data: recurringTasks, error } = await supabase
@@ -46,8 +87,8 @@ export async function GET(request: Request) {
   if (!recurringTasks?.length) {
     return NextResponse.json({
       ok: true,
-      timeZone,
-      today,
+      timeZone: defaultTimeZone,
+      today: todayInDefaultTimeZone,
       created: 0,
     });
   }
@@ -75,6 +116,10 @@ export async function GET(request: Request) {
       continue;
     }
 
+    const taskTimeZone =
+      (task.recurrence_timezone as string | null) || defaultTimeZone;
+    const today = formatYmdInTimeZone(now, taskTimeZone);
+
     const leadDays = (task.recurrence_lead_days as number | null) ?? 7;
     const triggerDate = addDaysToYmd(occurrenceDate, -leadDays);
     if (today < triggerDate) {
@@ -98,8 +143,12 @@ export async function GET(request: Request) {
     if (endDate && occurrenceDate > endDate) {
       await supabase
         .from("tasks")
-        .update({ recurrence_next_date: null })
-        .eq("id", task.id);
+        .update({
+          recurrence_next_date: null,
+          recurrence_timezone: taskTimeZone,
+        })
+        .eq("id", task.id)
+        .eq("recurrence_next_date", occurrenceDate);
       continue;
     }
 
@@ -112,9 +161,15 @@ export async function GET(request: Request) {
       nextDate = null;
     }
 
+    const instanceTaskId = uuidv5(
+      `recurrence:${task.id}:${occurrenceDate}`,
+      RECURRENCE_INSTANCE_NAMESPACE
+    );
+
     const { data: created, error: createError } = await supabase
       .from("tasks")
       .insert({
+        id: instanceTaskId,
         title: task.title,
         status: "backlog",
         priority: task.priority,
@@ -129,21 +184,30 @@ export async function GET(request: Request) {
       .select("id")
       .single();
 
-    if (createError) {
-      return NextResponse.json({ error: createError.message }, { status: 500 });
+    if (createError && !isDuplicateKeyError(createError)) {
+      return NextResponse.json(
+        { error: createError.message },
+        { status: 500 }
+      );
     }
 
-    createdCount += 1;
+    if (!createError) {
+      createdCount += 1;
+    }
 
     const assignees = assigneesByTask.get(task.id) || [];
-    if (created?.id && assignees.length) {
+    const createdTaskId = created?.id || instanceTaskId;
+    if (assignees.length) {
       const inserts = assignees.map((userId) => ({
-        task_id: created.id,
+        task_id: createdTaskId,
         user_id: userId,
       }));
       const { error: assigneeError } = await supabase
         .from("task_assignees")
-        .insert(inserts);
+        .upsert(inserts, {
+          onConflict: "task_id,user_id",
+          ignoreDuplicates: true,
+        });
       if (assigneeError) {
         return NextResponse.json({ error: assigneeError.message }, { status: 500 });
       }
@@ -153,9 +217,10 @@ export async function GET(request: Request) {
       .from("tasks")
       .update({
         recurrence_next_date: nextDate,
-        recurrence_timezone: task.recurrence_timezone || timeZone,
+        recurrence_timezone: taskTimeZone,
       })
-      .eq("id", task.id);
+      .eq("id", task.id)
+      .eq("recurrence_next_date", occurrenceDate);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -164,8 +229,8 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    timeZone,
-    today,
+    timeZone: defaultTimeZone,
+    today: todayInDefaultTimeZone,
     created: createdCount,
   });
 }

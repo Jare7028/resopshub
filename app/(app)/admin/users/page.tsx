@@ -40,6 +40,20 @@ export default async function AdminUsersPage({
   async function updateUser(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const authEmail = authData.user?.email || "";
+
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", authEmail)
+      .maybeSingle();
+
+    // Server Actions must re-check authz (page-level checks aren't enough).
+    if (currentUser?.role !== "admin") {
+      redirect("/clients");
+    }
+
     const userId = String(formData.get("user_id") || "").trim();
     const fullName = String(formData.get("full_name") || "").trim();
     const email = String(formData.get("email") || "").trim().toLowerCase();
@@ -50,8 +64,28 @@ export default async function AdminUsersPage({
       redirect("/admin/users?error=Missing%20user%20id");
     }
 
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        userId
+      )
+    ) {
+      redirect("/admin/users?error=Invalid%20user%20id");
+    }
+
     if (!email) {
       redirect("/admin/users?error=Email%20is%20required");
+    }
+
+    if (!email.includes("@")) {
+      redirect("/admin/users?error=Invalid%20email");
+    }
+
+    if (!roleOptions.includes(role as (typeof roleOptions)[number])) {
+      redirect("/admin/users?error=Invalid%20role");
+    }
+
+    if (!statusOptions.includes(status as (typeof statusOptions)[number])) {
+      redirect("/admin/users?error=Invalid%20status");
     }
 
     const { data: existing, error: existingError } = await supabase

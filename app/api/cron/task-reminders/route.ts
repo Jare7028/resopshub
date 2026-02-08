@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isAuthorizedCronRequest } from "@/lib/cron";
 
 function formatYmdInTimeZone(date: Date, timeZone: string) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -11,14 +12,11 @@ function formatYmdInTimeZone(date: Date, timeZone: string) {
 }
 
 export async function GET(request: Request) {
-  const isVercelCron = Boolean(request.headers.get("x-vercel-cron"));
-  const cronSecret = process.env.CRON_SECRET;
-  const url = new URL(request.url);
-  const providedSecret = url.searchParams.get("secret");
-  const secretOk = Boolean(cronSecret && providedSecret === cronSecret);
-
   // Allow either Vercel Cron header or an explicit secret.
-  if (process.env.NODE_ENV === "production" && !isVercelCron && !secretOk) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    !isAuthorizedCronRequest(request)
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
