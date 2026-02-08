@@ -90,6 +90,9 @@ export default async function LoginPage(props: {
         <input
           type="email"
           name="email"
+          autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
           placeholder="you@company.com"
           className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           required
@@ -97,6 +100,7 @@ export default async function LoginPage(props: {
         <input
           type="password"
           name="password"
+          autoComplete="current-password"
           placeholder="Password"
           className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           required
@@ -118,6 +122,9 @@ export default async function LoginPage(props: {
           <input
             type="email"
             name="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
             placeholder="you@company.com"
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             required
