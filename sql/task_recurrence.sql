@@ -32,6 +32,25 @@ alter table tasks
 alter table tasks
   add column if not exists recurrence_timezone text;
 
+alter table tasks
+  add column if not exists due_time time;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'tasks_recurrence_frequency_check'
+  ) then
+    alter table tasks
+      add constraint tasks_recurrence_frequency_check
+      check (
+        recurrence_frequency is null
+        or recurrence_frequency in ('daily', 'weekly', 'monthly', 'yearly')
+      );
+  end if;
+end $$;
+
 create index if not exists tasks_recurrence_next_date_idx
   on tasks (recurrence_next_date)
   where recurrence_frequency is not null;

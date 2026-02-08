@@ -26,7 +26,7 @@ export default async function TaskDetailPage(props: {
   const { data: task } = await supabase
     .from("tasks")
     .select(
-      "id,title,description,status,priority,start_date,due_date,assignee_user_id,project_id,client_id,content,last_edited_at,last_edited_by_user_id,projects(name),clients(name)"
+      "id,title,description,status,priority,start_date,due_date,due_time,assignee_user_id,project_id,client_id,content,last_edited_at,last_edited_by_user_id,projects(name),clients(name)"
     )
     .eq("id", params.taskId)
     .single();
@@ -54,6 +54,21 @@ export default async function TaskDetailPage(props: {
       return relation[0]?.name ?? fallback;
     }
     return relation?.name ?? fallback;
+  };
+
+  const formatDueTime = (value: string | null | undefined) => {
+    if (!value) {
+      return "";
+    }
+    const time = value.slice(0, 5);
+    const parsed = new Date(`1970-01-01T${time}:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return "";
+    }
+    return parsed.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
   };
 
   const { data: users } = await supabase
@@ -84,7 +99,7 @@ export default async function TaskDetailPage(props: {
 
   const { data: subtasks } = await supabase
     .from("tasks")
-    .select("id,title,status,priority,start_date,due_date,assignee_user_id")
+    .select("id,title,status,priority,start_date,due_date,due_time,assignee_user_id")
     .eq("parent_task_id", task.id)
     .order("created_at", { ascending: false });
 
@@ -96,6 +111,7 @@ export default async function TaskDetailPage(props: {
     const priority = String(formData.get("priority") || taskPriority);
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
+    const dueTime = String(formData.get("due_time") || "");
     const assignee = String(formData.get("assignee_user_id") || "");
 
     if (!title) {
@@ -110,6 +126,7 @@ export default async function TaskDetailPage(props: {
         priority,
         start_date: startDate || null,
         due_date: dueDate || null,
+        due_time: dueTime || null,
         assignee_user_id: assignee || null,
       })
       .eq("id", taskId);
@@ -167,6 +184,7 @@ export default async function TaskDetailPage(props: {
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
+    const dueTime = String(formData.get("due_time") || "");
     const assignee = String(formData.get("assignee_user_id") || "");
     const assigneeIds = formData
       .getAll("assignee_user_ids")
@@ -188,6 +206,7 @@ export default async function TaskDetailPage(props: {
       status,
       priority,
       due_date: dueDate || null,
+      due_time: dueTime || null,
       assignee_user_id: primaryAssignee || null,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
@@ -367,6 +386,21 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
+            <div className="grid gap-1">
+              <label
+                htmlFor="task-due-time"
+                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Due time
+              </label>
+              <input
+                id="task-due-time"
+                type="time"
+                name="due_time"
+                defaultValue={task.due_time ? task.due_time.slice(0, 5) : ""}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
             <button
               type="submit"
               className="md:col-span-4 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
@@ -519,6 +553,20 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
+            <div className="grid gap-1">
+              <label
+                htmlFor="subtask-due-time"
+                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Due time
+              </label>
+              <input
+                id="subtask-due-time"
+                type="time"
+                name="due_time"
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
             <button
               type="submit"
               className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
@@ -570,7 +618,9 @@ export default async function TaskDetailPage(props: {
                     </td>
                     <td className="px-6 py-3 text-slate-600">
                       {subtask.due_date
-                        ? new Date(subtask.due_date).toLocaleDateString("en-US")
+                        ? `${new Date(subtask.due_date).toLocaleDateString("en-US")}${
+                            subtask.due_time ? ` ${formatDueTime(subtask.due_time)}` : ""
+                          }`
                         : "--"}
                     </td>
                   </tr>

@@ -10,7 +10,6 @@ import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
 import {
   DEFAULT_RECURRENCE_TZ,
   getFirstOccurrence,
-  formatYmdInTimeZone,
   getNextOccurrence,
   type RecurrenceConfig,
 } from "@/lib/recurrence";
@@ -250,25 +249,27 @@ export default async function TasksPage(props: {
     const status = String(formData.get("status") || "backlog");
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
-    let dueDate = String(formData.get("due_date") || "");
+    const dueDate = String(formData.get("due_date") || "").trim();
+    const dueTime = String(formData.get("due_time") || "").trim();
     const assigneeUserId = String(formData.get("assignee_user_id") || "");
     const assigneeIds = formData
       .getAll("assignee_user_ids")
       .map((value) => String(value).trim())
       .filter(Boolean);
-    const recurrenceFrequency = String(formData.get("recurrence_frequency") || "").trim();
-    const recurrenceInterval = Number(formData.get("recurrence_interval") || 1) || 1;
-    const recurrenceStartRaw = String(formData.get("recurrence_start_date") || "").trim();
-    const recurrenceEndRaw = String(formData.get("recurrence_end_date") || "").trim();
+    const recurrenceFrequencyRaw = String(formData.get("recurrence_frequency") || "")
+      .trim()
+      .toLowerCase();
     const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
-    const recurrenceMonthMode = String(formData.get("recurrence_month_mode") || "day");
-    const recurrenceMonthDay = Number(formData.get("recurrence_month_day") || 0) || null;
-    const recurrenceMonthWeek = Number(formData.get("recurrence_month_week") || 0) || null;
-    const recurrenceMonthWeekday = Number(formData.get("recurrence_month_weekday") || 0) || null;
-    const recurrenceWeekdays = formData
-      .getAll("recurrence_weekdays")
-      .map((value) => Number(value))
-      .filter((value) => Number.isInteger(value));
+    const recurrenceTimezone =
+      String(formData.get("recurrence_timezone") || "").trim() ||
+      DEFAULT_RECURRENCE_TZ;
+    const recurrenceFrequency =
+      recurrenceFrequencyRaw === "daily" ||
+      recurrenceFrequencyRaw === "weekly" ||
+      recurrenceFrequencyRaw === "monthly" ||
+      recurrenceFrequencyRaw === "yearly"
+        ? (recurrenceFrequencyRaw as RecurrenceConfig["frequency"])
+        : null;
     const clientIdRaw = String(formData.get("client_id") || "").trim();
     const projectIdRaw = String(formData.get("project_id") || "").trim();
     let clientId = clientIdRaw || null;
@@ -278,6 +279,13 @@ export default async function TasksPage(props: {
       const errorUrl = returnTo.includes("?")
         ? `${returnTo}&error=Title%20is%20required`
         : `${returnTo}?error=Title%20is%20required`;
+      redirect(errorUrl);
+    }
+
+    if (!dueDate || !dueTime) {
+      const errorUrl = returnTo.includes("?")
+        ? `${returnTo}&error=Deadline%20date%20and%20time%20are%20required`
+        : `${returnTo}?error=Deadline%20date%20and%20time%20are%20required`;
       redirect(errorUrl);
     }
 
@@ -306,39 +314,24 @@ export default async function TasksPage(props: {
     let recurrenceNextDate: string | null = null;
 
     if (recurrenceFrequency) {
-      const today = formatYmdInTimeZone(new Date(), DEFAULT_RECURRENCE_TZ);
-      const startDate = recurrenceStartRaw || dueDate || today;
-      const endDate = recurrenceEndRaw || null;
-      const monthDay =
-        recurrenceMonthMode === "day"
-          ? recurrenceMonthDay || Number(startDate.split("-")[2])
-          : null;
-      const monthWeek = recurrenceMonthMode === "weekday" ? recurrenceMonthWeek : null;
-      const monthWeekday =
-        recurrenceMonthMode === "weekday"
-          ? recurrenceMonthWeekday
-          : null;
+      const startDateForRecurrence = dueDate;
+      const weekDay = new Date(`${startDateForRecurrence}T00:00:00Z`).getUTCDay();
+      const monthDay = Number(startDateForRecurrence.split("-")[2]);
 
       recurrenceConfig = {
-        frequency: recurrenceFrequency as RecurrenceConfig["frequency"],
-        interval: Math.max(recurrenceInterval, 1),
-        startDate,
-        endDate,
-        weekdays: recurrenceWeekdays.length ? recurrenceWeekdays : null,
-        monthDay,
-        monthWeek,
-        monthWeekday,
+        frequency: recurrenceFrequency,
+        interval: 1,
+        startDate: startDateForRecurrence,
+        endDate: null,
+        weekdays: recurrenceFrequency === "weekly" ? [weekDay] : null,
+        monthDay: recurrenceFrequency === "monthly" ? monthDay : null,
+        monthWeek: null,
+        monthWeekday: null,
       };
 
       const firstOccurrence = dueDate || getFirstOccurrence(recurrenceConfig);
-      if (!dueDate && firstOccurrence) {
-        dueDate = firstOccurrence;
-      }
       if (firstOccurrence) {
         recurrenceNextDate = getNextOccurrence(recurrenceConfig, firstOccurrence);
-        if (endDate && recurrenceNextDate && recurrenceNextDate > endDate) {
-          recurrenceNextDate = null;
-        }
       }
     }
 
@@ -349,6 +342,7 @@ export default async function TasksPage(props: {
       status,
       priority,
       due_date: dueDate || null,
+      due_time: dueTime || null,
       assignee_user_id: primaryAssignee || null,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
@@ -365,7 +359,7 @@ export default async function TasksPage(props: {
       payload.recurrence_end_date = recurrenceConfig.endDate;
       payload.recurrence_lead_days = recurrenceLeadDays;
       payload.recurrence_next_date = recurrenceNextDate;
-      payload.recurrence_timezone = DEFAULT_RECURRENCE_TZ;
+      payload.recurrence_timezone = recurrenceTimezone;
     }
 
     if (startDate) {
@@ -617,11 +611,6 @@ export default async function TasksPage(props: {
             <input
               type="date"
               name="start_date"
-              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-            <input
-              type="date"
-              name="due_date"
               className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
             <button

@@ -40,6 +40,15 @@ function addMonthsToYmd(ymd: string, months: number) {
   return ymdFromDate(target);
 }
 
+function addYearsToYmd(ymd: string, years: number) {
+  const date = ymdToDate(ymd);
+  const year = date.getUTCFullYear() + years;
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const lastDay = lastDayOfMonth(year, month);
+  return ymdFromDate(new Date(Date.UTC(year, month, Math.min(day, lastDay))));
+}
+
 function lastDayOfMonth(year: number, monthIndex: number) {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 }
@@ -69,7 +78,7 @@ function nthWeekdayOfMonth(
 }
 
 export type RecurrenceConfig = {
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
   interval: number;
   startDate: string;
   endDate?: string | null;
@@ -82,6 +91,10 @@ export type RecurrenceConfig = {
 export function getFirstOccurrence(config: RecurrenceConfig) {
   const interval = Math.max(config.interval || 1, 1);
   if (config.frequency === "daily") {
+    return config.startDate;
+  }
+
+  if (config.frequency === "yearly") {
     return config.startDate;
   }
 
@@ -142,6 +155,9 @@ export function getNextOccurrence(config: RecurrenceConfig, afterYmd: string) {
   if (config.frequency === "daily") {
     return addDaysToYmd(afterYmd, interval);
   }
+  if (config.frequency === "yearly") {
+    return addYearsToYmd(afterYmd, interval);
+  }
   if (config.frequency === "weekly") {
     const weekdays =
       config.weekdays && config.weekdays.length
@@ -166,7 +182,7 @@ export function getNextOccurrence(config: RecurrenceConfig, afterYmd: string) {
   const year = nextDate.getUTCFullYear();
   const month = nextDate.getUTCMonth();
 
-  if (config.monthWeek !== null && config.monthWeekday !== null) {
+  if (config.monthWeek != null && config.monthWeekday != null) {
     return nthWeekdayOfMonth(year, month, config.monthWeek, config.monthWeekday);
   }
   const day = Math.min(

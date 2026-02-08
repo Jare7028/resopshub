@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   const { data: recurringTasks, error } = await supabase
     .from("tasks")
     .select(
-      "id,title,priority,client_id,project_id,assignee_user_id,content,content_text,recurrence_frequency,recurrence_interval,recurrence_weekdays,recurrence_month_day,recurrence_month_week,recurrence_month_weekday,recurrence_start_date,recurrence_end_date,recurrence_lead_days,recurrence_next_date,recurrence_timezone"
+      "id,title,priority,client_id,project_id,assignee_user_id,due_time,content,content_text,recurrence_frequency,recurrence_interval,recurrence_weekdays,recurrence_month_day,recurrence_month_week,recurrence_month_weekday,recurrence_start_date,recurrence_end_date,recurrence_lead_days,recurrence_next_date,recurrence_timezone"
     )
     .not("recurrence_frequency", "is", null)
     .not("recurrence_next_date", "is", null);
@@ -103,7 +103,7 @@ export async function GET(request: Request) {
       continue;
     }
 
-    let nextDate = getNextOccurrence(config, occurrenceDate);
+    let nextDate: string | null = getNextOccurrence(config, occurrenceDate);
     if (!nextDate) {
       nextDate = getFirstOccurrence(config);
     }
@@ -122,6 +122,7 @@ export async function GET(request: Request) {
         project_id: task.project_id,
         assignee_user_id: task.assignee_user_id,
         due_date: occurrenceDate,
+        due_time: task.due_time,
         content: task.content,
         content_text: task.content_text,
       })
