@@ -1,8 +1,8 @@
-import { notFound, redirect } from "next/navigation";
+﻿import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import ConfirmDelete from "../../_components/ConfirmDelete";
+import ConfirmDelete from "../../../_components/ConfirmDelete";
 
 export const dynamic = "force-dynamic";
 
@@ -231,6 +231,7 @@ export default async function ClientNotesPage(props: {
     </div>
   );
 }
+
 
 
 
