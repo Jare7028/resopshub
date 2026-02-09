@@ -86,6 +86,14 @@ export default async function TaskDetailPage(props: {
     assignedUserIds.add(task.assignee_user_id);
   }
 
+  const { data: taskWatchers } = await supabase
+    .from("task_watchers")
+    .select("user_id")
+    .eq("task_id", taskId);
+  const watcherUserIds = new Set(
+    (taskWatchers || []).map((row) => row.user_id).filter(Boolean)
+  );
+
   const assigneeMap = new Map(
     users?.map((user) => [user.id, user.full_name || user.email]) || []
   );
@@ -177,6 +185,32 @@ export default async function TaskDetailPage(props: {
 
     revalidatePath(`/tasks/${taskId}`);
     redirect(`/tasks/${taskId}?success=Assignees%20updated`);
+  }
+
+  async function updateTaskWatchers(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const selectedIds = formData
+      .getAll("watcher_user_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+
+    await supabase.from("task_watchers").delete().eq("task_id", taskId);
+
+    const uniqueIds = Array.from(new Set(selectedIds));
+    if (uniqueIds.length) {
+      const inserts = uniqueIds.map((userId) => ({
+        task_id: taskId,
+        user_id: userId,
+      }));
+      const { error } = await supabase.from("task_watchers").insert(inserts);
+      if (error) {
+        redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
+      }
+    }
+
+    revalidatePath(`/tasks/${taskId}`);
+    redirect(`/tasks/${taskId}?success=Watchers%20updated`);
   }
 
   async function createSubtask(formData: FormData) {
@@ -446,6 +480,45 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
               >
                 Save assignees
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">No users found.</p>
+          )}
+        </div>
+      </details>
+
+      <details className="rounded-lg border border-slate-200 bg-white">
+        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
+          Task watchers
+        </summary>
+        <div className="border-t border-slate-200 px-6 pb-6">
+          <p className="mt-4 text-sm text-slate-600">
+            Watchers can view and edit this task without being an assignee.
+          </p>
+          {users?.length ? (
+            <form action={updateTaskWatchers} className="mt-4 space-y-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {users.map((user) => (
+                  <label
+                    key={user.id}
+                    className="flex items-center gap-2 text-sm text-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      name="watcher_user_ids"
+                      value={user.id}
+                      defaultChecked={watcherUserIds.has(user.id)}
+                    />
+                    <span>{user.full_name || user.email}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="submit"
+                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+              >
+                Save watchers
               </button>
             </form>
           ) : (

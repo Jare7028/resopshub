@@ -44,7 +44,13 @@ export default async function ProjectOverviewPage(props: {
       .eq("project_id", projectId)
       .eq("user_id", currentUserId)
       .maybeSingle();
-    if (!assignment) {
+    const { data: watching } = await supabase
+      .from("project_watchers")
+      .select("user_id")
+      .eq("project_id", projectId)
+      .eq("user_id", currentUserId)
+      .maybeSingle();
+    if (!assignment && !watching) {
       redirect("/projects?error=Not%20assigned%20to%20that%20project");
     }
   } else if (!isAdmin && !currentUserId) {
@@ -62,6 +68,14 @@ export default async function ProjectOverviewPage(props: {
     .eq("project_id", projectId);
   const assignedUserIds = new Set(
     (assignments || []).map((assignment) => assignment.user_id).filter(Boolean)
+  );
+
+  const { data: projectWatchers } = await supabase
+    .from("project_watchers")
+    .select("user_id")
+    .eq("project_id", projectId);
+  const watcherUserIds = new Set(
+    (projectWatchers || []).map((row) => row.user_id).filter(Boolean)
   );
 
   const getRelationName = (
@@ -101,6 +115,32 @@ export default async function ProjectOverviewPage(props: {
 
     revalidatePath(`/projects/${projectId}`);
     redirect(`/projects/${projectId}?success=Assignments%20updated`);
+  }
+
+  async function updateProjectWatchers(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const selectedIds = formData
+      .getAll("watcher_user_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+
+    await supabase.from("project_watchers").delete().eq("project_id", projectId);
+
+    const uniqueIds = Array.from(new Set(selectedIds));
+    if (uniqueIds.length) {
+      const inserts = uniqueIds.map((userId) => ({
+        project_id: projectId,
+        user_id: userId,
+      }));
+      const { error } = await supabase.from("project_watchers").insert(inserts);
+      if (error) {
+        redirect(`/projects/${projectId}?error=${encodeURIComponent(error.message)}`);
+      }
+    }
+
+    revalidatePath(`/projects/${projectId}`);
+    redirect(`/projects/${projectId}?success=Watchers%20updated`);
   }
 
   async function updateProject(formData: FormData) {
@@ -192,6 +232,41 @@ export default async function ProjectOverviewPage(props: {
               className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
             >
               Save assignees
+            </button>
+          </form>
+        ) : (
+          <p className="mt-4 text-sm text-slate-500">No users found.</p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Project watchers</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Watchers can view and edit this project without being an assignee.
+        </p>
+        {users?.length ? (
+          <form action={updateProjectWatchers} className="mt-4 space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {users.map((user) => (
+                <label
+                  key={user.id}
+                  className="flex items-center gap-2 text-sm text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    name="watcher_user_ids"
+                    value={user.id}
+                    defaultChecked={watcherUserIds.has(user.id)}
+                  />
+                  <span>{user.full_name || user.email}</span>
+                </label>
+              ))}
+            </div>
+            <button
+              type="submit"
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+            >
+              Save watchers
             </button>
           </form>
         ) : (

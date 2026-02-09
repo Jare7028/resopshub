@@ -62,7 +62,13 @@ export default async function ProjectTasksPage(props: {
       .eq("project_id", projectId)
       .eq("user_id", currentUserId)
       .maybeSingle();
-    if (!assignment) {
+    const { data: watching } = await supabase
+      .from("project_watchers")
+      .select("user_id")
+      .eq("project_id", projectId)
+      .eq("user_id", currentUserId)
+      .maybeSingle();
+    if (!assignment && !watching) {
       redirect("/projects?error=Not%20assigned%20to%20that%20project");
     }
   } else if (!isAdmin && !currentUserId) {
