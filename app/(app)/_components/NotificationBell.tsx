@@ -10,6 +10,7 @@ type NotificationRow = {
   title: string;
   body: string | null;
   task_id: string | null;
+  metadata: Record<string, unknown> | null;
   read_at: string | null;
   created_at: string;
 };
@@ -43,7 +44,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
         .is("read_at", null),
       supabase
         .from("notifications")
-        .select("id,type,title,body,task_id,read_at,created_at")
+        .select("id,type,title,body,task_id,metadata,read_at,created_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(12),
@@ -109,6 +110,16 @@ export default function NotificationBell({ userId }: { userId: string }) {
       setOpen(false);
       if (notification.task_id) {
         router.push(`/tasks/${notification.task_id}`);
+        return;
+      }
+
+      const metadata = notification.metadata || {};
+      const suggestionId =
+        typeof metadata.feature_suggestion_id === "string"
+          ? metadata.feature_suggestion_id
+          : null;
+      if (suggestionId) {
+        router.push(`/feature-suggestions?open=${encodeURIComponent(suggestionId)}`);
       }
     },
     [markRead, router]
@@ -219,4 +230,3 @@ export default function NotificationBell({ userId }: { userId: string }) {
     </div>
   );
 }
-
