@@ -45,12 +45,29 @@ export default async function AppLayout({
         .select("id", { count: "exact", head: true });
       const role = count === 0 ? "admin" : "member";
 
-      await supabase.from("users").insert({
+      const fullName =
+        (user.user_metadata?.full_name as string | undefined) ||
+        (user.user_metadata?.name as string | undefined) ||
+        email.split("@")[0] ||
+        "Team member";
+
+      const { error: insertError } = await supabase.from("users").insert({
         id: user.id,
         email,
+        full_name: fullName,
         role,
         status: "active",
       });
+
+      if (insertError) {
+        // Without a profile row keyed by auth.uid(), RLS/FKs can break in confusing ways.
+        await supabase.auth.signOut();
+        redirect(
+          `/login?error=${encodeURIComponent(
+            "Profile setup failed. Please contact an admin."
+          )}`
+        );
+      }
     } else if (profile.status === "disabled") {
       await supabase.auth.signOut();
       redirect("/login?error=Account%20disabled");
