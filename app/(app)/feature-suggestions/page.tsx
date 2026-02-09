@@ -23,6 +23,12 @@ type SuggestionCommentRow = {
   created_at: string;
 };
 
+type SuggestionVoteRow = {
+  suggestion_id: string;
+  user_id: string;
+  value: number | null;
+};
+
 const statusOptions = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
 const typeOptions = ["bug", "improvement", "new_feature"] as const;
 
@@ -248,25 +254,41 @@ export default async function FeatureSuggestionsPage(props: {
   let suggestionRows = (suggestions || []) as SuggestionRow[];
   const suggestionIds = suggestionRows.map((row) => row.id);
 
-  const votes: { suggestion_id: string; user_id: string }[] = suggestionIds.length
+  const votes: SuggestionVoteRow[] = suggestionIds.length
     ? ((
         await supabase
           .from("feature_suggestion_votes")
-          .select("suggestion_id,user_id")
+          .select("suggestion_id,user_id,value")
           .in("suggestion_id", suggestionIds)
-      ).data as { suggestion_id: string; user_id: string }[]) || []
+      ).data as SuggestionVoteRow[]) || []
     : [];
 
-  const voteCounts = new Map<string, number>();
-  const userVotes = new Set<string>();
+  const voteScores = new Map<string, number>();
+  const upvoteCounts = new Map<string, number>();
+  const downvoteCounts = new Map<string, number>();
+  const userVotes = new Map<string, number>();
 
   (votes || []).forEach((vote) => {
-    voteCounts.set(
+    const value = vote.value === -1 ? -1 : 1;
+
+    voteScores.set(
       vote.suggestion_id,
-      (voteCounts.get(vote.suggestion_id) || 0) + 1
+      (voteScores.get(vote.suggestion_id) || 0) + value
     );
+    if (value === 1) {
+      upvoteCounts.set(
+        vote.suggestion_id,
+        (upvoteCounts.get(vote.suggestion_id) || 0) + 1
+      );
+    } else {
+      downvoteCounts.set(
+        vote.suggestion_id,
+        (downvoteCounts.get(vote.suggestion_id) || 0) + 1
+      );
+    }
+
     if (vote.user_id === currentUser.id) {
-      userVotes.add(vote.suggestion_id);
+      userVotes.set(vote.suggestion_id, value);
     }
   });
 
@@ -297,7 +319,7 @@ export default async function FeatureSuggestionsPage(props: {
   });
 
   if (onlyMyVotes) {
-    suggestionRows = suggestionRows.filter((suggestion) => userVotes.has(suggestion.id));
+    suggestionRows = suggestionRows.filter((suggestion) => userVotes.get(suggestion.id) === 1);
   }
 
   if (onlyWithComments) {
@@ -375,6 +397,8 @@ export default async function FeatureSuggestionsPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
     const suggestionId = String(formData.get("suggestion_id") || "").trim();
+    const direction = String(formData.get("vote") || "up").trim().toLowerCase();
+    const desiredValue = direction === "down" ? -1 : 1;
 
     if (!suggestionId) {
       redirect(
@@ -407,12 +431,14 @@ export default async function FeatureSuggestionsPage(props: {
 
     const { data: existing } = await supabase
       .from("feature_suggestion_votes")
-      .select("suggestion_id")
+      .select("value")
       .eq("suggestion_id", suggestionId)
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (existing) {
+    const existingValue = existing?.value === -1 ? -1 : existing?.value === 1 ? 1 : null;
+
+    if (existingValue === desiredValue) {
       const { error } = await supabase
         .from("feature_suggestion_votes")
         .delete()
@@ -420,20 +446,27 @@ export default async function FeatureSuggestionsPage(props: {
         .eq("user_id", user.id);
 
       if (error) {
-        redirect(
-          buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
-        );
+        redirect(buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message }));
+      }
+    } else if (existingValue !== null) {
+      const { error } = await supabase
+        .from("feature_suggestion_votes")
+        .update({ value: desiredValue })
+        .eq("suggestion_id", suggestionId)
+        .eq("user_id", user.id);
+
+      if (error) {
+        redirect(buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message }));
       }
     } else {
       const { error } = await supabase.from("feature_suggestion_votes").insert({
         suggestion_id: suggestionId,
         user_id: user.id,
+        value: desiredValue,
       });
 
       if (error) {
-        redirect(
-          buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
-        );
+        redirect(buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message }));
       }
     }
 
@@ -590,10 +623,15 @@ export default async function FeatureSuggestionsPage(props: {
 
   if (selectedSort === "most_upvoted") {
     suggestionRows = [...suggestionRows].sort((a, b) => {
-      const aVotes = voteCounts.get(a.id) || 0;
-      const bVotes = voteCounts.get(b.id) || 0;
-      if (bVotes !== aVotes) {
-        return bVotes - aVotes;
+      const aScore = voteScores.get(a.id) || 0;
+      const bScore = voteScores.get(b.id) || 0;
+      if (bScore !== aScore) {
+        return bScore - aScore;
+      }
+      const aUp = upvoteCounts.get(a.id) || 0;
+      const bUp = upvoteCounts.get(b.id) || 0;
+      if (bUp !== aUp) {
+        return bUp - aUp;
       }
       return a.created_at < b.created_at ? 1 : -1;
     });
@@ -868,8 +906,10 @@ export default async function FeatureSuggestionsPage(props: {
         <div className="divide-y divide-slate-200">
           {suggestionRows.length ? (
             suggestionRows.map((suggestion) => {
-              const votesForSuggestion = voteCounts.get(suggestion.id) || 0;
-              const hasVoted = userVotes.has(suggestion.id);
+              const scoreForSuggestion = voteScores.get(suggestion.id) || 0;
+              const upvotesForSuggestion = upvoteCounts.get(suggestion.id) || 0;
+              const downvotesForSuggestion = downvoteCounts.get(suggestion.id) || 0;
+              const userVote = userVotes.get(suggestion.id) || 0;
               const author = suggestion.created_by
                 ? userMap.get(suggestion.created_by)
                 : null;
@@ -1008,17 +1048,31 @@ export default async function FeatureSuggestionsPage(props: {
                       value={suggestion.id}
                     />
                     <span className="text-sm text-slate-600">
-                      {votesForSuggestion} vote{votesForSuggestion === 1 ? "" : "s"}
+                      Score {scoreForSuggestion} (Up {upvotesForSuggestion}, Down {downvotesForSuggestion})
                     </span>
                     <button
                       type="submit"
+                      name="vote"
+                      value="up"
                       className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
-                        hasVoted
+                        userVote === 1
                           ? "bg-slate-900 text-white"
                           : "border border-slate-300 text-slate-700 hover:border-slate-400"
                       }`}
                     >
-                      {hasVoted ? "Upvoted" : "Upvote"}
+                      {userVote === 1 ? "Upvoted" : "Upvote"}
+                    </button>
+                    <button
+                      type="submit"
+                      name="vote"
+                      value="down"
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
+                        userVote === -1
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-300 text-slate-700 hover:border-slate-400"
+                      }`}
+                    >
+                      {userVote === -1 ? "Downvoted" : "Downvote"}
                     </button>
                   </form>
                 </div>
