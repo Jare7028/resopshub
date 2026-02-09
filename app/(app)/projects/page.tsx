@@ -171,6 +171,11 @@ export default async function ProjectsPage(props: {
   async function createProject(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const creatorId = authData.user?.id;
+    if (!creatorId) {
+      redirect("/login");
+    }
     const name = String(formData.get("name") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
     const status = String(formData.get("status") || "planned");
@@ -189,6 +194,7 @@ export default async function ProjectsPage(props: {
         name,
         code,
         status,
+        created_by_user_id: creatorId,
         client_id: clientId || null,
         start_date: startDate || null,
         end_date: endDate || null,

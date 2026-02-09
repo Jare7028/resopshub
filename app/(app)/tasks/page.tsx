@@ -207,44 +207,14 @@ export default async function TasksPage(props: {
     return relation?.name ?? fallback;
   };
 
-  async function seedAdminUser() {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const email = authData.user?.email;
-
-    if (!email) {
-      redirect("/tasks?error=Unable%20to%20read%20auth%20user");
-    }
-
-    const { data: existing } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", email)
-      .maybeSingle();
-
-    if (existing) {
-      redirect("/tasks?success=User%20already%20exists");
-    }
-
-    const { error } = await supabase.from("users").insert({
-      email,
-      full_name: authData.user?.user_metadata?.full_name || "Admin User",
-      role: "admin",
-      status: "active",
-    });
-
-    if (error) {
-      redirect(`/tasks?error=${encodeURIComponent(error.message)}`);
-    }
-
-    revalidatePath("/tasks");
-    redirect("/tasks?success=Admin%20user%20created");
-  }
-
   async function createTask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const creatorId = authData.user?.id;
+    if (!creatorId) {
+      redirect("/login");
+    }
     const title = String(formData.get("title") || "").trim();
     const status = String(formData.get("status") || "backlog");
     const priority = String(formData.get("priority") || "medium");
@@ -338,6 +308,7 @@ export default async function TasksPage(props: {
     const payload: Record<string, unknown> = {
       client_id: clientId,
       project_id: projectId,
+      created_by_user_id: creatorId,
       title,
       status,
       priority,
@@ -526,16 +497,8 @@ export default async function TasksPage(props: {
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
           <p className="font-semibold">No users found.</p>
           <p className="mt-1">
-            Create a profile for the current auth user to enable task assignment.
+            Ask an admin to create a user profile in Admin {">"} Users to enable task assignment.
           </p>
-          <form action={seedAdminUser} className="mt-3">
-            <button
-              type="submit"
-              className="rounded-md bg-amber-700 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-600"
-            >
-              Create admin user profile
-            </button>
-          </form>
         </section>
       ) : null}
 

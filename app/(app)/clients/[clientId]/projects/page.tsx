@@ -92,6 +92,11 @@ export default async function ClientProjectsPage(props: {
   async function createProject(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const creatorId = authData.user?.id;
+    if (!creatorId) {
+      redirect("/login");
+    }
     const name = String(formData.get("name") || "").trim();
     const status = String(formData.get("status") || "planned");
     const startDate = String(formData.get("start_date") || "");
@@ -106,12 +111,13 @@ export default async function ClientProjectsPage(props: {
     const { data: created, error } = await supabase
       .from("projects")
       .insert({
-      client_id: clientId,
-      name,
-      code,
-      status,
-      start_date: startDate || null,
-      end_date: endDate || null,
+        client_id: clientId,
+        name,
+        code,
+        status,
+        created_by_user_id: creatorId,
+        start_date: startDate || null,
+        end_date: endDate || null,
       })
       .select("id")
       .single();

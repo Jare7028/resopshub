@@ -33,6 +33,11 @@ export default async function NewClientPage(props: {
   async function createClient(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const creatorId = authData.user?.id;
+    if (!creatorId) {
+      redirect("/login");
+    }
     const name = String(formData.get("name") || "").trim();
     const status = String(formData.get("status") || "active");
     const industry = String(formData.get("industry") || "").trim();
@@ -61,6 +66,7 @@ export default async function NewClientPage(props: {
         name,
         code,
         status,
+        created_by_user_id: creatorId,
         industry: industry || null,
         website: website || null,
         notes: notes || null,
