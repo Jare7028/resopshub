@@ -584,6 +584,20 @@ export default function NoteEditorClient({
     return parts.join(" ");
   }, [lastEditedAtLabel, lastEditedByLabel]);
 
+  const metaTooltip = useMemo(() => {
+    if (!lastEditedAtLabel && !lastEditedByLabel) {
+      return "";
+    }
+    const parts: string[] = [];
+    if (lastEditedAtLabel) {
+      parts.push(`Last edited: ${lastEditedAtLabel}`);
+    }
+    if (lastEditedByLabel) {
+      parts.push(`Edited by: ${lastEditedByLabel}`);
+    }
+    return parts.join("\n");
+  }, [lastEditedAtLabel, lastEditedByLabel]);
+
   if (!editor) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-6">
@@ -604,7 +618,11 @@ export default function NoteEditorClient({
         </span>
       </div>
 
-      <div className="mt-4" onContextMenu={handleContextMenu}>
+      <div
+        className="mt-4"
+        onContextMenu={handleContextMenu}
+        title={metaTooltip || undefined}
+      >
         <BubbleMenu
           editor={editor}
           className="rounded-md border border-slate-200 bg-white p-1 shadow-md"
