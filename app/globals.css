@@ -200,6 +200,32 @@
   font-weight: 600;
 }
 
+.note-editor th[data-col-type="number"],
+.note-editor td[data-col-type="number"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.note-editor th[data-col-type="date"],
+.note-editor td[data-col-type="date"] {
+  white-space: nowrap;
+}
+
+.note-editor th[data-col-type="checkbox"],
+.note-editor td[data-col-type="checkbox"] {
+  text-align: center;
+}
+
+.note-editor th[data-col-type="url"],
+.note-editor td[data-col-type="url"],
+.note-editor th[data-col-type="email"],
+.note-editor td[data-col-type="email"],
+.note-editor th[data-col-type="phone"],
+.note-editor td[data-col-type="phone"] {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
 .note-editor .is-editor-empty:first-child::before {
   color: #94a3b8;
   content: attr(data-placeholder);

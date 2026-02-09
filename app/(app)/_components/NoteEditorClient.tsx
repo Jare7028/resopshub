@@ -13,6 +13,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
 import Placeholder from "@tiptap/extension-placeholder";
+import { selectedRect } from "prosemirror-tables";
 import { createEmptyDoc } from "@/lib/editorContent";
 
 type ContextMenuState = {
@@ -142,6 +143,36 @@ const SLASH_COMMANDS: SlashCommand[] = [
   },
 ];
 
+const TABLE_COLUMN_TYPES = [
+  { id: "text", label: "Text" },
+  { id: "number", label: "Number" },
+  { id: "date", label: "Date" },
+  { id: "url", label: "URL" },
+  { id: "email", label: "Email" },
+  { id: "phone", label: "Phone" },
+  { id: "checkbox", label: "Checkbox" },
+] as const;
+
+type TableColumnType = (typeof TABLE_COLUMN_TYPES)[number]["id"];
+
+function getActiveTableColumnType(editor: Editor | null | undefined): TableColumnType {
+  if (!editor || !editor.isActive("table")) {
+    return "text";
+  }
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    const name = node.type.name;
+    if (name === "tableCell" || name === "tableHeader") {
+      const colType = (node.attrs?.colType as string | undefined) || "text";
+      return TABLE_COLUMN_TYPES.some((type) => type.id === colType)
+        ? (colType as TableColumnType)
+        : "text";
+    }
+  }
+  return "text";
+}
+
 function normalizeContent(content: unknown) {
   if (content && typeof content === "object") {
     const value = content as { type?: string };
@@ -213,6 +244,7 @@ export default function NoteEditorClient({
     x: 0,
     y: 0,
   });
+  const [activeTableColType, setActiveTableColType] = useState<TableColumnType>("text");
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>({
     open: false,
     query: "",
@@ -386,8 +418,32 @@ export default function NoteEditorClient({
       Image.configure({ inline: false, allowBase64: true }),
       Table.configure({ resizable: true }),
       TableRow,
-      TableHeader,
-      TableCell,
+      TableHeader.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            colType: {
+              default: "text",
+              parseHTML: (element) => element.getAttribute("data-col-type") || "text",
+              renderHTML: (attributes) =>
+                attributes.colType ? { "data-col-type": attributes.colType } : {},
+            },
+          };
+        },
+      }),
+      TableCell.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            colType: {
+              default: "text",
+              parseHTML: (element) => element.getAttribute("data-col-type") || "text",
+              renderHTML: (attributes) =>
+                attributes.colType ? { "data-col-type": attributes.colType } : {},
+            },
+          };
+        },
+      }),
       Placeholder.configure({
         placeholder,
       }),
@@ -402,6 +458,8 @@ export default function NoteEditorClient({
     },
     onUpdate: ({ editor }) => {
       updateSlashMenu(editor);
+      const nextColType = getActiveTableColumnType(editor);
+      setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
@@ -414,6 +472,8 @@ export default function NoteEditorClient({
     },
     onSelectionUpdate: ({ editor }) => {
       updateSlashMenu(editor);
+      const nextColType = getActiveTableColumnType(editor);
+      setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
     },
   });
 
@@ -529,6 +589,54 @@ export default function NoteEditorClient({
     [editor, closeContextMenu]
   );
 
+  const setSelectedTableColumnsType = useCallback(
+    (colType: TableColumnType) => {
+      if (!editor) {
+        return;
+      }
+      if (!editor.isActive("table")) {
+        return;
+      }
+
+      let rect: ReturnType<typeof selectedRect> | null = null;
+      try {
+        rect = selectedRect(editor.state);
+      } catch {
+        rect = null;
+      }
+      if (!rect) {
+        return;
+      }
+
+      const { map, tableStart, table } = rect;
+      const tr = editor.state.tr;
+      const left = rect.left;
+      const right = rect.right;
+
+      for (let col = left; col < right; col += 1) {
+        const columnRect = { left: col, right: col + 1, top: 0, bottom: map.height };
+        const cellOffsets = map.cellsInRect(columnRect);
+        cellOffsets.forEach((offset) => {
+          const pos = tableStart + offset;
+          const node = tr.doc.nodeAt(pos);
+          if (!node) {
+            return;
+          }
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, colType });
+        });
+      }
+
+      // Keep the table node reference in sync for table maps in follow-up ops.
+      if (table && table.type) {
+        // no-op placeholder; ensures we keep the variables used above intentional.
+      }
+
+      editor.view.dispatch(tr);
+      editor.commands.focus();
+    },
+    [editor]
+  );
+
   const bubbleActions = useMemo(
     () => [
       {
@@ -642,6 +750,24 @@ export default function NoteEditorClient({
                 {action.label}
               </button>
             ))}
+            {editor.isActive("table") ? (
+              <label className="ml-1 flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600">
+                <span className="font-semibold text-slate-500">Column</span>
+                <select
+                  value={activeTableColType}
+                  onChange={(event) =>
+                    setSelectedTableColumnsType(event.target.value as TableColumnType)
+                  }
+                  className="bg-transparent text-xs text-slate-700 outline-none"
+                >
+                  {TABLE_COLUMN_TYPES.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         </BubbleMenu>
         <EditorContent editor={editor} />
@@ -751,7 +877,9 @@ export default function NoteEditorClient({
           <button
             type="button"
             onClick={() =>
-              run(() => editor.chain().focus().insertTable({ rows: 3, cols: 3 }).run())
+              run(() =>
+                editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+              )
             }
             className="context-menu-item"
           >
