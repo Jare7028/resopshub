@@ -25,6 +25,7 @@ export default function RecurrenceFields({ className }: RecurrenceFieldsProps) {
   const [frequency, setFrequency] = useState<FrequencyValue>("once");
   const [dueDate, setDueDate] = useState(today);
   const [dueTime, setDueTime] = useState("09:00");
+  const [startDate, setStartDate] = useState("");
 
   const summary = useMemo(() => {
     if (!dueDate || !dueTime) {
@@ -93,12 +94,19 @@ export default function RecurrenceFields({ className }: RecurrenceFieldsProps) {
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-6">
-          <div className="md:col-span-1">
-            <label className="text-xs font-semibold text-slate-500">On</label>
+          <div className="md:col-span-2">
+            <label className="text-xs font-semibold text-slate-500">Start date</label>
+            <input
+              type="date"
+              name="start_date"
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+            />
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-xs font-semibold text-slate-500">Time</label>
+            <label className="text-xs font-semibold text-slate-500">Due time</label>
             <input
               type="time"
               name="due_time"
@@ -109,8 +117,8 @@ export default function RecurrenceFields({ className }: RecurrenceFieldsProps) {
             />
           </div>
 
-          <div className="md:col-span-3">
-            <label className="text-xs font-semibold text-slate-500">Date</label>
+          <div className="md:col-span-2">
+            <label className="text-xs font-semibold text-slate-500">Due date</label>
             <input
               type="date"
               name="due_date"

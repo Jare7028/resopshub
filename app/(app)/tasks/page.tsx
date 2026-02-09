@@ -589,11 +589,6 @@ export default async function TasksPage(props: {
               ))}
             </select>
             <RecurrenceFields className="md:col-span-6" />
-            <input
-              type="date"
-              name="start_date"
-              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
             <button
               type="submit"
               className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
