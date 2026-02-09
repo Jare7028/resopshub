@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import FeatureSuggestionControls from "./FeatureSuggestionControls";
 import FeatureSuggestionStatus from "./FeatureSuggestionStatus";
+import Link from "next/link";
 
 type SuggestionRow = {
   id: string;
@@ -23,6 +24,7 @@ type SuggestionCommentRow = {
 };
 
 const statusOptions = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
+const typeOptions = ["bug", "improvement", "new_feature"] as const;
 
 const formatStatusLabel = (status: string) =>
   status
@@ -30,6 +32,31 @@ const formatStatusLabel = (status: string) =>
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+
+const formatTypeLabel = (type: string) =>
+  type
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+
+type SuggestionUserRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
+type SuggestionAuthorRow = { created_by: string | null };
+
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+function sanitizeSearchQuery(value: string) {
+  return value
+    .replace(/[^a-zA-Z0-9\s\-_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function buildFeatureSuggestionsReturnUrl(
   baseQuery: string,
@@ -55,6 +82,12 @@ export default async function FeatureSuggestionsPage(props: {
     hide?: string;
     sort?: string;
     open?: string;
+    status?: string;
+    type?: string;
+    submitted_by?: string;
+    q?: string;
+    date_from?: string;
+    date_to?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -64,6 +97,12 @@ export default async function FeatureSuggestionsPage(props: {
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const selectedSort = (searchParams?.sort || "latest").trim();
   const openCommentsForSuggestionId = (searchParams?.open || "").trim();
+  const selectedStatusParam = (searchParams?.status || "all").trim();
+  const selectedTypeParam = (searchParams?.type || "all").trim();
+  const selectedSubmittedByParam = (searchParams?.submitted_by || "all").trim();
+  const queryParam = (searchParams?.q || "").trim();
+  const dateFromParam = (searchParams?.date_from || "").trim();
+  const dateToParam = (searchParams?.date_to || "").trim();
 
   if (!authEmail) {
     redirect("/login");
@@ -81,21 +120,117 @@ export default async function FeatureSuggestionsPage(props: {
 
   const isAdmin = currentUser.role === "admin";
 
+  const selectedStatus =
+    selectedStatusParam === "all" ||
+    statusOptions.includes(selectedStatusParam as (typeof statusOptions)[number])
+      ? selectedStatusParam
+      : "all";
+
+  const selectedType =
+    selectedTypeParam === "all" ||
+    typeOptions.includes(selectedTypeParam as (typeof typeOptions)[number])
+      ? selectedTypeParam
+      : "all";
+
+  const selectedSubmittedBy =
+    selectedSubmittedByParam === "all" ||
+    selectedSubmittedByParam === "me" ||
+    uuidRegex.test(selectedSubmittedByParam)
+      ? selectedSubmittedByParam
+      : "all";
+
+  const query = sanitizeSearchQuery(queryParam);
+  const dateFrom = dateRegex.test(dateFromParam) ? dateFromParam : "";
+  const dateTo = dateRegex.test(dateToParam) ? dateToParam : "";
+
   const baseParams = new URLSearchParams();
   baseParams.set("hide", hideCompleted ? "1" : "0");
   if (selectedSort && selectedSort !== "latest") {
     baseParams.set("sort", selectedSort);
   }
+  if (selectedStatus !== "all") {
+    baseParams.set("status", selectedStatus);
+  }
+  if (selectedType !== "all") {
+    baseParams.set("type", selectedType);
+  }
+  if (selectedSubmittedBy !== "all") {
+    baseParams.set("submitted_by", selectedSubmittedBy);
+  }
+  if (query) {
+    baseParams.set("q", query);
+  }
+  if (dateFrom) {
+    baseParams.set("date_from", dateFrom);
+  }
+  if (dateTo) {
+    baseParams.set("date_to", dateTo);
+  }
   const returnBaseQuery = baseParams.toString();
   const returnTo = buildFeatureSuggestionsReturnUrl(returnBaseQuery);
+
+  const resetParams = new URLSearchParams();
+  resetParams.set("hide", hideCompleted ? "1" : "0");
+  if (selectedSort && selectedSort !== "latest") {
+    resetParams.set("sort", selectedSort);
+  }
+  const resetQuery = resetParams.toString();
+  const resetUrl = resetQuery ? `/feature-suggestions?${resetQuery}` : "/feature-suggestions";
+
+  const { data: authors } = await supabase
+    .from("feature_suggestions")
+    .select("created_by")
+    .not("created_by", "is", null);
+
+  const authorIds = Array.from(
+    new Set(
+      ((authors || []) as SuggestionAuthorRow[])
+        .map((row) => row.created_by)
+        .filter(Boolean) as string[]
+    )
+  );
+
+  const { data: authorUsers } = authorIds.length
+    ? await supabase
+        .from("users")
+        .select("id,full_name,email")
+        .in("id", authorIds)
+        .order("full_name", { ascending: true })
+    : { data: [] as SuggestionUserRow[] };
 
   let suggestionsQuery = supabase
     .from("feature_suggestions")
     .select("id,title,details,status,type,created_at,created_by")
     .order("created_at", { ascending: false });
 
-  if (hideCompleted) {
+  if (selectedStatus !== "all") {
+    suggestionsQuery = suggestionsQuery.eq("status", selectedStatus);
+  } else if (hideCompleted) {
     suggestionsQuery = suggestionsQuery.not("status", "in", "(completed,rejected)");
+  }
+
+  if (selectedType !== "all") {
+    suggestionsQuery = suggestionsQuery.eq("type", selectedType);
+  }
+
+  if (selectedSubmittedBy !== "all") {
+    const submittedByUserId =
+      selectedSubmittedBy === "me" ? currentUser.id : selectedSubmittedBy;
+    suggestionsQuery = suggestionsQuery.eq("created_by", submittedByUserId);
+  }
+
+  if (query) {
+    suggestionsQuery = suggestionsQuery.or(
+      `title.ilike.%${query}%,details.ilike.%${query}%`
+    );
+  }
+
+  if (dateFrom) {
+    suggestionsQuery = suggestionsQuery.gte("created_at", `${dateFrom}T00:00:00Z`);
+  }
+
+  if (dateTo) {
+    suggestionsQuery = suggestionsQuery.lte("created_at", `${dateTo}T23:59:59.999Z`);
   }
 
   const { data: suggestions, error: suggestionsError } = await suggestionsQuery;
@@ -619,6 +754,83 @@ export default async function FeatureSuggestionsPage(props: {
               selectedSort={selectedSort === "most_upvoted" ? "most_upvoted" : "latest"}
             />
           </div>
+        </div>
+        <div className="border-b border-slate-200 px-6 py-4">
+          <form className="flex flex-wrap items-end gap-3">
+            <input type="hidden" name="hide" value={hideCompleted ? "1" : "0"} />
+            {selectedSort && selectedSort !== "latest" ? (
+              <input type="hidden" name="sort" value={selectedSort} />
+            ) : null}
+            <input
+              name="q"
+              placeholder="Search ideas"
+              defaultValue={query || ""}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm md:w-64"
+            />
+            <select
+              name="status"
+              defaultValue={selectedStatus}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm md:w-52"
+            >
+              <option value="all">All statuses</option>
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {formatStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="type"
+              defaultValue={selectedType}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm md:w-48"
+            >
+              <option value="all">All types</option>
+              {typeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {formatTypeLabel(type)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="submitted_by"
+              defaultValue={selectedSubmittedBy}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm md:w-64"
+            >
+              <option value="all">Submitted by anyone</option>
+              <option value="me">Submitted by me</option>
+              {(authorUsers || []).map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.full_name || user.email || "Unknown user"}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              name="date_from"
+              defaultValue={dateFrom}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm md:w-44"
+              title="From date"
+            />
+            <input
+              type="date"
+              name="date_to"
+              defaultValue={dateTo}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm md:w-44"
+              title="To date"
+            />
+            <button
+              type="submit"
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              Apply filters
+            </button>
+            <Link
+              href={resetUrl}
+              className="rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Clear
+            </Link>
+          </form>
         </div>
         <div className="divide-y divide-slate-200">
           {suggestionRows.length ? (
