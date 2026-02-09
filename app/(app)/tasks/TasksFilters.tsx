@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation";
 import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
+import { formatTaskStatusLabel } from "@/lib/taskStatus";
 
 type Option = { value: string; label: string };
 type ClientOption = { id: string; name: string };
@@ -83,8 +84,6 @@ export default function TasksFilters({
     [filters]
   );
 
-  const formatStatusLabel = (status: string) => status.replace("_", " ");
-
   const assigneeOptions = useMemo(() => {
     const options: Option[] = [{ value: "unassigned", label: "Unassigned" }];
     users.forEach((user) => {
@@ -131,7 +130,7 @@ export default function TasksFilters({
       <MultiSelect
         options={statusOptions.map((status) => ({
           value: status,
-          label: formatStatusLabel(status),
+          label: formatTaskStatusLabel(status),
         }))}
         selectedValues={filters.status}
         placeholder="All statuses"
@@ -188,4 +187,3 @@ export default function TasksFilters({
     </form>
   );
 }
-

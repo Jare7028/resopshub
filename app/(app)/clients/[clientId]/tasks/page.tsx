@@ -5,14 +5,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import ClientTaskInlineRow from "./ClientTaskInlineRow";
+import {
+  TASK_STATUS_OPTIONS,
+  formatTaskStatusLabel,
+  normalizeTaskStatusOrDefault,
+} from "@/lib/taskStatus";
 
-const statusOptions = [
-  "backlog",
-  "in_progress",
-  "blocked",
-  "completed",
-  "cancelled",
-] as const;
+const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
@@ -86,7 +85,7 @@ export default async function ClientTasksPage(props: {
     }
     const title = String(formData.get("title") || "").trim();
     const projectId = String(formData.get("project_id") || "");
-    const status = String(formData.get("status") || "backlog");
+    const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
@@ -178,7 +177,7 @@ export default async function ClientTasksPage(props: {
     }
 
     if (formData.has("status")) {
-      updates.status = status;
+      updates.status = normalizeTaskStatusOrDefault(status);
     }
 
     if (formData.has("priority")) {
@@ -291,11 +290,11 @@ export default async function ClientTasksPage(props: {
           <select
             name="status"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue="backlog"
+            defaultValue="to_do"
           >
             {statusOptions.map((status) => (
               <option key={status} value={status}>
-                {status.replace("_", " ")}
+                {formatTaskStatusLabel(status)}
               </option>
             ))}
           </select>

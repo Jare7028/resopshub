@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 
 type UserOption = {
   id: string;
@@ -219,13 +220,13 @@ export default function ClientTaskInlineRow({
           <select
             name="status"
             aria-label="Status"
-            defaultValue={task.status ?? "backlog"}
+            defaultValue={normalizeTaskStatusOrDefault(task.status)}
             className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
             onChange={handleChange}
           >
             {statusOptions.map((status) => (
               <option key={status} value={status}>
-                {status.replace("_", " ")}
+                {formatTaskStatusLabel(status)}
               </option>
             ))}
           </select>

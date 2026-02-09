@@ -88,6 +88,8 @@ export default async function FeatureSuggestionsPage(props: {
     q?: string;
     date_from?: string;
     date_to?: string;
+    my_votes?: string;
+    has_comments?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -103,6 +105,8 @@ export default async function FeatureSuggestionsPage(props: {
   const queryParam = (searchParams?.q || "").trim();
   const dateFromParam = (searchParams?.date_from || "").trim();
   const dateToParam = (searchParams?.date_to || "").trim();
+  const onlyMyVotes = (searchParams?.my_votes || "0").trim() === "1";
+  const onlyWithComments = (searchParams?.has_comments || "0").trim() === "1";
 
   if (!authEmail) {
     redirect("/login");
@@ -165,6 +169,12 @@ export default async function FeatureSuggestionsPage(props: {
   }
   if (dateTo) {
     baseParams.set("date_to", dateTo);
+  }
+  if (onlyMyVotes) {
+    baseParams.set("my_votes", "1");
+  }
+  if (onlyWithComments) {
+    baseParams.set("has_comments", "1");
   }
   const returnBaseQuery = baseParams.toString();
   const returnTo = buildFeatureSuggestionsReturnUrl(returnBaseQuery);
@@ -285,6 +295,16 @@ export default async function FeatureSuggestionsPage(props: {
       commentsBySuggestionId.set(comment.suggestion_id, [comment]);
     }
   });
+
+  if (onlyMyVotes) {
+    suggestionRows = suggestionRows.filter((suggestion) => userVotes.has(suggestion.id));
+  }
+
+  if (onlyWithComments) {
+    suggestionRows = suggestionRows.filter(
+      (suggestion) => (commentCounts.get(suggestion.id) || 0) > 0
+    );
+  }
 
   async function createSuggestion(formData: FormData) {
     "use server";
@@ -818,6 +838,19 @@ export default async function FeatureSuggestionsPage(props: {
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm md:w-44"
               title="To date"
             />
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <input type="checkbox" name="my_votes" value="1" defaultChecked={onlyMyVotes} />
+              Upvoted by me
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                name="has_comments"
+                value="1"
+                defaultChecked={onlyWithComments}
+              />
+              Has comments
+            </label>
             <button
               type="submit"
               className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
@@ -897,7 +930,7 @@ export default async function FeatureSuggestionsPage(props: {
                                   className="rounded-md border border-slate-200 bg-white p-3"
                                 >
                                   <p className="text-xs text-slate-500">
-                                    {commenterName} ·{" "}
+                                    {commenterName} -{" "}
                                     {new Date(comment.created_at).toLocaleString()}
                                   </p>
                                   <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">

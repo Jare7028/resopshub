@@ -5,14 +5,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import TaskNotesEditorClient from "./TaskNotesEditorClient";
+import {
+  TASK_STATUS_OPTIONS,
+  formatTaskStatusLabel,
+  normalizeTaskStatusOrDefault,
+} from "@/lib/taskStatus";
 
-const statusOptions = [
-  "backlog",
-  "in_progress",
-  "blocked",
-  "completed",
-  "cancelled",
-] as const;
+const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
@@ -107,7 +106,11 @@ export default async function TaskDetailPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
     const title = String(formData.get("title") || "").trim();
-    const status = String(formData.get("status") || taskStatus);
+    const existingStatus = normalizeTaskStatusOrDefault(taskStatus);
+    const status = normalizeTaskStatusOrDefault(
+      String(formData.get("status") || existingStatus),
+      existingStatus
+    );
     const priority = String(formData.get("priority") || taskPriority);
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
@@ -184,7 +187,7 @@ export default async function TaskDetailPage(props: {
       redirect("/login");
     }
     const title = String(formData.get("title") || "").trim();
-    const status = String(formData.get("status") || "backlog");
+    const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
@@ -313,12 +316,12 @@ export default async function TaskDetailPage(props: {
               <select
                 id="task-status"
                 name="status"
-                defaultValue={task.status}
+                defaultValue={normalizeTaskStatusOrDefault(task.status)}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>
-                    {status.replace("_", " ")}
+                    {formatTaskStatusLabel(status)}
                   </option>
                 ))}
               </select>
@@ -500,11 +503,11 @@ export default async function TaskDetailPage(props: {
                 id="subtask-status"
                 name="status"
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                defaultValue="backlog"
+                defaultValue="to_do"
               >
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>
-                    {status.replace("_", " ")}
+                    {formatTaskStatusLabel(status)}
                   </option>
                 ))}
               </select>
@@ -612,7 +615,7 @@ export default async function TaskDetailPage(props: {
                         : "Unassigned"}
                     </td>
                     <td className="px-6 py-3 text-slate-600">
-                      {subtask.status?.replace("_", " ")}
+                      {formatTaskStatusLabel(subtask.status)}
                     </td>
                     <td className="px-6 py-3 text-slate-600">{subtask.priority}</td>
                     <td className="px-6 py-3 text-slate-600">

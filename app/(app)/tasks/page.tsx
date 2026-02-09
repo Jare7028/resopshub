@@ -4,6 +4,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import {
+  TASK_STATUS_OPTIONS,
+  coerceTaskStatusList,
+  expandTaskStatusFilterForQuery,
+  formatTaskStatusLabel,
+  normalizeTaskStatusOrDefault,
+} from "@/lib/taskStatus";
 import TasksView from "./TasksView";
 import TasksFilters from "./TasksFilters";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
@@ -15,13 +22,7 @@ import {
 } from "@/lib/recurrence";
 import RecurrenceFields from "./_components/RecurrenceFields";
 
-const statusOptions = [
-  "backlog",
-  "in_progress",
-  "blocked",
-  "completed",
-  "cancelled",
-] as const;
+const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -62,9 +63,7 @@ export default async function TasksPage(props: {
     selectedDue = "all";
   }
 
-  const selectedStatuses = selectedStatusesRaw.filter((status) =>
-    statusOptions.includes(status as (typeof statusOptions)[number])
-  );
+  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw);
   const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );
@@ -120,7 +119,7 @@ export default async function TasksPage(props: {
     .order("created_at", { ascending: false });
 
   if (selectedStatuses.length) {
-    request = request.in("status", selectedStatuses);
+    request = request.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
   }
 
   if (selectedPriorities.length) {
@@ -215,7 +214,7 @@ export default async function TasksPage(props: {
       redirect("/login");
     }
     const title = String(formData.get("title") || "").trim();
-    const status = String(formData.get("status") || "backlog");
+    const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "").trim();
@@ -402,7 +401,7 @@ export default async function TasksPage(props: {
     }
 
     if (formData.has("status")) {
-      updates.status = status;
+      updates.status = normalizeTaskStatusOrDefault(status);
     }
 
     if (formData.has("client_id")) {
@@ -549,11 +548,11 @@ export default async function TasksPage(props: {
             <select
               name="status"
               className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              defaultValue="backlog"
+              defaultValue="to_do"
             >
               {statusOptions.map((status) => (
                 <option key={status} value={status}>
-                  {status.replace("_", " ")}
+                  {formatTaskStatusLabel(status)}
                 </option>
               ))}
             </select>

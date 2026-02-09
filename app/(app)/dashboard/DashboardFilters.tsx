@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import MultiSelect from "../_components/MultiSelect";
+import { formatTaskStatusLabel } from "@/lib/taskStatus";
 
 type RangeOption = { value: string; label: string };
 type ClientOption = { id: string; name: string };
@@ -143,7 +144,7 @@ export default function DashboardFilters({
       <MultiSelect
         options={statusOptions.map((status) => ({
           value: status,
-          label: status.replace("_", " "),
+          label: formatTaskStatusLabel(status),
         }))}
         selectedValues={filters.status}
         placeholder="All statuses"

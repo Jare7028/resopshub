@@ -51,6 +51,7 @@ type TasksViewProps = {
 };
 
 const statusColors: Record<string, string> = {
+  to_do: "bg-slate-400",
   backlog: "bg-slate-400",
   in_progress: "bg-blue-500",
   blocked: "bg-amber-500",

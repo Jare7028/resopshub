@@ -171,7 +171,7 @@ export async function GET(request: Request) {
       .insert({
         id: instanceTaskId,
         title: task.title,
-        status: "backlog",
+        status: "to_do",
         priority: task.priority,
         client_id: task.client_id,
         project_id: task.project_id,

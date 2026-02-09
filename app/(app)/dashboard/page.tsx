@@ -3,8 +3,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import DashboardFilters from "./DashboardFilters";
 import { parseCsvParam } from "@/lib/queryParams";
+import {
+  TASK_STATUS_OPTIONS,
+  coerceTaskStatusList,
+  expandTaskStatusFilterForQuery,
+  formatTaskStatusLabel,
+  normalizeTaskStatus,
+} from "@/lib/taskStatus";
 
-const taskStatuses = ["backlog", "in_progress", "blocked", "completed", "cancelled"] as const;
+const taskStatuses = TASK_STATUS_OPTIONS;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
 const projectActiveStatuses = ["planned", "active", "on_hold"] as const;
 const rangeOptions = [
@@ -107,10 +114,12 @@ export default async function DashboardPage(props: {
       ? parseCsvParam(searchParams.user)
       : getSavedList("user");
 
-  let selectedStatuses =
+  const selectedStatusesRaw =
     searchParams?.status !== undefined
       ? parseCsvParam(searchParams.status)
       : getSavedList("status");
+
+  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw);
 
   let selectedPriorities =
     searchParams?.priority !== undefined
@@ -123,10 +132,6 @@ export default async function DashboardPage(props: {
   if (!allowedRangeValues.has(selectedRange)) {
     selectedRange = "all";
   }
-
-  selectedStatuses = selectedStatuses.filter((status) =>
-    taskStatuses.includes(status as (typeof taskStatuses)[number])
-  );
 
   selectedPriorities = selectedPriorities.filter((priority) =>
     taskPriorities.includes(priority as (typeof taskPriorities)[number])
@@ -238,7 +243,7 @@ export default async function DashboardPage(props: {
     }
 
     if (selectedStatuses.length) {
-      tasksQuery = tasksQuery.in("status", selectedStatuses);
+      tasksQuery = tasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
     }
 
     if (selectedPriorities.length) {
@@ -438,13 +443,13 @@ export default async function DashboardPage(props: {
 
   const statusCounts = new Map<string, number>();
   openTasks.forEach((task) => {
-    const status = task.status || "unknown";
+    const status = normalizeTaskStatus(task.status) || "unknown";
     statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
   });
 
   const allStatusCounts = new Map<string, number>();
   (tasks || []).forEach((task) => {
-    const status = task.status || "unknown";
+    const status = normalizeTaskStatus(task.status) || "unknown";
     allStatusCounts.set(status, (allStatusCounts.get(status) || 0) + 1);
   });
 
@@ -457,7 +462,7 @@ export default async function DashboardPage(props: {
   const totalOpen = openTasks.length || 1;
   const statusDistribution = taskStatuses
     .map((status) => ({
-      label: status.replace("_", " "),
+      label: formatTaskStatusLabel(status),
       value: statusCounts.get(status) || 0,
       percent: Math.round(((statusCounts.get(status) || 0) / totalOpen) * 100),
     }))
@@ -474,7 +479,7 @@ export default async function DashboardPage(props: {
   const totalAllTasks = (tasks || []).length || 1;
   const allStatusDistribution = taskStatuses
     .map((status) => ({
-      label: status.replace("_", " "),
+      label: formatTaskStatusLabel(status),
       value: allStatusCounts.get(status) || 0,
       percent: Math.round(((allStatusCounts.get(status) || 0) / totalAllTasks) * 100),
     }))
