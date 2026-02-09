@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "./_components/ClientTabs";
@@ -8,6 +9,44 @@ export const dynamic = "force-dynamic";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
 const visibilityOptions = ["internal", "client_shared"] as const;
+
+type ClientNoteRow = {
+  id: string;
+  title?: string | null;
+  content?: string | null;
+  visibility?: string | null;
+  created_at?: string | null;
+  last_edited_at?: string | null;
+  last_edited_by_user_id?: string | null;
+  user_id?: string | null;
+};
+
+type EditorUserRow = {
+  id: string;
+  full_name?: string | null;
+  email?: string | null;
+};
+
+function isMissingColumnError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const anyError = error as { code?: unknown; message?: unknown };
+  const code = typeof anyError.code === "string" ? anyError.code : "";
+  const message = typeof anyError.message === "string" ? anyError.message : "";
+  return code === "42703" || message.includes("does not exist");
+}
+
+function truncate(value: string, max = 80) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "";
+  }
+  if (text.length <= max) {
+    return text;
+  }
+  return `${text.slice(0, max - 1)}…`;
+}
 
 export default async function ClientOverviewPage(props: {
   params: Promise<{ clientId: string }>;
@@ -29,11 +68,58 @@ export default async function ClientOverviewPage(props: {
     notFound();
   }
 
-  const { data: clientNotes, error: clientNotesError } = await supabase
+  let supportsNotePages = true;
+  let clientNotes: ClientNoteRow[] | null = null;
+  let clientNotesError: unknown = null;
+
+  const { data: notePageRows, error: notePageError } = await supabase
     .from("notes")
-    .select("id,content,created_at,user_id")
+    .select(
+      "id,title,content,created_at,last_edited_at,last_edited_by_user_id,user_id,visibility"
+    )
     .eq("client_id", clientId)
+    .order("last_edited_at", { ascending: false })
     .order("created_at", { ascending: false });
+
+  if (notePageError && isMissingColumnError(notePageError)) {
+    supportsNotePages = false;
+    const { data: legacyRows, error: legacyError } = await supabase
+      .from("notes")
+      .select("id,content,created_at,user_id")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false });
+
+    clientNotes = legacyRows as ClientNoteRow[] | null;
+    clientNotesError = legacyError;
+  } else {
+    clientNotes = notePageRows as ClientNoteRow[] | null;
+    clientNotesError = notePageError;
+  }
+
+  const lastEditorIds = supportsNotePages
+    ? Array.from(
+        new Set(
+          (clientNotes || [])
+            .map((note) => note.last_edited_by_user_id || note.user_id)
+            .filter(Boolean)
+        )
+      )
+    : [];
+
+  const { data: editorUsers } =
+    supportsNotePages && lastEditorIds.length
+      ? await supabase
+          .from("users")
+          .select("id,full_name,email")
+          .in("id", lastEditorIds)
+      : { data: [] as EditorUserRow[] };
+
+  const editorMap = new Map<string, string>(
+    ((editorUsers || []) as EditorUserRow[]).map((user) => [
+      user.id,
+      user.full_name || user.email || "Unknown user",
+    ])
+  );
 
   async function updateClient(formData: FormData) {
     "use server";
@@ -99,7 +185,7 @@ export default async function ClientOverviewPage(props: {
     redirect(`/clients/${clientId}?success=Note%20deleted`);
   }
 
-  async function createNote(formData: FormData) {
+  async function createNoteLegacy(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
     const content = String(formData.get("content") || "").trim();
@@ -114,39 +200,6 @@ export default async function ClientOverviewPage(props: {
 
     if (!authUser) {
       redirect(`/clients/${clientId}?error=You%20must%20be%20signed%20in%20to%20add%20notes`);
-    }
-
-    const fallbackName =
-      authUser.user_metadata?.full_name ||
-      authUser.user_metadata?.name ||
-      (authUser.email ? authUser.email.split("@")[0] : "Unknown");
-
-    const { data: existingById } = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", authUser.id)
-      .maybeSingle();
-
-    if (!existingById && authUser.email) {
-      const { data: existingByEmail } = await supabase
-        .from("users")
-        .select("id")
-        .eq("email", authUser.email)
-        .maybeSingle();
-
-      if (!existingByEmail?.id) {
-        const { error: userError } = await supabase.from("users").insert({
-          id: authUser.id,
-          email: authUser.email,
-          full_name: fallbackName,
-          role: "member",
-          status: "active",
-        });
-
-        if (userError) {
-          redirect(`/clients/${clientId}?error=${encodeURIComponent(userError.message)}`);
-        }
-      }
     }
 
     const { error } = await supabase.from("notes").insert({
@@ -291,91 +344,149 @@ export default async function ClientOverviewPage(props: {
         </form>
 
         <div className="mt-8 border-t border-slate-200 pt-6">
-          <h3 className="text-base font-semibold text-slate-900">Published notes</h3>
-          {clientNotesError ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-base font-semibold text-slate-900">Notes</h3>
+            <Link
+              href={`/clients/${clientId}/notes`}
+              className="text-sm font-semibold text-slate-700 hover:text-slate-900 hover:underline"
+            >
+              View all notes
+            </Link>
+          </div>
+
+          {clientNotesError && !isMissingColumnError(clientNotesError) ? (
             <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               Unable to load notes. Check Supabase RLS policies for the notes table.
             </p>
           ) : null}
-          <form action={createNote} className="mt-4 grid gap-3">
-            <textarea
-              name="content"
-              rows={3}
-              placeholder="Write a note..."
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              required
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              <select
-                name="visibility"
-                className="w-48 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                defaultValue="internal"
-              >
-                {visibilityOptions.map((visibility) => (
-                  <option key={visibility} value={visibility}>
-                    {visibility.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-              >
-                Publish note
-              </button>
+
+          {supportsNotePages ? (
+            <div className="mt-4 space-y-2">
+              {clientNotes?.length ? (
+                clientNotes.slice(0, 6).map((note) => {
+                  const lastEditedAt = note.last_edited_at || note.created_at;
+                  const editedById = note.last_edited_by_user_id || note.user_id || "";
+                  const editedByLabel = editedById ? editorMap.get(editedById) : "";
+
+                  return (
+                    <Link
+                      key={note.id}
+                      href={`/clients/${clientId}/notes/${note.id}`}
+                      className="block rounded-md border border-slate-200 px-3 py-2 hover:bg-slate-50"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-900">
+                          {note.title || "Untitled"}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {lastEditedAt
+                            ? new Date(lastEditedAt).toLocaleString("en-US")
+                            : "-"}
+                          {editedByLabel ? ` • ${editedByLabel}` : ""}
+                        </span>
+                      </div>
+                      {note.content ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {truncate(note.content, 120)}
+                        </p>
+                      ) : null}
+                    </Link>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-slate-600 mt-3">No notes yet.</p>
+              )}
+
+              <div className="pt-2">
+                <Link
+                  href={`/clients/${clientId}/notes`}
+                  className="inline-flex rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                >
+                  New note
+                </Link>
+              </div>
             </div>
-          </form>
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-2">Note</th>
-                  <th className="px-4 py-2">Date added</th>
-                  <th className="px-4 py-2">User added</th>
-                  <th className="px-4 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clientNotes?.length ? (
-                  clientNotes.map((note) => (
-                    <tr key={note.id} className="border-t border-slate-200">
-                      <td className="px-4 py-3 text-slate-700">
-                        {note.content}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">
-                        {note.created_at
-                          ? new Date(note.created_at).toLocaleDateString("en-US")
-                          : ""}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">
-                        {note.user_id ? "Team member" : "Unknown user"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <form action={deleteNote}>
-                          <input type="hidden" name="note_id" value={note.id} />
-                          <ConfirmDelete
-                            name={
-                              (note.content || "")
-                                .replace(/\s+/g, " ")
-                                .trim()
-                                .slice(0, 40) || "this"
-                            }
-                            itemType="Note"
-                          />
-                        </form>
-                      </td>
+          ) : (
+            <>
+              <h4 className="mt-4 text-sm font-semibold text-slate-900">
+                Published notes
+              </h4>
+              <form action={createNoteLegacy} className="mt-3 grid gap-3">
+                <textarea
+                  name="content"
+                  rows={3}
+                  placeholder="Write a note..."
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  required
+                />
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    name="visibility"
+                    className="w-48 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    defaultValue="internal"
+                  >
+                    {visibilityOptions.map((visibility) => (
+                      <option key={visibility} value={visibility}>
+                        {visibility.replace("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+                  >
+                    Publish note
+                  </button>
+                </div>
+              </form>
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-2">Note</th>
+                      <th className="px-4 py-2">Date added</th>
+                      <th className="px-4 py-2">User added</th>
+                      <th className="px-4 py-2">Actions</th>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={4}>
-                      No notes yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {clientNotes?.length ? (
+                      clientNotes.map((note) => (
+                        <tr key={note.id} className="border-t border-slate-200">
+                          <td className="px-4 py-3 text-slate-700">
+                            {note.content}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {note.created_at
+                              ? new Date(note.created_at).toLocaleDateString("en-US")
+                              : ""}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {note.user_id ? "Team member" : "Unknown user"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <form action={deleteNote}>
+                              <input type="hidden" name="note_id" value={note.id} />
+                              <ConfirmDelete
+                                name={truncate(note.content || "", 40) || "this"}
+                                itemType="Note"
+                              />
+                            </form>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="px-4 py-6 text-slate-500" colSpan={4}>
+                          No notes yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       </section>
     </div>
