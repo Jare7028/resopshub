@@ -57,6 +57,8 @@ export default function TaskInlineRow({
   priorityOptions,
   onUpdate,
 }: TaskInlineRowProps) {
+  const assigneeFormId = `task-${task.id}-assignees`;
+
   const getRelationName = (
     relation:
       | { name?: string | null }
@@ -230,7 +232,7 @@ export default function TaskInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form action={onUpdate} id={assigneeFormId}>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="assignee_user_ids" value="" />
           <div className="relative w-full min-w-[12rem]" ref={assigneeRef}>
@@ -278,6 +280,7 @@ export default function TaskInlineRow({
                         >
                           <input
                             type="checkbox"
+                            form={assigneeFormId}
                             name="assignee_user_ids"
                             value={user.id}
                             defaultChecked={assigneeUserIds.includes(user.id)}
