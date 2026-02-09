@@ -1,7 +1,8 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import ConfirmDelete from "../../_components/ConfirmDelete";
 
 export default async function ClientContactsPage(props: {
   params: Promise<{ clientId: string }>;
@@ -116,7 +117,7 @@ export default async function ClientContactsPage(props: {
     <div className="space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold text-slate-900">
-          {client.name} · Contacts
+          {client.name} � Contacts
         </h1>
         <ClientTabs clientId={clientId} active="contacts" />
       </section>
@@ -225,13 +226,11 @@ export default async function ClientContactsPage(props: {
                   >
                     Save
                   </button>
-                  <button
-                    type="submit"
+                  <ConfirmDelete
+                    name={contact.full_name || contact.email || "this"}
+                    itemType="Contact"
                     formAction={deleteContact}
-                    className="text-sm font-semibold text-red-600 hover:text-red-800"
-                  >
-                    Delete
-                  </button>
+                  />
                 </div>
               </form>
             </div>
@@ -243,6 +242,9 @@ export default async function ClientContactsPage(props: {
     </div>
   );
 }
+
+
+
 
 
 

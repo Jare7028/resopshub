@@ -1,7 +1,8 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "./_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import ConfirmDelete from "../../_components/ConfirmDelete";
 
 export const dynamic = "force-dynamic";
 
@@ -352,12 +353,15 @@ export default async function ClientOverviewPage(props: {
                       <td className="px-4 py-3">
                         <form action={deleteNote}>
                           <input type="hidden" name="note_id" value={note.id} />
-                          <button
-                            type="submit"
-                            className="text-sm font-semibold text-red-600 hover:text-red-800"
-                          >
-                            Delete
-                          </button>
+                          <ConfirmDelete
+                            name={
+                              (note.content || "")
+                                .replace(/\s+/g, " ")
+                                .trim()
+                                .slice(0, 40) || "this"
+                            }
+                            itemType="Note"
+                          />
                         </form>
                       </td>
                     </tr>
@@ -377,6 +381,8 @@ export default async function ClientOverviewPage(props: {
     </div>
   );
 }
+
+
 
 
 

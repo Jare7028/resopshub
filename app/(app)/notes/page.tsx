@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import ConfirmDelete from "../_components/ConfirmDelete";
 
 export const dynamic = "force-dynamic";
 
@@ -176,12 +177,15 @@ export default async function NotesPage(props: {
                     <td className="px-4 py-3">
                       <form action={deleteNote}>
                         <input type="hidden" name="note_id" value={note.id} />
-                        <button
-                          type="submit"
-                          className="text-sm font-semibold text-red-600 hover:text-red-800"
-                        >
-                          Delete
-                        </button>
+                        <ConfirmDelete
+                          name={
+                            (note.content || "")
+                              .replace(/\s+/g, " ")
+                              .trim()
+                              .slice(0, 40) || "this"
+                          }
+                          itemType="Note"
+                        />
                       </form>
                     </td>
                   </tr>

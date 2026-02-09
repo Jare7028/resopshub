@@ -1,7 +1,8 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import ConfirmDelete from "../_components/ConfirmDelete";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
 
@@ -137,12 +138,7 @@ export default async function ClientsPage(props: {
                     <td className="px-6 py-3">
                       <form action={deleteClient}>
                         <input type="hidden" name="client_id" value={client.id} />
-                        <button
-                          type="submit"
-                          className="text-xs font-semibold text-red-600 hover:text-red-800"
-                        >
-                          Delete
-                        </button>
+                        <ConfirmDelete name={client.name} itemType="Client" />
                       </form>
                     </td>
                   </tr>
@@ -161,4 +157,5 @@ export default async function ClientsPage(props: {
     </div>
   );
 }
+
 
