@@ -21,6 +21,11 @@ import {
   type RecurrenceConfig,
 } from "@/lib/recurrence";
 import RecurrenceFields from "./_components/RecurrenceFields";
+import {
+  normalizeTaskSortDir,
+  normalizeTaskSortKey,
+  sortTasksForDisplay,
+} from "@/lib/taskSorting";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
@@ -41,12 +46,17 @@ export default async function TasksPage(props: {
     client?: string | string[];
     project?: string | string[];
     hide?: string;
+    sort?: string;
+    dir?: string;
     error?: string;
     success?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+
+  const sortKey = normalizeTaskSortKey(searchParams?.sort as string | undefined);
+  const sortDir = normalizeTaskSortDir(searchParams?.dir as string | undefined);
 
   const selectedStatusesRaw = parseCsvParam(searchParams?.status);
   const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
@@ -104,6 +114,8 @@ export default async function TasksPage(props: {
   setCsvParam(returnParams, "client", selectedClientIds);
   setCsvParam(returnParams, "project", selectedProjectIds);
   returnParams.set("hide", hideCompleted ? "1" : "0");
+  returnParams.set("sort", sortKey);
+  returnParams.set("dir", sortDir);
 
   const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
   const toggleParams = new URLSearchParams(returnParams);
@@ -190,6 +202,15 @@ export default async function TasksPage(props: {
     if (task.assignee_user_id && !assigneesByTask[task.id].includes(task.assignee_user_id)) {
       assigneesByTask[task.id].push(task.assignee_user_id);
     }
+  });
+
+  const sortedTasks = sortTasksForDisplay({
+    tasks: tasks || [],
+    sortKey,
+    sortDir,
+    users: users || [],
+    assigneesByTask,
+    statusOrder: statusOptions,
   });
 
   const getRelationName = (
@@ -596,6 +617,8 @@ export default async function TasksPage(props: {
             clients={clients || []}
             projects={projects || []}
             hideCompleted={hideCompleted}
+            sort={sortKey}
+            dir={sortDir}
             initialFilters={{
               status: selectedStatuses,
               priority: selectedPriorities,
@@ -610,7 +633,7 @@ export default async function TasksPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <TasksView
-          tasks={tasks || []}
+          tasks={sortedTasks}
           users={users || []}
           clients={clients || []}
           projects={projects || []}
@@ -620,6 +643,9 @@ export default async function TasksPage(props: {
           onUpdate={updateTaskInline}
           hideCompleted={hideCompleted}
           toggleUrl={toggleUrl}
+          baseParams={returnParams.toString()}
+          sortKey={sortKey}
+          sortDir={sortDir}
         />
       </section>
     </div>

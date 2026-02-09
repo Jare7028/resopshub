@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import TaskInlineRow from "./TaskInlineRow";
+import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
 
 type UserOption = {
   id: string;
@@ -48,6 +49,9 @@ type TasksViewProps = {
   onUpdate: (formData: FormData) => void;
   hideCompleted: boolean;
   toggleUrl: string;
+  baseParams: string;
+  sortKey: TaskSortKey;
+  sortDir: TaskSortDir;
 };
 
 const statusColors: Record<string, string> = {
@@ -93,8 +97,35 @@ export default function TasksView({
   onUpdate,
   hideCompleted,
   toggleUrl,
+  baseParams,
+  sortKey,
+  sortDir,
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt">("table");
+
+  const buildSortUrl = (key: TaskSortKey) => {
+    const params = new URLSearchParams(baseParams);
+    const nextDir: TaskSortDir =
+      sortKey === key && sortDir === "asc" ? "desc" : "asc";
+    params.set("sort", key);
+    params.set("dir", nextDir);
+    const query = params.toString();
+    return query ? `/tasks?${query}` : "/tasks";
+  };
+
+  const headerClass = (key: TaskSortKey) =>
+    `inline-flex items-center gap-2 hover:text-slate-900 ${
+      sortKey === key ? "text-slate-900" : "text-slate-500"
+    }`;
+
+  const sortIndicator = (key: TaskSortKey) => {
+    if (sortKey !== key) return null;
+    return (
+      <span aria-hidden="true" className="text-[10px] text-slate-400">
+        {sortDir === "asc" ? "▲" : "▼"}
+      </span>
+    );
+  };
 
   const ganttData = useMemo(() => {
     const normalized = tasks.map((task) => {
@@ -190,14 +221,54 @@ export default function TasksView({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-6 py-3">Task</th>
-                <th className="px-6 py-3">Client</th>
-                <th className="px-6 py-3">Project</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Priority</th>
-                <th className="px-6 py-3">Assignees</th>
-                <th className="px-6 py-3">Start</th>
-                <th className="px-6 py-3">Due</th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("title")} className={headerClass("title")}>
+                    Task
+                    {sortIndicator("title")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("client")} className={headerClass("client")}>
+                    Client
+                    {sortIndicator("client")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("project")} className={headerClass("project")}>
+                    Project
+                    {sortIndicator("project")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("status")} className={headerClass("status")}>
+                    Status
+                    {sortIndicator("status")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("priority")} className={headerClass("priority")}>
+                    Priority
+                    {sortIndicator("priority")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("assignees")} className={headerClass("assignees")}>
+                    Assignees
+                    {sortIndicator("assignees")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("start")} className={headerClass("start")}>
+                    Start
+                    {sortIndicator("start")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a href={buildSortUrl("due")} className={headerClass("due")}>
+                    Due
+                    {sortIndicator("due")}
+                  </a>
+                </th>
               </tr>
             </thead>
             <tbody>

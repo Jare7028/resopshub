@@ -10,6 +10,11 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import {
+  normalizeTaskSortDir,
+  normalizeTaskSortKey,
+  sortTasksForDisplay,
+} from "@/lib/taskSorting";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
@@ -17,12 +22,15 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function ClientTasksPage(props: {
   params: Promise<{ clientId: string }>;
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; sort?: string; dir?: string }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+
+  const sortKey = normalizeTaskSortKey(searchParams?.sort);
+  const sortDir = normalizeTaskSortDir(searchParams?.dir);
   const { data: client } = await supabase
     .from("clients")
     .select("id,name")
@@ -75,6 +83,33 @@ export default async function ClientTasksPage(props: {
       assigneesByTask[task.id].push(task.assignee_user_id);
     }
   });
+
+  const sortedTasks = sortTasksForDisplay({
+    tasks: tasks || [],
+    sortKey,
+    sortDir,
+    users: users || [],
+    assigneesByTask,
+    statusOrder: statusOptions,
+  });
+
+  const buildSortUrl = (key: ReturnType<typeof normalizeTaskSortKey>) => {
+    const params = new URLSearchParams();
+    const nextDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
+    params.set("sort", key);
+    params.set("dir", nextDir);
+    const query = params.toString();
+    return query ? `/clients/${clientId}/tasks?${query}` : `/clients/${clientId}/tasks`;
+  };
+
+  const sortIndicator = (key: ReturnType<typeof normalizeTaskSortKey>) => {
+    if (sortKey !== key) return null;
+    return (
+      <span aria-hidden="true" className="text-[10px] text-slate-400">
+        {sortDir === "asc" ? "▲" : "▼"}
+      </span>
+    );
+  };
 
   async function createTask(formData: FormData) {
     "use server";
@@ -336,18 +371,74 @@ export default async function ClientTasksPage(props: {
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-6 py-3">Task</th>
-                <th className="px-6 py-3">Project</th>
-                <th className="px-6 py-3">Assignee</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Priority</th>
-                <th className="px-6 py-3">Start</th>
-                <th className="px-6 py-3">Due</th>
+                <th className="px-6 py-3">
+                  <a
+                    href={buildSortUrl("title")}
+                    className="inline-flex items-center gap-2 hover:text-slate-900"
+                  >
+                    Task
+                    {sortIndicator("title")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a
+                    href={buildSortUrl("project")}
+                    className="inline-flex items-center gap-2 hover:text-slate-900"
+                  >
+                    Project
+                    {sortIndicator("project")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a
+                    href={buildSortUrl("assignees")}
+                    className="inline-flex items-center gap-2 hover:text-slate-900"
+                  >
+                    Assignee
+                    {sortIndicator("assignees")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a
+                    href={buildSortUrl("status")}
+                    className="inline-flex items-center gap-2 hover:text-slate-900"
+                  >
+                    Status
+                    {sortIndicator("status")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a
+                    href={buildSortUrl("priority")}
+                    className="inline-flex items-center gap-2 hover:text-slate-900"
+                  >
+                    Priority
+                    {sortIndicator("priority")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a
+                    href={buildSortUrl("start")}
+                    className="inline-flex items-center gap-2 hover:text-slate-900"
+                  >
+                    Start
+                    {sortIndicator("start")}
+                  </a>
+                </th>
+                <th className="px-6 py-3">
+                  <a
+                    href={buildSortUrl("due")}
+                    className="inline-flex items-center gap-2 hover:text-slate-900"
+                  >
+                    Due
+                    {sortIndicator("due")}
+                  </a>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {tasks?.length ? (
-                tasks.map((task) => (
+              {sortedTasks?.length ? (
+                sortedTasks.map((task) => (
                   <ClientTaskInlineRow
                     key={task.id}
                     task={task}

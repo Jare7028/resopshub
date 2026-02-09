@@ -25,7 +25,12 @@ export type TasksFiltersState = {
   project: string[];
 };
 
-function buildQuery(filters: TasksFiltersState, hideCompleted: boolean) {
+function buildQuery(
+  filters: TasksFiltersState,
+  hideCompleted: boolean,
+  sort?: string | null,
+  dir?: string | null
+) {
   const params = new URLSearchParams();
   setCsvParam(params, "status", filters.status);
   setCsvParam(params, "priority", filters.priority);
@@ -34,6 +39,8 @@ function buildQuery(filters: TasksFiltersState, hideCompleted: boolean) {
   setCsvParam(params, "client", filters.client);
   setCsvParam(params, "project", filters.project);
   params.set("hide", hideCompleted ? "1" : "0");
+  if (sort) params.set("sort", sort);
+  if (dir) params.set("dir", dir);
   return params.toString();
 }
 
@@ -46,6 +53,8 @@ export default function TasksFilters({
   projects,
   initialFilters,
   hideCompleted,
+  sort,
+  dir,
 }: {
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
@@ -55,6 +64,8 @@ export default function TasksFilters({
   projects: ProjectOption[];
   initialFilters: TasksFiltersState;
   hideCompleted: boolean;
+  sort?: string;
+  dir?: string;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -68,12 +79,12 @@ export default function TasksFilters({
 
   const apply = useCallback(
     (next: TasksFiltersState) => {
-      const query = buildQuery(next, hideCompleted);
+      const query = buildQuery(next, hideCompleted, sort, dir);
       startTransition(() => {
         router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
       });
     },
-    [hideCompleted, router]
+    [hideCompleted, router, sort, dir]
   );
 
   const update = useCallback(
