@@ -56,6 +56,18 @@ export default async function ClientOverviewPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authEmail = authData.user?.email;
+  if (!authEmail) {
+    redirect("/login");
+  }
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("id,role")
+    .eq("email", authEmail)
+    .maybeSingle();
+  const isAdmin = currentUser?.role === "admin";
+
   const { data: client } = await supabase
     .from("clients")
     .select(
@@ -120,6 +132,65 @@ export default async function ClientOverviewPage(props: {
       user.full_name || user.email || "Unknown user",
     ])
   );
+
+  const { data: users } = isAdmin
+    ? await supabase
+        .from("users")
+        .select("id,full_name,email")
+        .order("full_name", { ascending: true })
+    : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
+
+  const { data: clientUsers } = isAdmin
+    ? await supabase
+        .from("client_users")
+        .select("user_id")
+        .eq("client_id", clientId)
+    : { data: [] as { user_id: string }[] };
+
+  const assignedClientUserIds = new Set(
+    (clientUsers || []).map((row) => row.user_id).filter(Boolean)
+  );
+
+  async function updateClientMembers(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const authEmail = authData.user?.email;
+    if (!authEmail) {
+      redirect("/login");
+    }
+
+    const { data: editor } = await supabase
+      .from("users")
+      .select("role")
+      .eq("email", authEmail)
+      .maybeSingle();
+
+    if (editor?.role !== "admin") {
+      redirect(`/clients/${clientId}?error=Not%20allowed`);
+    }
+
+    const selectedIds = formData
+      .getAll("assigned_user_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+
+    await supabase.from("client_users").delete().eq("client_id", clientId);
+
+    if (selectedIds.length) {
+      const inserts = selectedIds.map((userId) => ({
+        client_id: clientId,
+        user_id: userId,
+      }));
+      const { error } = await supabase.from("client_users").insert(inserts);
+      if (error) {
+        redirect(`/clients/${clientId}?error=${encodeURIComponent(error.message)}`);
+      }
+    }
+
+    revalidatePath(`/clients/${clientId}`);
+    redirect(`/clients/${clientId}?success=Client%20members%20updated`);
+  }
 
   async function updateClient(formData: FormData) {
     "use server";
@@ -238,6 +309,43 @@ export default async function ClientOverviewPage(props: {
         <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
           {searchParams.success}
         </p>
+      ) : null}
+
+      {isAdmin ? (
+        <section className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Client members</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Only assigned members can view and edit this client.
+          </p>
+          {users?.length ? (
+            <form action={updateClientMembers} className="mt-4 space-y-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {users.map((user) => (
+                  <label
+                    key={user.id}
+                    className="flex items-center gap-2 text-sm text-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      name="assigned_user_ids"
+                      value={user.id}
+                      defaultChecked={assignedClientUserIds.has(user.id)}
+                    />
+                    <span>{user.full_name || user.email}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="submit"
+                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+              >
+                Save members
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">No users found.</p>
+          )}
+        </section>
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
