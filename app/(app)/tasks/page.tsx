@@ -211,8 +211,7 @@ export default async function TasksPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
     const { data: authData } = await supabase.auth.getUser();
-    const creatorId = authData.user?.id;
-    if (!creatorId) {
+    if (!authData.user?.id) {
       redirect("/login");
     }
     const title = String(formData.get("title") || "").trim();
@@ -308,7 +307,6 @@ export default async function TasksPage(props: {
     const payload: Record<string, unknown> = {
       client_id: clientId,
       project_id: projectId,
-      created_by_user_id: creatorId,
       title,
       status,
       priority,
