@@ -165,7 +165,7 @@ export default async function TasksPage(props: {
   let request = supabase
     .from("tasks")
     .select(
-      "id,title,status,priority,start_date,due_date,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
+      "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
     )
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });

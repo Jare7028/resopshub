@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import { dueInputClasses, getDueUrgency, prioritySelectClasses } from "@/lib/taskIndicators";
 
 type UserOption = {
   id: string;
@@ -30,6 +31,7 @@ type TaskRow = {
   priority: string | null;
   start_date: string | null;
   due_date: string | null;
+  due_time?: string | null;
   assignee_user_id: string | null;
   client_id: string | null;
   project_id: string | null;
@@ -59,6 +61,7 @@ export default function TaskInlineRow({
   onUpdate,
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
+  const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
 
   const getRelationName = (
     relation:
@@ -221,7 +224,9 @@ export default function TaskInlineRow({
             name="priority"
             aria-label="Priority"
             defaultValue={task.priority ?? "medium"}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+            className={`w-full rounded-md border px-2 py-1 text-sm ${prioritySelectClasses(
+              task.priority
+            )}`}
             onChange={handleChange}
           >
             {priorityOptions.map((priority) => (
@@ -321,7 +326,9 @@ export default function TaskInlineRow({
             name="due_date"
             aria-label="Due date"
             defaultValue={task.due_date || ""}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+            className={`w-full rounded-md border px-2 py-1 text-sm ${dueInputClasses(
+              dueUrgency
+            )}`}
             onChange={handleChange}
           />
         </form>

@@ -7,6 +7,7 @@ import TaskInlineRow from "./TaskInlineRow";
 import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
 import { setCsvParam } from "@/lib/queryParams";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
 import {
   FilterIcon,
   FilterMenuMulti,
@@ -38,6 +39,7 @@ type TaskRow = {
   priority: string | null;
   start_date: string | null;
   due_date: string | null;
+  due_time?: string | null;
   created_at: string | null;
   assignee_user_id: string | null;
   client_id: string | null;
@@ -792,6 +794,7 @@ export default function TasksView({
                             const dueLabel = task.due_date
                               ? new Date(task.due_date).toLocaleDateString("en-US")
                               : "";
+                            const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
                             const clientName = Array.isArray(task.clients)
                               ? task.clients[0]?.name
                               : task.clients?.name;
@@ -824,18 +827,20 @@ export default function TasksView({
                                 ) : null}
 
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                                  <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                  <span
+                                    className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${priorityPillClasses(
+                                      task.priority
+                                    )}`}
+                                  >
                                     {priority}
                                   </span>
-                                  {dueLabel ? (
-                                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                                      Due {dueLabel}
-                                    </span>
-                                  ) : (
-                                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
-                                      No due date
-                                    </span>
-                                  )}
+                                  <span
+                                    className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${duePillClasses(
+                                      dueUrgency
+                                    )}`}
+                                  >
+                                    {dueLabel ? `Due ${dueLabel}` : "No due date"}
+                                  </span>
                                 </div>
                               </div>
                             );
