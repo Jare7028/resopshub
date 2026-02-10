@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
 import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
+import MultiSelect from "../_components/MultiSelect";
+import { setCsvParam } from "@/lib/queryParams";
+import { formatTaskStatusLabel } from "@/lib/taskStatus";
 
 type UserOption = {
   id: string;
@@ -46,10 +50,18 @@ type TasksViewProps = {
   assigneesByTask: Record<string, string[]>;
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
+  dueOptions: readonly { value: string; label: string }[];
+  initialFilters: {
+    status: string[];
+    priority: string[];
+    assignee: string[];
+    due: string;
+    client: string[];
+    project: string[];
+  };
   onUpdate: (formData: FormData) => void;
   hideCompleted: boolean;
   toggleUrl: string;
-  baseParams: string;
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
 };
@@ -94,22 +106,51 @@ export default function TasksView({
   assigneesByTask,
   statusOptions,
   priorityOptions,
+  dueOptions,
+  initialFilters,
   onUpdate,
   hideCompleted,
   toggleUrl,
-  baseParams,
   sortKey,
   sortDir,
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt">("table");
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [filters, setFilters] = useState(initialFilters);
+
+  const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
+
+  useEffect(() => {
+    setFilters(initialFilters);
+  }, [initialKey, initialFilters]);
+
+  const buildQuery = (next: typeof filters, nextSortKey: TaskSortKey, nextSortDir: TaskSortDir) => {
+    const params = new URLSearchParams();
+    setCsvParam(params, "status", next.status);
+    setCsvParam(params, "priority", next.priority);
+    setCsvParam(params, "assignee", next.assignee);
+    setCsvParam(params, "client", next.client);
+    setCsvParam(params, "project", next.project);
+    if (next.due && next.due !== "all") params.set("due", next.due);
+    params.set("hide", hideCompleted ? "1" : "0");
+    params.set("sort", nextSortKey);
+    params.set("dir", nextSortDir);
+    return params.toString();
+  };
+
+  const applyFilters = (next: typeof filters) => {
+    setFilters(next);
+    const query = buildQuery(next, sortKey, sortDir);
+    startTransition(() => {
+      router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
+    });
+  };
 
   const buildSortUrl = (key: TaskSortKey) => {
-    const params = new URLSearchParams(baseParams);
     const nextDir: TaskSortDir =
       sortKey === key && sortDir === "asc" ? "desc" : "asc";
-    params.set("sort", key);
-    params.set("dir", nextDir);
-    const query = params.toString();
+    const query = buildQuery(filters, key, nextDir);
     return query ? `/tasks?${query}` : "/tasks";
   };
 
@@ -268,6 +309,88 @@ export default function TasksView({
                     Due
                     {sortIndicator("due")}
                   </a>
+                </th>
+              </tr>
+              <tr className="bg-white text-slate-700 normal-case">
+                <th className="px-6 pb-4 pt-0" />
+                <th className="px-6 pb-4 pt-0">
+                  <MultiSelect
+                    options={clients.map((client) => ({
+                      value: client.id,
+                      label: client.name,
+                    }))}
+                    selectedValues={filters.client}
+                    placeholder="All clients"
+                    onChange={(next) => applyFilters({ ...filters, client: next })}
+                  />
+                </th>
+                <th className="px-6 pb-4 pt-0">
+                  <MultiSelect
+                    options={projects.map((project) => {
+                      const clientName = Array.isArray(project.clients)
+                        ? project.clients[0]?.name
+                        : project.clients?.name;
+                      const label = clientName
+                        ? `${project.name} - ${clientName}`
+                        : project.name;
+                      return { value: project.id, label };
+                    })}
+                    selectedValues={filters.project}
+                    placeholder="All projects"
+                    onChange={(next) => applyFilters({ ...filters, project: next })}
+                  />
+                </th>
+                <th className="px-6 pb-4 pt-0">
+                  <MultiSelect
+                    options={statusOptions.map((status) => ({
+                      value: status,
+                      label: formatTaskStatusLabel(status),
+                    }))}
+                    selectedValues={filters.status}
+                    placeholder="All statuses"
+                    onChange={(next) => applyFilters({ ...filters, status: next })}
+                  />
+                </th>
+                <th className="px-6 pb-4 pt-0">
+                  <MultiSelect
+                    options={priorityOptions.map((priority) => ({
+                      value: priority,
+                      label: priority,
+                    }))}
+                    selectedValues={filters.priority}
+                    placeholder="All priorities"
+                    onChange={(next) => applyFilters({ ...filters, priority: next })}
+                  />
+                </th>
+                <th className="px-6 pb-4 pt-0">
+                  <MultiSelect
+                    options={[
+                      { value: "unassigned", label: "Unassigned" },
+                      ...users.map((user) => ({
+                        value: user.id,
+                        label: user.full_name || user.email || "Unnamed user",
+                      })),
+                    ]}
+                    selectedValues={filters.assignee}
+                    placeholder="All assignees"
+                    onChange={(next) => applyFilters({ ...filters, assignee: next })}
+                  />
+                </th>
+                <th className="px-6 pb-4 pt-0" />
+                <th className="px-6 pb-4 pt-0">
+                  <select
+                    value={filters.due}
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                    onChange={(event) =>
+                      applyFilters({ ...filters, due: event.target.value })
+                    }
+                  >
+                    {dueOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </th>
               </tr>
             </thead>

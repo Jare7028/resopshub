@@ -12,7 +12,6 @@ import {
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
 import TasksView from "./TasksView";
-import TasksFilters from "./TasksFilters";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
 import TasksTabs, {
   normalizeTasksTabKey,
@@ -151,7 +150,6 @@ export default async function TasksPage(props: {
   const tasksTabUrls: Record<TasksTabKey, string> = {
     list: buildTasksUrl("list"),
     add: buildTasksUrl("add"),
-    filters: buildTasksUrl("filters"),
   };
 
   let request = supabase
@@ -619,35 +617,6 @@ export default async function TasksPage(props: {
         </section>
       ) : null}
 
-      {activeTab === "filters" ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Filters</h2>
-          </div>
-          <div className="px-6 pb-6">
-          <TasksFilters
-            statusOptions={statusOptions}
-            priorityOptions={priorityOptions}
-            dueOptions={dueDateFilters}
-            users={users || []}
-            clients={clients || []}
-            projects={projects || []}
-            hideCompleted={hideCompleted}
-            sort={sortKey}
-            dir={sortDir}
-            initialFilters={{
-              status: selectedStatuses,
-              priority: selectedPriorities,
-              assignee: selectedAssignees,
-              due: selectedDue,
-              client: selectedClientIds,
-              project: selectedProjectIds,
-            }}
-          />
-          </div>
-        </section>
-      ) : null}
-
       {activeTab === "list" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
           <TasksView
@@ -658,10 +627,18 @@ export default async function TasksPage(props: {
             assigneesByTask={assigneesByTask}
             statusOptions={statusOptions}
             priorityOptions={priorityOptions}
+            dueOptions={dueDateFilters}
+            initialFilters={{
+              status: selectedStatuses,
+              priority: selectedPriorities,
+              assignee: selectedAssignees,
+              due: selectedDue,
+              client: selectedClientIds,
+              project: selectedProjectIds,
+            }}
             onUpdate={updateTaskInline}
             hideCompleted={hideCompleted}
             toggleUrl={toggleUrl}
-            baseParams={returnParams.toString()}
             sortKey={sortKey}
             sortDir={sortDir}
           />

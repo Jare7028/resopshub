@@ -3,7 +3,6 @@ import Link from "next/link";
 const tabs = [
   { key: "list", label: "Tasks" },
   { key: "add", label: "Add task" },
-  { key: "filters", label: "Filters" },
 ] as const;
 
 export type TasksTabKey = (typeof tabs)[number]["key"];
@@ -42,4 +41,3 @@ export default function TasksTabs({
     </nav>
   );
 }
-
