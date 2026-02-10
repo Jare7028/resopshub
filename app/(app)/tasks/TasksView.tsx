@@ -58,6 +58,7 @@ type TasksViewProps = {
   priorityOptions: readonly string[];
   dueOptions: readonly { value: string; label: string }[];
   initialView?: "table" | "gantt" | "board";
+  returnTo: string;
   initialFilters: {
     status: string[];
     priority: string[];
@@ -117,6 +118,7 @@ export default function TasksView({
   priorityOptions,
   dueOptions,
   initialView = "table",
+  returnTo,
   initialFilters,
   onUpdate,
   hideCompleted,
@@ -383,6 +385,7 @@ export default function TasksView({
       <form action={onUpdate} ref={statusUpdateFormRef} className="hidden">
         <input ref={statusUpdateTaskIdRef} type="hidden" name="task_id" defaultValue="" />
         <input ref={statusUpdateStatusRef} type="hidden" name="status" defaultValue="" />
+        <input type="hidden" name="return_to" value={returnTo} />
       </form>
 
       {view === "table" ? (
@@ -651,6 +654,7 @@ export default function TasksView({
                     statusOptions={statusOptions}
                     priorityOptions={priorityOptions}
                     onUpdate={onUpdate}
+                    returnTo={returnTo}
                   />
                 ))
               ) : (

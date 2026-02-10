@@ -36,6 +36,7 @@ type ClientTaskInlineRowProps = {
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   onUpdate: (formData: FormData) => void;
+  returnTo: string;
 };
 
 export default function ClientTaskInlineRow({
@@ -46,6 +47,7 @@ export default function ClientTaskInlineRow({
   statusOptions,
   priorityOptions,
   onUpdate,
+  returnTo,
 }: ClientTaskInlineRowProps) {
   const normalizedStatus = normalizeTaskStatusOrDefault(task.status);
   const handleChange = (
@@ -131,6 +133,7 @@ export default function ClientTaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <select
             name="project_id"
             aria-label="Project"
@@ -152,6 +155,7 @@ export default function ClientTaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="assignee_user_ids" value="" />
           <div className="relative w-full min-w-[12rem]" ref={assigneeRef}>
             <button
@@ -219,6 +223,7 @@ export default function ClientTaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <select
             name="status"
             aria-label="Status"
@@ -239,6 +244,7 @@ export default function ClientTaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <select
             name="priority"
             aria-label="Priority"
@@ -257,6 +263,7 @@ export default function ClientTaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <input
             type="date"
             name="start_date"
@@ -270,6 +277,7 @@ export default function ClientTaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <input
             type="date"
             name="due_date"

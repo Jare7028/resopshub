@@ -53,6 +53,7 @@ type TaskInlineRowProps = {
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   onUpdate: (formData: FormData) => void;
+  returnTo: string;
 };
 
 export default function TaskInlineRow({
@@ -64,6 +65,7 @@ export default function TaskInlineRow({
   statusOptions,
   priorityOptions,
   onUpdate,
+  returnTo,
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
@@ -166,6 +168,7 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <select
             name="client_id"
             aria-label="Client"
@@ -185,6 +188,7 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <select
             name="project_id"
             aria-label="Project"
@@ -208,6 +212,7 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <select
             name="status"
             aria-label="Status"
@@ -228,6 +233,7 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <select
             name="priority"
             aria-label="Priority"
@@ -248,6 +254,7 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate} id={assigneeFormId}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="assignee_user_ids" value="" />
           <div className="relative w-full min-w-[12rem]" ref={assigneeRef}>
             <button
@@ -316,6 +323,7 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <input
             type="date"
             name="start_date"
@@ -329,6 +337,7 @@ export default function TaskInlineRow({
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="task_id" value={task.id} />
+          <input type="hidden" name="return_to" value={returnTo} />
           <input
             type="date"
             name="due_date"

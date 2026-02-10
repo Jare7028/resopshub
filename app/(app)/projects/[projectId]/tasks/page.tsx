@@ -24,6 +24,7 @@ import {
   normalizeTaskSortKey,
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
+import { updateTaskInlineAction } from "../../../tasks/actions";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
@@ -321,81 +322,7 @@ export default async function ProjectTasksPage(props: {
 
     revalidatePath(`/projects/${projectId}/tasks`);
   }
-
-  async function updateTaskInline(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const taskId = String(formData.get("task_id") || "").trim();
-    const status = String(formData.get("status") || "").trim();
-    const priority = String(formData.get("priority") || "").trim();
-    const assignee = String(formData.get("assignee_user_id") || "").trim();
-    const assigneeIds = formData
-      .getAll("assignee_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
-    const startDate = String(formData.get("start_date") || "").trim();
-    const dueDate = String(formData.get("due_date") || "").trim();
-    const updates: Record<string, string | null> = {};
-    const returnTo = `/projects/${projectId}/tasks`;
-
-    if (!taskId) {
-      redirect(`${returnTo}?error=Missing%20task%20id`);
-    }
-
-    if (formData.has("status")) {
-      updates.status = normalizeTaskStatusOrDefault(status);
-    }
-
-    if (formData.has("priority")) {
-      updates.priority = priority;
-    }
-
-    if (formData.has("assignee_user_id")) {
-      updates.assignee_user_id = assignee || null;
-    }
-
-    if (formData.has("assignee_user_ids")) {
-      const uniqueIds = Array.from(new Set(assigneeIds));
-      await supabase.from("task_assignees").delete().eq("task_id", taskId);
-      if (uniqueIds.length) {
-        const inserts = uniqueIds.map((userId) => ({
-          task_id: taskId,
-          user_id: userId,
-        }));
-        const { error: assigneeError } = await supabase
-          .from("task_assignees")
-          .insert(inserts);
-        if (assigneeError) {
-          redirect(`${returnTo}?error=${encodeURIComponent(assigneeError.message)}`);
-        }
-      }
-      updates.assignee_user_id = uniqueIds[0] || null;
-    }
-    if (formData.has("start_date")) {
-      updates.start_date = startDate || null;
-    }
-
-    if (formData.has("due_date")) {
-      updates.due_date = dueDate || null;
-    }
-
-    if (!Object.keys(updates).length) {
-      redirect(returnTo);
-    }
-
-    const { error } = await supabase
-      .from("tasks")
-      .update(updates)
-      .eq("id", taskId)
-      .eq("project_id", projectId);
-
-    if (error) {
-      redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
-    }
-
-    revalidatePath(returnTo);
-    redirect(returnTo);
-  }
+  const updateTaskInline = updateTaskInlineAction;
 
   return (
     <div className="space-y-8">
@@ -625,6 +552,7 @@ export default async function ProjectTasksPage(props: {
                     statusOptions={statusOptions}
                     priorityOptions={priorityOptions}
                     onUpdate={updateTaskInline}
+                    returnTo={`/projects/${projectId}/tasks`}
                   />
                 ))
               ) : (
