@@ -14,6 +14,10 @@ import {
 import TasksView from "./TasksView";
 import TasksFilters from "./TasksFilters";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
+import TasksTabs, {
+  normalizeTasksTabKey,
+  type TasksTabKey,
+} from "./_components/TasksTabs";
 import {
   DEFAULT_RECURRENCE_TZ,
   getFirstOccurrence,
@@ -39,6 +43,7 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function TasksPage(props: {
   searchParams?: Promise<{
+    tab?: string;
     status?: string | string[];
     priority?: string | string[];
     assignee?: string | string[];
@@ -65,6 +70,7 @@ export default async function TasksPage(props: {
   const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
   let selectedDue = (searchParams?.due || "all").trim();
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const activeTab = normalizeTasksTabKey(searchParams?.tab);
 
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
@@ -121,6 +127,32 @@ export default async function TasksPage(props: {
   const toggleParams = new URLSearchParams(returnParams);
   toggleParams.set("hide", hideCompleted ? "0" : "1");
   const toggleUrl = toggleParams.toString() ? `/tasks?${toggleParams}` : "/tasks";
+
+  const buildTasksUrl = (
+    tab: TasksTabKey,
+    params?: { error?: string; success?: string }
+  ) => {
+    const sp = new URLSearchParams(returnParams);
+
+    if (tab !== "list") {
+      sp.set("tab", tab);
+    }
+    if (params?.error) {
+      sp.set("error", params.error);
+    }
+    if (params?.success) {
+      sp.set("success", params.success);
+    }
+
+    const qs = sp.toString();
+    return qs ? `/tasks?${qs}` : "/tasks";
+  };
+
+  const tasksTabUrls: Record<TasksTabKey, string> = {
+    list: buildTasksUrl("list"),
+    add: buildTasksUrl("add"),
+    filters: buildTasksUrl("filters"),
+  };
 
   let request = supabase
     .from("tasks")
@@ -265,17 +297,13 @@ export default async function TasksPage(props: {
     const projectId = projectIdRaw || null;
 
     if (!title) {
-      const errorUrl = returnTo.includes("?")
-        ? `${returnTo}&error=Title%20is%20required`
-        : `${returnTo}?error=Title%20is%20required`;
-      redirect(errorUrl);
+      redirect(buildTasksUrl("add", { error: "Title is required" }));
     }
 
     if (!dueDate || !dueTime) {
-      const errorUrl = returnTo.includes("?")
-        ? `${returnTo}&error=Deadline%20date%20and%20time%20are%20required`
-        : `${returnTo}?error=Deadline%20date%20and%20time%20are%20required`;
-      redirect(errorUrl);
+      redirect(
+        buildTasksUrl("add", { error: "Deadline date and time are required" })
+      );
     }
 
     if (projectId && !clientId) {
@@ -286,10 +314,7 @@ export default async function TasksPage(props: {
         .maybeSingle();
 
       if (error) {
-        const errorUrl = returnTo.includes("?")
-          ? `${returnTo}&error=${encodeURIComponent(error.message)}`
-          : `${returnTo}?error=${encodeURIComponent(error.message)}`;
-        redirect(errorUrl);
+        redirect(buildTasksUrl("add", { error: error.message }));
       }
 
       clientId = project?.client_id || null;
@@ -362,10 +387,7 @@ export default async function TasksPage(props: {
       .single();
 
     if (error) {
-      const errorUrl = returnTo.includes("?")
-        ? `${returnTo}&error=${encodeURIComponent(error.message)}`
-        : `${returnTo}?error=${encodeURIComponent(error.message)}`;
-      redirect(errorUrl);
+      redirect(buildTasksUrl("add", { error: error.message }));
     }
 
     const taskId = created?.id;
@@ -382,19 +404,13 @@ export default async function TasksPage(props: {
           .from("task_assignees")
           .insert(inserts);
         if (assigneeError) {
-          const errorUrl = returnTo.includes("?")
-            ? `${returnTo}&error=${encodeURIComponent(assigneeError.message)}`
-            : `${returnTo}?error=${encodeURIComponent(assigneeError.message)}`;
-          redirect(errorUrl);
+          redirect(buildTasksUrl("add", { error: assigneeError.message }));
         }
       }
     }
 
     revalidatePath("/tasks");
-    const successUrl = returnTo.includes("?")
-      ? `${returnTo}&success=Task%20created`
-      : `${returnTo}?success=Task%20created`;
-    redirect(successUrl);
+    redirect(buildTasksUrl("list", { success: "Task created" }));
   }
 
   async function updateTaskInline(formData: FormData) {
@@ -520,11 +536,14 @@ export default async function TasksPage(props: {
         </section>
       ) : null}
 
-      <details className="rounded-lg border border-slate-200 bg-white">
-        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-          Add task
-        </summary>
-        <div className="border-t border-slate-200 px-6 pb-6">
+      <TasksTabs active={activeTab} urls={tasksTabUrls} />
+
+      {activeTab === "add" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Add task</h2>
+          </div>
+          <div className="px-6 pb-6">
           <form action={createTask} className="mt-4 grid gap-4 md:grid-cols-6">
             <input
               name="title"
@@ -596,14 +615,16 @@ export default async function TasksPage(props: {
               Create task
             </button>
           </form>
-        </div>
-      </details>
+          </div>
+        </section>
+      ) : null}
 
-      <details className="rounded-lg border border-slate-200 bg-white">
-        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-          Filters
-        </summary>
-        <div className="border-t border-slate-200 px-6 pb-6">
+      {activeTab === "filters" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Filters</h2>
+          </div>
+          <div className="px-6 pb-6">
           <TasksFilters
             statusOptions={statusOptions}
             priorityOptions={priorityOptions}
@@ -623,26 +644,29 @@ export default async function TasksPage(props: {
               project: selectedProjectIds,
             }}
           />
-        </div>
-      </details>
+          </div>
+        </section>
+      ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <TasksView
-          tasks={sortedTasks}
-          users={users || []}
-          clients={clients || []}
-          projects={projects || []}
-          assigneesByTask={assigneesByTask}
-          statusOptions={statusOptions}
-          priorityOptions={priorityOptions}
-          onUpdate={updateTaskInline}
-          hideCompleted={hideCompleted}
-          toggleUrl={toggleUrl}
-          baseParams={returnParams.toString()}
-          sortKey={sortKey}
-          sortDir={sortDir}
-        />
-      </section>
+      {activeTab === "list" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <TasksView
+            tasks={sortedTasks}
+            users={users || []}
+            clients={clients || []}
+            projects={projects || []}
+            assigneesByTask={assigneesByTask}
+            statusOptions={statusOptions}
+            priorityOptions={priorityOptions}
+            onUpdate={updateTaskInline}
+            hideCompleted={hideCompleted}
+            toggleUrl={toggleUrl}
+            baseParams={returnParams.toString()}
+            sortKey={sortKey}
+            sortDir={sortDir}
+          />
+        </section>
+      ) : null}
     </div>
   );
 }
