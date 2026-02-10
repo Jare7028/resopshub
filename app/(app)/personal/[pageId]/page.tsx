@@ -4,7 +4,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
 import PersonalPageTabs, {
   normalizePersonalPageTabKey,
-  type PersonalPageTabKey,
 } from "./_components/PersonalPageTabs";
 
 export const dynamic = "force-dynamic";
@@ -131,26 +130,6 @@ export default async function PersonalPage(props: {
   const pageOwnerId = page.owner_id;
   const isOwner = pageOwnerId === user.id;
 
-  const buildPageUrl = (
-    tab: PersonalPageTabKey,
-    params?: { error?: string; success?: string }
-  ) => {
-    const sp = new URLSearchParams();
-
-    if (tab !== "notes") {
-      sp.set("tab", tab);
-    }
-    if (params?.error) {
-      sp.set("error", params.error);
-    }
-    if (params?.success) {
-      sp.set("success", params.success);
-    }
-
-    const qs = sp.toString();
-    return qs ? `/personal/${pageId}?${qs}` : `/personal/${pageId}`;
-  };
-
   const { data: sections } = await supabase
     .from("personal_sections")
     .select("id,title")
@@ -241,11 +220,10 @@ export default async function PersonalPage(props: {
     }
 
     if (pageOwnerId !== user.id) {
-      redirect(
-        buildPageUrl(activeTab, {
-          error: "Only the page owner can delete it",
-        })
-      );
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Only the page owner can delete it");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase.from("personal_pages").delete().eq("id", pageId);
