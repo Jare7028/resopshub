@@ -1,11 +1,10 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
 import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
-import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
 import { formatTaskStatusLabel } from "@/lib/taskStatus";
 
@@ -75,6 +74,165 @@ const statusColors: Record<string, string> = {
   cancelled: "bg-rose-400",
 };
 
+type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
+
+function FilterIcon({ active }: { active: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-flex h-5 w-5 items-center justify-center rounded border text-[10px] leading-none ${
+        active
+          ? "border-slate-900 bg-slate-900 text-white"
+          : "border-slate-200 bg-white text-slate-500 hover:bg-slate-100"
+      }`}
+      title={active ? "Filter applied" : "Filter"}
+    >
+      v
+    </span>
+  );
+}
+
+type FilterOption = { value: string; label: string };
+
+function FilterMenuMulti({
+  title,
+  options,
+  selectedValues,
+  onChange,
+  onClear,
+}: {
+  title: string;
+  options: readonly FilterOption[];
+  selectedValues: readonly string[];
+  onChange: (next: string[]) => void;
+  onClear: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
+
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  const toggle = (value: string) => {
+    const next = new Set(selectedSet);
+    if (next.has(value)) {
+      next.delete(value);
+    } else {
+      next.add(value);
+    }
+    onChange(Array.from(next));
+  };
+
+  const selectAll = () => {
+    onChange(options.map((o) => o.value));
+  };
+
+  return (
+    <div className="w-72 rounded-md border border-slate-200 bg-white shadow-lg">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+          {title}
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+            onClick={selectAll}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+            onClick={onClear}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+      <div className="border-b border-slate-100 px-3 py-2">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search..."
+          className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+        />
+      </div>
+      <div className="max-h-72 overflow-auto p-2">
+        {filteredOptions.length ? (
+          filteredOptions.map((option) => (
+            <label
+              key={option.value}
+              className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-slate-300"
+                checked={selectedSet.has(option.value)}
+                onChange={() => toggle(option.value)}
+              />
+              <span className="leading-5">{option.label}</span>
+            </label>
+          ))
+        ) : (
+          <p className="px-2 py-2 text-sm text-slate-500">No matches</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FilterMenuSingle({
+  title,
+  options,
+  value,
+  onChange,
+  onClear,
+}: {
+  title: string;
+  options: readonly FilterOption[];
+  value: string;
+  onChange: (next: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="w-64 rounded-md border border-slate-200 bg-white shadow-lg">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+          {title}
+        </p>
+        <button
+          type="button"
+          className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+          onClick={onClear}
+        >
+          Clear
+        </button>
+      </div>
+      <div className="p-2">
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            <input
+              type="radio"
+              name={`filter-${title}`}
+              className="mt-1 h-4 w-4 border-slate-300"
+              checked={value === option.value}
+              onChange={() => onChange(option.value)}
+            />
+            <span className="leading-5">{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function toDate(value?: string | null) {
   if (!value) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -118,6 +276,34 @@ export default function TasksView({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
+  const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openMenu) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenMenu(null);
+      }
+    };
+
+    const onPointerDown = (event: MouseEvent | PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (menuRef.current && !menuRef.current.contains(target)) {
+        setOpenMenu(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [openMenu]);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
 
@@ -163,7 +349,7 @@ export default function TasksView({
     if (sortKey !== key) return null;
     return (
       <span aria-hidden="true" className="text-[10px] text-slate-400">
-        {sortDir === "asc" ? "▲" : "▼"}
+        {sortDir === "asc" ? "^" : "v"}
       </span>
     );
   };
@@ -269,34 +455,202 @@ export default function TasksView({
                   </a>
                 </th>
                 <th className="px-6 py-3">
-                  <a href={buildSortUrl("client")} className={headerClass("client")}>
-                    Client
-                    {sortIndicator("client")}
-                  </a>
+                  <div className="relative flex items-center justify-between gap-2">
+                    <a href={buildSortUrl("client")} className={headerClass("client")}>
+                      Client
+                      {sortIndicator("client")}
+                    </a>
+                    <button
+                      type="button"
+                      aria-label="Filter client"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) => (current === "client" ? null : "client"));
+                      }}
+                    >
+                      <FilterIcon active={filters.client.length > 0} />
+                    </button>
+                    {openMenu === "client" ? (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-full z-30 mt-2"
+                      >
+                        <FilterMenuMulti
+                          title="Client"
+                          options={clients.map((client) => ({
+                            value: client.id,
+                            label: client.name,
+                          }))}
+                          selectedValues={filters.client}
+                          onChange={(next) => applyFilters({ ...filters, client: next })}
+                          onClear={() => applyFilters({ ...filters, client: [] })}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </th>
                 <th className="px-6 py-3">
-                  <a href={buildSortUrl("project")} className={headerClass("project")}>
-                    Project
-                    {sortIndicator("project")}
-                  </a>
+                  <div className="relative flex items-center justify-between gap-2">
+                    <a href={buildSortUrl("project")} className={headerClass("project")}>
+                      Project
+                      {sortIndicator("project")}
+                    </a>
+                    <button
+                      type="button"
+                      aria-label="Filter project"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) => (current === "project" ? null : "project"));
+                      }}
+                    >
+                      <FilterIcon active={filters.project.length > 0} />
+                    </button>
+                    {openMenu === "project" ? (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-full z-30 mt-2"
+                      >
+                        <FilterMenuMulti
+                          title="Project"
+                          options={projects.map((project) => {
+                            const clientName = Array.isArray(project.clients)
+                              ? project.clients[0]?.name
+                              : project.clients?.name;
+                            const label = clientName
+                              ? `${project.name} - ${clientName}`
+                              : project.name;
+                            return { value: project.id, label };
+                          })}
+                          selectedValues={filters.project}
+                          onChange={(next) => applyFilters({ ...filters, project: next })}
+                          onClear={() => applyFilters({ ...filters, project: [] })}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </th>
                 <th className="px-6 py-3">
-                  <a href={buildSortUrl("status")} className={headerClass("status")}>
-                    Status
-                    {sortIndicator("status")}
-                  </a>
+                  <div className="relative flex items-center justify-between gap-2">
+                    <a href={buildSortUrl("status")} className={headerClass("status")}>
+                      Status
+                      {sortIndicator("status")}
+                    </a>
+                    <button
+                      type="button"
+                      aria-label="Filter status"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) => (current === "status" ? null : "status"));
+                      }}
+                    >
+                      <FilterIcon active={filters.status.length > 0} />
+                    </button>
+                    {openMenu === "status" ? (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-full z-30 mt-2"
+                      >
+                        <FilterMenuMulti
+                          title="Status"
+                          options={statusOptions.map((status) => ({
+                            value: status,
+                            label: formatTaskStatusLabel(status),
+                          }))}
+                          selectedValues={filters.status}
+                          onChange={(next) => applyFilters({ ...filters, status: next })}
+                          onClear={() => applyFilters({ ...filters, status: [] })}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </th>
                 <th className="px-6 py-3">
-                  <a href={buildSortUrl("priority")} className={headerClass("priority")}>
-                    Priority
-                    {sortIndicator("priority")}
-                  </a>
+                  <div className="relative flex items-center justify-between gap-2">
+                    <a
+                      href={buildSortUrl("priority")}
+                      className={headerClass("priority")}
+                    >
+                      Priority
+                      {sortIndicator("priority")}
+                    </a>
+                    <button
+                      type="button"
+                      aria-label="Filter priority"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) =>
+                          current === "priority" ? null : "priority"
+                        );
+                      }}
+                    >
+                      <FilterIcon active={filters.priority.length > 0} />
+                    </button>
+                    {openMenu === "priority" ? (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-full z-30 mt-2"
+                      >
+                        <FilterMenuMulti
+                          title="Priority"
+                          options={priorityOptions.map((priority) => ({
+                            value: priority,
+                            label: priority,
+                          }))}
+                          selectedValues={filters.priority}
+                          onChange={(next) => applyFilters({ ...filters, priority: next })}
+                          onClear={() => applyFilters({ ...filters, priority: [] })}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </th>
                 <th className="px-6 py-3">
-                  <a href={buildSortUrl("assignees")} className={headerClass("assignees")}>
-                    Assignees
-                    {sortIndicator("assignees")}
-                  </a>
+                  <div className="relative flex items-center justify-between gap-2">
+                    <a
+                      href={buildSortUrl("assignees")}
+                      className={headerClass("assignees")}
+                    >
+                      Assignees
+                      {sortIndicator("assignees")}
+                    </a>
+                    <button
+                      type="button"
+                      aria-label="Filter assignees"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) =>
+                          current === "assignees" ? null : "assignees"
+                        );
+                      }}
+                    >
+                      <FilterIcon active={filters.assignee.length > 0} />
+                    </button>
+                    {openMenu === "assignees" ? (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-full z-30 mt-2"
+                      >
+                        <FilterMenuMulti
+                          title="Assignees"
+                          options={[
+                            { value: "unassigned", label: "Unassigned" },
+                            ...users.map((user) => ({
+                              value: user.id,
+                              label: user.full_name || user.email || "Unnamed user",
+                            })),
+                          ]}
+                          selectedValues={filters.assignee}
+                          onChange={(next) => applyFilters({ ...filters, assignee: next })}
+                          onClear={() => applyFilters({ ...filters, assignee: [] })}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </th>
                 <th className="px-6 py-3">
                   <a href={buildSortUrl("start")} className={headerClass("start")}>
@@ -305,92 +659,40 @@ export default function TasksView({
                   </a>
                 </th>
                 <th className="px-6 py-3">
-                  <a href={buildSortUrl("due")} className={headerClass("due")}>
-                    Due
-                    {sortIndicator("due")}
-                  </a>
-                </th>
-              </tr>
-              <tr className="bg-white text-slate-700 normal-case">
-                <th className="px-6 pb-4 pt-0" />
-                <th className="px-6 pb-4 pt-0">
-                  <MultiSelect
-                    options={clients.map((client) => ({
-                      value: client.id,
-                      label: client.name,
-                    }))}
-                    selectedValues={filters.client}
-                    placeholder="All clients"
-                    onChange={(next) => applyFilters({ ...filters, client: next })}
-                  />
-                </th>
-                <th className="px-6 pb-4 pt-0">
-                  <MultiSelect
-                    options={projects.map((project) => {
-                      const clientName = Array.isArray(project.clients)
-                        ? project.clients[0]?.name
-                        : project.clients?.name;
-                      const label = clientName
-                        ? `${project.name} - ${clientName}`
-                        : project.name;
-                      return { value: project.id, label };
-                    })}
-                    selectedValues={filters.project}
-                    placeholder="All projects"
-                    onChange={(next) => applyFilters({ ...filters, project: next })}
-                  />
-                </th>
-                <th className="px-6 pb-4 pt-0">
-                  <MultiSelect
-                    options={statusOptions.map((status) => ({
-                      value: status,
-                      label: formatTaskStatusLabel(status),
-                    }))}
-                    selectedValues={filters.status}
-                    placeholder="All statuses"
-                    onChange={(next) => applyFilters({ ...filters, status: next })}
-                  />
-                </th>
-                <th className="px-6 pb-4 pt-0">
-                  <MultiSelect
-                    options={priorityOptions.map((priority) => ({
-                      value: priority,
-                      label: priority,
-                    }))}
-                    selectedValues={filters.priority}
-                    placeholder="All priorities"
-                    onChange={(next) => applyFilters({ ...filters, priority: next })}
-                  />
-                </th>
-                <th className="px-6 pb-4 pt-0">
-                  <MultiSelect
-                    options={[
-                      { value: "unassigned", label: "Unassigned" },
-                      ...users.map((user) => ({
-                        value: user.id,
-                        label: user.full_name || user.email || "Unnamed user",
-                      })),
-                    ]}
-                    selectedValues={filters.assignee}
-                    placeholder="All assignees"
-                    onChange={(next) => applyFilters({ ...filters, assignee: next })}
-                  />
-                </th>
-                <th className="px-6 pb-4 pt-0" />
-                <th className="px-6 pb-4 pt-0">
-                  <select
-                    value={filters.due}
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-                    onChange={(event) =>
-                      applyFilters({ ...filters, due: event.target.value })
-                    }
-                  >
-                    {dueOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative flex items-center justify-between gap-2">
+                    <a href={buildSortUrl("due")} className={headerClass("due")}>
+                      Due
+                      {sortIndicator("due")}
+                    </a>
+                    <button
+                      type="button"
+                      aria-label="Filter due"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) => (current === "due" ? null : "due"));
+                      }}
+                    >
+                      <FilterIcon active={filters.due !== "all"} />
+                    </button>
+                    {openMenu === "due" ? (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-full z-30 mt-2"
+                      >
+                        <FilterMenuSingle
+                          title="Due"
+                          options={dueOptions.map((opt) => ({
+                            value: opt.value,
+                            label: opt.label,
+                          }))}
+                          value={filters.due}
+                          onChange={(next) => applyFilters({ ...filters, due: next })}
+                          onClear={() => applyFilters({ ...filters, due: "all" })}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -481,3 +783,4 @@ export default function TasksView({
     </>
   );
 }
+
