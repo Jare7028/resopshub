@@ -77,9 +77,9 @@ const statusColors: Record<string, string> = {
   to_do: "bg-slate-400",
   backlog: "bg-slate-400",
   in_progress: "bg-blue-500",
-  blocked: "bg-amber-500",
-  completed: "bg-emerald-500",
-  cancelled: "bg-rose-400",
+  blocked: "bg-yellow-500",
+  completed: "bg-green-500",
+  cancelled: "bg-red-500",
 };
 
 type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
