@@ -22,6 +22,7 @@ type ProjectInlineRowProps = {
   project: ProjectRow;
   clients: ClientOption[];
   statusOptions: readonly string[];
+  openTaskCount: number;
   onUpdate: (formData: FormData) => void;
 };
 
@@ -29,6 +30,7 @@ export default function ProjectInlineRow({
   project,
   clients,
   statusOptions,
+  openTaskCount,
   onUpdate,
 }: ProjectInlineRowProps) {
   const handleChange = (
@@ -106,6 +108,9 @@ export default function ProjectInlineRow({
             onChange={handleChange}
           />
         </form>
+      </td>
+      <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
+        {openTaskCount}
       </td>
     </tr>
   );

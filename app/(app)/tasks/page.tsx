@@ -326,6 +326,29 @@ export default async function TasksPage(props: {
     statusOrder: statusOptions,
   });
 
+  const openSubtaskCountByTaskId: Record<string, number> = {};
+  const taskIdsForSubtaskCounts = (sortedTasks || []).map((t) => t.id).filter(Boolean) as string[];
+  if (taskIdsForSubtaskCounts.length) {
+    const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await supabase
+      .from("tasks")
+      .select("parent_task_id,status")
+      .in("parent_task_id", taskIdsForSubtaskCounts);
+
+    if (!subtasksForCountsError) {
+      const subtasksForCounts = (subtasksForCountsRaw || []) as Array<{
+        parent_task_id: string | null;
+        status: string | null;
+      }>;
+      for (const row of subtasksForCounts) {
+        const parentId = row.parent_task_id;
+        const status = row.status || "";
+        if (!parentId) continue;
+        if (status === "completed" || status === "cancelled") continue;
+        openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
+      }
+    }
+  }
+
   const getRelationName = (
     relation:
       | { name?: string | null }
@@ -800,6 +823,7 @@ export default async function TasksPage(props: {
             clients={clients || []}
             projects={projects || []}
             assigneesByTask={assigneesByTask}
+            openSubtaskCountByTaskId={openSubtaskCountByTaskId}
             statusOptions={statusOptions}
             priorityOptions={priorityOptions}
             dueOptions={dueDateFilters}

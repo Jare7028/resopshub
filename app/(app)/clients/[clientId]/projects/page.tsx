@@ -105,6 +105,30 @@ export default async function ClientProjectsPage(props: {
     }
   }
 
+  const openTaskCountByProjectId: Record<string, number> = {};
+  const projectIdsForCounts = projects.map((p) => p.id).filter(Boolean) as string[];
+  if (projectIdsForCounts.length) {
+    const { data: tasksForCountsRaw, error: tasksForCountsError } = await supabase
+      .from("tasks")
+      .select("project_id,status,parent_task_id")
+      .in("project_id", projectIdsForCounts)
+      .is("parent_task_id", null);
+
+    if (!tasksForCountsError) {
+      const tasksForCounts = (tasksForCountsRaw || []) as Array<{
+        project_id: string | null;
+        status: string | null;
+      }>;
+      for (const row of tasksForCounts) {
+        const projectId = row.project_id;
+        const status = row.status || "";
+        if (!projectId) continue;
+        if (status === "completed" || status === "cancelled") continue;
+        openTaskCountByProjectId[projectId] = (openTaskCountByProjectId[projectId] || 0) + 1;
+      }
+    }
+  }
+
   type ProjectTemplateRow = {
     id: string;
     name: string;
@@ -495,6 +519,7 @@ export default async function ClientProjectsPage(props: {
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3">Start</th>
                 <th className="px-6 py-3">End</th>
+                <th className="px-6 py-3 text-right">Open tasks</th>
               </tr>
             </thead>
             <tbody>
@@ -522,11 +547,14 @@ export default async function ClientProjectsPage(props: {
                         ? new Date(project.end_date).toLocaleDateString("en-US")
                         : "-"}
                     </td>
+                    <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
+                      {openTaskCountByProjectId[project.id] ?? 0}
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={4}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={5}>
                     No projects yet.
                   </td>
                 </tr>

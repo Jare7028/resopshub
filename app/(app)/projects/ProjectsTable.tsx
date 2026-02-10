@@ -26,6 +26,7 @@ export default function ProjectsTable({
   statusOptions,
   initialFilters,
   hideCompleted,
+  openTaskCountByProjectId,
   onUpdate,
 }: {
   projects: ProjectRow[];
@@ -33,6 +34,7 @@ export default function ProjectsTable({
   statusOptions: readonly string[];
   initialFilters: { client: string[]; status: string[] };
   hideCompleted: boolean;
+  openTaskCountByProjectId: Record<string, number>;
   onUpdate: (formData: FormData) => void;
 }) {
   const router = useRouter();
@@ -148,6 +150,7 @@ export default function ProjectsTable({
             </th>
             <th className="px-6 py-3 text-slate-700">Start</th>
             <th className="px-6 py-3 text-slate-700">End</th>
+            <th className="px-6 py-3 text-right text-slate-700">Open tasks</th>
           </tr>
         </thead>
         <tbody>
@@ -158,12 +161,13 @@ export default function ProjectsTable({
                 project={project}
                 clients={clients}
                 statusOptions={statusOptions}
+                openTaskCount={openTaskCountByProjectId[project.id] ?? 0}
                 onUpdate={onUpdate}
               />
             ))
           ) : (
             <tr>
-              <td className="px-6 py-6 text-slate-500" colSpan={5}>
+              <td className="px-6 py-6 text-slate-500" colSpan={6}>
                 No projects found.
               </td>
             </tr>

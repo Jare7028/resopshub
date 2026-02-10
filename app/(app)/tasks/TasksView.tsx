@@ -54,6 +54,7 @@ type TasksViewProps = {
   clients: ClientOption[];
   projects: ProjectOption[];
   assigneesByTask: Record<string, string[]>;
+  openSubtaskCountByTaskId: Record<string, number>;
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   dueOptions: readonly { value: string; label: string }[];
@@ -114,6 +115,7 @@ export default function TasksView({
   clients,
   projects,
   assigneesByTask,
+  openSubtaskCountByTaskId,
   statusOptions,
   priorityOptions,
   dueOptions,
@@ -399,6 +401,7 @@ export default function TasksView({
                     {sortIndicator("title")}
                   </a>
                 </th>
+                <th className="px-6 py-3 text-right text-slate-700">Open subtasks</th>
                 <th className="px-6 py-3">
                   <div className="relative flex items-center justify-between gap-2">
                     <a href={buildSortUrl("client")} className={headerClass("client")}>
@@ -647,6 +650,7 @@ export default function TasksView({
                   <TaskInlineRow
                     key={task.id}
                     task={task}
+                    openSubtaskCount={openSubtaskCountByTaskId[task.id] ?? 0}
                     assigneeUserIds={assigneesByTask[task.id] || []}
                     users={users}
                     clients={clients}
@@ -659,7 +663,7 @@ export default function TasksView({
                 ))
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={8}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={9}>
                     No tasks found.
                   </td>
                 </tr>

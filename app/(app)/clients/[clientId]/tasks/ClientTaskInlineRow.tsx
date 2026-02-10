@@ -30,6 +30,7 @@ type TaskRow = {
 
 type ClientTaskInlineRowProps = {
   task: TaskRow;
+  openSubtaskCount: number;
   assigneeUserIds: string[];
   users: UserOption[];
   projects: ProjectOption[];
@@ -41,6 +42,7 @@ type ClientTaskInlineRowProps = {
 
 export default function ClientTaskInlineRow({
   task,
+  openSubtaskCount,
   assigneeUserIds,
   users,
   projects,
@@ -129,6 +131,9 @@ export default function ClientTaskInlineRow({
         <Link href={`/tasks/${task.id}`} className="hover:underline">
           {task.title}
         </Link>
+      </td>
+      <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
+        {openSubtaskCount}
       </td>
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>

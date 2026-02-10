@@ -119,6 +119,29 @@ export default async function ClientTasksPage(props: {
     statusOrder: statusOptions,
   });
 
+  const openSubtaskCountByTaskId: Record<string, number> = {};
+  const taskIdsForSubtaskCounts = (sortedTasks || []).map((t) => t.id).filter(Boolean) as string[];
+  if (taskIdsForSubtaskCounts.length) {
+    const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await supabase
+      .from("tasks")
+      .select("parent_task_id,status")
+      .in("parent_task_id", taskIdsForSubtaskCounts);
+
+    if (!subtasksForCountsError) {
+      const subtasksForCounts = (subtasksForCountsRaw || []) as Array<{
+        parent_task_id: string | null;
+        status: string | null;
+      }>;
+      for (const row of subtasksForCounts) {
+        const parentId = row.parent_task_id;
+        const status = row.status || "";
+        if (!parentId) continue;
+        if (status === "completed" || status === "cancelled") continue;
+        openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
+      }
+    }
+  }
+
   const buildSortUrl = (key: ReturnType<typeof normalizeTaskSortKey>) => {
     const params = new URLSearchParams();
     const nextDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
@@ -545,6 +568,7 @@ export default async function ClientTasksPage(props: {
                     {sortIndicator("title")}
                   </a>
                 </th>
+                <th className="px-6 py-3 text-right">Open subtasks</th>
                 <th className="px-6 py-3">
                   <a
                     href={buildSortUrl("project")}
@@ -607,6 +631,7 @@ export default async function ClientTasksPage(props: {
                   <ClientTaskInlineRow
                     key={task.id}
                     task={task}
+                    openSubtaskCount={openSubtaskCountByTaskId[task.id] ?? 0}
                     assigneeUserIds={assigneesByTask[task.id] || []}
                     users={users || []}
                     projects={projects || []}
@@ -618,7 +643,7 @@ export default async function ClientTasksPage(props: {
                 ))
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={7}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={8}>
                     No tasks yet.
                   </td>
                 </tr>
