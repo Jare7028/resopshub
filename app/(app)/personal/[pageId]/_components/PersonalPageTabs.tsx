@@ -1,12 +1,19 @@
 import Link from "next/link";
 
-const tabs = [
+const baseTabs = [
   { key: "notes", label: "Notes", suffix: "" },
-  { key: "section_members", label: "Section members", suffix: "?tab=section_members" },
   { key: "page_members", label: "Page members", suffix: "?tab=page_members" },
 ] as const;
 
-export type PersonalPageTabKey = (typeof tabs)[number]["key"];
+const sectionMembersTab = {
+  key: "section_members",
+  label: "Section members",
+  suffix: "?tab=section_members",
+} as const;
+
+export type PersonalPageTabKey =
+  | (typeof baseTabs)[number]["key"]
+  | typeof sectionMembersTab.key;
 
 export function normalizePersonalPageTabKey(
   value: string | null | undefined
@@ -15,17 +22,22 @@ export function normalizePersonalPageTabKey(
     .trim()
     .toLowerCase();
 
-  const match = tabs.find((tab) => tab.key === normalized);
+  const allTabs = [...baseTabs, sectionMembersTab] as const;
+  const match = allTabs.find((tab) => tab.key === normalized);
   return match ? match.key : "notes";
 }
 
 export default function PersonalPageTabs({
   pageId,
   active,
+  sectionId,
 }: {
   pageId: string;
   active: PersonalPageTabKey;
+  sectionId?: string | null;
 }) {
+  const tabs = sectionId ? [baseTabs[0], sectionMembersTab, baseTabs[1]] : baseTabs;
+
   return (
     <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
       {tabs.map((tab) => (
@@ -44,4 +56,3 @@ export default function PersonalPageTabs({
     </nav>
   );
 }
-

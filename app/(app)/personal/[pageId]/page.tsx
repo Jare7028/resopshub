@@ -259,10 +259,18 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!userId) {
-      return;
+      redirect(buildPageUrl(activeTab, { error: "Select a user to share with" }));
     }
 
-    await supabase.from("personal_section_members").upsert(
+    if (!sectionId) {
+      redirect(
+        buildPageUrl("page_members", {
+          error: "This page is in General. Use Page members or move it into a section.",
+        })
+      );
+    }
+
+    const { error } = await supabase.from("personal_section_members").upsert(
       {
         section_id: sectionId,
         user_id: userId,
@@ -271,9 +279,14 @@ export default async function PersonalPage(props: {
       { onConflict: "section_id,user_id" }
     );
 
+    if (error) {
+      redirect(buildPageUrl(activeTab, { error: error.message }));
+    }
+
     await syncSectionShareMode(supabase, sectionId);
     revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
+    redirect(buildPageUrl(activeTab, { success: "Section member added" }));
   }
 
   async function updateSectionMember(formData: FormData) {
@@ -283,15 +296,20 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!memberId) {
-      return;
+      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
     }
 
-    await supabase
+    const { error } = await supabase
       .from("personal_section_members")
       .update({ role })
       .eq("id", memberId);
 
+    if (error) {
+      redirect(buildPageUrl(activeTab, { error: error.message }));
+    }
+
     revalidatePath(`/personal/${pageId}`);
+    redirect(buildPageUrl(activeTab, { success: "Section member updated" }));
   }
 
   async function removeSectionMember(formData: FormData) {
@@ -300,13 +318,22 @@ export default async function PersonalPage(props: {
     const memberId = String(formData.get("member_id") || "");
 
     if (!memberId) {
-      return;
+      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
     }
 
-    await supabase.from("personal_section_members").delete().eq("id", memberId);
+    const { error } = await supabase
+      .from("personal_section_members")
+      .delete()
+      .eq("id", memberId);
+
+    if (error) {
+      redirect(buildPageUrl(activeTab, { error: error.message }));
+    }
+
     await syncSectionShareMode(supabase, sectionId);
     revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
+    redirect(buildPageUrl(activeTab, { success: "Section member removed" }));
   }
 
   async function addPageMember(formData: FormData) {
@@ -316,10 +343,10 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!userId) {
-      return;
+      redirect(buildPageUrl(activeTab, { error: "Select a user to share with" }));
     }
 
-    await supabase.from("personal_page_members").upsert(
+    const { error } = await supabase.from("personal_page_members").upsert(
       {
         page_id: pageId,
         user_id: userId,
@@ -328,8 +355,13 @@ export default async function PersonalPage(props: {
       { onConflict: "page_id,user_id" }
     );
 
+    if (error) {
+      redirect(buildPageUrl(activeTab, { error: error.message }));
+    }
+
     await syncPageShareMode(supabase, pageId, sectionId);
     revalidatePath(`/personal/${pageId}`);
+    redirect(buildPageUrl(activeTab, { success: "Page member added" }));
   }
 
   async function updatePageMember(formData: FormData) {
@@ -339,16 +371,21 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!memberId) {
-      return;
+      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
     }
 
-    await supabase
+    const { error } = await supabase
       .from("personal_page_members")
       .update({ role })
       .eq("id", memberId);
 
+    if (error) {
+      redirect(buildPageUrl(activeTab, { error: error.message }));
+    }
+
     await syncPageShareMode(supabase, pageId, sectionId);
     revalidatePath(`/personal/${pageId}`);
+    redirect(buildPageUrl(activeTab, { success: "Page member updated" }));
   }
 
   async function removePageMember(formData: FormData) {
@@ -357,12 +394,21 @@ export default async function PersonalPage(props: {
     const memberId = String(formData.get("member_id") || "");
 
     if (!memberId) {
-      return;
+      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
     }
 
-    await supabase.from("personal_page_members").delete().eq("id", memberId);
+    const { error } = await supabase
+      .from("personal_page_members")
+      .delete()
+      .eq("id", memberId);
+
+    if (error) {
+      redirect(buildPageUrl(activeTab, { error: error.message }));
+    }
+
     await syncPageShareMode(supabase, pageId, sectionId);
     revalidatePath(`/personal/${pageId}`);
+    redirect(buildPageUrl(activeTab, { success: "Page member removed" }));
   }
 
   return (
@@ -441,7 +487,7 @@ export default async function PersonalPage(props: {
         </div>
       )}
 
-      <PersonalPageTabs pageId={pageId} active={activeTab} />
+      <PersonalPageTabs pageId={pageId} active={activeTab} sectionId={sectionId} />
 
       {activeTab === "section_members" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
