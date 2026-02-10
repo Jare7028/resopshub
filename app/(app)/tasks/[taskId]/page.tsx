@@ -348,13 +348,12 @@ export default async function TaskDetailPage(props: {
         </p>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="text-3xl font-semibold text-slate-900">{task.title}</h1>
-          <form>
+          <form action={deleteTask}>
             <ConfirmDelete
               name={task.title}
               itemType="Task"
               triggerLabel="Delete task"
               confirmLabel="Permanently delete"
-              formAction={deleteTask}
             />
           </form>
         </div>
