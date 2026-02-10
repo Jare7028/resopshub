@@ -20,6 +20,27 @@ const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
+function buildTaskUrl(
+  taskId: string,
+  tab: TaskTabKey,
+  params?: { error?: string; success?: string }
+) {
+  const sp = new URLSearchParams();
+
+  if (tab !== "details") {
+    sp.set("tab", tab);
+  }
+  if (params?.error) {
+    sp.set("error", params.error);
+  }
+  if (params?.success) {
+    sp.set("success", params.success);
+  }
+
+  const qs = sp.toString();
+  return qs ? `/tasks/${taskId}?${qs}` : `/tasks/${taskId}`;
+}
+
 export default async function TaskDetailPage(props: {
   params: Promise<{ taskId: string }>;
   searchParams?: Promise<{ error?: string; success?: string; tab?: string }>;
@@ -46,26 +67,6 @@ export default async function TaskDetailPage(props: {
   const taskClientId = task.client_id;
   const taskProjectId = task.project_id;
   const taskAssigneeUserId = task.assignee_user_id;
-
-  const buildTaskUrl = (
-    tab: TaskTabKey,
-    params?: { error?: string; success?: string }
-  ) => {
-    const sp = new URLSearchParams();
-
-    if (tab !== "details") {
-      sp.set("tab", tab);
-    }
-    if (params?.error) {
-      sp.set("error", params.error);
-    }
-    if (params?.success) {
-      sp.set("success", params.success);
-    }
-
-    const qs = sp.toString();
-    return qs ? `/tasks/${taskId}?${qs}` : `/tasks/${taskId}`;
-  };
 
   const getRelationName = (
     relation:
@@ -152,7 +153,7 @@ export default async function TaskDetailPage(props: {
     const assignee = String(formData.get("assignee_user_id") || "");
 
     if (!title) {
-      redirect(buildTaskUrl("details", { error: "Task name is required" }));
+      redirect(buildTaskUrl(taskId, "details", { error: "Task name is required" }));
     }
 
     const { error } = await supabase
@@ -169,11 +170,11 @@ export default async function TaskDetailPage(props: {
       .eq("id", taskId);
 
     if (error) {
-      redirect(buildTaskUrl("details", { error: error.message }));
+      redirect(buildTaskUrl(taskId, "details", { error: error.message }));
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(buildTaskUrl("details", { success: "Saved" }));
+    redirect(buildTaskUrl(taskId, "details", { success: "Saved" }));
   }
 
   async function updateTaskAssignees(formData: FormData) {
@@ -194,7 +195,7 @@ export default async function TaskDetailPage(props: {
       }));
       const { error } = await supabase.from("task_assignees").insert(inserts);
       if (error) {
-        redirect(buildTaskUrl("assignees", { error: error.message }));
+        redirect(buildTaskUrl(taskId, "assignees", { error: error.message }));
       }
     }
 
@@ -205,12 +206,12 @@ export default async function TaskDetailPage(props: {
         .update({ assignee_user_id: primaryAssignee })
         .eq("id", taskId);
       if (updateError) {
-        redirect(buildTaskUrl("assignees", { error: updateError.message }));
+        redirect(buildTaskUrl(taskId, "assignees", { error: updateError.message }));
       }
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(buildTaskUrl("assignees", { success: "Assignees updated" }));
+    redirect(buildTaskUrl(taskId, "assignees", { success: "Assignees updated" }));
   }
 
   async function updateTaskWatchers(formData: FormData) {
@@ -231,12 +232,12 @@ export default async function TaskDetailPage(props: {
       }));
       const { error } = await supabase.from("task_watchers").insert(inserts);
       if (error) {
-        redirect(buildTaskUrl("watchers", { error: error.message }));
+        redirect(buildTaskUrl(taskId, "watchers", { error: error.message }));
       }
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(buildTaskUrl("watchers", { success: "Watchers updated" }));
+    redirect(buildTaskUrl(taskId, "watchers", { success: "Watchers updated" }));
   }
 
   async function createSubtask(formData: FormData) {
@@ -259,7 +260,9 @@ export default async function TaskDetailPage(props: {
       .filter(Boolean);
 
     if (!title) {
-      redirect(buildTaskUrl("subtasks", { error: "Subtask title is required" }));
+      redirect(
+        buildTaskUrl(taskId, "subtasks", { error: "Subtask title is required" })
+      );
     }
 
     const primaryAssignee =
@@ -290,7 +293,7 @@ export default async function TaskDetailPage(props: {
       .single();
 
     if (error) {
-      redirect(buildTaskUrl("subtasks", { error: error.message }));
+      redirect(buildTaskUrl(taskId, "subtasks", { error: error.message }));
     }
 
     const subtaskId = created?.id;
@@ -307,13 +310,15 @@ export default async function TaskDetailPage(props: {
           .from("task_assignees")
           .insert(inserts);
         if (assigneeError) {
-          redirect(buildTaskUrl("subtasks", { error: assigneeError.message }));
+          redirect(
+            buildTaskUrl(taskId, "subtasks", { error: assigneeError.message })
+          );
         }
       }
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(buildTaskUrl("subtasks", { success: "Subtask created" }));
+    redirect(buildTaskUrl(taskId, "subtasks", { success: "Subtask created" }));
   }
 
   async function deleteTask() {
@@ -327,13 +332,13 @@ export default async function TaskDetailPage(props: {
       .eq("parent_task_id", taskId);
 
     if (subtaskError) {
-      redirect(buildTaskUrl(activeTab, { error: subtaskError.message }));
+      redirect(buildTaskUrl(taskId, activeTab, { error: subtaskError.message }));
     }
 
     const { error } = await supabase.from("tasks").delete().eq("id", taskId);
 
     if (error) {
-      redirect(buildTaskUrl(activeTab, { error: error.message }));
+      redirect(buildTaskUrl(taskId, activeTab, { error: error.message }));
     }
 
     revalidatePath("/tasks");
