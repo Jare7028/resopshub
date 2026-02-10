@@ -2,17 +2,26 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import ConfirmDelete from "../_components/ConfirmDelete";
+import { parseCsvParam } from "@/lib/queryParams";
+import ClientsTable from "./ClientsTable";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
 
 export default async function ClientsPage(props: {
-  searchParams?: Promise<{ q?: string; status?: string; error?: string }>;
+  searchParams?: Promise<{
+    q?: string;
+    status?: string | string[];
+    industry?: string | string[];
+    error?: string;
+  }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const query = (searchParams?.q || "").trim();
-  const status = (searchParams?.status || "").trim();
+  const selectedStatuses = parseCsvParam(searchParams?.status).filter((value) =>
+    statusOptions.includes(value as (typeof statusOptions)[number])
+  );
+  const selectedIndustries = parseCsvParam(searchParams?.industry);
 
   let request = supabase
     .from("clients")
@@ -23,8 +32,12 @@ export default async function ClientsPage(props: {
     request = request.ilike("name", `%${query}%`);
   }
 
-  if (status && status !== "all") {
-    request = request.eq("status", status);
+  if (selectedStatuses.length) {
+    request = request.in("status", selectedStatuses);
+  }
+
+  if (selectedIndustries.length) {
+    request = request.in("industry", selectedIndustries);
   }
 
   const { data: clients } = await request;
@@ -70,89 +83,20 @@ export default async function ClientsPage(props: {
         </p>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Search</h2>
-        <form className="mt-4 grid gap-4 md:grid-cols-3">
-          <input
-            name="q"
-            placeholder="Search by name"
-            defaultValue={query}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <select
-            name="status"
-            defaultValue={status || "all"}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All statuses</option>
-            {statusOptions.map((option) => (
-              <option key={option} value={option}>
-                {option.replace("_", " ")}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-          >
-            Apply filters
-          </button>
-        </form>
-      </section>
-
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">All clients</h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Client</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Industry</th>
-                <th className="px-6 py-3">Created</th>
-                <th className="px-6 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clients?.length ? (
-                clients.map((client) => (
-                  <tr key={client.id} className="border-t border-slate-200">
-                    <td className="px-6 py-3 font-medium text-slate-900">
-                      <Link href={`/clients/${client.id}`} className="hover:underline">
-                        {client.name}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {client.status?.replace("_", " ")}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {client.industry || "-"}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {client.created_at
-                        ? new Date(client.created_at).toLocaleDateString("en-US")
-                        : "-"}
-                    </td>
-                    <td className="px-6 py-3">
-                      <form action={deleteClient}>
-                        <input type="hidden" name="client_id" value={client.id} />
-                        <ConfirmDelete name={client.name} itemType="Client" />
-                      </form>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={5}>
-                    No clients found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ClientsTable
+          clients={clients || []}
+          statusOptions={statusOptions}
+          initialFilters={{
+            q: query,
+            status: selectedStatuses,
+            industry: selectedIndustries,
+          }}
+          onDelete={deleteClient}
+        />
       </section>
     </div>
   );

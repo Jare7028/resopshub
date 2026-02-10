@@ -1,7 +1,8 @@
 ﻿import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import ProjectInlineRow from "./ProjectInlineRow";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import ProjectsTable from "./ProjectsTable";
 
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
 const toProjectCode = (value: string) =>
@@ -28,7 +29,12 @@ const ensureUniqueProjectCode = async (base: string) => {
 };
 
 export default async function ProjectsPage(props: {
-  searchParams?: Promise<{ client?: string; status?: string; hide?: string; error?: string }>;
+  searchParams?: Promise<{
+    client?: string | string[];
+    status?: string | string[];
+    hide?: string;
+    error?: string;
+  }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
@@ -44,42 +50,43 @@ export default async function ProjectsPage(props: {
     .maybeSingle();
   const currentUserId = currentUser?.id;
   const isAdmin = currentUser?.role === "admin";
-  const selectedClient = (searchParams?.client || "").trim();
-  const selectedStatus = (searchParams?.status || "").trim();
+  const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
+  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const returnParams = new URLSearchParams();
 
-  if (selectedClient && selectedClient !== "all") {
-    returnParams.set("client", selectedClient);
-  }
-
-  if (selectedStatus && selectedStatus !== "all") {
-    returnParams.set("status", selectedStatus);
-  }
-
   returnParams.set("hide", hideCompleted ? "1" : "0");
-
-  const returnTo = returnParams.toString() ? `/projects?${returnParams}` : "/projects";
-  const toggleParams = new URLSearchParams(returnParams);
-  toggleParams.set("hide", hideCompleted ? "0" : "1");
-  const toggleUrl = toggleParams.toString() ? `/projects?${toggleParams}` : "/projects";
 
   const { data: clients } = await supabase
     .from("clients")
     .select("id,name")
     .order("name", { ascending: true });
 
+  const clientIdSet = new Set((clients || []).map((client) => client.id));
+  const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
+  const selectedStatuses = selectedStatusesRaw.filter((value) =>
+    statusOptions.includes(value as (typeof statusOptions)[number])
+  );
+
+  setCsvParam(returnParams, "client", selectedClientIds);
+  setCsvParam(returnParams, "status", selectedStatuses);
+
+  const returnTo = returnParams.toString() ? `/projects?${returnParams}` : "/projects";
+  const toggleParams = new URLSearchParams(returnParams);
+  toggleParams.set("hide", hideCompleted ? "0" : "1");
+  const toggleUrl = toggleParams.toString() ? `/projects?${toggleParams}` : "/projects";
+
   let request = supabase
     .from("projects")
     .select("id,name,status,start_date,end_date,client_id,clients(name)")
     .order("created_at", { ascending: false });
 
-  if (selectedClient && selectedClient !== "all") {
-    request = request.eq("client_id", selectedClient);
+  if (selectedClientIds.length) {
+    request = request.in("client_id", selectedClientIds);
   }
 
-  if (selectedStatus && selectedStatus !== "all") {
-    request = request.eq("status", selectedStatus);
+  if (selectedStatuses.length) {
+    request = request.in("status", selectedStatuses);
   }
   if (hideCompleted) {
     request = request.not("status", "in", "(completed,cancelled)");
@@ -283,43 +290,6 @@ export default async function ProjectsPage(props: {
         </form>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Filters</h2>
-        <form className="mt-4 grid gap-4 md:grid-cols-3">
-          <input type="hidden" name="hide" value={hideCompleted ? "1" : "0"} />
-          <select
-            name="client"
-            defaultValue={selectedClient || "all"}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All clients</option>
-            {clients?.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-          <select
-            name="status"
-            defaultValue={selectedStatus || "all"}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All statuses</option>
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {status.replace("_", " ")}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-          >
-            Apply filters
-          </button>
-        </form>
-      </section>
-
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
@@ -332,38 +302,14 @@ export default async function ProjectsPage(props: {
               : "Hide completed & cancelled"}
           </a>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Project</th>
-                <th className="px-6 py-3">Client</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Start</th>
-                <th className="px-6 py-3">End</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects?.length ? (
-                projects.map((project) => (
-                  <ProjectInlineRow
-                    key={project.id}
-                    project={project}
-                    clients={clients || []}
-                    statusOptions={statusOptions}
-                    onUpdate={updateProjectInline}
-                  />
-                ))
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={5}>
-                    No projects found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ProjectsTable
+          projects={projects || []}
+          clients={clients || []}
+          statusOptions={statusOptions}
+          initialFilters={{ client: selectedClientIds, status: selectedStatuses }}
+          hideCompleted={hideCompleted}
+          onUpdate={updateProjectInline}
+        />
       </section>
     </div>
   );
