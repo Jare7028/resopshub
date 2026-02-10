@@ -3,6 +3,7 @@ import Link from "next/link";
 const tabs = [
   { key: "profile", label: "Profile" },
   { key: "notifications", label: "Notifications" },
+  { key: "templates", label: "Templates" },
 ] as const;
 
 export type SettingsTabKey = (typeof tabs)[number]["key"];
@@ -37,4 +38,3 @@ export default function SettingsTabs({ active }: { active: SettingsTabKey }) {
     </nav>
   );
 }
-

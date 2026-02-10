@@ -1,4 +1,5 @@
-﻿import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -30,12 +31,26 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function ClientTasksPage(props: {
   params: Promise<{ clientId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string; sort?: string; dir?: string }>;
+  searchParams?: Promise<{
+    error?: string;
+    success?: string;
+    sort?: string;
+    dir?: string;
+    create_mode?: string;
+    template_task_id?: string;
+  }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+
+  const createModeRaw = String(searchParams?.create_mode || "")
+    .trim()
+    .toLowerCase();
+  const createMode: "new" | "template" =
+    createModeRaw === "template" ? "template" : "new";
+  const templateTaskId = String(searchParams?.template_task_id || "").trim();
 
   const sortKey = normalizeTaskSortKey(searchParams?.sort);
   const sortDir = normalizeTaskSortDir(searchParams?.dir);
@@ -118,6 +133,37 @@ export default async function ClientTasksPage(props: {
       </span>
     );
   };
+
+  type TaskTemplateRow = {
+    id: string;
+    name: string;
+    title: string;
+    status: string;
+    priority: string;
+    due_time: string | null;
+    recurrence_frequency: string | null;
+    recurrence_lead_days: number | null;
+  };
+
+  const { data: taskTemplatesRaw, error: taskTemplatesError } = await supabase
+    .from("task_templates")
+    .select(
+      "id,name,title,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
+    )
+    .order("name", { ascending: true });
+
+  const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as TaskTemplateRow[];
+  const selectedTemplate =
+    createMode === "template" && templateTaskId
+      ? taskTemplates.find((tpl) => tpl.id === templateTaskId) || null
+      : null;
+  const initialRecurrenceFrequency =
+    selectedTemplate?.recurrence_frequency === "daily" ||
+    selectedTemplate?.recurrence_frequency === "weekly" ||
+    selectedTemplate?.recurrence_frequency === "monthly" ||
+    selectedTemplate?.recurrence_frequency === "yearly"
+      ? selectedTemplate.recurrence_frequency
+      : "once";
 
   async function createTask(formData: FormData) {
     "use server";
@@ -361,11 +407,85 @@ export default async function ClientTasksPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Add task</h2>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Link
+              href={`/clients/${clientId}/tasks`}
+              className={`rounded-md px-3 py-1.5 font-medium ${
+                createMode === "new"
+                  ? "tab-active"
+                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+            >
+              New task
+            </Link>
+            <Link
+              href={
+                templateTaskId
+                  ? `/clients/${clientId}/tasks?create_mode=template&template_task_id=${encodeURIComponent(
+                      templateTaskId
+                    )}`
+                  : `/clients/${clientId}/tasks?create_mode=template`
+              }
+              className={`rounded-md px-3 py-1.5 font-medium ${
+                createMode === "template"
+                  ? "tab-active"
+                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+            >
+              Choose from template
+            </Link>
+          </div>
+
+          {createMode === "template" ? (
+            <form
+              method="get"
+              action={`/clients/${clientId}/tasks`}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <input type="hidden" name="create_mode" value="template" />
+              <select
+                name="template_task_id"
+                defaultValue={templateTaskId || ""}
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                disabled={Boolean(taskTemplatesError)}
+              >
+                <option value="">Select a template</option>
+                {taskTemplates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                disabled={Boolean(taskTemplatesError)}
+              >
+                Apply
+              </button>
+              <Link
+                href="/settings?tab=templates&templates=tasks"
+                className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+              >
+                Manage templates
+              </Link>
+            </form>
+          ) : null}
+        </div>
+
+        {createMode === "template" && taskTemplatesError ? (
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor,
+            then refresh this page.
+          </p>
+        ) : null}
         <form action={createTask} className="mt-4 grid gap-4 md:grid-cols-6">
           <input
             name="title"
             placeholder="Task title"
             className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            defaultValue={selectedTemplate?.title || ""}
             required
           />
           <select
@@ -386,7 +506,7 @@ export default async function ClientTasksPage(props: {
           <select
             name="status"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue="to_do"
+            defaultValue={selectedTemplate?.status || "to_do"}
           >
             {statusOptions.map((status) => (
               <option key={status} value={status}>
@@ -397,7 +517,7 @@ export default async function ClientTasksPage(props: {
           <select
             name="priority"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue="medium"
+            defaultValue={selectedTemplate?.priority || "medium"}
           >
             {priorityOptions.map((priority) => (
               <option key={priority} value={priority}>
@@ -405,7 +525,12 @@ export default async function ClientTasksPage(props: {
               </option>
             ))}
           </select>
-          <RecurrenceFields className="md:col-span-6" />
+          <RecurrenceFields
+            className="md:col-span-6"
+            initialFrequency={initialRecurrenceFrequency}
+            initialDueTime={selectedTemplate?.due_time || undefined}
+            initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
+          />
           <button
             type="submit"
             className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "

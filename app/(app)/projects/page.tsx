@@ -1,4 +1,5 @@
-﻿import { redirect } from "next/navigation";
+import Link from "next/link";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
@@ -33,6 +34,8 @@ export default async function ProjectsPage(props: {
     client?: string | string[];
     status?: string | string[];
     hide?: string;
+    create_mode?: string;
+    template_project_id?: string;
     error?: string;
   }>;
 }) {
@@ -53,6 +56,12 @@ export default async function ProjectsPage(props: {
   const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
   const selectedStatusesRaw = parseCsvParam(searchParams?.status);
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const createModeRaw = String(searchParams?.create_mode || "")
+    .trim()
+    .toLowerCase();
+  const createMode: "new" | "template" =
+    createModeRaw === "template" ? "template" : "new";
+  const templateProjectId = String(searchParams?.template_project_id || "").trim();
   const returnParams = new URLSearchParams();
 
   returnParams.set("hide", hideCompleted ? "1" : "0");
@@ -124,6 +133,24 @@ export default async function ProjectsPage(props: {
     }
     }
   }
+
+  type ProjectTemplateRow = {
+    id: string;
+    name: string;
+    description: string | null;
+    status: string;
+  };
+
+  const { data: projectTemplatesRaw, error: projectTemplatesError } = await supabase
+    .from("project_templates")
+    .select("id,name,description,status")
+    .order("name", { ascending: true });
+
+  const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
+  const selectedTemplate =
+    createMode === "template" && templateProjectId
+      ? projectTemplates.find((tpl) => tpl.id === templateProjectId) || null
+      : null;
 
   async function updateProjectInline(formData: FormData) {
     "use server";
@@ -241,6 +268,78 @@ export default async function ProjectsPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Add project</h2>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Link
+              href={returnTo}
+              className={`rounded-md px-3 py-1.5 font-medium ${
+                createMode === "new"
+                  ? "tab-active"
+                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+            >
+              New project
+            </Link>
+            <Link
+              href={
+                templateProjectId
+                  ? `${returnTo}${returnTo.includes("?") ? "&" : "?"}create_mode=template&template_project_id=${encodeURIComponent(
+                      templateProjectId
+                    )}`
+                  : `${returnTo}${returnTo.includes("?") ? "&" : "?"}create_mode=template`
+              }
+              className={`rounded-md px-3 py-1.5 font-medium ${
+                createMode === "template"
+                  ? "tab-active"
+                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+            >
+              Choose from template
+            </Link>
+          </div>
+
+          {createMode === "template" ? (
+            <form method="get" action="/projects" className="flex flex-wrap items-center gap-2">
+              {Array.from(returnParams.entries()).map(([key, value]) => (
+                <input key={key} type="hidden" name={key} value={value} />
+              ))}
+              <input type="hidden" name="create_mode" value="template" />
+              <select
+                name="template_project_id"
+                defaultValue={templateProjectId || ""}
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                disabled={Boolean(projectTemplatesError)}
+              >
+                <option value="">Select a template</option>
+                {projectTemplates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                disabled={Boolean(projectTemplatesError)}
+              >
+                Apply
+              </button>
+              <Link
+                href="/settings?tab=templates&templates=projects"
+                className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+              >
+                Manage templates
+              </Link>
+            </form>
+          ) : null}
+        </div>
+
+        {createMode === "template" && projectTemplatesError ? (
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor,
+            then refresh this page.
+          </p>
+        ) : null}
         <form action={createProject} className="mt-4 grid gap-4 md:grid-cols-5">
           <input
             name="name"
@@ -263,7 +362,7 @@ export default async function ProjectsPage(props: {
           <select
             name="status"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue="planned"
+            defaultValue={selectedTemplate?.status || "planned"}
           >
             {statusOptions.map((status) => (
               <option key={status} value={status}>

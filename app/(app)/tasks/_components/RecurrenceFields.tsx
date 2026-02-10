@@ -2,10 +2,6 @@
 
 import { useMemo, useState } from "react";
 
-type RecurrenceFieldsProps = {
-  className?: string;
-};
-
 const frequencyOptions = [
   { value: "once", label: "Once" },
   { value: "daily", label: "Daily" },
@@ -16,16 +12,33 @@ const frequencyOptions = [
 
 type FrequencyValue = (typeof frequencyOptions)[number]["value"];
 
-export default function RecurrenceFields({ className }: RecurrenceFieldsProps) {
+type RecurrenceFieldsProps = {
+  className?: string;
+  initialFrequency?: FrequencyValue;
+  initialDueDate?: string;
+  initialDueTime?: string;
+  initialStartDate?: string;
+  initialLeadDays?: number;
+};
+
+export default function RecurrenceFields({
+  className,
+  initialFrequency = "once",
+  initialDueDate,
+  initialDueTime,
+  initialStartDate,
+  initialLeadDays = 7,
+}: RecurrenceFieldsProps) {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
     []
   );
-  const [frequency, setFrequency] = useState<FrequencyValue>("once");
-  const [dueDate, setDueDate] = useState(today);
-  const [dueTime, setDueTime] = useState("09:00");
-  const [startDate, setStartDate] = useState("");
+
+  const [frequency, setFrequency] = useState<FrequencyValue>(initialFrequency);
+  const [dueDate, setDueDate] = useState(initialDueDate || today);
+  const [dueTime, setDueTime] = useState(initialDueTime || "09:00");
+  const [startDate, setStartDate] = useState(initialStartDate || "");
 
   const summary = useMemo(() => {
     if (!dueDate || !dueTime) {
@@ -138,9 +151,14 @@ export default function RecurrenceFields({ className }: RecurrenceFieldsProps) {
           value={frequency === "once" ? "" : frequency}
         />
         <input type="hidden" name="recurrence_interval" value="1" />
-        <input type="hidden" name="recurrence_lead_days" value="7" />
+        <input
+          type="hidden"
+          name="recurrence_lead_days"
+          value={String(initialLeadDays || 7)}
+        />
         <input type="hidden" name="recurrence_timezone" value={timeZone} />
       </div>
     </fieldset>
   );
 }
+
