@@ -30,6 +30,24 @@ function getSelectedMembers(formData: FormData, ownerId: string) {
     }));
 }
 
+function buildPersonalUrlFromBase(
+  baseQuery: string,
+  tab: PersonalTabKey,
+  params?: { error?: string }
+) {
+  const sp = new URLSearchParams(baseQuery);
+
+  if (tab !== "pages") {
+    sp.set("tab", tab);
+  }
+  if (params?.error) {
+    sp.set("error", params.error);
+  }
+
+  const qs = sp.toString();
+  return qs ? `/personal?${qs}` : "/personal";
+}
+
 export default async function PersonalHome(props: {
   searchParams?: Promise<{
     tab?: string;
@@ -68,6 +86,8 @@ export default async function PersonalHome(props: {
   if (query) {
     baseParams.set("q", query);
   }
+
+  const baseQuery = baseParams.toString();
 
   const buildPersonalUrl = (tab: PersonalTabKey, params?: { error?: string }) => {
     const sp = new URLSearchParams(baseParams);
@@ -151,7 +171,11 @@ export default async function PersonalHome(props: {
 
     const title = String(formData.get("title") || "").trim();
     if (!title) {
-      redirect(buildPersonalUrl("sections", { error: "Section title is required" }));
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: "Section title is required",
+        })
+      );
     }
 
     const { data: lastSection } = await supabase
@@ -171,7 +195,7 @@ export default async function PersonalHome(props: {
     });
 
     if (error) {
-      redirect(buildPersonalUrl("sections", { error: error.message }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: error.message }));
     }
 
     revalidatePath("/personal");
@@ -191,11 +215,15 @@ export default async function PersonalHome(props: {
     const title = String(formData.get("title") || "").trim();
 
     if (!sectionId) {
-      redirect(buildPersonalUrl("sections", { error: "Missing section id" }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: "Missing section id" }));
     }
 
     if (!title) {
-      redirect(buildPersonalUrl("sections", { error: "Section title is required" }));
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: "Section title is required",
+        })
+      );
     }
 
     const { error } = await supabase
@@ -204,7 +232,7 @@ export default async function PersonalHome(props: {
       .eq("id", sectionId);
 
     if (error) {
-      redirect(buildPersonalUrl("sections", { error: error.message }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: error.message }));
     }
 
     revalidatePath("/personal");
@@ -222,7 +250,7 @@ export default async function PersonalHome(props: {
 
     const sectionId = String(formData.get("section_id") || "").trim();
     if (!sectionId) {
-      redirect(buildPersonalUrl("sections", { error: "Missing section id" }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: "Missing section id" }));
     }
 
     // Enforce "owner only" delete in-app (RLS also enforces this).
@@ -233,16 +261,16 @@ export default async function PersonalHome(props: {
       .maybeSingle();
 
     if (sectionError) {
-      redirect(buildPersonalUrl("sections", { error: sectionError.message }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: sectionError.message }));
     }
 
     if (!section) {
-      redirect(buildPersonalUrl("sections", { error: "Section not found" }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: "Section not found" }));
     }
 
     if (section.owner_id !== user.id) {
       redirect(
-        buildPersonalUrl("sections", {
+        buildPersonalUrlFromBase(baseQuery, "sections", {
           error: "Only the section owner can delete it",
         })
       );
@@ -251,7 +279,7 @@ export default async function PersonalHome(props: {
     const { error } = await supabase.from("personal_sections").delete().eq("id", sectionId);
 
     if (error) {
-      redirect(buildPersonalUrl("sections", { error: error.message }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: error.message }));
     }
 
     revalidatePath("/personal");
@@ -273,7 +301,7 @@ export default async function PersonalHome(props: {
     const shareScope = String(formData.get("share_scope") || "page");
 
     if (!title) {
-      redirect(buildPersonalUrl("create", { error: "Page title is required" }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "create", { error: "Page title is required" }));
     }
 
     if (!sectionId) {
@@ -299,7 +327,7 @@ export default async function PersonalHome(props: {
 
         if (sectionError || !createdSection) {
           redirect(
-            buildPersonalUrl("create", {
+            buildPersonalUrlFromBase(baseQuery, "create", {
               error: sectionError?.message || "Unable to create section",
             })
           );
@@ -331,7 +359,7 @@ export default async function PersonalHome(props: {
 
     if (pageError || !page) {
       redirect(
-        buildPersonalUrl("create", {
+        buildPersonalUrlFromBase(baseQuery, "create", {
           error: pageError?.message || "Unable to create page",
         })
       );
