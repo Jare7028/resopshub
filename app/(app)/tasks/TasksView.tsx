@@ -169,7 +169,8 @@ export default function TasksView({
     next: typeof filters,
     nextSortKey: TaskSortKey,
     nextSortDir: TaskSortDir,
-    nextView: typeof view
+    nextView: typeof view,
+    nextHideCompleted: boolean
   ) => {
     const params = new URLSearchParams();
     setCsvParam(params, "status", next.status);
@@ -178,7 +179,7 @@ export default function TasksView({
     setCsvParam(params, "client", next.client);
     setCsvParam(params, "project", next.project);
     if (next.due && next.due !== "all") params.set("due", next.due);
-    params.set("hide", hideCompleted ? "1" : "0");
+    params.set("hide", nextHideCompleted ? "1" : "0");
     params.set("sort", nextSortKey);
     params.set("dir", nextSortDir);
     if (nextView !== "table") {
@@ -189,7 +190,7 @@ export default function TasksView({
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);
-    const query = buildQuery(next, sortKey, sortDir, view);
+    const query = buildQuery(next, sortKey, sortDir, view, hideCompleted);
     startTransition(() => {
       router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
     });
@@ -198,13 +199,13 @@ export default function TasksView({
   const buildSortUrl = (key: TaskSortKey) => {
     const nextDir: TaskSortDir =
       sortKey === key && sortDir === "asc" ? "desc" : "asc";
-    const query = buildQuery(filters, key, nextDir, view);
+    const query = buildQuery(filters, key, nextDir, view, hideCompleted);
     return query ? `/tasks?${query}` : "/tasks";
   };
 
   const applyView = (nextView: typeof view) => {
     setView(nextView);
-    const query = buildQuery(filters, sortKey, sortDir, nextView);
+    const query = buildQuery(filters, sortKey, sortDir, nextView, hideCompleted);
     startTransition(() => {
       router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
     });
@@ -321,6 +322,19 @@ export default function TasksView({
           <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
           <a
             href={toggleUrl}
+            onClick={(event) => {
+              event.preventDefault();
+              const query = buildQuery(
+                filters,
+                sortKey,
+                sortDir,
+                view,
+                !hideCompleted
+              );
+              startTransition(() => {
+                router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
+              });
+            }}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
           >
             {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
