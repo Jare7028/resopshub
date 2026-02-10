@@ -15,6 +15,7 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import { statusSelectClasses } from "@/lib/taskIndicators";
 import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
 
 const statusOptions = TASK_STATUS_OPTIONS;
@@ -428,7 +429,9 @@ export default async function TaskDetailPage(props: {
                 id="task-status"
                 name="status"
                 defaultValue={normalizeTaskStatusOrDefault(task.status)}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className={`rounded-md border px-3 py-2 text-sm ${statusSelectClasses(
+                  normalizeTaskStatusOrDefault(task.status)
+                )}`}
               >
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>
@@ -651,7 +654,9 @@ export default async function TaskDetailPage(props: {
               <select
                 id="subtask-status"
                 name="status"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className={`rounded-md border px-3 py-2 text-sm ${statusSelectClasses(
+                  "to_do"
+                )}`}
                 defaultValue="to_do"
               >
                 {statusOptions.map((status) => (

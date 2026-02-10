@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import { statusSelectClasses } from "@/lib/taskIndicators";
 
 type UserOption = {
   id: string;
@@ -38,6 +39,7 @@ export default function ProjectTaskInlineRow({
   priorityOptions,
   onUpdate,
 }: ProjectTaskInlineRowProps) {
+  const normalizedStatus = normalizeTaskStatusOrDefault(task.status);
   const assigneeFormId = `task-${task.id}-assignees`;
 
   const handleChange = (
@@ -194,8 +196,10 @@ export default function ProjectTaskInlineRow({
           <select
             name="status"
             aria-label="Status"
-            defaultValue={normalizeTaskStatusOrDefault(task.status)}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+            defaultValue={normalizedStatus}
+            className={`w-full rounded-md border px-2 py-1 text-sm ${statusSelectClasses(
+              normalizedStatus
+            )}`}
             onChange={handleChange}
           >
             {statusOptions.map((status) => (

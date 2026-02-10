@@ -79,3 +79,22 @@ export function prioritySelectClasses(priority: string | null | undefined) {
   return "border-slate-300 bg-white text-slate-700";
 }
 
+export function statusPillClasses(status: string | null | undefined) {
+  const value = String(status || "").trim().toLowerCase();
+  if (value === "to_do" || value === "backlog") return "border-slate-200 bg-slate-50 text-slate-700";
+  if (value === "in_progress") return "border-blue-200 bg-blue-50 text-blue-800";
+  if (value === "blocked") return "border-amber-200 bg-amber-50 text-amber-900";
+  if (value === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (value === "cancelled") return "border-rose-200 bg-rose-50 text-rose-800";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+export function statusSelectClasses(status: string | null | undefined) {
+  const value = String(status || "").trim().toLowerCase();
+  if (value === "to_do" || value === "backlog") return "border-slate-300 bg-slate-50 text-slate-900";
+  if (value === "in_progress") return "border-blue-300 bg-blue-50 text-blue-900";
+  if (value === "blocked") return "border-amber-300 bg-amber-50 text-amber-900";
+  if (value === "completed") return "border-emerald-300 bg-emerald-50 text-emerald-900";
+  if (value === "cancelled") return "border-rose-300 bg-rose-50 text-rose-900";
+  return "border-slate-300 bg-white text-slate-700";
+}

@@ -4,7 +4,12 @@ import Link from "next/link";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
-import { dueInputClasses, getDueUrgency, prioritySelectClasses } from "@/lib/taskIndicators";
+import {
+  dueInputClasses,
+  getDueUrgency,
+  prioritySelectClasses,
+  statusSelectClasses,
+} from "@/lib/taskIndicators";
 
 type UserOption = {
   id: string;
@@ -62,6 +67,7 @@ export default function TaskInlineRow({
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
+  const normalizedStatus = normalizeTaskStatusOrDefault(task.status);
 
   const getRelationName = (
     relation:
@@ -205,8 +211,10 @@ export default function TaskInlineRow({
           <select
             name="status"
             aria-label="Status"
-            defaultValue={normalizeTaskStatusOrDefault(task.status)}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+            defaultValue={normalizedStatus}
+            className={`w-full rounded-md border px-2 py-1 text-sm ${statusSelectClasses(
+              normalizedStatus
+            )}`}
             onChange={handleChange}
           >
             {statusOptions.map((status) => (
