@@ -156,6 +156,23 @@ export default async function ProjectsPage(props: {
     createMode === "template" && templateProjectId
       ? projectTemplates.find((tpl) => tpl.id === templateProjectId) || null
       : null;
+  let selectedTemplateTaskTemplateCount: number | null = null;
+  let selectedTemplateTaskPreviewError: string | null = null;
+
+  if (createMode === "template" && templateProjectId) {
+    const { data: links, error: linksError } = await supabase
+      .from("project_template_tasks")
+      .select("task_template_id")
+      .eq("project_template_id", templateProjectId);
+
+    if (linksError) {
+      selectedTemplateTaskPreviewError = isSupabaseMissingTableError(linksError)
+        ? "Project template tasks are not set up yet. Run `sql/templates.sql` in Supabase SQL editor, then refresh this page."
+        : linksError.message;
+    } else {
+      selectedTemplateTaskTemplateCount = (links || []).length;
+    }
+  }
 
   async function updateProjectInline(formData: FormData) {
     "use server";
@@ -443,7 +460,7 @@ export default async function ProjectsPage(props: {
                 className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                 disabled={Boolean(projectTemplatesError)}
               >
-                Apply
+                Select template
               </button>
               <Link
                 href="/settings?tab=templates&templates=projects"
@@ -460,6 +477,44 @@ export default async function ProjectsPage(props: {
             Templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor,
             then refresh this page.
           </p>
+        ) : null}
+        {createMode === "template" && !projectTemplatesError ? (
+          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            {selectedTemplate ? (
+              <>
+                <div className="font-semibold text-slate-900">
+                  Template selected: {selectedTemplate.name}
+                </div>
+                {selectedTemplate.description ? (
+                  <div className="mt-1 text-slate-700">{selectedTemplate.description}</div>
+                ) : null}
+                {selectedTemplateTaskPreviewError ? (
+                  <div className="mt-2 text-amber-900">{selectedTemplateTaskPreviewError}</div>
+                ) : (
+                  <div className="mt-2 text-slate-700">
+                    This template will create{" "}
+                    <span className="font-semibold text-slate-900">
+                      {selectedTemplateTaskTemplateCount ?? 0}
+                    </span>{" "}
+                    task{(selectedTemplateTaskTemplateCount ?? 0) === 1 ? "" : "s"} in the new
+                    project.
+                  </div>
+                )}
+                <div className="mt-2 text-slate-700">
+                  Next: enter a project name below, then click{" "}
+                  <span className="font-semibold text-slate-900">Create project from template</span>
+                  .
+                </div>
+              </>
+            ) : (
+              <div className="text-slate-700">
+                Step 1: Select a template above and click{" "}
+                <span className="font-semibold text-slate-900">Select template</span>. Step 2: Enter
+                a project name below, then click{" "}
+                <span className="font-semibold text-slate-900">Create project</span>.
+              </div>
+            )}
+          </div>
         ) : null}
         <form action={createProject} className="mt-4 grid gap-4 md:grid-cols-5">
           {createMode === "template" && templateProjectId ? (
@@ -511,7 +566,9 @@ export default async function ProjectsPage(props: {
             type="submit"
             className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
           >
-            Create project
+            {createMode === "template" && templateProjectId
+              ? "Create project from template"
+              : "Create project"}
           </button>
         </form>
       </section>
