@@ -51,6 +51,12 @@ type NoteEditorClientProps = {
   title: string;
   placeholder: string;
   onSave: (entityId: string, content: unknown) => Promise<void>;
+  onCreateTask?: (input: {
+    title: string;
+    dueDate: string | null;
+    dueTime: string | null;
+    assignToMe: boolean;
+  }) => Promise<{ taskId: string }>;
   lastEditedAtLabel?: string | null;
   lastEditedByLabel?: string | null;
 };
@@ -215,12 +221,12 @@ function getSlashMatch(editor: Editor) {
   };
 }
 
-function filterSlashCommands(query: string) {
+function filterSlashCommands(commands: SlashCommand[], query: string) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) {
-    return SLASH_COMMANDS;
+    return commands;
   }
-  return SLASH_COMMANDS.filter((command) => {
+  return commands.filter((command) => {
     const label = command.label.toLowerCase();
     if (label.includes(normalized)) {
       return true;
@@ -229,16 +235,39 @@ function filterSlashCommands(query: string) {
   });
 }
 
+function normalizeInlineText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function getSelectedText(editor: Editor) {
+  const { from, to, empty } = editor.state.selection;
+  if (empty) {
+    return "";
+  }
+  return normalizeInlineText(editor.state.doc.textBetween(from, to, " "));
+}
+
+function getCurrentLineText(editor: Editor) {
+  const { $from } = editor.state.selection;
+  return normalizeInlineText($from.parent.textContent || "");
+}
+
+function getSuggestedTaskTitle(editor: Editor) {
+  return getSelectedText(editor) || getCurrentLineText(editor);
+}
+
 export default function NoteEditorClient({
   entityId,
   initialContent,
   title,
   placeholder,
   onSave,
+  onCreateTask,
   lastEditedAtLabel,
   lastEditedByLabel,
 }: NoteEditorClientProps) {
   const [isPending, startTransition] = useTransition();
+  const [isTaskPending, startTaskTransition] = useTransition();
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     open: false,
     x: 0,
@@ -259,6 +288,27 @@ export default function NoteEditorClient({
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuStateRef = useRef<SlashMenuState>(slashMenu);
   const editorRef = useRef<Editor | null>(null);
+  const taskTitleRef = useRef<HTMLInputElement | null>(null);
+
+  const [taskCreator, setTaskCreator] = useState<{
+    open: boolean;
+    title: string;
+    dueDate: string;
+    dueTime: string;
+    assignToMe: boolean;
+    error: string;
+  }>({
+    open: false,
+    title: "",
+    dueDate: "",
+    dueTime: "",
+    assignToMe: true,
+    error: "",
+  });
+
+  const [taskToast, setTaskToast] = useState<{ taskId: string; title: string } | null>(
+    null
+  );
 
   useEffect(() => {
     slashMenuStateRef.current = slashMenu;
@@ -271,6 +321,52 @@ export default function NoteEditorClient({
         : prev
     );
   }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => (prev.open ? { ...prev, open: false } : prev));
+  }, []);
+
+  const closeTaskCreator = useCallback(() => {
+    setTaskCreator((prev) => (prev.open ? { ...prev, open: false, error: "" } : prev));
+  }, []);
+
+  const openTaskCreator = useCallback(
+    (prefillTitle = "") => {
+      if (!onCreateTask) {
+        return;
+      }
+      closeContextMenu();
+      closeSlashMenu();
+      setTaskCreator({
+        open: true,
+        title: prefillTitle,
+        dueDate: "",
+        dueTime: "",
+        assignToMe: true,
+        error: "",
+      });
+    },
+    [onCreateTask, closeContextMenu, closeSlashMenu]
+  );
+
+  const slashCommands = useMemo(() => {
+    if (!onCreateTask) {
+      return SLASH_COMMANDS;
+    }
+
+    const taskCommand: SlashCommand = {
+      id: "task",
+      label: "Task",
+      description: "Create a task from your note.",
+      keywords: ["task", "todo", "action", "action item"],
+      run: (editor, range) => {
+        editor.chain().focus().deleteRange(range).run();
+        openTaskCreator(getSuggestedTaskTitle(editor));
+      },
+    };
+
+    return [...SLASH_COMMANDS, taskCommand];
+  }, [onCreateTask, openTaskCreator]);
 
   const applySlashCommand = useCallback(
     (command: SlashCommand, range: SlashRange) => {
@@ -349,7 +445,7 @@ export default function NoteEditorClient({
         return;
       }
 
-      const items = filterSlashCommands(match.query);
+      const items = filterSlashCommands(slashCommands, match.query);
       const coords = editor.view.coordsAtPos(match.range.from);
       setSlashMenu((prev) => {
         const queryChanged = prev.query !== match.query;
@@ -367,7 +463,7 @@ export default function NoteEditorClient({
         };
       });
     },
-    [closeSlashMenu]
+    [closeSlashMenu, slashCommands]
   );
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
@@ -489,9 +585,21 @@ export default function NoteEditorClient({
     };
   }, []);
 
-  const closeContextMenu = useCallback(() => {
-    setContextMenu((prev) => (prev.open ? { ...prev, open: false } : prev));
-  }, []);
+  useEffect(() => {
+    if (!taskCreator.open) {
+      return;
+    }
+    const timer = window.setTimeout(() => taskTitleRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [taskCreator.open]);
+
+  useEffect(() => {
+    if (!taskToast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setTaskToast(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [taskToast]);
 
   useEffect(() => {
     if (!contextMenu.open) {
@@ -588,6 +696,43 @@ export default function NoteEditorClient({
     },
     [editor, closeContextMenu]
   );
+
+  const submitTask = useCallback(() => {
+    if (!onCreateTask) {
+      return;
+    }
+
+    const taskTitle = normalizeInlineText(taskCreator.title);
+    const dueDate = (taskCreator.dueDate || "").trim() || null;
+    const dueTime = (taskCreator.dueTime || "").trim() || null;
+
+    if (!taskTitle) {
+      setTaskCreator((prev) => ({ ...prev, error: "Task title is required" }));
+      return;
+    }
+
+    if (dueTime && !dueDate) {
+      setTaskCreator((prev) => ({ ...prev, error: "Choose a due date if you set a time" }));
+      return;
+    }
+
+    startTaskTransition(() => {
+      void onCreateTask({
+        title: taskTitle,
+        dueDate,
+        dueTime,
+        assignToMe: taskCreator.assignToMe,
+      })
+        .then((result) => {
+          setTaskToast({ taskId: result.taskId, title: taskTitle });
+          setTaskCreator((prev) => ({ ...prev, open: false, error: "" }));
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : "Unable to create task";
+          setTaskCreator((prev) => ({ ...prev, error: message }));
+        });
+    });
+  }, [onCreateTask, startTaskTransition, taskCreator]);
 
   const setSelectedTableColumnsType = useCallback(
     (colType: TableColumnType) => {
@@ -720,11 +865,47 @@ export default function NoteEditorClient({
     <section className="rounded-lg border border-slate-200 bg-white p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-        <span className="text-xs text-slate-400">
-          {isPending ? "Saving..." : "Saved"}
-          {metaLabel ? ` - ${metaLabel}` : ""}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {onCreateTask ? (
+            <button
+              type="button"
+              onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            >
+              + Task
+            </button>
+          ) : null}
+          <span className="text-xs text-slate-400">
+            {isPending ? "Saving..." : "Saved"}
+            {metaLabel ? ` - ${metaLabel}` : ""}
+          </span>
+        </div>
       </div>
+
+      {taskToast ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          <span>
+            Task created: <span className="font-semibold">{taskToast.title}</span>
+          </span>
+          <div className="flex items-center gap-3">
+            <a
+              href={`/tasks/${taskToast.taskId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-emerald-800 underline underline-offset-2 hover:text-emerald-900"
+            >
+              Open
+            </a>
+            <button
+              type="button"
+              onClick={() => setTaskToast(null)}
+              className="text-xs font-semibold text-emerald-800 hover:text-emerald-900"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div
         className="mt-4"
@@ -825,6 +1006,18 @@ export default function NoteEditorClient({
           style={{ top: contextMenu.y, left: contextMenu.x }}
           ref={contextMenuRef}
         >
+          {onCreateTask ? (
+            <>
+              <button
+                type="button"
+                onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
+                className="context-menu-item font-semibold text-slate-900"
+              >
+                Create task
+              </button>
+              <div className="my-1 border-t border-slate-200" />
+            </>
+          ) : null}
           <button
             type="button"
             onClick={() => run(() => editor.chain().focus().setParagraph().run())}
@@ -892,6 +1085,116 @@ export default function NoteEditorClient({
           >
             Divider
           </button>
+        </div>
+      ) : null}
+
+      {taskCreator.open ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4"
+          onMouseDown={() => closeTaskCreator()}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Create task
+                </p>
+                <h3 className="text-lg font-semibold text-slate-900">New task</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => closeTaskCreator()}
+                className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-900"
+              >
+                Close
+              </button>
+            </div>
+
+            {taskCreator.error ? (
+              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {taskCreator.error}
+              </p>
+            ) : null}
+
+            <form
+              className="mt-4 space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitTask();
+              }}
+            >
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-600">Title</label>
+                <input
+                  ref={taskTitleRef}
+                  value={taskCreator.title}
+                  onChange={(event) =>
+                    setTaskCreator((prev) => ({ ...prev, title: event.target.value }))
+                  }
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="Task title"
+                  required
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-600">Due date</label>
+                  <input
+                    type="date"
+                    value={taskCreator.dueDate}
+                    onChange={(event) =>
+                      setTaskCreator((prev) => ({ ...prev, dueDate: event.target.value }))
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-600">Time</label>
+                  <input
+                    type="time"
+                    value={taskCreator.dueTime}
+                    onChange={(event) =>
+                      setTaskCreator((prev) => ({ ...prev, dueTime: event.target.value }))
+                    }
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={taskCreator.assignToMe}
+                  onChange={(event) =>
+                    setTaskCreator((prev) => ({ ...prev, assignToMe: event.target.checked }))
+                  }
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Assign to me
+              </label>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => closeTaskCreator()}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isTaskPending}
+                  className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {isTaskPending ? "Creating..." : "Create task"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       ) : null}
     </section>
