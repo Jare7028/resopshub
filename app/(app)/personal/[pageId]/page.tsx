@@ -2,6 +2,10 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
+import PersonalPageTabs, {
+  normalizePersonalPageTabKey,
+  type PersonalPageTabKey,
+} from "./_components/PersonalPageTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -97,8 +101,10 @@ async function syncSectionShareMode(supabase: SupabaseServerClient, sectionId: s
 
 export default async function PersonalPage(props: {
   params: Promise<{ pageId: string }>;
+  searchParams?: Promise<{ tab?: string; error?: string; success?: string }>;
 }) {
   const params = await props.params;
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const user = authData.user;
@@ -120,9 +126,30 @@ export default async function PersonalPage(props: {
   }
 
   const pageId = page.id;
+  const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
   const sectionId = page.section_id;
   const pageOwnerId = page.owner_id;
   const isOwner = pageOwnerId === user.id;
+
+  const buildPageUrl = (
+    tab: PersonalPageTabKey,
+    params?: { error?: string; success?: string }
+  ) => {
+    const sp = new URLSearchParams();
+
+    if (tab !== "notes") {
+      sp.set("tab", tab);
+    }
+    if (params?.error) {
+      sp.set("error", params.error);
+    }
+    if (params?.success) {
+      sp.set("success", params.success);
+    }
+
+    const qs = sp.toString();
+    return qs ? `/personal/${pageId}?${qs}` : `/personal/${pageId}`;
+  };
 
   const { data: sections } = await supabase
     .from("personal_sections")
@@ -177,7 +204,7 @@ export default async function PersonalPage(props: {
     const sectionId = String(formData.get("section_id") || "").trim();
 
     if (!title) {
-      redirect(`/personal/${pageId}?error=Title%20is%20required`);
+      redirect(buildPageUrl(activeTab, { error: "Title is required" }));
     }
 
     const { error } = await supabase
@@ -190,7 +217,7 @@ export default async function PersonalPage(props: {
       .eq("id", pageId);
 
     if (error) {
-      redirect(`/personal/${pageId}?error=${encodeURIComponent(error.message)}`);
+      redirect(buildPageUrl(activeTab, { error: error.message }));
     }
 
     revalidatePath(`/personal/${pageId}`);
@@ -208,13 +235,17 @@ export default async function PersonalPage(props: {
     }
 
     if (pageOwnerId !== user.id) {
-      redirect(`/personal/${pageId}?error=Only%20the%20page%20owner%20can%20delete%20it`);
+      redirect(
+        buildPageUrl(activeTab, {
+          error: "Only the page owner can delete it",
+        })
+      );
     }
 
     const { error } = await supabase.from("personal_pages").delete().eq("id", pageId);
 
     if (error) {
-      redirect(`/personal/${pageId}?error=${encodeURIComponent(error.message)}`);
+      redirect(buildPageUrl(activeTab, { error: error.message }));
     }
 
     revalidatePath("/personal");
@@ -395,12 +426,29 @@ export default async function PersonalPage(props: {
         </div>
       </section>
 
-      <section className="space-y-4">
-        <details className="rounded-lg border border-slate-200 bg-white">
-          <summary className="cursor-pointer px-6 py-4 text-sm font-semibold text-slate-900">
-            Section members
-          </summary>
-          <div className="border-t border-slate-200 px-6 py-4">
+      {(searchParams?.error || searchParams?.success) && (
+        <div className="space-y-2">
+          {searchParams?.error ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+              {searchParams.error}
+            </p>
+          ) : null}
+          {searchParams?.success ? (
+            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+              {searchParams.success}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      <PersonalPageTabs pageId={pageId} active={activeTab} />
+
+      {activeTab === "section_members" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Section members</h2>
+          </div>
+          <div className="px-6 py-4">
             <form action={addSectionMember} className="flex flex-wrap gap-2">
               <select
                 name="user_id"
@@ -469,13 +517,15 @@ export default async function PersonalPage(props: {
               )}
             </div>
           </div>
-        </details>
+        </section>
+      ) : null}
 
-        <details className="rounded-lg border border-slate-200 bg-white">
-          <summary className="cursor-pointer px-6 py-4 text-sm font-semibold text-slate-900">
-            Page members
-          </summary>
-          <div className="border-t border-slate-200 px-6 py-4">
+      {activeTab === "page_members" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Page members</h2>
+          </div>
+          <div className="px-6 py-4">
             <form action={addPageMember} className="flex flex-wrap gap-2">
               <select
                 name="user_id"
@@ -544,15 +594,17 @@ export default async function PersonalPage(props: {
               )}
             </div>
           </div>
-        </details>
-      </section>
+        </section>
+      ) : null}
 
-      <PersonalPageEditorClient
-        pageId={page.id}
-        initialContent={page.content ?? null}
-        lastEditedAtLabel={lastEditedAtLabel}
-        lastEditedByLabel={lastEditedByLabel}
-      />
+      {activeTab === "notes" ? (
+        <PersonalPageEditorClient
+          pageId={page.id}
+          initialContent={page.content ?? null}
+          lastEditedAtLabel={lastEditedAtLabel}
+          lastEditedByLabel={lastEditedByLabel}
+        />
+      ) : null}
     </div>
   );
 }

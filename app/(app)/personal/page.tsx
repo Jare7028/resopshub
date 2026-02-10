@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import PersonalTabs, {
+  normalizePersonalTabKey,
+  type PersonalTabKey,
+} from "./_components/PersonalTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +32,7 @@ function getSelectedMembers(formData: FormData, ownerId: string) {
 
 export default async function PersonalHome(props: {
   searchParams?: Promise<{
+    tab?: string;
     section?: string;
     filter?: string;
     sort?: string;
@@ -48,6 +53,41 @@ export default async function PersonalHome(props: {
   const selectedFilter = (searchParams?.filter || "all").trim();
   const selectedSort = (searchParams?.sort || "updated").trim();
   const query = (searchParams?.q || "").trim();
+  const activeTab = normalizePersonalTabKey(searchParams?.tab);
+
+  const baseParams = new URLSearchParams();
+  if (selectedSection !== "all") {
+    baseParams.set("section", selectedSection);
+  }
+  if (selectedFilter !== "all") {
+    baseParams.set("filter", selectedFilter);
+  }
+  if (selectedSort !== "updated") {
+    baseParams.set("sort", selectedSort);
+  }
+  if (query) {
+    baseParams.set("q", query);
+  }
+
+  const buildPersonalUrl = (tab: PersonalTabKey, params?: { error?: string }) => {
+    const sp = new URLSearchParams(baseParams);
+
+    if (tab !== "pages") {
+      sp.set("tab", tab);
+    }
+    if (params?.error) {
+      sp.set("error", params.error);
+    }
+
+    const qs = sp.toString();
+    return qs ? `/personal?${qs}` : "/personal";
+  };
+
+  const personalTabUrls: Record<PersonalTabKey, string> = {
+    pages: buildPersonalUrl("pages"),
+    sections: buildPersonalUrl("sections"),
+    create: buildPersonalUrl("create"),
+  };
 
   const { data: sections } = await supabase
     .from("personal_sections")
@@ -111,7 +151,7 @@ export default async function PersonalHome(props: {
 
     const title = String(formData.get("title") || "").trim();
     if (!title) {
-      redirect("/personal?error=Section%20title%20is%20required");
+      redirect(buildPersonalUrl("sections", { error: "Section title is required" }));
     }
 
     const { data: lastSection } = await supabase
@@ -131,7 +171,7 @@ export default async function PersonalHome(props: {
     });
 
     if (error) {
-      redirect(`/personal?error=${encodeURIComponent(error.message)}`);
+      redirect(buildPersonalUrl("sections", { error: error.message }));
     }
 
     revalidatePath("/personal");
@@ -151,11 +191,11 @@ export default async function PersonalHome(props: {
     const title = String(formData.get("title") || "").trim();
 
     if (!sectionId) {
-      redirect("/personal?error=Missing%20section%20id");
+      redirect(buildPersonalUrl("sections", { error: "Missing section id" }));
     }
 
     if (!title) {
-      redirect("/personal?error=Section%20title%20is%20required");
+      redirect(buildPersonalUrl("sections", { error: "Section title is required" }));
     }
 
     const { error } = await supabase
@@ -164,7 +204,7 @@ export default async function PersonalHome(props: {
       .eq("id", sectionId);
 
     if (error) {
-      redirect(`/personal?error=${encodeURIComponent(error.message)}`);
+      redirect(buildPersonalUrl("sections", { error: error.message }));
     }
 
     revalidatePath("/personal");
@@ -182,7 +222,7 @@ export default async function PersonalHome(props: {
 
     const sectionId = String(formData.get("section_id") || "").trim();
     if (!sectionId) {
-      redirect("/personal?error=Missing%20section%20id");
+      redirect(buildPersonalUrl("sections", { error: "Missing section id" }));
     }
 
     // Enforce "owner only" delete in-app (RLS also enforces this).
@@ -193,21 +233,25 @@ export default async function PersonalHome(props: {
       .maybeSingle();
 
     if (sectionError) {
-      redirect(`/personal?error=${encodeURIComponent(sectionError.message)}`);
+      redirect(buildPersonalUrl("sections", { error: sectionError.message }));
     }
 
     if (!section) {
-      redirect("/personal?error=Section%20not%20found");
+      redirect(buildPersonalUrl("sections", { error: "Section not found" }));
     }
 
     if (section.owner_id !== user.id) {
-      redirect("/personal?error=Only%20the%20section%20owner%20can%20delete%20it");
+      redirect(
+        buildPersonalUrl("sections", {
+          error: "Only the section owner can delete it",
+        })
+      );
     }
 
     const { error } = await supabase.from("personal_sections").delete().eq("id", sectionId);
 
     if (error) {
-      redirect(`/personal?error=${encodeURIComponent(error.message)}`);
+      redirect(buildPersonalUrl("sections", { error: error.message }));
     }
 
     revalidatePath("/personal");
@@ -229,7 +273,7 @@ export default async function PersonalHome(props: {
     const shareScope = String(formData.get("share_scope") || "page");
 
     if (!title) {
-      redirect("/personal?error=Page%20title%20is%20required");
+      redirect(buildPersonalUrl("create", { error: "Page title is required" }));
     }
 
     if (!sectionId) {
@@ -255,9 +299,9 @@ export default async function PersonalHome(props: {
 
         if (sectionError || !createdSection) {
           redirect(
-            `/personal?error=${encodeURIComponent(
-              sectionError?.message || "Unable to create section"
-            )}`
+            buildPersonalUrl("create", {
+              error: sectionError?.message || "Unable to create section",
+            })
           );
         }
 
@@ -287,7 +331,9 @@ export default async function PersonalHome(props: {
 
     if (pageError || !page) {
       redirect(
-        `/personal?error=${encodeURIComponent(pageError?.message || "Unable to create page")}`
+        buildPersonalUrl("create", {
+          error: pageError?.message || "Unable to create page",
+        })
       );
     }
 
@@ -337,12 +383,15 @@ export default async function PersonalHome(props: {
         </p>
       ) : null}
 
+      <PersonalTabs active={activeTab} urls={personalTabUrls} />
+
       <div className="space-y-6">
-        <details className="rounded-lg border border-slate-200 bg-white">
-          <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-            Sections
-          </summary>
-          <div className="border-t border-slate-200 p-6">
+        {activeTab === "sections" ? (
+          <section className="rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Sections</h2>
+            </div>
+            <div className="p-6">
             <form action={createSection} className="flex flex-wrap gap-2">
               <input
                 name="title"
@@ -420,13 +469,15 @@ export default async function PersonalHome(props: {
               </div>
             ) : null}
           </div>
-        </details>
+        </section>
+        ) : null}
 
-        <details className="rounded-lg border border-slate-200 bg-white">
-          <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-            Create page
-          </summary>
-          <div className="border-t border-slate-200 p-6">
+        {activeTab === "create" ? (
+          <section className="rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Create page</h2>
+            </div>
+            <div className="p-6">
             <form action={createPage} className="grid gap-4 md:grid-cols-2">
             <input
               name="title"
@@ -507,8 +558,10 @@ export default async function PersonalHome(props: {
             </button>
           </form>
           </div>
-        </details>
+        </section>
+        ) : null}
 
+        {activeTab === "pages" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-slate-900">Pages</h2>
@@ -601,6 +654,7 @@ export default async function PersonalHome(props: {
             </table>
           </div>
         </section>
+        ) : null}
       </div>
     </div>
   );
