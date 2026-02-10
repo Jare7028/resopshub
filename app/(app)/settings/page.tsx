@@ -992,7 +992,8 @@ export default async function SettingsPage(props: {
                       Create template
                     </button>
                   </form>
-                </section>\r\n                <section className="space-y-3">
+                </section>
+                <section className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-900">Existing task templates</h3>
 
                   {!taskTemplates.length ? (
@@ -1261,7 +1262,8 @@ export default async function SettingsPage(props: {
                   ) : (
                     <p className="text-sm text-slate-600">Click a task template in the table to view it.</p>
                   )}
-                </section>\r\n</div>
+                </section>
+              </div>
             ) : null}
 
             {templatesTab === "projects" ? (
@@ -1301,7 +1303,8 @@ export default async function SettingsPage(props: {
                       Create template
                     </button>
                   </form>
-                </section>\r\n                <section className="space-y-3">
+                </section>
+                <section className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-900">Existing project templates</h3>
 
                   {!projectTemplates.length ? (
@@ -1501,7 +1504,8 @@ export default async function SettingsPage(props: {
                   ) : (
                     <p className="text-sm text-slate-600">Click a project template in the table to view it.</p>
                   )}
-                </section>\r\n</div>
+                </section>
+              </div>
             ) : null}
           </div>
         </section>
