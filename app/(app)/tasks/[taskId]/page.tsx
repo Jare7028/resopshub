@@ -15,6 +15,7 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
@@ -634,18 +635,11 @@ export default async function TaskDetailPage(props: {
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Assignees
               </label>
-              <select
+              <AssigneeMultiSelect
+                users={users || []}
                 name="assignee_user_ids"
-                multiple
-                className="h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                {users?.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.full_name || user.email}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-400">Hold Ctrl/Cmd to select multiple.</p>
+                className="relative"
+              />
             </div>
             <div className="grid gap-1">
               <label
