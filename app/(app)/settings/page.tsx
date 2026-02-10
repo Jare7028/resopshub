@@ -50,6 +50,8 @@ export default async function SettingsPage(props: {
   searchParams?: Promise<{
     tab?: string;
     templates?: string;
+    task_template_id?: string;
+    project_template_id?: string;
     success?: string;
     error?: string;
   }>;
@@ -61,6 +63,8 @@ export default async function SettingsPage(props: {
     .toLowerCase();
   const templatesTab: "tasks" | "projects" =
     templatesTabRaw === "projects" ? "projects" : "tasks";
+  const selectedTaskTemplateId = String(searchParams?.task_template_id || "").trim();
+  const selectedProjectTemplateId = String(searchParams?.project_template_id || "").trim();
 
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -138,6 +142,14 @@ export default async function SettingsPage(props: {
 
   const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as TaskTemplateRow[];
   const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
+  const selectedTaskTemplate =
+    selectedTaskTemplateId && templatesTab === "tasks"
+      ? taskTemplates.find((tpl) => tpl.id === selectedTaskTemplateId) || null
+      : null;
+  const selectedProjectTemplate =
+    selectedProjectTemplateId && templatesTab === "projects"
+      ? projectTemplates.find((tpl) => tpl.id === selectedProjectTemplateId) || null
+      : null;
 
   type TaskTemplateSubtaskRow = {
     id: string;
@@ -282,16 +294,20 @@ export default async function SettingsPage(props: {
       redirect("/settings?tab=templates&error=Template%20name%20and%20task%20title%20are%20required");
     }
 
-    const { error } = await supabase.from("task_templates").insert({
-      name,
-      title,
-      description: description || null,
-      status,
-      priority,
-      due_time: dueTime || null,
-      recurrence_frequency: recurrenceFrequency || null,
-      recurrence_lead_days: recurrenceLeadDays,
-    });
+    const { data: created, error } = await supabase
+      .from("task_templates")
+      .insert({
+        name,
+        title,
+        description: description || null,
+        status,
+        priority,
+        due_time: dueTime || null,
+        recurrence_frequency: recurrenceFrequency || null,
+        recurrence_lead_days: recurrenceLeadDays,
+      })
+      .select("id")
+      .single();
 
     if (error) {
       redirect(
@@ -300,7 +316,10 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=tasks&success=Task%20template%20created");
+    const nextId = created?.id ? `&task_template_id=${encodeURIComponent(created.id)}` : "";
+    redirect(
+      `/settings?tab=templates&templates=tasks${nextId}&success=Task%20template%20created`
+    );
   }
 
   async function updateTaskTemplate(formData: FormData) {
@@ -339,12 +358,18 @@ export default async function SettingsPage(props: {
 
     if (error) {
       redirect(
-        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(error.message)}`
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          id
+        )}&error=${encodeURIComponent(error.message)}`
       );
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=tasks&success=Task%20template%20updated");
+    redirect(
+      `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+        id
+      )}&success=Task%20template%20updated`
+    );
   }
 
   async function deleteTaskTemplate(formData: FormData) {
@@ -384,11 +409,15 @@ export default async function SettingsPage(props: {
       redirect("/settings?tab=templates&templates=projects&error=Template%20name%20is%20required");
     }
 
-    const { error } = await supabase.from("project_templates").insert({
-      name,
-      description: description || null,
-      status,
-    });
+    const { data: created, error } = await supabase
+      .from("project_templates")
+      .insert({
+        name,
+        description: description || null,
+        status,
+      })
+      .select("id")
+      .single();
 
     if (error) {
       redirect(
@@ -397,7 +426,10 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=projects&success=Project%20template%20created");
+    const nextId = created?.id ? `&project_template_id=${encodeURIComponent(created.id)}` : "";
+    redirect(
+      `/settings?tab=templates&templates=projects${nextId}&success=Project%20template%20created`
+    );
   }
 
   async function updateProjectTemplate(formData: FormData) {
@@ -426,12 +458,18 @@ export default async function SettingsPage(props: {
 
     if (error) {
       redirect(
-        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(error.message)}`
+        `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+          id
+        )}&error=${encodeURIComponent(error.message)}`
       );
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=projects&success=Project%20template%20updated");
+    redirect(
+      `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+        id
+      )}&success=Project%20template%20updated`
+    );
   }
 
   async function deleteProjectTemplate(formData: FormData) {
@@ -506,7 +544,11 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=tasks&success=Subtask%20added");
+    redirect(
+      `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+        taskTemplateId
+      )}&success=Subtask%20added`
+    );
   }
 
   async function deleteTaskTemplateSubtask(formData: FormData) {
@@ -516,6 +558,7 @@ export default async function SettingsPage(props: {
     if (!authData.user) redirect("/login");
 
     const id = String(formData.get("id") || "").trim();
+    const taskTemplateId = String(formData.get("task_template_id") || "").trim();
     if (!id) {
       redirect("/settings?tab=templates&templates=tasks&error=Missing%20subtask%20id");
     }
@@ -529,7 +572,10 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=tasks&success=Subtask%20deleted");
+    const nextId = taskTemplateId
+      ? `&task_template_id=${encodeURIComponent(taskTemplateId)}`
+      : "";
+    redirect(`/settings?tab=templates&templates=tasks${nextId}&success=Subtask%20deleted`);
   }
 
   async function addProjectTemplateTask(formData: FormData) {
@@ -575,7 +621,11 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=projects&success=Task%20added%20to%20project%20template");
+    redirect(
+      `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+        projectTemplateId
+      )}&success=Task%20added%20to%20project%20template`
+    );
   }
 
   async function removeProjectTemplateTask(formData: FormData) {
@@ -585,6 +635,7 @@ export default async function SettingsPage(props: {
     if (!authData.user) redirect("/login");
 
     const id = String(formData.get("id") || "").trim();
+    const projectTemplateId = String(formData.get("project_template_id") || "").trim();
     if (!id) {
       redirect("/settings?tab=templates&templates=projects&error=Missing%20link%20id");
     }
@@ -598,7 +649,12 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    redirect("/settings?tab=templates&templates=projects&success=Task%20removed%20from%20project%20template");
+    const nextId = projectTemplateId
+      ? `&project_template_id=${encodeURIComponent(projectTemplateId)}`
+      : "";
+    redirect(
+      `/settings?tab=templates&templates=projects${nextId}&success=Task%20removed%20from%20project%20template`
+    );
   }
 
   const renderMessage = (value: string | undefined, kind: "error" | "success") => {
@@ -936,217 +992,276 @@ export default async function SettingsPage(props: {
                       Create template
                     </button>
                   </form>
-                </section>
+                </section>\r\n                <section className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-900">Existing task templates</h3>
 
-                <section className="space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Existing task templates
-                  </h3>
                   {!taskTemplates.length ? (
                     <p className="text-sm text-slate-600">No templates yet.</p>
                   ) : (
-                    <div className="space-y-3">
-                      {taskTemplates.map((tpl) => (
-                        <div
-                          key={tpl.id}
-                          className="rounded-md border border-slate-200 bg-white p-4"
+                    <div className="rounded-lg border border-slate-200 bg-white">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                            <tr>
+                              <th className="px-6 py-3">Template</th>
+                              <th className="px-6 py-3">Default title</th>
+                              <th className="px-6 py-3">Status</th>
+                              <th className="px-6 py-3">Priority</th>
+                              <th className="px-6 py-3">Recurrence</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {taskTemplates.map((tpl) => {
+                              const isSelected = tpl.id === selectedTaskTemplateId;
+                              const recurrenceLabel = tpl.recurrence_frequency
+                                ? tpl.recurrence_frequency
+                                : "once";
+                              const leadDays =
+                                typeof tpl.recurrence_lead_days === "number"
+                                  ? tpl.recurrence_lead_days
+                                  : 7;
+                              return (
+                                <tr
+                                  key={tpl.id}
+                                  className={isSelected ? "bg-slate-50" : "hover:bg-slate-50"}
+                                >
+                                  <td className="px-6 py-3 font-semibold text-slate-900">
+                                    <a
+                                      className="underline-offset-2 hover:underline"
+                                      href={`/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+                                        tpl.id
+                                      )}`}
+                                    >
+                                      {tpl.name}
+                                    </a>
+                                  </td>
+                                  <td className="px-6 py-3 text-slate-700">{tpl.title}</td>
+                                  <td className="px-6 py-3 text-slate-700">
+                                    {tpl.status?.replace("_", " ")}
+                                  </td>
+                                  <td className="px-6 py-3 text-slate-700">{tpl.priority}</td>
+                                  <td className="px-6 py-3 text-slate-700">
+                                    {recurrenceLabel}
+                                    {tpl.recurrence_frequency ? ` (lead ${leadDays}d)` : ""}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedTaskTemplate ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                            Task template
+                          </p>
+                          <h4 className="truncate text-lg font-semibold text-slate-900">
+                            {selectedTaskTemplate.name}
+                          </h4>
+                        </div>
+                        <form action={deleteTaskTemplate} className="shrink-0">
+                          <input type="hidden" name="id" value={selectedTaskTemplate.id} />
+                          <ConfirmSubmitButton
+                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                            confirmText={`Delete template: ${selectedTaskTemplate.name}?`}
+                          >
+                            Delete
+                          </ConfirmSubmitButton>
+                        </form>
+                      </div>
+
+                      <form action={updateTaskTemplate} className="mt-4 grid gap-3 md:grid-cols-6">
+                        <input type="hidden" name="id" value={selectedTaskTemplate.id} />
+                        <input
+                          name="name"
+                          defaultValue={selectedTaskTemplate.name}
+                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          required
+                        />
+                        <input
+                          name="title"
+                          defaultValue={selectedTaskTemplate.title}
+                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          required
+                        />
+                        <select
+                          name="status"
+                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          defaultValue={selectedTaskTemplate.status || "to_do"}
                         >
-                          <form action={updateTaskTemplate} className="grid gap-3 md:grid-cols-6">
-                            <input type="hidden" name="id" value={tpl.id} />
-                            <input
-                              name="name"
-                              defaultValue={tpl.name}
-                              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                              required
-                            />
-                            <input
-                              name="title"
-                              defaultValue={tpl.title}
-                              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                              required
-                            />
-                            <select
-                              name="status"
-                              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                              defaultValue={tpl.status || "to_do"}
-                            >
-                              {["to_do","in_progress","blocked","completed","cancelled"].map((status) => (
+                          {["to_do", "in_progress", "blocked", "completed", "cancelled"].map(
+                            (status) => (
+                              <option key={status} value={status}>
+                                {status.replace("_", " ")}
+                              </option>
+                            )
+                          )}
+                        </select>
+                        <select
+                          name="priority"
+                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          defaultValue={selectedTaskTemplate.priority || "medium"}
+                        >
+                          {["low", "medium", "high", "critical"].map((priority) => (
+                            <option key={priority} value={priority}>
+                              {priority}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          name="description"
+                          defaultValue={selectedTaskTemplate.description || ""}
+                          className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <input
+                          type="time"
+                          name="due_time"
+                          defaultValue={selectedTaskTemplate.due_time || ""}
+                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <select
+                          name="recurrence_frequency"
+                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          defaultValue={selectedTaskTemplate.recurrence_frequency || ""}
+                        >
+                          <option value="">Frequency: Once</option>
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                          <option value="monthly">Monthly</option>
+                          <option value="yearly">Yearly</option>
+                        </select>
+                        <input
+                          type="number"
+                          min="0"
+                          name="recurrence_lead_days"
+                          defaultValue={selectedTaskTemplate.recurrence_lead_days ?? 7}
+                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <div className="md:col-span-6 flex items-center justify-end">
+                          <button
+                            type="submit"
+                            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </form>
+
+                      <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-sm font-semibold text-slate-900">Subtask templates</p>
+
+                        {taskTemplateSubtasksError &&
+                        isSupabaseMissingTableError(taskTemplateSubtasksError) ? (
+                          <p className="mt-2 text-sm text-amber-900">
+                            Subtasks are not set up yet. Run `sql/templates.sql` in Supabase SQL
+                            editor, then refresh this page.
+                          </p>
+                        ) : null}
+
+                        <div className="mt-3 space-y-2">
+                          {(subtasksByTemplateId[selectedTaskTemplate.id] || []).length ? (
+                            (subtasksByTemplateId[selectedTaskTemplate.id] || []).map((subtask) => (
+                              <div
+                                key={subtask.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-slate-900">
+                                    {subtask.position}. {subtask.title}
+                                  </p>
+                                  <p className="truncate text-slate-600">
+                                    {(subtask.status || "").replace("_", " ")} - {subtask.priority}
+                                  </p>
+                                </div>
+                                <form action={deleteTaskTemplateSubtask}>
+                                  <input type="hidden" name="id" value={subtask.id} />
+                                  <input
+                                    type="hidden"
+                                    name="task_template_id"
+                                    value={selectedTaskTemplate.id}
+                                  />
+                                  <ConfirmSubmitButton
+                                    className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                    confirmText={`Delete subtask: ${subtask.title}?`}
+                                    disabled={Boolean(taskTemplateSubtasksError)}
+                                  >
+                                    Delete
+                                  </ConfirmSubmitButton>
+                                </form>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-slate-600">No subtasks yet.</p>
+                          )}
+                        </div>
+
+                        <form
+                          action={createTaskTemplateSubtask}
+                          className="mt-3 grid gap-2 md:grid-cols-6"
+                        >
+                          <input
+                            type="hidden"
+                            name="task_template_id"
+                            value={selectedTaskTemplate.id}
+                          />
+                          <input
+                            name="title"
+                            placeholder="Subtask title"
+                            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                            disabled={Boolean(taskTemplateSubtasksError)}
+                            required
+                          />
+                          <select
+                            name="status"
+                            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                            defaultValue="to_do"
+                            disabled={Boolean(taskTemplateSubtasksError)}
+                          >
+                            {["to_do", "in_progress", "blocked", "completed", "cancelled"].map(
+                              (status) => (
                                 <option key={status} value={status}>
                                   {status.replace("_", " ")}
                                 </option>
-                              ))}
-                            </select>
-                            <select
-                              name="priority"
-                              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                              defaultValue={tpl.priority || "medium"}
-                            >
-                              {["low","medium","high","critical"].map((priority) => (
-                                <option key={priority} value={priority}>
-                                  {priority}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              name="description"
-                              defaultValue={tpl.description || ""}
-                              className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-                            <input
-                              type="time"
-                              name="due_time"
-                              defaultValue={tpl.due_time || ""}
-                              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-                            <select
-                              name="recurrence_frequency"
-                              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                              defaultValue={tpl.recurrence_frequency || ""}
-                            >
-                              <option value="">Frequency: Once</option>
-                              <option value="daily">Daily</option>
-                              <option value="weekly">Weekly</option>
-                              <option value="monthly">Monthly</option>
-                              <option value="yearly">Yearly</option>
-                            </select>
-                            <input
-                              type="number"
-                              min="0"
-                              name="recurrence_lead_days"
-                              defaultValue={tpl.recurrence_lead_days ?? 7}
-                              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-
-                            <div className="md:col-span-6 flex flex-wrap items-center justify-end gap-2">
-                              <button
-                                type="submit"
-                                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                              >
-                                Save
-                              </button>
-                            </div>
-                          </form>
-                           <form action={deleteTaskTemplate} className="mt-2 flex justify-end">
-                             <input type="hidden" name="id" value={tpl.id} />
-                             <ConfirmSubmitButton
-                               className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                               confirmText={`Delete template: ${tpl.name}?`}
-                             >
-                               Delete
-                             </ConfirmSubmitButton>
-                           </form>
-
-                           <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
-                             <div className="flex flex-wrap items-center justify-between gap-2">
-                               <p className="text-sm font-semibold text-slate-900">
-                                 Subtask templates
-                               </p>
-                             </div>
-
-                             {taskTemplateSubtasksError &&
-                             isSupabaseMissingTableError(taskTemplateSubtasksError) ? (
-                               <p className="mt-2 text-sm text-amber-900">
-                                 Subtasks are not set up yet. Run `sql/templates.sql` in
-                                 Supabase SQL editor, then refresh this page.
-                               </p>
-                             ) : null}
-
-                             <div className="mt-3 space-y-2">
-                               {(subtasksByTemplateId[tpl.id] || []).length ? (
-                                 (subtasksByTemplateId[tpl.id] || []).map((subtask) => (
-                                   <div
-                                     key={subtask.id}
-                                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                                   >
-                                     <div className="min-w-0">
-                                       <p className="truncate font-semibold text-slate-900">
-                                         {subtask.position}. {subtask.title}
-                                       </p>
-                                       <p className="truncate text-slate-600">
-                                         {subtask.status?.replace("_", " ")} ·{" "}
-                                         {subtask.priority}
-                                       </p>
-                                     </div>
-                                     <form action={deleteTaskTemplateSubtask}>
-                                       <input type="hidden" name="id" value={subtask.id} />
-                                       <ConfirmSubmitButton
-                                         className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                                         confirmText={`Delete subtask: ${subtask.title}?`}
-                                         disabled={Boolean(taskTemplateSubtasksError)}
-                                       >
-                                         Delete
-                                       </ConfirmSubmitButton>
-                                     </form>
-                                   </div>
-                                 ))
-                               ) : (
-                                 <p className="text-sm text-slate-600">No subtasks yet.</p>
-                               )}
-                             </div>
-
-                             <form
-                               action={createTaskTemplateSubtask}
-                               className="mt-3 grid gap-2 md:grid-cols-6"
-                             >
-                               <input
-                                 type="hidden"
-                                 name="task_template_id"
-                                 value={tpl.id}
-                               />
-                               <input
-                                 name="title"
-                                 placeholder="Subtask title"
-                                 className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                                 disabled={Boolean(taskTemplateSubtasksError)}
-                                 required
-                               />
-                               <select
-                                 name="status"
-                                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                                 defaultValue="to_do"
-                                 disabled={Boolean(taskTemplateSubtasksError)}
-                               >
-                                 {["to_do", "in_progress", "blocked", "completed", "cancelled"].map(
-                                   (status) => (
-                                     <option key={status} value={status}>
-                                       {status.replace("_", " ")}
-                                     </option>
-                                   )
-                                 )}
-                               </select>
-                               <select
-                                 name="priority"
-                                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                                 defaultValue="medium"
-                                 disabled={Boolean(taskTemplateSubtasksError)}
-                               >
-                                 {["low", "medium", "high", "critical"].map((priority) => (
-                                   <option key={priority} value={priority}>
-                                     {priority}
-                                   </option>
-                                 ))}
-                               </select>
-                               <input
-                                 name="description"
-                                 placeholder="Description (optional)"
-                                 className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                                 disabled={Boolean(taskTemplateSubtasksError)}
-                               />
-                               <button
-                                 type="submit"
-                                 className="md:col-span-6 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                 disabled={Boolean(taskTemplateSubtasksError)}
-                               >
-                                 Add subtask template
-                               </button>
-                             </form>
-                           </div>
-                         </div>
-                       ))}
-                     </div>
-                   )}
-                 </section>
-              </div>
+                              )
+                            )}
+                          </select>
+                          <select
+                            name="priority"
+                            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                            defaultValue="medium"
+                            disabled={Boolean(taskTemplateSubtasksError)}
+                          >
+                            {["low", "medium", "high", "critical"].map((priority) => (
+                              <option key={priority} value={priority}>
+                                {priority}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            name="description"
+                            placeholder="Description (optional)"
+                            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                            disabled={Boolean(taskTemplateSubtasksError)}
+                          />
+                          <button
+                            type="submit"
+                            className="md:col-span-6 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={Boolean(taskTemplateSubtasksError)}
+                          >
+                            Add subtask template
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-600">Click a task template in the table to view it.</p>
+                  )}
+                </section>\r\n</div>
             ) : null}
 
             {templatesTab === "projects" ? (
@@ -1186,164 +1301,207 @@ export default async function SettingsPage(props: {
                       Create template
                     </button>
                   </form>
-                </section>
+                </section>\r\n                <section className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-900">Existing project templates</h3>
 
-                <section className="space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Existing project templates
-                  </h3>
                   {!projectTemplates.length ? (
                     <p className="text-sm text-slate-600">No templates yet.</p>
                   ) : (
-                    <div className="space-y-3">
-                      {projectTemplates.map((tpl) => (
-                        <div
-                          key={tpl.id}
-                          className="rounded-md border border-slate-200 bg-white p-4"
+                    <div className="rounded-lg border border-slate-200 bg-white">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                            <tr>
+                              <th className="px-6 py-3">Template</th>
+                              <th className="px-6 py-3">Status</th>
+                              <th className="px-6 py-3">Linked task templates</th>
+                              <th className="px-6 py-3">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {projectTemplates.map((tpl) => {
+                              const isSelected = tpl.id === selectedProjectTemplateId;
+                              const linkedCount = (tasksByProjectTemplateId[tpl.id] || []).length;
+                              return (
+                                <tr
+                                  key={tpl.id}
+                                  className={isSelected ? "bg-slate-50" : "hover:bg-slate-50"}
+                                >
+                                  <td className="px-6 py-3 font-semibold text-slate-900">
+                                    <a
+                                      className="underline-offset-2 hover:underline"
+                                      href={`/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+                                        tpl.id
+                                      )}`}
+                                    >
+                                      {tpl.name}
+                                    </a>
+                                  </td>
+                                  <td className="px-6 py-3 text-slate-700">
+                                    {tpl.status?.replace("_", " ")}
+                                  </td>
+                                  <td className="px-6 py-3 text-slate-700">{linkedCount}</td>
+                                  <td className="px-6 py-3 text-slate-700">{tpl.description || ""}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedProjectTemplate ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                            Project template
+                          </p>
+                          <h4 className="truncate text-lg font-semibold text-slate-900">
+                            {selectedProjectTemplate.name}
+                          </h4>
+                        </div>
+                        <form action={deleteProjectTemplate} className="shrink-0">
+                          <input type="hidden" name="id" value={selectedProjectTemplate.id} />
+                          <ConfirmSubmitButton
+                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                            confirmText={`Delete template: ${selectedProjectTemplate.name}?`}
+                          >
+                            Delete
+                          </ConfirmSubmitButton>
+                        </form>
+                      </div>
+
+                      <form action={updateProjectTemplate} className="mt-4 grid gap-3 md:grid-cols-6">
+                        <input type="hidden" name="id" value={selectedProjectTemplate.id} />
+                        <input
+                          name="name"
+                          defaultValue={selectedProjectTemplate.name}
+                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          required
+                        />
+                        <select
+                          name="status"
+                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          defaultValue={selectedProjectTemplate.status || "planned"}
                         >
-                          <form action={updateProjectTemplate} className="grid gap-3 md:grid-cols-6">
-                            <input type="hidden" name="id" value={tpl.id} />
-                            <input
-                              name="name"
-                              defaultValue={tpl.name}
-                              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                              required
-                            />
-                            <select
-                              name="status"
-                              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                              defaultValue={tpl.status || "planned"}
-                            >
-                              {["planned","active","on_hold","completed","cancelled"].map((status) => (
-                                <option key={status} value={status}>
-                                  {status.replace("_", " ")}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              name="description"
-                              defaultValue={tpl.description || ""}
-                              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
+                          {["planned", "active", "on_hold", "completed", "cancelled"].map(
+                            (status) => (
+                              <option key={status} value={status}>
+                                {status.replace("_", " ")}
+                              </option>
+                            )
+                          )}
+                        </select>
+                        <input
+                          name="description"
+                          defaultValue={selectedProjectTemplate.description || ""}
+                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <div className="md:col-span-6 flex items-center justify-end">
+                          <button
+                            type="submit"
+                            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </form>
 
-                            <div className="md:col-span-6 flex flex-wrap items-center justify-end gap-2">
-                              <button
-                                type="submit"
-                                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                              >
-                                Save
-                              </button>
-                            </div>
-                          </form>
+                      <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-sm font-semibold text-slate-900">Template tasks</p>
 
-                           <form action={deleteProjectTemplate} className="mt-2 flex justify-end">
-                             <input type="hidden" name="id" value={tpl.id} />
-                             <ConfirmSubmitButton
-                               className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                               confirmText={`Delete template: ${tpl.name}?`}
-                             >
-                               Delete
-                             </ConfirmSubmitButton>
-                           </form>
+                        {projectTemplateTasksError &&
+                        isSupabaseMissingTableError(projectTemplateTasksError) ? (
+                          <p className="mt-2 text-sm text-amber-900">
+                            Project template tasks are not set up yet. Run `sql/templates.sql` in
+                            Supabase SQL editor, then refresh this page.
+                          </p>
+                        ) : null}
 
-                           <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
-                             <div className="flex flex-wrap items-center justify-between gap-2">
-                               <p className="text-sm font-semibold text-slate-900">
-                                 Template tasks
-                               </p>
-                             </div>
+                        <div className="mt-3 space-y-2">
+                          {(tasksByProjectTemplateId[selectedProjectTemplate.id] || []).length ? (
+                            (tasksByProjectTemplateId[selectedProjectTemplate.id] || []).map((link) => {
+                              const taskTpl = taskTemplateById[link.task_template_id];
+                              const label = taskTpl?.name || link.task_template_id;
+                              const title = taskTpl?.title ? ` (${taskTpl.title})` : "";
+                              return (
+                                <div
+                                  key={link.id}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate font-semibold text-slate-900">
+                                      {link.position}. {label}
+                                      {title}
+                                    </p>
+                                  </div>
+                                  <form action={removeProjectTemplateTask}>
+                                    <input type="hidden" name="id" value={link.id} />
+                                    <input
+                                      type="hidden"
+                                      name="project_template_id"
+                                      value={selectedProjectTemplate.id}
+                                    />
+                                    <ConfirmSubmitButton
+                                      className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                      confirmText={`Remove ${label} from ${selectedProjectTemplate.name}?`}
+                                      disabled={Boolean(projectTemplateTasksError)}
+                                    >
+                                      Remove
+                                    </ConfirmSubmitButton>
+                                  </form>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="text-sm text-slate-600">No task templates linked yet.</p>
+                          )}
+                        </div>
 
-                             {projectTemplateTasksError &&
-                             isSupabaseMissingTableError(projectTemplateTasksError) ? (
-                               <p className="mt-2 text-sm text-amber-900">
-                                 Project template tasks are not set up yet. Run `sql/templates.sql`
-                                 in Supabase SQL editor, then refresh this page.
-                               </p>
-                             ) : null}
-
-                             <div className="mt-3 space-y-2">
-                               {(tasksByProjectTemplateId[tpl.id] || []).length ? (
-                                 (tasksByProjectTemplateId[tpl.id] || []).map((link) => {
-                                   const taskTpl = taskTemplateById[link.task_template_id];
-                                   const label = taskTpl?.name || link.task_template_id;
-                                   const title = taskTpl?.title ? ` (${taskTpl.title})` : "";
-                                   return (
-                                     <div
-                                       key={link.id}
-                                       className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                                     >
-                                       <div className="min-w-0">
-                                         <p className="truncate font-semibold text-slate-900">
-                                           {link.position}. {label}
-                                           {title}
-                                         </p>
-                                       </div>
-                                       <form action={removeProjectTemplateTask}>
-                                         <input type="hidden" name="id" value={link.id} />
-                                         <ConfirmSubmitButton
-                                           className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                                           confirmText={`Remove ${label} from ${tpl.name}?`}
-                                           disabled={Boolean(projectTemplateTasksError)}
-                                         >
-                                           Remove
-                                         </ConfirmSubmitButton>
-                                       </form>
-                                     </div>
-                                   );
-                                 })
-                               ) : (
-                                 <p className="text-sm text-slate-600">
-                                   No task templates linked yet.
-                                 </p>
-                               )}
-                             </div>
-
-                             <form
-                               action={addProjectTemplateTask}
-                               className="mt-3 grid gap-2 md:grid-cols-6"
-                             >
-                               <input
-                                 type="hidden"
-                                 name="project_template_id"
-                                 value={tpl.id}
-                               />
-                               <select
-                                 name="task_template_id"
-                                 className="md:col-span-4 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                                 defaultValue=""
-                                 disabled={
-                                   Boolean(projectTemplateTasksError) ||
-                                   Boolean(taskTemplatesError) ||
-                                   !taskTemplates.length
-                                 }
-                                 required
-                               >
-                                 <option value="">Select a task template</option>
-                                 {taskTemplates.map((taskTpl) => (
-                                   <option key={taskTpl.id} value={taskTpl.id}>
-                                     {taskTpl.name}
-                                   </option>
-                                 ))}
-                               </select>
-                               <button
-                                 type="submit"
-                                 className="md:col-span-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                 disabled={
-                                   Boolean(projectTemplateTasksError) ||
-                                   Boolean(taskTemplatesError) ||
-                                   !taskTemplates.length
-                                 }
-                               >
-                                 Add task
-                               </button>
-                             </form>
-                           </div>
-                         </div>
-                       ))}
-                     </div>
-                   )}
-                 </section>
-              </div>
+                        <form action={addProjectTemplateTask} className="mt-3 grid gap-2 md:grid-cols-6">
+                          <input
+                            type="hidden"
+                            name="project_template_id"
+                            value={selectedProjectTemplate.id}
+                          />
+                          <select
+                            name="task_template_id"
+                            className="md:col-span-4 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                            defaultValue=""
+                            disabled={
+                              Boolean(projectTemplateTasksError) ||
+                              Boolean(taskTemplatesError) ||
+                              !taskTemplates.length
+                            }
+                            required
+                          >
+                            <option value="">Select a task template</option>
+                            {taskTemplates.map((taskTpl) => (
+                              <option key={taskTpl.id} value={taskTpl.id}>
+                                {taskTpl.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="submit"
+                            className="md:col-span-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={
+                              Boolean(projectTemplateTasksError) ||
+                              Boolean(taskTemplatesError) ||
+                              !taskTemplates.length
+                            }
+                          >
+                            Add task
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-600">Click a project template in the table to view it.</p>
+                  )}
+                </section>\r\n</div>
             ) : null}
           </div>
         </section>
