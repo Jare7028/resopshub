@@ -19,6 +19,7 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
   normalizeTaskSortDir,
   normalizeTaskSortKey,
@@ -208,6 +209,7 @@ export default async function ProjectTasksPage(props: {
       .map((value) => String(value).trim())
       .filter(Boolean);
     const parentTaskId = String(formData.get("parent_task_id") || "");
+    const templateTaskIdFromForm = String(formData.get("template_task_id") || "").trim();
     const recurrenceFrequencyRaw = String(formData.get("recurrence_frequency") || "")
       .trim()
       .toLowerCase();
@@ -302,20 +304,81 @@ export default async function ProjectTasksPage(props: {
     }
 
     const taskId = created?.id;
-    if (taskId && assigneeIds.length) {
-      const uniqueIds = Array.from(
-        new Set(assigneeIds.filter((value) => value !== "unassigned"))
-      );
-      if (uniqueIds.length) {
-        const inserts = uniqueIds.map((userId) => ({
-          task_id: taskId,
-          user_id: userId,
+    const uniqueAssigneeIds = Array.from(
+      new Set(assigneeIds.filter((value) => value !== "unassigned"))
+    );
+    if (taskId && uniqueAssigneeIds.length) {
+      const inserts = uniqueAssigneeIds.map((userId) => ({
+        task_id: taskId,
+        user_id: userId,
+      }));
+      const { error: assigneeError } = await supabase
+        .from("task_assignees")
+        .insert(inserts);
+      if (assigneeError) {
+        redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(assigneeError.message)}`);
+      }
+    }
+
+    if (taskId && templateTaskIdFromForm && !parentTaskId) {
+      const { data: subtaskTemplatesRaw, error: subtaskTemplatesError } = await supabase
+        .from("task_template_subtasks")
+        .select("id,title,description,status,priority,position")
+        .eq("task_template_id", templateTaskIdFromForm)
+        .order("position", { ascending: true });
+
+      const subtaskTemplates = (subtaskTemplatesError
+        ? []
+        : subtaskTemplatesRaw || []) as Array<{
+        id: string;
+        title: string;
+        description: string | null;
+        status: string;
+        priority: string;
+        position: number;
+      }>;
+
+      if (subtaskTemplatesError && !isSupabaseMissingTableError(subtaskTemplatesError)) {
+        redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(subtaskTemplatesError.message)}`);
+      }
+
+      if (subtaskTemplates.length) {
+        const payloads = subtaskTemplates.map((tpl) => ({
+          client_id: projectClientId,
+          project_id: projectId,
+          parent_task_id: taskId,
+          title: tpl.title,
+          status: normalizeTaskStatusOrDefault(String(tpl.status || "to_do")),
+          priority: String(tpl.priority || "medium"),
+          due_date: null,
+          due_time: null,
+          assignee_user_id: primaryAssignee || null,
+          content: DEFAULT_EDITOR_CONTENT,
+          content_text: defaultContentText,
         }));
-        const { error: assigneeError } = await supabase
-          .from("task_assignees")
-          .insert(inserts);
-        if (assigneeError) {
-          redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(assigneeError.message)}`);
+
+        const { data: createdSubtasks, error: subtaskInsertError } = await supabase
+          .from("tasks")
+          .insert(payloads)
+          .select("id");
+
+        if (subtaskInsertError) {
+          redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(subtaskInsertError.message)}`);
+        }
+
+        const subtaskIds = (createdSubtasks || []).map((row) => row.id).filter(Boolean);
+        if (subtaskIds.length && uniqueAssigneeIds.length) {
+          const inserts = subtaskIds.flatMap((subtaskId) =>
+            uniqueAssigneeIds.map((userId) => ({ task_id: subtaskId, user_id: userId }))
+          );
+          const { error: subtaskAssigneesError } = await supabase
+            .from("task_assignees")
+            .insert(inserts);
+          if (subtaskAssigneesError) {
+            redirect(
+              `/projects/${projectId}/tasks?error=${encodeURIComponent(subtaskAssigneesError.message)}`
+            );
+          }
         }
       }
     }
@@ -415,6 +478,12 @@ export default async function ProjectTasksPage(props: {
           </p>
         ) : null}
         <form action={createTask} className="mt-4 grid gap-4 md:grid-cols-6">
+          {createMode === "template" && templateTaskId ? (
+            <>
+              <input type="hidden" name="create_mode" value="template" />
+              <input type="hidden" name="template_task_id" value={templateTaskId} />
+            </>
+          ) : null}
           <input
             name="title"
             placeholder="Task title"

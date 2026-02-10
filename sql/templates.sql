@@ -73,6 +73,82 @@ begin
   end if;
 end $$;
 
+-- Subtasks that belong to a task template.
+create table if not exists public.task_template_subtasks (
+  id uuid primary key default gen_random_uuid(),
+  task_template_id uuid not null references public.task_templates(id) on delete cascade,
+  position int not null default 1,
+  title text not null,
+  description text,
+  status text not null default 'to_do',
+  priority text not null default 'medium',
+  created_by uuid default auth.uid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'task_template_subtasks_position_check'
+  ) then
+    alter table public.task_template_subtasks
+      add constraint task_template_subtasks_position_check
+      check (position > 0);
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'task_template_subtasks_status_check'
+  ) then
+    alter table public.task_template_subtasks
+      add constraint task_template_subtasks_status_check
+      check (status in ('to_do','in_progress','blocked','completed','cancelled'));
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'task_template_subtasks_priority_check'
+  ) then
+    alter table public.task_template_subtasks
+      add constraint task_template_subtasks_priority_check
+      check (priority in ('low','medium','high','critical'));
+  end if;
+end $$;
+
+create index if not exists task_template_subtasks_template_id_position_idx
+  on public.task_template_subtasks (task_template_id, position);
+
+-- Task templates included in a project template (ordered).
+create table if not exists public.project_template_tasks (
+  id uuid primary key default gen_random_uuid(),
+  project_template_id uuid not null references public.project_templates(id) on delete cascade,
+  task_template_id uuid not null references public.task_templates(id) on delete cascade,
+  position int not null default 1,
+  created_by uuid default auth.uid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (project_template_id, task_template_id)
+);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_template_tasks_position_check'
+  ) then
+    alter table public.project_template_tasks
+      add constraint project_template_tasks_position_check
+      check (position > 0);
+  end if;
+end $$;
+
+create index if not exists project_template_tasks_project_id_position_idx
+  on public.project_template_tasks (project_template_id, position);
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -93,8 +169,26 @@ create trigger project_templates_set_updated_at
 before update on public.project_templates
 for each row execute function public.set_updated_at();
 
+drop trigger if exists task_template_subtasks_set_updated_at on public.task_template_subtasks;
+create trigger task_template_subtasks_set_updated_at
+before update on public.task_template_subtasks
+for each row execute function public.set_updated_at();
+
+drop trigger if exists project_template_tasks_set_updated_at on public.project_template_tasks;
+create trigger project_template_tasks_set_updated_at
+before update on public.project_template_tasks
+for each row execute function public.set_updated_at();
+
+-- Ensure authenticated role has privileges (RLS still applies).
+grant select, insert, update, delete on table public.task_templates to authenticated;
+grant select, insert, update, delete on table public.project_templates to authenticated;
+grant select, insert, update, delete on table public.task_template_subtasks to authenticated;
+grant select, insert, update, delete on table public.project_template_tasks to authenticated;
+
 alter table public.task_templates enable row level security;
 alter table public.project_templates enable row level security;
+alter table public.task_template_subtasks enable row level security;
+alter table public.project_template_tasks enable row level security;
 
 -- Company-wide templates; any authenticated user can manage them.
 drop policy if exists task_templates_select on public.task_templates;
@@ -155,3 +249,60 @@ create policy project_templates_delete
   to authenticated
   using (auth.uid() is not null);
 
+drop policy if exists task_template_subtasks_select on public.task_template_subtasks;
+create policy task_template_subtasks_select
+  on public.task_template_subtasks
+  for select
+  to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists task_template_subtasks_insert on public.task_template_subtasks;
+create policy task_template_subtasks_insert
+  on public.task_template_subtasks
+  for insert
+  to authenticated
+  with check (auth.uid() is not null);
+
+drop policy if exists task_template_subtasks_update on public.task_template_subtasks;
+create policy task_template_subtasks_update
+  on public.task_template_subtasks
+  for update
+  to authenticated
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
+
+drop policy if exists task_template_subtasks_delete on public.task_template_subtasks;
+create policy task_template_subtasks_delete
+  on public.task_template_subtasks
+  for delete
+  to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists project_template_tasks_select on public.project_template_tasks;
+create policy project_template_tasks_select
+  on public.project_template_tasks
+  for select
+  to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists project_template_tasks_insert on public.project_template_tasks;
+create policy project_template_tasks_insert
+  on public.project_template_tasks
+  for insert
+  to authenticated
+  with check (auth.uid() is not null);
+
+drop policy if exists project_template_tasks_update on public.project_template_tasks;
+create policy project_template_tasks_update
+  on public.project_template_tasks
+  for update
+  to authenticated
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
+
+drop policy if exists project_template_tasks_delete on public.project_template_tasks;
+create policy project_template_tasks_delete
+  on public.project_template_tasks
+  for delete
+  to authenticated
+  using (auth.uid() is not null);

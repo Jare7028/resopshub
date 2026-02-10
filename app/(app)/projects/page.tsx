@@ -3,9 +3,14 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
+import { extractPlainText } from "@/lib/tiptapText";
+import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ProjectsTable from "./ProjectsTable";
 
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
+const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const toProjectCode = (value: string) =>
   value
     .toLowerCase()
@@ -215,6 +220,7 @@ export default async function ProjectsPage(props: {
     const status = String(formData.get("status") || "planned");
     const startDate = String(formData.get("start_date") || "");
     const endDate = String(formData.get("end_date") || "");
+    const templateProjectIdFromForm = String(formData.get("template_project_id") || "").trim();
 
     if (!name) {
       redirect(`/projects?error=Name%20is%20required`);
@@ -247,7 +253,122 @@ export default async function ProjectsPage(props: {
       });
     }
 
+    if (created?.id && templateProjectIdFromForm) {
+      const { data: linksRaw, error: linksError } = await supabase
+        .from("project_template_tasks")
+        .select("task_template_id,position")
+        .eq("project_template_id", templateProjectIdFromForm)
+        .order("position", { ascending: true });
+
+      if (linksError && !isSupabaseMissingTableError(linksError)) {
+        redirect(`/projects?error=${encodeURIComponent(linksError.message)}`);
+      }
+
+      const links = (linksError ? [] : linksRaw || []) as Array<{
+        task_template_id: string;
+        position: number;
+      }>;
+
+      const templateTaskIds = Array.from(
+        new Set(links.map((link) => link.task_template_id).filter(Boolean))
+      );
+
+      if (templateTaskIds.length) {
+        const { data: templateTasksRaw, error: templateTasksError } = await supabase
+          .from("task_templates")
+          .select("id,title,status,priority")
+          .in("id", templateTaskIds);
+
+        if (templateTasksError) {
+          redirect(`/projects?error=${encodeURIComponent(templateTasksError.message)}`);
+        }
+
+        const templateTasks = (templateTasksRaw || []) as Array<{
+          id: string;
+          title: string;
+          status: string;
+          priority: string;
+        }>;
+
+        const templateTaskById = templateTasks.reduce<Record<string, (typeof templateTasks)[number]>>(
+          (acc, row) => {
+            acc[row.id] = row;
+            return acc;
+          },
+          {}
+        );
+
+        for (const link of links) {
+          const tpl = templateTaskById[link.task_template_id];
+          if (!tpl) continue;
+
+          const { data: createdTask, error: taskError } = await supabase
+            .from("tasks")
+            .insert({
+              client_id: clientId || null,
+              project_id: created.id,
+              title: tpl.title,
+              status: normalizeTaskStatusOrDefault(String(tpl.status || "to_do")),
+              priority: String(tpl.priority || "medium"),
+              content: DEFAULT_EDITOR_CONTENT,
+              content_text: defaultContentText,
+            })
+            .select("id")
+            .single();
+
+          if (taskError) {
+            redirect(`/projects?error=${encodeURIComponent(taskError.message)}`);
+          }
+
+          const parentTaskId = createdTask?.id;
+          if (!parentTaskId) continue;
+
+          const { data: subtaskTemplatesRaw, error: subtaskTemplatesError } = await supabase
+            .from("task_template_subtasks")
+            .select("title,description,status,priority,position")
+            .eq("task_template_id", tpl.id)
+            .order("position", { ascending: true });
+
+          if (subtaskTemplatesError && !isSupabaseMissingTableError(subtaskTemplatesError)) {
+            redirect(`/projects?error=${encodeURIComponent(subtaskTemplatesError.message)}`);
+          }
+
+          const subtaskTemplates = (subtaskTemplatesError
+            ? []
+            : subtaskTemplatesRaw || []) as Array<{
+            title: string;
+            description: string | null;
+            status: string;
+            priority: string;
+            position: number;
+          }>;
+
+          if (subtaskTemplates.length) {
+            const payloads = subtaskTemplates.map((subtaskTpl) => ({
+              client_id: clientId || null,
+              project_id: created.id,
+              parent_task_id: parentTaskId,
+              title: subtaskTpl.title,
+              status: normalizeTaskStatusOrDefault(String(subtaskTpl.status || "to_do")),
+              priority: String(subtaskTpl.priority || "medium"),
+              due_date: null,
+              due_time: null,
+              assignee_user_id: null,
+              content: DEFAULT_EDITOR_CONTENT,
+              content_text: defaultContentText,
+            }));
+
+            const { error: subtaskInsertError } = await supabase.from("tasks").insert(payloads);
+            if (subtaskInsertError) {
+              redirect(`/projects?error=${encodeURIComponent(subtaskInsertError.message)}`);
+            }
+          }
+        }
+      }
+    }
+
     revalidatePath("/projects");
+    revalidatePath("/tasks");
     redirect("/projects");
   }
 
@@ -341,6 +462,12 @@ export default async function ProjectsPage(props: {
           </p>
         ) : null}
         <form action={createProject} className="mt-4 grid gap-4 md:grid-cols-5">
+          {createMode === "template" && templateProjectId ? (
+            <>
+              <input type="hidden" name="create_mode" value="template" />
+              <input type="hidden" name="template_project_id" value={templateProjectId} />
+            </>
+          ) : null}
           <input
             name="name"
             placeholder="Project name"

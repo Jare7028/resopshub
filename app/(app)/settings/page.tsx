@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
 import SettingsTabs, {
   normalizeSettingsTabKey,
@@ -137,6 +138,69 @@ export default async function SettingsPage(props: {
 
   const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as TaskTemplateRow[];
   const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
+
+  type TaskTemplateSubtaskRow = {
+    id: string;
+    task_template_id: string;
+    position: number;
+    title: string;
+    description: string | null;
+    status: string;
+    priority: string;
+  };
+
+  type ProjectTemplateTaskRow = {
+    id: string;
+    project_template_id: string;
+    task_template_id: string;
+    position: number;
+  };
+
+  const {
+    data: taskTemplateSubtasksRaw,
+    error: taskTemplateSubtasksError,
+  } = await supabase
+    .from("task_template_subtasks")
+    .select("id,task_template_id,position,title,description,status,priority")
+    .order("task_template_id", { ascending: true })
+    .order("position", { ascending: true });
+
+  const { data: projectTemplateTasksRaw, error: projectTemplateTasksError } = await supabase
+    .from("project_template_tasks")
+    .select("id,project_template_id,task_template_id,position")
+    .order("project_template_id", { ascending: true })
+    .order("position", { ascending: true });
+
+  const taskTemplateSubtasks = (taskTemplateSubtasksError
+    ? []
+    : taskTemplateSubtasksRaw || []) as TaskTemplateSubtaskRow[];
+
+  const projectTemplateTasks = (projectTemplateTasksError
+    ? []
+    : projectTemplateTasksRaw || []) as ProjectTemplateTaskRow[];
+
+  const subtasksByTemplateId = taskTemplateSubtasks.reduce<Record<string, TaskTemplateSubtaskRow[]>>(
+    (acc, row) => {
+      acc[row.task_template_id] ||= [];
+      acc[row.task_template_id].push(row);
+      return acc;
+    },
+    {}
+  );
+
+  const tasksByProjectTemplateId = projectTemplateTasks.reduce<Record<string, ProjectTemplateTaskRow[]>>(
+    (acc, row) => {
+      acc[row.project_template_id] ||= [];
+      acc[row.project_template_id].push(row);
+      return acc;
+    },
+    {}
+  );
+
+  const taskTemplateById = taskTemplates.reduce<Record<string, TaskTemplateRow>>((acc, tpl) => {
+    acc[tpl.id] = tpl;
+    return acc;
+  }, {});
 
   async function updateProfile(formData: FormData) {
     "use server";
@@ -391,6 +455,150 @@ export default async function SettingsPage(props: {
 
     revalidatePath("/settings");
     redirect("/settings?tab=templates&templates=projects&success=Project%20template%20deleted");
+  }
+
+  async function createTaskTemplateSubtask(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const taskTemplateId = String(formData.get("task_template_id") || "").trim();
+    const title = String(formData.get("title") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const status = String(formData.get("status") || "to_do").trim();
+    const priority = String(formData.get("priority") || "medium").trim();
+
+    if (!taskTemplateId || !title) {
+      redirect(
+        "/settings?tab=templates&templates=tasks&error=Template%20and%20subtask%20title%20are%20required"
+      );
+    }
+
+    const { data: last } = await supabase
+      .from("task_template_subtasks")
+      .select("position")
+      .eq("task_template_id", taskTemplateId)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextPosition = (Number(last?.position) || 0) + 1;
+
+    const { error } = await supabase.from("task_template_subtasks").insert({
+      task_template_id: taskTemplateId,
+      position: nextPosition,
+      title,
+      description: description || null,
+      status,
+      priority,
+    });
+
+    if (error) {
+      const hint = isSupabaseMissingTableError(error)
+        ? " Run `sql/templates.sql` in Supabase SQL editor, then refresh."
+        : "";
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          `${error.message}${hint}`
+        )}`
+      );
+    }
+
+    revalidatePath("/settings");
+    redirect("/settings?tab=templates&templates=tasks&success=Subtask%20added");
+  }
+
+  async function deleteTaskTemplateSubtask(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const id = String(formData.get("id") || "").trim();
+    if (!id) {
+      redirect("/settings?tab=templates&templates=tasks&error=Missing%20subtask%20id");
+    }
+
+    const { error } = await supabase.from("task_template_subtasks").delete().eq("id", id);
+
+    if (error) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(error.message)}`
+      );
+    }
+
+    revalidatePath("/settings");
+    redirect("/settings?tab=templates&templates=tasks&success=Subtask%20deleted");
+  }
+
+  async function addProjectTemplateTask(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const projectTemplateId = String(formData.get("project_template_id") || "").trim();
+    const taskTemplateId = String(formData.get("task_template_id") || "").trim();
+
+    if (!projectTemplateId || !taskTemplateId) {
+      redirect(
+        "/settings?tab=templates&templates=projects&error=Project%20template%20and%20task%20template%20are%20required"
+      );
+    }
+
+    const { data: last } = await supabase
+      .from("project_template_tasks")
+      .select("position")
+      .eq("project_template_id", projectTemplateId)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextPosition = (Number(last?.position) || 0) + 1;
+
+    const { error } = await supabase.from("project_template_tasks").insert({
+      project_template_id: projectTemplateId,
+      task_template_id: taskTemplateId,
+      position: nextPosition,
+    });
+
+    if (error) {
+      const hint = isSupabaseMissingTableError(error)
+        ? " Run `sql/templates.sql` in Supabase SQL editor, then refresh."
+        : "";
+      redirect(
+        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(
+          `${error.message}${hint}`
+        )}`
+      );
+    }
+
+    revalidatePath("/settings");
+    redirect("/settings?tab=templates&templates=projects&success=Task%20added%20to%20project%20template");
+  }
+
+  async function removeProjectTemplateTask(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const id = String(formData.get("id") || "").trim();
+    if (!id) {
+      redirect("/settings?tab=templates&templates=projects&error=Missing%20link%20id");
+    }
+
+    const { error } = await supabase.from("project_template_tasks").delete().eq("id", id);
+
+    if (error) {
+      redirect(
+        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(error.message)}`
+      );
+    }
+
+    revalidatePath("/settings");
+    redirect("/settings?tab=templates&templates=projects&success=Task%20removed%20from%20project%20template");
   }
 
   const renderMessage = (value: string | undefined, kind: "error" | "success") => {
@@ -818,20 +1026,126 @@ export default async function SettingsPage(props: {
                               </button>
                             </div>
                           </form>
-                          <form action={deleteTaskTemplate} className="mt-2 flex justify-end">
-                            <input type="hidden" name="id" value={tpl.id} />
-                            <ConfirmSubmitButton
-                              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                              confirmText={`Delete template: ${tpl.name}?`}
-                            >
-                              Delete
-                            </ConfirmSubmitButton>
-                          </form>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
+                           <form action={deleteTaskTemplate} className="mt-2 flex justify-end">
+                             <input type="hidden" name="id" value={tpl.id} />
+                             <ConfirmSubmitButton
+                               className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                               confirmText={`Delete template: ${tpl.name}?`}
+                             >
+                               Delete
+                             </ConfirmSubmitButton>
+                           </form>
+
+                           <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                             <div className="flex flex-wrap items-center justify-between gap-2">
+                               <p className="text-sm font-semibold text-slate-900">
+                                 Subtask templates
+                               </p>
+                             </div>
+
+                             {taskTemplateSubtasksError &&
+                             isSupabaseMissingTableError(taskTemplateSubtasksError) ? (
+                               <p className="mt-2 text-sm text-amber-900">
+                                 Subtasks are not set up yet. Run `sql/templates.sql` in
+                                 Supabase SQL editor, then refresh this page.
+                               </p>
+                             ) : null}
+
+                             <div className="mt-3 space-y-2">
+                               {(subtasksByTemplateId[tpl.id] || []).length ? (
+                                 (subtasksByTemplateId[tpl.id] || []).map((subtask) => (
+                                   <div
+                                     key={subtask.id}
+                                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                   >
+                                     <div className="min-w-0">
+                                       <p className="truncate font-semibold text-slate-900">
+                                         {subtask.position}. {subtask.title}
+                                       </p>
+                                       <p className="truncate text-slate-600">
+                                         {subtask.status?.replace("_", " ")} ·{" "}
+                                         {subtask.priority}
+                                       </p>
+                                     </div>
+                                     <form action={deleteTaskTemplateSubtask}>
+                                       <input type="hidden" name="id" value={subtask.id} />
+                                       <ConfirmSubmitButton
+                                         className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                         confirmText={`Delete subtask: ${subtask.title}?`}
+                                         disabled={Boolean(taskTemplateSubtasksError)}
+                                       >
+                                         Delete
+                                       </ConfirmSubmitButton>
+                                     </form>
+                                   </div>
+                                 ))
+                               ) : (
+                                 <p className="text-sm text-slate-600">No subtasks yet.</p>
+                               )}
+                             </div>
+
+                             <form
+                               action={createTaskTemplateSubtask}
+                               className="mt-3 grid gap-2 md:grid-cols-6"
+                             >
+                               <input
+                                 type="hidden"
+                                 name="task_template_id"
+                                 value={tpl.id}
+                               />
+                               <input
+                                 name="title"
+                                 placeholder="Subtask title"
+                                 className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                 disabled={Boolean(taskTemplateSubtasksError)}
+                                 required
+                               />
+                               <select
+                                 name="status"
+                                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                 defaultValue="to_do"
+                                 disabled={Boolean(taskTemplateSubtasksError)}
+                               >
+                                 {["to_do", "in_progress", "blocked", "completed", "cancelled"].map(
+                                   (status) => (
+                                     <option key={status} value={status}>
+                                       {status.replace("_", " ")}
+                                     </option>
+                                   )
+                                 )}
+                               </select>
+                               <select
+                                 name="priority"
+                                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                 defaultValue="medium"
+                                 disabled={Boolean(taskTemplateSubtasksError)}
+                               >
+                                 {["low", "medium", "high", "critical"].map((priority) => (
+                                   <option key={priority} value={priority}>
+                                     {priority}
+                                   </option>
+                                 ))}
+                               </select>
+                               <input
+                                 name="description"
+                                 placeholder="Description (optional)"
+                                 className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                 disabled={Boolean(taskTemplateSubtasksError)}
+                               />
+                               <button
+                                 type="submit"
+                                 className="md:col-span-6 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                 disabled={Boolean(taskTemplateSubtasksError)}
+                               >
+                                 Add subtask template
+                               </button>
+                             </form>
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                 </section>
               </div>
             ) : null}
 
@@ -922,20 +1236,113 @@ export default async function SettingsPage(props: {
                             </div>
                           </form>
 
-                          <form action={deleteProjectTemplate} className="mt-2 flex justify-end">
-                            <input type="hidden" name="id" value={tpl.id} />
-                            <ConfirmSubmitButton
-                              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                              confirmText={`Delete template: ${tpl.name}?`}
-                            >
-                              Delete
-                            </ConfirmSubmitButton>
-                          </form>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
+                           <form action={deleteProjectTemplate} className="mt-2 flex justify-end">
+                             <input type="hidden" name="id" value={tpl.id} />
+                             <ConfirmSubmitButton
+                               className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                               confirmText={`Delete template: ${tpl.name}?`}
+                             >
+                               Delete
+                             </ConfirmSubmitButton>
+                           </form>
+
+                           <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                             <div className="flex flex-wrap items-center justify-between gap-2">
+                               <p className="text-sm font-semibold text-slate-900">
+                                 Template tasks
+                               </p>
+                             </div>
+
+                             {projectTemplateTasksError &&
+                             isSupabaseMissingTableError(projectTemplateTasksError) ? (
+                               <p className="mt-2 text-sm text-amber-900">
+                                 Project template tasks are not set up yet. Run `sql/templates.sql`
+                                 in Supabase SQL editor, then refresh this page.
+                               </p>
+                             ) : null}
+
+                             <div className="mt-3 space-y-2">
+                               {(tasksByProjectTemplateId[tpl.id] || []).length ? (
+                                 (tasksByProjectTemplateId[tpl.id] || []).map((link) => {
+                                   const taskTpl = taskTemplateById[link.task_template_id];
+                                   const label = taskTpl?.name || link.task_template_id;
+                                   const title = taskTpl?.title ? ` (${taskTpl.title})` : "";
+                                   return (
+                                     <div
+                                       key={link.id}
+                                       className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                     >
+                                       <div className="min-w-0">
+                                         <p className="truncate font-semibold text-slate-900">
+                                           {link.position}. {label}
+                                           {title}
+                                         </p>
+                                       </div>
+                                       <form action={removeProjectTemplateTask}>
+                                         <input type="hidden" name="id" value={link.id} />
+                                         <ConfirmSubmitButton
+                                           className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                           confirmText={`Remove ${label} from ${tpl.name}?`}
+                                           disabled={Boolean(projectTemplateTasksError)}
+                                         >
+                                           Remove
+                                         </ConfirmSubmitButton>
+                                       </form>
+                                     </div>
+                                   );
+                                 })
+                               ) : (
+                                 <p className="text-sm text-slate-600">
+                                   No task templates linked yet.
+                                 </p>
+                               )}
+                             </div>
+
+                             <form
+                               action={addProjectTemplateTask}
+                               className="mt-3 grid gap-2 md:grid-cols-6"
+                             >
+                               <input
+                                 type="hidden"
+                                 name="project_template_id"
+                                 value={tpl.id}
+                               />
+                               <select
+                                 name="task_template_id"
+                                 className="md:col-span-4 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                 defaultValue=""
+                                 disabled={
+                                   Boolean(projectTemplateTasksError) ||
+                                   Boolean(taskTemplatesError) ||
+                                   !taskTemplates.length
+                                 }
+                                 required
+                               >
+                                 <option value="">Select a task template</option>
+                                 {taskTemplates.map((taskTpl) => (
+                                   <option key={taskTpl.id} value={taskTpl.id}>
+                                     {taskTpl.name}
+                                   </option>
+                                 ))}
+                               </select>
+                               <button
+                                 type="submit"
+                                 className="md:col-span-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                 disabled={
+                                   Boolean(projectTemplateTasksError) ||
+                                   Boolean(taskTemplatesError) ||
+                                   !taskTemplates.length
+                                 }
+                               >
+                                 Add task
+                               </button>
+                             </form>
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                 </section>
               </div>
             ) : null}
           </div>
