@@ -253,6 +253,13 @@ export default function TasksView({
     return ticks;
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
+  const todayMarker = useMemo(() => {
+    if (!ganttData.rangeDays) return null;
+    const todayOffset = diffDays(ganttData.rangeStart, new Date());
+    if (todayOffset < 0 || todayOffset > ganttData.rangeDays - 1) return null;
+    return { leftPercent: (todayOffset / ganttData.rangeDays) * 100 };
+  }, [ganttData.rangeDays, ganttData.rangeStart]);
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
@@ -579,6 +586,13 @@ export default function TasksView({
                 </div>
                 <div className="relative px-6 py-3 text-xs font-semibold uppercase text-slate-500">
                   <div className="absolute inset-y-0 left-6 right-6 flex items-end">
+                    {todayMarker ? (
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-y-0 border-l border-dashed border-slate-300/60"
+                        style={{ left: `${todayMarker.leftPercent}%` }}
+                      />
+                    ) : null}
                     {timelineTicks.map((tick) => (
                       <span
                         key={tick.label}
@@ -611,6 +625,13 @@ export default function TasksView({
                     </div>
                     <div className="relative px-6 py-3">
                       <div className="absolute inset-y-0 left-6 right-6">
+                        {todayMarker ? (
+                          <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-y-0 border-l border-dashed border-slate-300/60"
+                            style={{ left: `${todayMarker.leftPercent}%` }}
+                          />
+                        ) : null}
                         <Link
                           href={`/tasks/${task.id}`}
                           className={`absolute top-1/2 h-3 -translate-y-1/2 rounded-full ${barColor}`}
