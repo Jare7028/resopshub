@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
 import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
 import { setCsvParam } from "@/lib/queryParams";
-import { formatTaskStatusLabel } from "@/lib/taskStatus";
+import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import {
   FilterIcon,
   FilterMenuMulti,
@@ -120,12 +120,16 @@ export default function TasksView({
   sortKey,
   sortDir,
 }: TasksViewProps) {
-  const [view, setView] = useState<"table" | "gantt">("table");
+  const [view, setView] = useState<"table" | "gantt" | "board">("table");
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const statusUpdateFormRef = useRef<HTMLFormElement | null>(null);
+  const statusUpdateTaskIdRef = useRef<HTMLInputElement | null>(null);
+  const statusUpdateStatusRef = useRef<HTMLInputElement | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -260,6 +264,38 @@ export default function TasksView({
     return { leftPercent: (todayOffset / ganttData.rangeDays) * 100 };
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
+  const boardTasksByStatus = useMemo(() => {
+    const buckets = new Map<string, TaskRow[]>();
+    statusOptions.forEach((status) => buckets.set(status, []));
+    tasks.forEach((task) => {
+      const normalized = normalizeTaskStatusOrDefault(task.status);
+      const bucketKey = buckets.has(normalized)
+        ? normalized
+        : statusOptions[0] || normalized;
+      const bucket = buckets.get(bucketKey);
+      if (bucket) {
+        bucket.push(task);
+      }
+    });
+    return buckets;
+  }, [tasks, statusOptions]);
+
+  const statusByTaskId = useMemo(() => {
+    const map = new Map<string, string>();
+    tasks.forEach((task) => {
+      map.set(task.id, normalizeTaskStatusOrDefault(task.status));
+    });
+    return map;
+  }, [tasks]);
+
+  const submitStatusUpdate = (taskId: string, status: string) => {
+    if (!statusUpdateFormRef.current) return;
+    if (!statusUpdateTaskIdRef.current || !statusUpdateStatusRef.current) return;
+    statusUpdateTaskIdRef.current.value = taskId;
+    statusUpdateStatusRef.current.value = status;
+    statusUpdateFormRef.current.requestSubmit();
+  };
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
@@ -295,8 +331,25 @@ export default function TasksView({
           >
             Gantt
           </button>
+          <button
+            type="button"
+            onClick={() => setView("board")}
+            className={`rounded-md px-3 py-1.5 font-semibold ${
+              view === "board"
+                ? "bg-slate-900 text-white"
+                : "border border-slate-300 text-slate-700"
+            }`}
+          >
+            Board
+          </button>
         </div>
       </div>
+
+      {/* Hidden form for board drag-and-drop status changes. */}
+      <form action={onUpdate} ref={statusUpdateFormRef} className="hidden">
+        <input ref={statusUpdateTaskIdRef} type="hidden" name="task_id" defaultValue="" />
+        <input ref={statusUpdateStatusRef} type="hidden" name="status" defaultValue="" />
+      </form>
 
       {view === "table" ? (
         <div className="overflow-x-auto">
@@ -576,7 +629,7 @@ export default function TasksView({
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : view === "gantt" ? (
         <div className="overflow-x-auto">
           {tasks.length ? (
             <div className="min-w-full" style={{ minWidth: timelineWidth + 240 }}>
@@ -649,6 +702,122 @@ export default function TasksView({
                   </div>
                 );
               })}
+            </div>
+          ) : (
+            <div className="px-6 py-6 text-sm text-slate-500">No tasks found.</div>
+          )}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          {tasks.length ? (
+            <div className="min-w-full px-6 py-6">
+              <div className="flex min-w-max gap-4">
+                {statusOptions.map((status) => {
+                  const columnTasks = boardTasksByStatus.get(status) || [];
+                  const color = statusColors[status] || "bg-slate-400";
+                  const isOver = dragOverStatus === status;
+
+                  return (
+                    <div
+                      key={status}
+                      className={`w-72 rounded-xl border border-slate-200 bg-slate-50/60 ${
+                        isOver ? "ring-2 ring-slate-300" : ""
+                      }`}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setDragOverStatus(status);
+                        event.dataTransfer.dropEffect = "move";
+                      }}
+                      onDragLeave={() => {
+                        setDragOverStatus((current) => (current === status ? null : current));
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const taskId = event.dataTransfer.getData("text/plain");
+                        setDragOverStatus(null);
+                        if (!taskId) return;
+                        const currentStatus = statusByTaskId.get(taskId);
+                        if (currentStatus === status) return;
+                        submitStatusUpdate(taskId, status);
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                            {formatTaskStatusLabel(status)}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600">
+                          {columnTasks.length}
+                        </span>
+                      </div>
+
+                      <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
+                        {columnTasks.length ? (
+                          columnTasks.map((task) => {
+                            const priority = (task.priority || "medium").toLowerCase();
+                            const dueLabel = task.due_date
+                              ? new Date(task.due_date).toLocaleDateString("en-US")
+                              : "";
+                            const clientName = Array.isArray(task.clients)
+                              ? task.clients[0]?.name
+                              : task.clients?.name;
+                            const projectName = Array.isArray(task.projects)
+                              ? task.projects[0]?.name
+                              : task.projects?.name;
+
+                            return (
+                              <div
+                                key={task.id}
+                                draggable
+                                onDragStart={(event) => {
+                                  event.dataTransfer.effectAllowed = "move";
+                                  event.dataTransfer.setData("text/plain", task.id);
+                                }}
+                                className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                              >
+                                <Link
+                                  href={`/tasks/${task.id}`}
+                                  className="block text-sm font-semibold text-slate-900 hover:underline"
+                                >
+                                  {task.title}
+                                </Link>
+
+                                {(clientName || projectName) ? (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {clientName || "Client N/A"}
+                                    {projectName ? ` · ${projectName}` : ""}
+                                  </p>
+                                ) : null}
+
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                    {priority}
+                                  </span>
+                                  {dueLabel ? (
+                                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                      Due {dueLabel}
+                                    </span>
+                                  ) : (
+                                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                                      No due date
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="px-1 py-4 text-sm text-slate-500">
+                            No tasks.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div className="px-6 py-6 text-sm text-slate-500">No tasks found.</div>
