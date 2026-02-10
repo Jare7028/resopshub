@@ -89,24 +89,9 @@ export default async function PersonalHome(props: {
 
   const baseQuery = baseParams.toString();
 
-  const buildPersonalUrl = (tab: PersonalTabKey, params?: { error?: string }) => {
-    const sp = new URLSearchParams(baseParams);
-
-    if (tab !== "pages") {
-      sp.set("tab", tab);
-    }
-    if (params?.error) {
-      sp.set("error", params.error);
-    }
-
-    const qs = sp.toString();
-    return qs ? `/personal?${qs}` : "/personal";
-  };
-
   const personalTabUrls: Record<PersonalTabKey, string> = {
-    pages: buildPersonalUrl("pages"),
-    sections: buildPersonalUrl("sections"),
-    create: buildPersonalUrl("create"),
+    pages: buildPersonalUrlFromBase(baseQuery, "pages"),
+    sections: buildPersonalUrlFromBase(baseQuery, "sections"),
   };
 
   const { data: sections } = await supabase
@@ -301,7 +286,7 @@ export default async function PersonalHome(props: {
     const shareScope = String(formData.get("share_scope") || "page");
 
     if (!title) {
-      redirect(buildPersonalUrlFromBase(baseQuery, "create", { error: "Page title is required" }));
+      redirect(buildPersonalUrlFromBase(baseQuery, "pages", { error: "Page title is required" }));
     }
 
     if (!sectionId) {
@@ -327,7 +312,7 @@ export default async function PersonalHome(props: {
 
         if (sectionError || !createdSection) {
           redirect(
-            buildPersonalUrlFromBase(baseQuery, "create", {
+            buildPersonalUrlFromBase(baseQuery, "pages", {
               error: sectionError?.message || "Unable to create section",
             })
           );
@@ -359,7 +344,7 @@ export default async function PersonalHome(props: {
 
     if (pageError || !page) {
       redirect(
-        buildPersonalUrlFromBase(baseQuery, "create", {
+        buildPersonalUrlFromBase(baseQuery, "pages", {
           error: pageError?.message || "Unable to create page",
         })
       );
@@ -500,99 +485,98 @@ export default async function PersonalHome(props: {
         </section>
         ) : null}
 
-        {activeTab === "create" ? (
-          <section className="rounded-lg border border-slate-200 bg-white">
-            <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-lg font-semibold text-slate-900">Create page</h2>
-            </div>
-            <div className="p-6">
-            <form action={createPage} className="grid gap-4 md:grid-cols-2">
-            <input
-              name="title"
-              placeholder="Page title"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              required
-            />
-            <select
-              name="section_id"
-              defaultValue={
-                selectedSection !== "all" ? selectedSection : sections?.[0]?.id || ""
-              }
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="">General</option>
-              {sections?.map((section) => (
-                <option key={section.id} value={section.id}>
-                  {section.title}
-                </option>
-              ))}
-            </select>
-            <select
-              name="privacy"
-              defaultValue="private"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="private">Private</option>
-              <option value="shared">Shared</option>
-            </select>
-            <select
-              name="share_scope"
-              defaultValue="page"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="page">Share page</option>
-              <option value="section">Share section</option>
-            </select>
-            <details className="md:col-span-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-              <summary className="cursor-pointer font-medium text-slate-700">
-                Share with (optional)
-              </summary>
-              <div className="mt-3 space-y-2">
-                {users?.length ? (
-                  users.map((member) => (
-                    <label
-                      key={member.id}
-                      className="flex flex-wrap items-center gap-3 text-sm text-slate-600"
-                    >
-                      <input
-                        type="checkbox"
-                        name="share_user"
-                        value={member.id}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      <span className="min-w-[160px]">
-                        {member.full_name || member.email}
-                      </span>
-                      <select
-                        name={`role_${member.id}`}
-                        defaultValue="view"
-                        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                      >
-                        <option value="view">View</option>
-                        <option value="edit">Edit</option>
-                      </select>
-                    </label>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-500">No users found.</p>
-                )}
-              </div>
-            </details>
-            <button
-              type="submit"
-              className="md:col-span-2 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-            >
-              Create page
-            </button>
-          </form>
-          </div>
-        </section>
-        ) : null}
-
         {activeTab === "pages" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-slate-900">Pages</h2>
+          </div>
+          <div className="border-b border-slate-200 px-6 py-4">
+            <details className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+              <summary className="cursor-pointer select-none text-sm font-semibold text-slate-800">
+                Create page
+              </summary>
+              <div className="mt-4">
+                <form action={createPage} className="grid gap-4 md:grid-cols-2">
+                  <input
+                    name="title"
+                    placeholder="Page title"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    required
+                  />
+                  <select
+                    name="section_id"
+                    defaultValue={
+                      selectedSection !== "all" ? selectedSection : sections?.[0]?.id || ""
+                    }
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">General</option>
+                    {sections?.map((section) => (
+                      <option key={section.id} value={section.id}>
+                        {section.title}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    name="privacy"
+                    defaultValue="private"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="private">Private</option>
+                    <option value="shared">Shared</option>
+                  </select>
+                  <select
+                    name="share_scope"
+                    defaultValue="page"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="page">Share page</option>
+                    <option value="section">Share section</option>
+                  </select>
+                  <details className="md:col-span-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <summary className="cursor-pointer font-medium text-slate-700">
+                      Share with (optional)
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      {users?.length ? (
+                        users.map((member) => (
+                          <label
+                            key={member.id}
+                            className="flex flex-wrap items-center gap-3 text-sm text-slate-600"
+                          >
+                            <input
+                              type="checkbox"
+                              name="share_user"
+                              value={member.id}
+                              className="h-4 w-4 rounded border-slate-300"
+                            />
+                            <span className="min-w-[160px]">
+                              {member.full_name || member.email}
+                            </span>
+                            <select
+                              name={`role_${member.id}`}
+                              defaultValue="view"
+                              className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            >
+                              <option value="view">View</option>
+                              <option value="edit">Edit</option>
+                            </select>
+                          </label>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-500">No users found.</p>
+                      )}
+                    </div>
+                  </details>
+                  <button
+                    type="submit"
+                    className="md:col-span-2 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Create page
+                  </button>
+                </form>
+              </div>
+            </details>
           </div>
           <div className="border-b border-slate-200 px-6 py-4">
             <form className="grid gap-3 md:grid-cols-5">

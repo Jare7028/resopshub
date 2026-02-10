@@ -3,7 +3,6 @@ import Link from "next/link";
 const tabs = [
   { key: "pages", label: "Pages" },
   { key: "sections", label: "Sections" },
-  { key: "create", label: "Create page" },
 ] as const;
 
 export type PersonalTabKey = (typeof tabs)[number]["key"];
@@ -44,4 +43,3 @@ export default function PersonalTabs({
     </nav>
   );
 }
-
