@@ -204,7 +204,10 @@ export default async function PersonalPage(props: {
     const sectionId = String(formData.get("section_id") || "").trim();
 
     if (!title) {
-      redirect(buildPageUrl(activeTab, { error: "Title is required" }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Title is required");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase
@@ -217,7 +220,10 @@ export default async function PersonalPage(props: {
       .eq("id", pageId);
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     revalidatePath(`/personal/${pageId}`);
@@ -245,7 +251,10 @@ export default async function PersonalPage(props: {
     const { error } = await supabase.from("personal_pages").delete().eq("id", pageId);
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     revalidatePath("/personal");
@@ -259,15 +268,20 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!userId) {
-      redirect(buildPageUrl(activeTab, { error: "Select a user to share with" }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Select a user to share with");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     if (!sectionId) {
-      redirect(
-        buildPageUrl("page_members", {
-          error: "This page is in General. Use Page members or move it into a section.",
-        })
+      const sp = new URLSearchParams();
+      sp.set("tab", "page_members");
+      sp.set(
+        "error",
+        "This page is in General. Use Page members or move it into a section."
       );
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase.from("personal_section_members").upsert(
@@ -280,13 +294,21 @@ export default async function PersonalPage(props: {
     );
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     await syncSectionShareMode(supabase, sectionId);
     revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
-    redirect(buildPageUrl(activeTab, { success: "Section member added" }));
+    {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("success", "Section member added");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
   }
 
   async function updateSectionMember(formData: FormData) {
@@ -296,7 +318,10 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!memberId) {
-      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Missing member id");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase
@@ -305,11 +330,19 @@ export default async function PersonalPage(props: {
       .eq("id", memberId);
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     revalidatePath(`/personal/${pageId}`);
-    redirect(buildPageUrl(activeTab, { success: "Section member updated" }));
+    {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("success", "Section member updated");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
   }
 
   async function removeSectionMember(formData: FormData) {
@@ -318,7 +351,10 @@ export default async function PersonalPage(props: {
     const memberId = String(formData.get("member_id") || "");
 
     if (!memberId) {
-      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Missing member id");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase
@@ -327,13 +363,21 @@ export default async function PersonalPage(props: {
       .eq("id", memberId);
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     await syncSectionShareMode(supabase, sectionId);
     revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
-    redirect(buildPageUrl(activeTab, { success: "Section member removed" }));
+    {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("success", "Section member removed");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
   }
 
   async function addPageMember(formData: FormData) {
@@ -343,7 +387,10 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!userId) {
-      redirect(buildPageUrl(activeTab, { error: "Select a user to share with" }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Select a user to share with");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase.from("personal_page_members").upsert(
@@ -356,12 +403,20 @@ export default async function PersonalPage(props: {
     );
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     await syncPageShareMode(supabase, pageId, sectionId);
     revalidatePath(`/personal/${pageId}`);
-    redirect(buildPageUrl(activeTab, { success: "Page member added" }));
+    {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("success", "Page member added");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
   }
 
   async function updatePageMember(formData: FormData) {
@@ -371,7 +426,10 @@ export default async function PersonalPage(props: {
     const role = String(formData.get("role") || "view");
 
     if (!memberId) {
-      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Missing member id");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase
@@ -380,12 +438,20 @@ export default async function PersonalPage(props: {
       .eq("id", memberId);
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     await syncPageShareMode(supabase, pageId, sectionId);
     revalidatePath(`/personal/${pageId}`);
-    redirect(buildPageUrl(activeTab, { success: "Page member updated" }));
+    {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("success", "Page member updated");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
   }
 
   async function removePageMember(formData: FormData) {
@@ -394,7 +460,10 @@ export default async function PersonalPage(props: {
     const memberId = String(formData.get("member_id") || "");
 
     if (!memberId) {
-      redirect(buildPageUrl(activeTab, { error: "Missing member id" }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Missing member id");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     const { error } = await supabase
@@ -403,12 +472,20 @@ export default async function PersonalPage(props: {
       .eq("id", memberId);
 
     if (error) {
-      redirect(buildPageUrl(activeTab, { error: error.message }));
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     await syncPageShareMode(supabase, pageId, sectionId);
     revalidatePath(`/personal/${pageId}`);
-    redirect(buildPageUrl(activeTab, { success: "Page member removed" }));
+    {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("success", "Page member removed");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
   }
 
   return (
