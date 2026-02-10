@@ -15,6 +15,14 @@ import {
   normalizeTaskSortKey,
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
+import AssigneeMultiSelect from "../../../tasks/_components/AssigneeMultiSelect";
+import RecurrenceFields from "../../../tasks/_components/RecurrenceFields";
+import {
+  DEFAULT_RECURRENCE_TZ,
+  getFirstOccurrence,
+  getNextOccurrence,
+  type RecurrenceConfig,
+} from "@/lib/recurrence";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
@@ -22,7 +30,7 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function ClientTasksPage(props: {
   params: Promise<{ clientId: string }>;
-  searchParams?: Promise<{ error?: string; sort?: string; dir?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; sort?: string; dir?: string }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
@@ -119,24 +127,72 @@ export default async function ClientTasksPage(props: {
       redirect("/login");
     }
     const title = String(formData.get("title") || "").trim();
-    const projectId = String(formData.get("project_id") || "");
+    const projectId = String(formData.get("project_id") || "").trim() || null;
     const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
     const startDate = String(formData.get("start_date") || "");
-    const dueDate = String(formData.get("due_date") || "");
+    const dueDate = String(formData.get("due_date") || "").trim();
+    const dueTime = String(formData.get("due_time") || "").trim();
     const assigneeUserId = String(formData.get("assignee_user_id") || "");
     const assigneeIds = formData
       .getAll("assignee_user_ids")
       .map((value) => String(value).trim())
       .filter(Boolean);
+    const recurrenceFrequencyRaw = String(formData.get("recurrence_frequency") || "")
+      .trim()
+      .toLowerCase();
+    const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
+    const recurrenceTimezone =
+      String(formData.get("recurrence_timezone") || "").trim() ||
+      DEFAULT_RECURRENCE_TZ;
+    const recurrenceFrequency =
+      recurrenceFrequencyRaw === "daily" ||
+      recurrenceFrequencyRaw === "weekly" ||
+      recurrenceFrequencyRaw === "monthly" ||
+      recurrenceFrequencyRaw === "yearly"
+        ? (recurrenceFrequencyRaw as RecurrenceConfig["frequency"])
+        : null;
 
-    if (!title || !projectId) {
-      redirect(`/clients/${clientId}/tasks?error=Title%20and%20project%20are%20required`);
+    const returnTo = `/clients/${clientId}/tasks`;
+
+    if (!title) {
+      redirect(`${returnTo}?error=${encodeURIComponent("Title is required")}`);
+    }
+
+    if (!dueDate || !dueTime) {
+      redirect(
+        `${returnTo}?error=${encodeURIComponent("Deadline date and time are required")}`
+      );
     }
 
     const primaryAssignee =
       assigneeIds.find((value) => value !== "unassigned") ||
       (assigneeUserId || "");
+
+    let recurrenceConfig: RecurrenceConfig | null = null;
+    let recurrenceNextDate: string | null = null;
+
+    if (recurrenceFrequency) {
+      const startDateForRecurrence = dueDate;
+      const weekDay = new Date(`${startDateForRecurrence}T00:00:00Z`).getUTCDay();
+      const monthDay = Number(startDateForRecurrence.split("-")[2]);
+
+      recurrenceConfig = {
+        frequency: recurrenceFrequency,
+        interval: 1,
+        startDate: startDateForRecurrence,
+        endDate: null,
+        weekdays: recurrenceFrequency === "weekly" ? [weekDay] : null,
+        monthDay: recurrenceFrequency === "monthly" ? monthDay : null,
+        monthWeek: null,
+        monthWeekday: null,
+      };
+
+      const firstOccurrence = dueDate || getFirstOccurrence(recurrenceConfig);
+      if (firstOccurrence) {
+        recurrenceNextDate = getNextOccurrence(recurrenceConfig, firstOccurrence);
+      }
+    }
 
     const payload: Record<string, unknown> = {
       client_id: clientId,
@@ -145,10 +201,25 @@ export default async function ClientTasksPage(props: {
       status,
       priority,
       due_date: dueDate || null,
+      due_time: dueTime || null,
       assignee_user_id: primaryAssignee || null,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };
+
+    if (recurrenceConfig && recurrenceNextDate) {
+      payload.recurrence_frequency = recurrenceConfig.frequency;
+      payload.recurrence_interval = recurrenceConfig.interval;
+      payload.recurrence_weekdays = recurrenceConfig.weekdays;
+      payload.recurrence_month_day = recurrenceConfig.monthDay;
+      payload.recurrence_month_week = recurrenceConfig.monthWeek;
+      payload.recurrence_month_weekday = recurrenceConfig.monthWeekday;
+      payload.recurrence_start_date = recurrenceConfig.startDate;
+      payload.recurrence_end_date = recurrenceConfig.endDate;
+      payload.recurrence_lead_days = recurrenceLeadDays;
+      payload.recurrence_next_date = recurrenceNextDate;
+      payload.recurrence_timezone = recurrenceTimezone;
+    }
 
     if (startDate) {
       payload.start_date = startDate;
@@ -161,7 +232,7 @@ export default async function ClientTasksPage(props: {
       .single();
 
     if (error) {
-      redirect(`/clients/${clientId}/tasks?error=${encodeURIComponent(error.message)}`);
+      redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
     }
 
     const taskId = created?.id;
@@ -178,12 +249,13 @@ export default async function ClientTasksPage(props: {
           .from("task_assignees")
           .insert(inserts);
         if (assigneeError) {
-          redirect(`/clients/${clientId}/tasks?error=${encodeURIComponent(assigneeError.message)}`);
+          redirect(`${returnTo}?error=${encodeURIComponent(assigneeError.message)}`);
         }
       }
     }
 
     revalidatePath(`/clients/${clientId}/tasks`);
+    redirect(`${returnTo}?success=${encodeURIComponent("Task created")}`);
   }
 
   async function updateTaskInline(formData: FormData) {
@@ -281,46 +353,35 @@ export default async function ClientTasksPage(props: {
         </p>
       ) : null}
 
+      {searchParams?.success ? (
+        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+          {searchParams.success}
+        </p>
+      ) : null}
+
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Add task</h2>
-        <form action={createTask} className="mt-4 grid gap-4 md:grid-cols-5">
+        <form action={createTask} className="mt-4 grid gap-4 md:grid-cols-6">
           <input
             name="title"
             placeholder="Task title"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
             required
           />
           <select
             name="project_id"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            required
+            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
             defaultValue=""
           >
-            <option value="" disabled>
-              Select project
-            </option>
+            <option value="">Project (N/A)</option>
             {projects?.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
               </option>
             ))}
           </select>
-          <div className="grid gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Assignees
-            </label>
-            <select
-              name="assignee_user_ids"
-              multiple
-              className="h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              {users?.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name || user.email}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-slate-400">Hold Ctrl/Cmd to select multiple.</p>
+          <div className="md:col-span-2 relative">
+            <AssigneeMultiSelect users={users || []} name="assignee_user_ids" />
           </div>
           <select
             name="status"
@@ -344,19 +405,10 @@ export default async function ClientTasksPage(props: {
               </option>
             ))}
           </select>
-          <input
-            type="date"
-            name="start_date"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            name="due_date"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
+          <RecurrenceFields className="md:col-span-6" />
           <button
             type="submit"
-            className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+            className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
           >
             Create task
           </button>
