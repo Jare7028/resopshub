@@ -9,6 +9,7 @@ import TaskTabs, {
   normalizeTaskTabKey,
   type TaskTabKey,
 } from "./_components/TaskTabs";
+import ConfirmDelete from "../../_components/ConfirmDelete";
 import {
   TASK_STATUS_OPTIONS,
   formatTaskStatusLabel,
@@ -315,13 +316,48 @@ export default async function TaskDetailPage(props: {
     redirect(buildTaskUrl("subtasks", { success: "Subtask created" }));
   }
 
+  async function deleteTask() {
+    "use server";
+    const supabase = createSupabaseServerClient();
+
+    // Best-effort: delete subtasks first to avoid FK/parent references.
+    const { error: subtaskError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("parent_task_id", taskId);
+
+    if (subtaskError) {
+      redirect(buildTaskUrl(activeTab, { error: subtaskError.message }));
+    }
+
+    const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+
+    if (error) {
+      redirect(buildTaskUrl(activeTab, { error: error.message }));
+    }
+
+    revalidatePath("/tasks");
+    redirect("/tasks?success=Task%20deleted");
+  }
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
         <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Task
         </p>
-        <h1 className="text-3xl font-semibold text-slate-900">{task.title}</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-3xl font-semibold text-slate-900">{task.title}</h1>
+          <form>
+            <ConfirmDelete
+              name={task.title}
+              itemType="Task"
+              triggerLabel="Delete task"
+              confirmLabel="Permanently delete"
+              formAction={deleteTask}
+            />
+          </form>
+        </div>
         <div className="text-sm text-slate-600">
           <p>
             Client:{" "}
