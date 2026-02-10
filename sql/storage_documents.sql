@@ -6,8 +6,6 @@ insert into storage.buckets (id, name, public)
 values ('documents', 'documents', false)
 on conflict (id) do nothing;
 
-alter table storage.objects enable row level security;
-
 -- Ensure authenticated role has privileges (RLS still applies).
 grant select, insert, update, delete on table storage.objects to authenticated;
 grant select on table storage.buckets to authenticated;
