@@ -42,6 +42,35 @@ const dueDateFilters = [
 ] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
+function buildTasksRedirectUrl(
+  baseUrl: string,
+  params: { tab?: "list" | "add"; error?: string; success?: string }
+) {
+  const [path, queryString = ""] = baseUrl.split("?");
+  const sp = new URLSearchParams(queryString);
+
+  if (params.tab && params.tab !== "list") {
+    sp.set("tab", params.tab);
+  } else {
+    sp.delete("tab");
+  }
+
+  if (params.error) {
+    sp.set("error", params.error);
+  } else {
+    sp.delete("error");
+  }
+
+  if (params.success) {
+    sp.set("success", params.success);
+  } else {
+    sp.delete("success");
+  }
+
+  const qs = sp.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
 export default async function TasksPage(props: {
   searchParams?: Promise<{
     tab?: string;
@@ -348,12 +377,20 @@ export default async function TasksPage(props: {
     const projectId = projectIdRaw || null;
 
     if (!title) {
-      redirect(buildTasksUrl("add", { error: "Title is required" }));
+      redirect(
+        buildTasksRedirectUrl(returnTo, {
+          tab: "add",
+          error: "Title is required",
+        })
+      );
     }
 
     if (!dueDate || !dueTime) {
       redirect(
-        buildTasksUrl("add", { error: "Deadline date and time are required" })
+        buildTasksRedirectUrl(returnTo, {
+          tab: "add",
+          error: "Deadline date and time are required",
+        })
       );
     }
 
@@ -365,7 +402,12 @@ export default async function TasksPage(props: {
         .maybeSingle();
 
       if (error) {
-        redirect(buildTasksUrl("add", { error: error.message }));
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: error.message,
+          })
+        );
       }
 
       clientId = project?.client_id || null;
@@ -438,7 +480,12 @@ export default async function TasksPage(props: {
       .single();
 
     if (error) {
-      redirect(buildTasksUrl("add", { error: error.message }));
+      redirect(
+        buildTasksRedirectUrl(returnTo, {
+          tab: "add",
+          error: error.message,
+        })
+      );
     }
 
     const taskId = created?.id;
@@ -455,13 +502,18 @@ export default async function TasksPage(props: {
           .from("task_assignees")
           .insert(inserts);
         if (assigneeError) {
-          redirect(buildTasksUrl("add", { error: assigneeError.message }));
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: assigneeError.message,
+            })
+          );
         }
       }
     }
 
     revalidatePath("/tasks");
-    redirect(buildTasksUrl("list", { success: "Task created" }));
+    redirect(buildTasksRedirectUrl(returnTo, { success: "Task created" }));
   }
 
   return (
