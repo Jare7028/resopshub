@@ -84,6 +84,27 @@ as $$
   );
 $$;
 
+-- Helper: "base" project access (does not consider watchers).
+create or replace function public.can_access_project_base(project_uuid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and exists (
+    select 1
+    from public.projects p
+    where p.id = project_uuid
+      and (
+        public.is_admin()
+        or public.is_project_member(project_uuid)
+        or public.is_project_creator(project_uuid)
+        or (p.client_id is not null and public.can_access_client_base(p.client_id))
+      )
+  );
+$$;
+
 -- Extend access helpers so watchers gain permissions.
 create or replace function public.can_access_client(client_uuid uuid)
 returns boolean
@@ -161,12 +182,6 @@ create policy task_watchers_select
     and (
       public.is_admin()
       or user_id = auth.uid()
-      or exists (
-        select 1
-        from public.task_watchers tw2
-        where tw2.task_id = public.task_watchers.task_id
-          and tw2.user_id = auth.uid()
-      )
       or public.can_access_task_base(task_id)
     )
   );
@@ -180,24 +195,7 @@ create policy task_watchers_insert
     auth.uid() is not null
     and (
       public.is_admin()
-      or exists (
-        select 1
-        from public.tasks t
-        left join public.project_users pu
-          on pu.project_id = t.project_id and pu.user_id = auth.uid()
-        left join public.task_assignees ta
-          on ta.task_id = t.id and ta.user_id = auth.uid()
-        where t.id = public.task_watchers.task_id
-          and (
-            pu.user_id is not null
-            or t.assignee_user_id = auth.uid()
-            or ta.user_id is not null
-            or (t.project_id is null and t.created_by_user_id = auth.uid())
-            or (
-              t.client_id is not null and public.can_access_client_base(t.client_id)
-            )
-          )
-      )
+      or public.can_access_task_base(task_id)
     )
   );
 
@@ -211,24 +209,7 @@ create policy task_watchers_delete
     and (
       public.is_admin()
       or user_id = auth.uid()
-      or exists (
-        select 1
-        from public.tasks t
-        left join public.project_users pu
-          on pu.project_id = t.project_id and pu.user_id = auth.uid()
-        left join public.task_assignees ta
-          on ta.task_id = t.id and ta.user_id = auth.uid()
-        where t.id = public.task_watchers.task_id
-          and (
-            pu.user_id is not null
-            or t.assignee_user_id = auth.uid()
-            or ta.user_id is not null
-            or (t.project_id is null and t.created_by_user_id = auth.uid())
-            or (
-              t.client_id is not null and public.can_access_client_base(t.client_id)
-            )
-          )
-      )
+      or public.can_access_task_base(task_id)
     )
   );
 
@@ -245,24 +226,7 @@ create policy project_watchers_select
     and (
       public.is_admin()
       or user_id = auth.uid()
-      or exists (
-        select 1
-        from public.project_watchers pw2
-        where pw2.project_id = public.project_watchers.project_id
-          and pw2.user_id = auth.uid()
-      )
-      or exists (
-        select 1
-        from public.projects p
-        left join public.project_users pu
-          on pu.project_id = p.id and pu.user_id = auth.uid()
-        where p.id = public.project_watchers.project_id
-          and (
-            pu.user_id is not null
-            or p.created_by_user_id = auth.uid()
-            or (p.client_id is not null and public.can_access_client_base(p.client_id))
-          )
-      )
+      or public.can_access_project_base(project_id)
     )
   );
 
@@ -275,18 +239,7 @@ create policy project_watchers_insert
     auth.uid() is not null
     and (
       public.is_admin()
-      or exists (
-        select 1
-        from public.projects p
-        left join public.project_users pu
-          on pu.project_id = p.id and pu.user_id = auth.uid()
-        where p.id = public.project_watchers.project_id
-          and (
-            pu.user_id is not null
-            or p.created_by_user_id = auth.uid()
-            or (p.client_id is not null and public.can_access_client_base(p.client_id))
-          )
-      )
+      or public.can_access_project_base(project_id)
     )
   );
 
@@ -300,18 +253,7 @@ create policy project_watchers_delete
     and (
       public.is_admin()
       or user_id = auth.uid()
-      or exists (
-        select 1
-        from public.projects p
-        left join public.project_users pu
-          on pu.project_id = p.id and pu.user_id = auth.uid()
-        where p.id = public.project_watchers.project_id
-          and (
-            pu.user_id is not null
-            or p.created_by_user_id = auth.uid()
-            or (p.client_id is not null and public.can_access_client_base(p.client_id))
-          )
-      )
+      or public.can_access_project_base(project_id)
     )
   );
 
@@ -603,4 +545,3 @@ create policy task_assignees_delete
       where t.id = public.task_assignees.task_id
     )
   );
-
