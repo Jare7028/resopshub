@@ -312,40 +312,44 @@ export default async function ClientOverviewPage(props: {
       ) : null}
 
       {isAdmin ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Client members</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Only assigned members can view and edit this client.
-          </p>
-          {users?.length ? (
-            <form action={updateClientMembers} className="mt-4 space-y-4">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {users.map((user) => (
-                  <label
-                    key={user.id}
-                    className="flex items-center gap-2 text-sm text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      name="assigned_user_ids"
-                      value={user.id}
-                      defaultChecked={assignedClientUserIds.has(user.id)}
-                    />
-                    <span>{user.full_name || user.email}</span>
-                  </label>
-                ))}
-              </div>
-              <button
-                type="submit"
-                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-              >
-                Save members
-              </button>
-            </form>
-          ) : (
-            <p className="mt-4 text-sm text-slate-500">No users found.</p>
-          )}
-        </section>
+        <details className="rounded-lg border border-slate-200 bg-white">
+          <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
+            Client members
+          </summary>
+          <div className="border-t border-slate-200 px-6 pb-6">
+            <p className="mt-4 text-sm text-slate-600">
+              Only assigned members can view and edit this client.
+            </p>
+            {users?.length ? (
+              <form action={updateClientMembers} className="mt-4 space-y-4">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {users.map((user) => (
+                    <label
+                      key={user.id}
+                      className="flex items-center gap-2 text-sm text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        name="assigned_user_ids"
+                        value={user.id}
+                        defaultChecked={assignedClientUserIds.has(user.id)}
+                      />
+                      <span>{user.full_name || user.email}</span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="submit"
+                  className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+                >
+                  Save members
+                </button>
+              </form>
+            ) : (
+              <p className="mt-4 text-sm text-slate-500">No users found.</p>
+            )}
+          </div>
+        </details>
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
