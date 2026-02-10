@@ -121,6 +121,8 @@ export default async function PersonalPage(props: {
 
   const pageId = page.id;
   const sectionId = page.section_id;
+  const pageOwnerId = page.owner_id;
+  const isOwner = pageOwnerId === user.id;
 
   const { data: sections } = await supabase
     .from("personal_sections")
@@ -193,6 +195,30 @@ export default async function PersonalPage(props: {
 
     revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
+  }
+
+  async function deletePersonalPage() {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const user = authData.user;
+
+    if (!user) {
+      redirect("/login");
+    }
+
+    if (pageOwnerId !== user.id) {
+      redirect(`/personal/${pageId}?error=Only%20the%20page%20owner%20can%20delete%20it`);
+    }
+
+    const { error } = await supabase.from("personal_pages").delete().eq("id", pageId);
+
+    if (error) {
+      redirect(`/personal/${pageId}?error=${encodeURIComponent(error.message)}`);
+    }
+
+    revalidatePath("/personal");
+    redirect("/personal");
   }
 
   async function addSectionMember(formData: FormData) {
@@ -321,31 +347,52 @@ export default async function PersonalPage(props: {
             {shareModeLabels[page.share_mode] || "Private"}
           </p>
         </div>
-        <form action={updatePageDetails} className="flex flex-wrap items-end gap-2">
-          <input
-            name="title"
-            defaultValue={page.title}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <select
-            name="section_id"
-            defaultValue={page.section_id || ""}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="">General</option>
-            {sections?.map((section) => (
-              <option key={section.id} value={section.id}>
-                {section.title}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-          >
-            Update
-          </button>
-        </form>
+        <div className="flex flex-col items-end gap-2">
+          <form action={updatePageDetails} className="flex flex-wrap items-end gap-2">
+            <input
+              name="title"
+              defaultValue={page.title}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <select
+              name="section_id"
+              defaultValue={page.section_id || ""}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">General</option>
+              {sections?.map((section) => (
+                <option key={section.id} value={section.id}>
+                  {section.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              Update
+            </button>
+          </form>
+
+          {isOwner ? (
+            <details className="w-full max-w-[420px] rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <summary className="cursor-pointer select-none font-semibold">
+                Delete page
+              </summary>
+              <div className="mt-2 space-y-2">
+                <p>This will permanently delete the page and its content.</p>
+                <form action={deletePersonalPage}>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    Confirm delete
+                  </button>
+                </form>
+              </div>
+            </details>
+          ) : null}
+        </div>
       </section>
 
       <section className="space-y-4">
