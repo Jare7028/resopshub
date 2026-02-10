@@ -1,21 +1,19 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import PersonalTabs, {
   normalizePersonalTabKey,
   type PersonalTabKey,
 } from "./_components/PersonalTabs";
+import PersonalPagesView, {
+  type PersonalPageRow,
+  type PersonalSectionOption,
+} from "./_components/PersonalPagesView";
 
 export const dynamic = "force-dynamic";
-
-const shareModeLabels: Record<string, string> = {
-  private: "Private",
-  inherit: "Shared (Section)",
-  custom: "Shared (Page)",
-};
 
 const defaultPageContent = DEFAULT_EDITOR_CONTENT;
 const defaultPageContentText = extractPlainText(defaultPageContent);
@@ -51,11 +49,14 @@ function buildPersonalUrlFromBase(
 export default async function PersonalHome(props: {
   searchParams?: Promise<{
     tab?: string;
-    section?: string;
+    section?: string | string[];
     filter?: string;
     sort?: string;
     q?: string;
     error?: string;
+    share_mode?: string | string[];
+    updated_from?: string;
+    updated_to?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -67,16 +68,17 @@ export default async function PersonalHome(props: {
     redirect("/login");
   }
 
-  const selectedSection = (searchParams?.section || "all").trim();
+  const selectedSectionIds = parseCsvParam(searchParams?.section);
   const selectedFilter = (searchParams?.filter || "all").trim();
   const selectedSort = (searchParams?.sort || "updated").trim();
   const query = (searchParams?.q || "").trim();
   const activeTab = normalizePersonalTabKey(searchParams?.tab);
+  const selectedShareModes = parseCsvParam(searchParams?.share_mode);
+  const updatedFrom = (searchParams?.updated_from || "").trim();
+  const updatedTo = (searchParams?.updated_to || "").trim();
 
   const baseParams = new URLSearchParams();
-  if (selectedSection !== "all") {
-    baseParams.set("section", selectedSection);
-  }
+  setCsvParam(baseParams, "section", selectedSectionIds);
   if (selectedFilter !== "all") {
     baseParams.set("filter", selectedFilter);
   }
@@ -86,6 +88,9 @@ export default async function PersonalHome(props: {
   if (query) {
     baseParams.set("q", query);
   }
+  setCsvParam(baseParams, "share_mode", selectedShareModes);
+  if (updatedFrom) baseParams.set("updated_from", updatedFrom);
+  if (updatedTo) baseParams.set("updated_to", updatedTo);
 
   const baseQuery = baseParams.toString();
 
@@ -110,11 +115,13 @@ export default async function PersonalHome(props: {
     .select("id,title,section_id,share_mode,updated_at,personal_sections(title)")
     .order("updated_at", { ascending: false });
 
-  if (selectedSection !== "all") {
-    pagesRequest = pagesRequest.eq("section_id", selectedSection);
+  if (selectedSectionIds.length) {
+    pagesRequest = pagesRequest.in("section_id", selectedSectionIds);
   }
 
-  if (selectedFilter === "private") {
+  if (selectedShareModes.length) {
+    pagesRequest = pagesRequest.in("share_mode", selectedShareModes);
+  } else if (selectedFilter === "private") {
     pagesRequest = pagesRequest.eq("share_mode", "private");
   } else if (selectedFilter === "shared") {
     pagesRequest = pagesRequest.neq("share_mode", "private");
@@ -128,21 +135,14 @@ export default async function PersonalHome(props: {
     pagesRequest = pagesRequest.order("title", { ascending: true });
   }
 
-  const { data: pages } = await pagesRequest;
+  if (updatedFrom) {
+    pagesRequest = pagesRequest.gte("updated_at", updatedFrom);
+  }
+  if (updatedTo) {
+    pagesRequest = pagesRequest.lte("updated_at", updatedTo);
+  }
 
-  const getRelationTitle = (
-    relation:
-      | { title?: string | null }
-      | { title?: string | null }[]
-      | null
-      | undefined,
-    fallback: string
-  ) => {
-    if (Array.isArray(relation)) {
-      return relation[0]?.title ?? fallback;
-    }
-    return relation?.title ?? fallback;
-  };
+  const { data: pages } = await pagesRequest;
 
   async function createSection(formData: FormData) {
     "use server";
@@ -506,7 +506,9 @@ export default async function PersonalHome(props: {
                   <select
                     name="section_id"
                     defaultValue={
-                      selectedSection !== "all" ? selectedSection : sections?.[0]?.id || ""
+                      selectedSectionIds.length === 1
+                        ? selectedSectionIds[0]
+                        : sections?.[0]?.id || ""
                     }
                     className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                   >
@@ -587,27 +589,6 @@ export default async function PersonalHome(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               <select
-                name="section"
-                defaultValue={selectedSection}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="all">All sections</option>
-                {sections?.map((section) => (
-                  <option key={section.id} value={section.id}>
-                    {section.title}
-                  </option>
-                ))}
-              </select>
-              <select
-                name="filter"
-                defaultValue={selectedFilter}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="all">All visibility</option>
-                <option value="private">Private</option>
-                <option value="shared">Shared</option>
-              </select>
-              <select
                 name="sort"
                 defaultValue={selectedSort}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
@@ -617,53 +598,28 @@ export default async function PersonalHome(props: {
               </select>
               <button
                 type="submit"
-                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                className="md:col-span-2 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
               >
                 Apply filters
               </button>
             </form>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-6 py-3">Page</th>
-                  <th className="px-6 py-3">Section</th>
-                  <th className="px-6 py-3">Sharing</th>
-                  <th className="px-6 py-3">Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pages?.length ? (
-                  pages.map((page) => (
-                    <tr key={page.id} className="border-t border-slate-200">
-                      <td className="px-6 py-3 font-medium text-slate-900">
-                        <Link href={`/personal/${page.id}`} className="hover:underline">
-                          {page.title}
-                        </Link>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        {getRelationTitle(page.personal_sections, "General")}
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        {shareModeLabels[page.share_mode] || "Private"}
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        {page.updated_at
-                          ? new Date(page.updated_at).toLocaleDateString("en-US")
-                          : "-"}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="px-6 py-6 text-slate-500" colSpan={4}>
-                      No pages found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <PersonalPagesView
+              pages={(pages || []) as unknown as PersonalPageRow[]}
+              sections={
+                (sections || []).map((section) => ({
+                id: section.id,
+                title: section.title,
+              })) as PersonalSectionOption[]
+              }
+              initialFilters={{
+                section: selectedSectionIds,
+                shareMode: selectedShareModes,
+                updatedFrom,
+                updatedTo,
+              }}
+            />
           </div>
         </section>
         ) : null}
