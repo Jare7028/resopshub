@@ -1,7 +1,7 @@
-import Link from "next/link";
-import { revalidatePath } from "next/cache";
+﻿import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import ConfirmDelete from "../_components/ConfirmDelete";
+import { parseCsvParam } from "@/lib/queryParams";
+import NotesView from "./NotesView";
 
 export const dynamic = "force-dynamic";
 
@@ -37,29 +37,19 @@ function isMissingColumnError(error: unknown) {
   return code === "42703" || message.includes("does not exist");
 }
 
-function truncate(value: string, max = 120) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) {
-    return "";
-  }
-  if (text.length <= max) {
-    return text;
-  }
-  return `${text.slice(0, max - 1)}…`;
-}
 
 export default async function NotesPage(props: {
   searchParams?: Promise<{
-    client?: string;
-    user?: string;
+    client?: string | string[];
+    user?: string | string[];
     date_from?: string;
     date_to?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const selectedClient = (searchParams?.client || "").trim();
-  const selectedUser = (searchParams?.user || "").trim();
+  const selectedClientIds = parseCsvParam(searchParams?.client);
+  const selectedUserIds = parseCsvParam(searchParams?.user);
   const dateFrom = (searchParams?.date_from || "").trim();
   const dateTo = (searchParams?.date_to || "").trim();
 
@@ -83,20 +73,39 @@ export default async function NotesPage(props: {
     .order("last_edited_at", { ascending: false })
     .order("created_at", { ascending: false });
 
-  if (selectedClient && selectedClient !== "all") {
-    request = request.eq("client_id", selectedClient);
+  if (selectedClientIds.length) {
+    request = request.in("client_id", selectedClientIds);
   }
 
-  if (selectedUser && selectedUser !== "all") {
-    request = request.eq("user_id", selectedUser);
+  if (selectedUserIds.length) {
+    request = request.in("user_id", selectedUserIds);
   }
 
-  if (dateFrom) {
-    request = request.gte("created_at", `${dateFrom}T00:00:00Z`);
-  }
+  const fromStamp = dateFrom ? `${dateFrom}T00:00:00Z` : "";
+  const toStamp = dateTo ? `${dateTo}T23:59:59.999Z` : "";
 
-  if (dateTo) {
-    request = request.lte("created_at", `${dateTo}T23:59:59.999Z`);
+  if (fromStamp || toStamp) {
+    const lastEditedParts: string[] = [];
+    const createdParts: string[] = ["last_edited_at.is.null"];
+
+    if (fromStamp) {
+      lastEditedParts.push(`last_edited_at.gte.${fromStamp}`);
+      createdParts.push(`created_at.gte.${fromStamp}`);
+    }
+
+    if (toStamp) {
+      lastEditedParts.push(`last_edited_at.lte.${toStamp}`);
+      createdParts.push(`created_at.lte.${toStamp}`);
+    }
+
+    const lastEditedExpr =
+      lastEditedParts.length > 1
+        ? `and(${lastEditedParts.join(",")})`
+        : lastEditedParts[0];
+    const createdExpr = `and(${createdParts.join(",")})`;
+
+    // Prefer last_edited_at, but include a fallback for older rows where it is null.
+    request = request.or([lastEditedExpr, createdExpr].filter(Boolean).join(","));
   }
 
   let notes: NoteRow[] | null = null;
@@ -111,12 +120,12 @@ export default async function NotesPage(props: {
       .select("id,content,created_at,user_id,client_id,clients(name)")
       .order("created_at", { ascending: false });
 
-    if (selectedClient && selectedClient !== "all") {
-      legacyRequest = legacyRequest.eq("client_id", selectedClient);
+    if (selectedClientIds.length) {
+      legacyRequest = legacyRequest.in("client_id", selectedClientIds);
     }
 
-    if (selectedUser && selectedUser !== "all") {
-      legacyRequest = legacyRequest.eq("user_id", selectedUser);
+    if (selectedUserIds.length) {
+      legacyRequest = legacyRequest.in("user_id", selectedUserIds);
     }
 
     if (dateFrom) {
@@ -135,19 +144,6 @@ export default async function NotesPage(props: {
     notesError = notePageError;
   }
 
-  const getRelationName = (
-    relation:
-      | { name?: string | null }
-      | { name?: string | null }[]
-      | null
-      | undefined,
-    fallback: string
-  ) => {
-    if (Array.isArray(relation)) {
-      return relation[0]?.name ?? fallback;
-    }
-    return relation?.name ?? fallback;
-  };
 
   const lastEditorIds = supportsNotePages
     ? Array.from(
@@ -173,6 +169,8 @@ export default async function NotesPage(props: {
       user.full_name || user.email || "Unknown user",
     ])
   );
+
+  const editorLabelsById = Object.fromEntries(editorMap.entries());
 
   async function deleteNote(formData: FormData) {
     "use server";
@@ -201,168 +199,28 @@ export default async function NotesPage(props: {
         </p>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Filters</h2>
-        <form className="mt-4 grid gap-4 md:grid-cols-4">
-          <select
-            name="client"
-            defaultValue={selectedClient || "all"}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All clients</option>
-            {clients?.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-          <select
-            name="user"
-            defaultValue={selectedUser || "all"}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="all">All users</option>
-            {users?.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.full_name || user.email || "Unnamed user"}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            name="date_from"
-            defaultValue={dateFrom}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            name="date_to"
-            defaultValue={dateTo}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            className="md:col-span-4 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-          >
-            Apply filters
-          </button>
-        </form>
-      </section>
+      {notesError && !isMissingColumnError(notesError) ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          Unable to load notes. Check Supabase RLS policies for the notes table.
+        </p>
+      ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">All notes</h2>
-        </div>
-        {notesError && !isMissingColumnError(notesError) ? (
-          <p className="m-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-            Unable to load notes. Check Supabase RLS policies for the notes table.
-          </p>
-        ) : null}
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-2">Client</th>
-                {supportsNotePages ? (
-                  <>
-                    <th className="px-4 py-2">Title</th>
-                    <th className="px-4 py-2">Preview</th>
-                    <th className="px-4 py-2">Last edited</th>
-                    <th className="px-4 py-2">Edited by</th>
-                  </>
-                ) : (
-                  <>
-                    <th className="px-4 py-2">Note</th>
-                    <th className="px-4 py-2">Date added</th>
-                    <th className="px-4 py-2">User added</th>
-                  </>
-                )}
-                <th className="px-4 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {notes?.length ? (
-                notes.map((note) => {
-                  const lastEditedAt = note.last_edited_at || note.created_at || null;
-                  const editedById =
-                    note.last_edited_by_user_id || note.user_id || "";
-                  const editedByLabel = editedById
-                    ? editorMap.get(editedById) || "Unknown user"
-                    : "Unknown user";
-
-                  return (
-                    <tr key={note.id} className="border-t border-slate-200">
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        {getRelationName(note.clients, "Unknown client")}
-                      </td>
-                      {supportsNotePages ? (
-                        <>
-                          <td className="px-4 py-3">
-                            <Link
-                              href={`/clients/${note.client_id}/notes/${note.id}`}
-                              className="font-semibold text-slate-900 hover:underline"
-                            >
-                              {note.title || "Untitled"}
-                            </Link>
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {truncate(note.content || "") || "-"}
-                          </td>
-                          <td className="px-4 py-3 text-slate-500">
-                            {lastEditedAt
-                              ? new Date(lastEditedAt).toLocaleString("en-US")
-                              : ""}
-                          </td>
-                          <td className="px-4 py-3 text-slate-500">
-                            {editedByLabel}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-3 text-slate-700 whitespace-pre-line">
-                            {note.content}
-                          </td>
-                          <td className="px-4 py-3 text-slate-500">
-                            {note.created_at
-                              ? new Date(note.created_at).toLocaleDateString("en-US")
-                              : ""}
-                          </td>
-                          <td className="px-4 py-3 text-slate-500">
-                            {note.user_id ? "Team member" : "Unknown user"}
-                          </td>
-                        </>
-                      )}
-                      <td className="px-4 py-3">
-                        <form action={deleteNote}>
-                          <input type="hidden" name="note_id" value={note.id} />
-                          <ConfirmDelete
-                            name={
-                              (note.content || "")
-                                .replace(/\s+/g, " ")
-                                .trim()
-                                .slice(0, 40) || "this"
-                            }
-                            itemType="Note"
-                          />
-                        </form>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td
-                    className="px-4 py-6 text-slate-500"
-                    colSpan={supportsNotePages ? 6 : 5}
-                  >
-                    No notes found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <NotesView
+        notes={(notes || []) as NoteRow[]}
+        supportsNotePages={supportsNotePages}
+        clients={(clients || []) as { id: string; name: string }[]}
+        users={
+          (users || []) as { id: string; full_name: string | null; email: string | null }[]
+        }
+        editorLabelsById={editorLabelsById}
+        initialFilters={{
+          client: selectedClientIds,
+          user: selectedUserIds,
+          dateFrom,
+          dateTo,
+        }}
+        onDelete={deleteNote}
+      />
     </div>
   );
 }

@@ -219,3 +219,81 @@ export function FilterMenuText({
   );
 }
 
+export function FilterMenuDateRange({
+  title,
+  from,
+  to,
+  onApply,
+  onClear,
+}: {
+  title: string;
+  from: string;
+  to: string;
+  onApply: (next: { from: string; to: string }) => void;
+  onClear: () => void;
+}) {
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+
+  return (
+    <div className="w-80 rounded-md border border-slate-200 bg-white shadow-lg">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+          {title}
+        </p>
+        <button
+          type="button"
+          className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+          onClick={() => {
+            setDraftFrom("");
+            setDraftTo("");
+            onClear();
+          }}
+        >
+          Clear
+        </button>
+      </div>
+      <div className="p-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1 text-xs font-semibold text-slate-600">
+            <span className="block">From</span>
+            <input
+              type="date"
+              value={draftFrom}
+              onChange={(event) => setDraftFrom(event.target.value)}
+              className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-semibold text-slate-600">
+            <span className="block">To</span>
+            <input
+              type="date"
+              value={draftTo}
+              onChange={(event) => setDraftTo(event.target.value)}
+              className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            onClick={() => {
+              setDraftFrom(from);
+              setDraftTo(to);
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+            onClick={() => onApply({ from: draftFrom, to: draftTo })}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
