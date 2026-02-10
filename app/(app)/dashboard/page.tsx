@@ -142,15 +142,49 @@ export default async function DashboardPage(props: {
     .select("id,name")
     .order("name", { ascending: true });
 
-  let assignedProjectIds: string[] = [];
+  let visibleProjectIds: string[] = [];
+  let watchedProjectIds: string[] = [];
+  let explicitTaskIds: string[] = [];
+
   if (!isAdmin) {
-    const { data: assignments } = await supabase
-      .from("project_users")
-      .select("project_id")
-      .eq("user_id", currentUserId);
-    assignedProjectIds = (assignments || [])
+    const [{ data: assignments }, { data: projectWatchers }] = await Promise.all([
+      supabase
+        .from("project_users")
+        .select("project_id")
+        .eq("user_id", currentUserId),
+      supabase
+        .from("project_watchers")
+        .select("project_id")
+        .eq("user_id", currentUserId),
+    ]);
+
+    watchedProjectIds = (projectWatchers || [])
+      .map((row) => row.project_id)
+      .filter(Boolean) as string[];
+
+    const memberProjectIds = (assignments || [])
       .map((assignment) => assignment.project_id)
       .filter(Boolean) as string[];
+
+    visibleProjectIds = Array.from(new Set([...memberProjectIds, ...watchedProjectIds]));
+
+    const [{ data: taskAssignees }, { data: taskWatchers }] = await Promise.all([
+      supabase
+        .from("task_assignees")
+        .select("task_id")
+        .eq("user_id", currentUserId),
+      supabase
+        .from("task_watchers")
+        .select("task_id")
+        .eq("user_id", currentUserId),
+    ]);
+
+    explicitTaskIds = Array.from(
+      new Set([
+        ...(taskAssignees || []).map((row) => row.task_id).filter(Boolean),
+        ...(taskWatchers || []).map((row) => row.task_id).filter(Boolean),
+      ])
+    ) as string[];
   }
   let projects: Array<{
     id: string;
@@ -160,14 +194,14 @@ export default async function DashboardPage(props: {
     updated_at?: string | null;
   }> = [];
 
-  if (isAdmin || assignedProjectIds.length) {
+  if (isAdmin || visibleProjectIds.length) {
     let projectsQuery = supabase
       .from("projects")
       .select("id,name,status,client_id,updated_at")
       .order("name", { ascending: true });
 
     if (!isAdmin) {
-      projectsQuery = projectsQuery.in("id", assignedProjectIds);
+      projectsQuery = projectsQuery.in("id", visibleProjectIds);
     }
 
     const { data: projectData } = await projectsQuery;
@@ -220,7 +254,7 @@ export default async function DashboardPage(props: {
     clients?: { id?: string | null; name?: string | null } | { id?: string | null; name?: string | null }[] | null;
   }> = [];
 
-  const canQueryTasks = isAdmin || assignedProjectIds.length > 0;
+  const canQueryTasks = true;
 
   if (canQueryTasks) {
     let tasksQuery = supabase
@@ -255,7 +289,18 @@ export default async function DashboardPage(props: {
     }
 
     if (!isAdmin) {
-      tasksQuery = tasksQuery.in("project_id", assignedProjectIds);
+      const orParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
+
+      if (explicitTaskIds.length) {
+        orParts.push(`id.in.(${explicitTaskIds.join(",")})`);
+      }
+
+      // If a user watches a project, include its tasks in dashboard visibility.
+      if (watchedProjectIds.length) {
+        orParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
+      }
+
+      tasksQuery = tasksQuery.or(orParts.join(","));
     }
 
     const { data: taskData } = await tasksQuery;
@@ -544,8 +589,18 @@ export default async function DashboardPage(props: {
     activityQuery = activityQuery.gte("created_at", rangeStart).lte("created_at", now.toISOString());
   }
 
-  if (!isAdmin && assignedProjectIds.length) {
-    activityQuery = activityQuery.in("project_id", assignedProjectIds);
+  if (!isAdmin) {
+    const orParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
+
+    if (explicitTaskIds.length) {
+      orParts.push(`id.in.(${explicitTaskIds.join(",")})`);
+    }
+
+    if (watchedProjectIds.length) {
+      orParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
+    }
+
+    activityQuery = activityQuery.or(orParts.join(","));
   }
 
   const { data: recentTasks } = await activityQuery;
