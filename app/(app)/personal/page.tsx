@@ -422,9 +422,12 @@ export default async function PersonalHome(props: {
           </div>
         </details>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Create page</h2>
-          <form action={createPage} className="mt-4 grid gap-4 md:grid-cols-2">
+        <details className="rounded-lg border border-slate-200 bg-white">
+          <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
+            Create page
+          </summary>
+          <div className="border-t border-slate-200 p-6">
+            <form action={createPage} className="grid gap-4 md:grid-cols-2">
             <input
               name="title"
               placeholder="Page title"
@@ -503,7 +506,8 @@ export default async function PersonalHome(props: {
               Create page
             </button>
           </form>
-        </section>
+          </div>
+        </details>
 
         <section className="rounded-lg border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">
