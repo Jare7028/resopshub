@@ -95,7 +95,7 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen app-bg text-slate-900">
       <div className="flex min-h-screen">
-        <aside className="w-64 border-r app-border app-surface">
+        <aside className="flex w-64 flex-col border-r app-border app-surface">
           <div className="px-6 py-6">
             <Link href="/clients" className="flex items-center">
               <Image
@@ -107,7 +107,7 @@ export default async function AppLayout({
               />
             </Link>
           </div>
-          <nav className="px-3">
+          <nav className="flex-1 px-3">
             <div className="space-y-1">
               {navLinks.map((link) => (
                 <Link
@@ -124,6 +124,29 @@ export default async function AppLayout({
               pages={personalPages || []}
             />
           </nav>
+          <div className="px-3 pb-4">
+            <Link
+              href="/settings"
+              className="group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+              aria-label="Settings"
+              title="Settings"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+              >
+                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a8.8 8.8 0 0 0-1.7-1l-.4-2.7H9.1l-.4 2.7a8.8 8.8 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 13a7.9 7.9 0 0 0-.1 1 7.9 7.9 0 0 0 .1 1L2.5 16.6l2 3.4 2.5-1a8.8 8.8 0 0 0 1.7 1l.4 2.7h5.8l.4-2.7a8.8 8.8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 15Z" />
+              </svg>
+              <span>Settings</span>
+            </Link>
+          </div>
         </aside>
 
         <div className="flex min-h-screen flex-1 flex-col">

@@ -81,7 +81,37 @@ export async function GET(request: Request) {
     dedupe_key: `task:${task.id}:overdue:${task.due_date ?? today}`,
   }));
 
-  const allNotifications = [...dueNotifications, ...overdueNotifications];
+  const userIds = Array.from(
+    new Set(
+      [...dueNotifications, ...overdueNotifications]
+        .map((n) => n.user_id)
+        .filter(Boolean)
+    )
+  );
+
+  const { data: prefsRows } = userIds.length
+    ? await supabase
+        .from("user_notification_preferences")
+        .select("user_id,task_due_today,task_overdue")
+        .in("user_id", userIds)
+    : { data: [] as Array<{ user_id: string; task_due_today: boolean | null; task_overdue: boolean | null }> };
+
+  const prefsByUser = new Map(
+    (prefsRows || []).map((row) => [row.user_id, row])
+  );
+
+  const shouldSend = (userId: string, key: "task_due_today" | "task_overdue") => {
+    // If no row exists yet, default to "on" (matches default column values).
+    const row = prefsByUser.get(userId);
+    if (!row) return true;
+    const value = row[key];
+    return value !== false;
+  };
+
+  const allNotifications = [
+    ...dueNotifications.filter((n) => shouldSend(n.user_id, "task_due_today")),
+    ...overdueNotifications.filter((n) => shouldSend(n.user_id, "task_overdue")),
+  ];
   if (!allNotifications.length) {
     return NextResponse.json({
       ok: true,
