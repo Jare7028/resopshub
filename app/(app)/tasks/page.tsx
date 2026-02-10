@@ -43,6 +43,7 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 export default async function TasksPage(props: {
   searchParams?: Promise<{
     tab?: string;
+    view?: string;
     status?: string | string[];
     priority?: string | string[];
     assignee?: string | string[];
@@ -58,6 +59,12 @@ export default async function TasksPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+
+  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const selectedView: "table" | "gantt" | "board" =
+    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
+      ? (viewRaw as "table" | "gantt" | "board")
+      : "table";
 
   const sortKey = normalizeTaskSortKey(searchParams?.sort as string | undefined);
   const sortDir = normalizeTaskSortDir(searchParams?.dir as string | undefined);
@@ -121,6 +128,9 @@ export default async function TasksPage(props: {
   returnParams.set("hide", hideCompleted ? "1" : "0");
   returnParams.set("sort", sortKey);
   returnParams.set("dir", sortDir);
+  if (selectedView !== "table") {
+    returnParams.set("view", selectedView);
+  }
 
   const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
   const toggleParams = new URLSearchParams(returnParams);
@@ -641,6 +651,7 @@ export default async function TasksPage(props: {
             toggleUrl={toggleUrl}
             sortKey={sortKey}
             sortDir={sortDir}
+            initialView={selectedView}
           />
         </section>
       ) : null}

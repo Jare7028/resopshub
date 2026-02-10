@@ -55,6 +55,7 @@ type TasksViewProps = {
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   dueOptions: readonly { value: string; label: string }[];
+  initialView?: "table" | "gantt" | "board";
   initialFilters: {
     status: string[];
     priority: string[];
@@ -113,6 +114,7 @@ export default function TasksView({
   statusOptions,
   priorityOptions,
   dueOptions,
+  initialView = "table",
   initialFilters,
   onUpdate,
   hideCompleted,
@@ -120,7 +122,7 @@ export default function TasksView({
   sortKey,
   sortDir,
 }: TasksViewProps) {
-  const [view, setView] = useState<"table" | "gantt" | "board">("table");
+  const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
@@ -163,7 +165,12 @@ export default function TasksView({
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
 
-  const buildQuery = (next: typeof filters, nextSortKey: TaskSortKey, nextSortDir: TaskSortDir) => {
+  const buildQuery = (
+    next: typeof filters,
+    nextSortKey: TaskSortKey,
+    nextSortDir: TaskSortDir,
+    nextView: typeof view
+  ) => {
     const params = new URLSearchParams();
     setCsvParam(params, "status", next.status);
     setCsvParam(params, "priority", next.priority);
@@ -174,12 +181,15 @@ export default function TasksView({
     params.set("hide", hideCompleted ? "1" : "0");
     params.set("sort", nextSortKey);
     params.set("dir", nextSortDir);
+    if (nextView !== "table") {
+      params.set("view", nextView);
+    }
     return params.toString();
   };
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);
-    const query = buildQuery(next, sortKey, sortDir);
+    const query = buildQuery(next, sortKey, sortDir, view);
     startTransition(() => {
       router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
     });
@@ -188,8 +198,16 @@ export default function TasksView({
   const buildSortUrl = (key: TaskSortKey) => {
     const nextDir: TaskSortDir =
       sortKey === key && sortDir === "asc" ? "desc" : "asc";
-    const query = buildQuery(filters, key, nextDir);
+    const query = buildQuery(filters, key, nextDir, view);
     return query ? `/tasks?${query}` : "/tasks";
+  };
+
+  const applyView = (nextView: typeof view) => {
+    setView(nextView);
+    const query = buildQuery(filters, sortKey, sortDir, nextView);
+    startTransition(() => {
+      router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
+    });
   };
 
   const headerClass = (key: TaskSortKey) =>
@@ -311,7 +329,7 @@ export default function TasksView({
         <div className="flex items-center gap-2 text-sm">
           <button
             type="button"
-            onClick={() => setView("table")}
+            onClick={() => applyView("table")}
             className={`rounded-md px-3 py-1.5 font-semibold ${
               view === "table"
                 ? "bg-slate-900 text-white"
@@ -322,7 +340,7 @@ export default function TasksView({
           </button>
           <button
             type="button"
-            onClick={() => setView("gantt")}
+            onClick={() => applyView("gantt")}
             className={`rounded-md px-3 py-1.5 font-semibold ${
               view === "gantt"
                 ? "bg-slate-900 text-white"
@@ -333,7 +351,7 @@ export default function TasksView({
           </button>
           <button
             type="button"
-            onClick={() => setView("board")}
+            onClick={() => applyView("board")}
             className={`rounded-md px-3 py-1.5 font-semibold ${
               view === "board"
                 ? "bg-slate-900 text-white"
