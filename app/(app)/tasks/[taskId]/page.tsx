@@ -5,6 +5,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import TaskNotesEditorClient from "./TaskNotesEditorClient";
+import TaskTabs, {
+  normalizeTaskTabKey,
+  type TaskTabKey,
+} from "./_components/TaskTabs";
 import {
   TASK_STATUS_OPTIONS,
   formatTaskStatusLabel,
@@ -17,7 +21,7 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function TaskDetailPage(props: {
   params: Promise<{ taskId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; tab?: string }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
@@ -35,11 +39,32 @@ export default async function TaskDetailPage(props: {
   }
 
   const taskId = task.id;
+  const activeTab = normalizeTaskTabKey(searchParams?.tab);
   const taskStatus = task.status;
   const taskPriority = task.priority;
   const taskClientId = task.client_id;
   const taskProjectId = task.project_id;
   const taskAssigneeUserId = task.assignee_user_id;
+
+  const buildTaskUrl = (
+    tab: TaskTabKey,
+    params?: { error?: string; success?: string }
+  ) => {
+    const sp = new URLSearchParams();
+
+    if (tab !== "details") {
+      sp.set("tab", tab);
+    }
+    if (params?.error) {
+      sp.set("error", params.error);
+    }
+    if (params?.success) {
+      sp.set("success", params.success);
+    }
+
+    const qs = sp.toString();
+    return qs ? `/tasks/${taskId}?${qs}` : `/tasks/${taskId}`;
+  };
 
   const getRelationName = (
     relation:
@@ -126,7 +151,7 @@ export default async function TaskDetailPage(props: {
     const assignee = String(formData.get("assignee_user_id") || "");
 
     if (!title) {
-      redirect(`/tasks/${taskId}?error=Task%20name%20is%20required`);
+      redirect(buildTaskUrl("details", { error: "Task name is required" }));
     }
 
     const { error } = await supabase
@@ -143,11 +168,11 @@ export default async function TaskDetailPage(props: {
       .eq("id", taskId);
 
     if (error) {
-      redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
+      redirect(buildTaskUrl("details", { error: error.message }));
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(`/tasks/${taskId}?success=Saved`);
+    redirect(buildTaskUrl("details", { success: "Saved" }));
   }
 
   async function updateTaskAssignees(formData: FormData) {
@@ -168,7 +193,7 @@ export default async function TaskDetailPage(props: {
       }));
       const { error } = await supabase.from("task_assignees").insert(inserts);
       if (error) {
-        redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
+        redirect(buildTaskUrl("assignees", { error: error.message }));
       }
     }
 
@@ -179,12 +204,12 @@ export default async function TaskDetailPage(props: {
         .update({ assignee_user_id: primaryAssignee })
         .eq("id", taskId);
       if (updateError) {
-        redirect(`/tasks/${taskId}?error=${encodeURIComponent(updateError.message)}`);
+        redirect(buildTaskUrl("assignees", { error: updateError.message }));
       }
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(`/tasks/${taskId}?success=Assignees%20updated`);
+    redirect(buildTaskUrl("assignees", { success: "Assignees updated" }));
   }
 
   async function updateTaskWatchers(formData: FormData) {
@@ -205,12 +230,12 @@ export default async function TaskDetailPage(props: {
       }));
       const { error } = await supabase.from("task_watchers").insert(inserts);
       if (error) {
-        redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
+        redirect(buildTaskUrl("watchers", { error: error.message }));
       }
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(`/tasks/${taskId}?success=Watchers%20updated`);
+    redirect(buildTaskUrl("watchers", { success: "Watchers updated" }));
   }
 
   async function createSubtask(formData: FormData) {
@@ -233,7 +258,7 @@ export default async function TaskDetailPage(props: {
       .filter(Boolean);
 
     if (!title) {
-      redirect(`/tasks/${taskId}?error=Subtask%20title%20is%20required`);
+      redirect(buildTaskUrl("subtasks", { error: "Subtask title is required" }));
     }
 
     const primaryAssignee =
@@ -264,7 +289,7 @@ export default async function TaskDetailPage(props: {
       .single();
 
     if (error) {
-      redirect(`/tasks/${taskId}?error=${encodeURIComponent(error.message)}`);
+      redirect(buildTaskUrl("subtasks", { error: error.message }));
     }
 
     const subtaskId = created?.id;
@@ -281,13 +306,13 @@ export default async function TaskDetailPage(props: {
           .from("task_assignees")
           .insert(inserts);
         if (assigneeError) {
-          redirect(`/tasks/${taskId}?error=${encodeURIComponent(assigneeError.message)}`);
+          redirect(buildTaskUrl("subtasks", { error: assigneeError.message }));
         }
       }
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(`/tasks/${taskId}?success=Subtask%20created`);
+    redirect(buildTaskUrl("subtasks", { success: "Subtask created" }));
   }
 
   return (
@@ -300,15 +325,23 @@ export default async function TaskDetailPage(props: {
         <div className="text-sm text-slate-600">
           <p>
             Client:{" "}
-            <Link href={`/clients/${task.client_id}`} className="hover:underline">
-              {getRelationName(task.clients, "View client")}
-            </Link>
+            {task.client_id ? (
+              <Link href={`/clients/${task.client_id}`} className="hover:underline">
+                {getRelationName(task.clients, "View client")}
+              </Link>
+            ) : (
+              <span className="text-slate-500">--</span>
+            )}
           </p>
           <p>
             Project:{" "}
-            <Link href={`/projects/${task.project_id}`} className="hover:underline">
-              {getRelationName(task.projects, "View project")}
-            </Link>
+            {task.project_id ? (
+              <Link href={`/projects/${task.project_id}`} className="hover:underline">
+                {getRelationName(task.projects, "View project")}
+              </Link>
+            ) : (
+              <span className="text-slate-500">--</span>
+            )}
           </p>
         </div>
       </section>
@@ -328,11 +361,14 @@ export default async function TaskDetailPage(props: {
         </div>
       )}
 
-      <details className="rounded-lg border border-slate-200 bg-white">
-        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-          Task details
-        </summary>
-        <div className="border-t border-slate-200 px-6 pb-6">
+      <TaskTabs taskId={taskId} active={activeTab} />
+
+      {activeTab === "details" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Task details</h2>
+          </div>
+          <div className="px-6 pb-6">
           <form action={updateTask} className="mt-4 grid gap-4 md:grid-cols-4">
             <input
               name="title"
@@ -450,13 +486,15 @@ export default async function TaskDetailPage(props: {
             </button>
           </form>
         </div>
-      </details>
+      </section>
+    ) : null}
 
-      <details className="rounded-lg border border-slate-200 bg-white">
-        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-          Task assignees
-        </summary>
-        <div className="border-t border-slate-200 px-6 pb-6">
+      {activeTab === "assignees" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Task assignees</h2>
+          </div>
+          <div className="px-6 pb-6">
           {users?.length ? (
             <form action={updateTaskAssignees} className="mt-4 space-y-4">
               <div className="grid gap-2 sm:grid-cols-2">
@@ -486,13 +524,15 @@ export default async function TaskDetailPage(props: {
             <p className="mt-4 text-sm text-slate-500">No users found.</p>
           )}
         </div>
-      </details>
+      </section>
+    ) : null}
 
-      <details className="rounded-lg border border-slate-200 bg-white">
-        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-          Task watchers
-        </summary>
-        <div className="border-t border-slate-200 px-6 pb-6">
+      {activeTab === "watchers" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Task watchers</h2>
+          </div>
+          <div className="px-6 pb-6">
           <p className="mt-4 text-sm text-slate-600">
             Watchers can view and edit this task without being an assignee.
           </p>
@@ -525,13 +565,15 @@ export default async function TaskDetailPage(props: {
             <p className="mt-4 text-sm text-slate-500">No users found.</p>
           )}
         </div>
-      </details>
+      </section>
+    ) : null}
 
-      <details className="rounded-lg border border-slate-200 bg-white">
-        <summary className="cursor-pointer select-none px-6 py-4 text-lg font-semibold text-slate-900">
-          Add subtask
-        </summary>
-        <div className="border-t border-slate-200 px-6 pb-6">
+      {activeTab === "subtasks" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Add subtask</h2>
+          </div>
+          <div className="px-6 pb-6">
           <form action={createSubtask} className="mt-4 grid gap-4 md:grid-cols-5">
             <div className="grid gap-1 md:col-span-2">
               <label
@@ -655,13 +697,15 @@ export default async function TaskDetailPage(props: {
             </button>
           </form>
         </div>
-      </details>
+      </section>
+    ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Subtasks</h2>
-        </div>
-        <div className="overflow-x-auto">
+      {activeTab === "subtasks" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Subtasks</h2>
+          </div>
+          <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -716,12 +760,15 @@ export default async function TaskDetailPage(props: {
           </table>
         </div>
       </section>
-      <TaskNotesEditorClient
-        taskId={task.id}
-        initialContent={task.content ?? null}
-        lastEditedAtLabel={lastEditedAtLabel}
-        lastEditedByLabel={lastEditedByLabel}
-      />
+      ) : null}
+      {activeTab === "notes" ? (
+        <TaskNotesEditorClient
+          taskId={task.id}
+          initialContent={task.content ?? null}
+          lastEditedAtLabel={lastEditedAtLabel}
+          lastEditedByLabel={lastEditedByLabel}
+        />
+      ) : null}
     </div>
   );
 }
