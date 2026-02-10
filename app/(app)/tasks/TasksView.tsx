@@ -589,8 +589,11 @@ export default function TasksView({
                     {todayMarker ? (
                       <div
                         aria-hidden="true"
-                        className="pointer-events-none absolute inset-y-0 border-l border-dashed border-slate-300/60"
-                        style={{ left: `${todayMarker.leftPercent}%` }}
+                        className="pointer-events-none absolute inset-y-0 border-l border-dashed opacity-60"
+                        style={{
+                          left: `${todayMarker.leftPercent}%`,
+                          borderColor: "#6954e2",
+                        }}
                       />
                     ) : null}
                     {timelineTicks.map((tick) => (
@@ -628,8 +631,11 @@ export default function TasksView({
                         {todayMarker ? (
                           <div
                             aria-hidden="true"
-                            className="pointer-events-none absolute inset-y-0 border-l border-dashed border-slate-300/60"
-                            style={{ left: `${todayMarker.leftPercent}%` }}
+                            className="pointer-events-none absolute inset-y-0 border-l border-dashed opacity-60"
+                            style={{
+                              left: `${todayMarker.leftPercent}%`,
+                              borderColor: "#6954e2",
+                            }}
                           />
                         ) : null}
                         <Link
