@@ -73,6 +73,7 @@ type TasksViewProps = {
   toggleUrl: string;
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
+  basePath?: string;
 };
 
 const statusColors: Record<string, string> = {
@@ -127,6 +128,7 @@ export default function TasksView({
   toggleUrl,
   sortKey,
   sortDir,
+  basePath = "/tasks",
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const router = useRouter();
@@ -198,7 +200,7 @@ export default function TasksView({
     setFilters(next);
     const query = buildQuery(next, sortKey, sortDir, view, hideCompleted);
     startTransition(() => {
-      router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
+      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
   };
 
@@ -206,14 +208,14 @@ export default function TasksView({
     const nextDir: TaskSortDir =
       sortKey === key && sortDir === "asc" ? "desc" : "asc";
     const query = buildQuery(filters, key, nextDir, view, hideCompleted);
-    return query ? `/tasks?${query}` : "/tasks";
+    return query ? `${basePath}?${query}` : basePath;
   };
 
   const applyView = (nextView: typeof view) => {
     setView(nextView);
     const query = buildQuery(filters, sortKey, sortDir, nextView, hideCompleted);
     startTransition(() => {
-      router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
+      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
   };
 
@@ -338,7 +340,7 @@ export default function TasksView({
                 !hideCompleted
               );
               startTransition(() => {
-                router.replace(query ? `/tasks?${query}` : "/tasks", { scroll: false });
+                router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
               });
             }}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"

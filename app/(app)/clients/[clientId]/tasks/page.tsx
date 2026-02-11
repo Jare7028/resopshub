@@ -5,9 +5,11 @@ import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
-import ClientTaskInlineRow from "./ClientTaskInlineRow";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import {
   TASK_STATUS_OPTIONS,
+  coerceTaskStatusList,
+  expandTaskStatusFilterForQuery,
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
@@ -20,6 +22,7 @@ import {
 import { updateTaskInlineAction } from "../../../tasks/actions";
 import AssigneeMultiSelect from "../../../tasks/_components/AssigneeMultiSelect";
 import RecurrenceFields from "../../../tasks/_components/RecurrenceFields";
+import TasksView from "../../../tasks/TasksView";
 import {
   DEFAULT_RECURRENCE_TZ,
   getFirstOccurrence,
@@ -29,6 +32,12 @@ import {
 
 const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
+const dueDateFilters = [
+  { value: "all", label: "All" },
+  { value: "overdue", label: "Overdue" },
+  { value: "next_7", label: "Next 7 days" },
+  { value: "none", label: "No due date" },
+] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function ClientTasksPage(props: {
@@ -36,6 +45,13 @@ export default async function ClientTasksPage(props: {
   searchParams?: Promise<{
     error?: string;
     success?: string;
+    status?: string | string[];
+    priority?: string | string[];
+    assignee?: string | string[];
+    due?: string;
+    project?: string | string[];
+    hide?: string;
+    view?: string;
     sort?: string;
     dir?: string;
     create_mode?: string;
@@ -46,7 +62,12 @@ export default async function ClientTasksPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
-  const returnTo = `/clients/${clientId}/tasks`;
+  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
+  const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
+  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
+  const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
+  let selectedDue = (searchParams?.due || "all").trim();
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
 
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
@@ -57,6 +78,11 @@ export default async function ClientTasksPage(props: {
 
   const sortKey = normalizeTaskSortKey(searchParams?.sort);
   const sortDir = normalizeTaskSortDir(searchParams?.dir);
+  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const selectedView: "table" | "gantt" | "board" =
+    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
+      ? (viewRaw as "table" | "gantt" | "board")
+      : "table";
   const { data: client } = await supabase
     .from("clients")
     .select("id,name")
@@ -65,6 +91,12 @@ export default async function ClientTasksPage(props: {
 
   if (!client) {
     notFound();
+  }
+  const allowedDueValues = new Set<string>(
+    dueDateFilters.map((filter) => filter.value)
+  );
+  if (!allowedDueValues.has(selectedDue)) {
+    selectedDue = "all";
   }
 
   const { data: projects } = await supabase
@@ -78,14 +110,87 @@ export default async function ClientTasksPage(props: {
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
 
-  const { data: tasks } = await supabase
+  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw);
+  const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
+    priorityOptions.includes(priority as (typeof priorityOptions)[number])
+  );
+  const userIdSet = new Set((users || []).map((user) => user.id));
+  const selectedAssignees = selectedAssigneesRaw.filter(
+    (value) => value === "unassigned" || userIdSet.has(value)
+  );
+  const projectIdSet = new Set((projects || []).map((project) => project.id));
+  const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
+
+  const returnParams = new URLSearchParams();
+  setCsvParam(returnParams, "status", selectedStatuses);
+  setCsvParam(returnParams, "priority", selectedPriorities);
+  setCsvParam(returnParams, "assignee", selectedAssignees);
+  if (selectedDue !== "all") {
+    returnParams.set("due", selectedDue);
+  }
+  setCsvParam(returnParams, "project", selectedProjectIds);
+  returnParams.set("hide", hideCompleted ? "1" : "0");
+  returnParams.set("sort", sortKey);
+  returnParams.set("dir", sortDir);
+  if (selectedView !== "table") {
+    returnParams.set("view", selectedView);
+  }
+  const returnTo = returnParams.toString()
+    ? `/clients/${clientId}/tasks?${returnParams}`
+    : `/clients/${clientId}/tasks`;
+  const toggleParams = new URLSearchParams(returnParams);
+  toggleParams.set("hide", hideCompleted ? "0" : "1");
+  const toggleUrl = toggleParams.toString()
+    ? `/clients/${clientId}/tasks?${toggleParams}`
+    : `/clients/${clientId}/tasks`;
+
+  let tasksRequest = supabase
     .from("tasks")
     .select(
-      "id,title,status,priority,start_date,due_date,assignee_user_id,project_id,projects(name)"
+      "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
     )
     .eq("client_id", clientId)
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
+  if (selectedStatuses.length) {
+    tasksRequest = tasksRequest.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
+  }
+  if (selectedPriorities.length) {
+    tasksRequest = tasksRequest.in("priority", selectedPriorities);
+  }
+  const wantsUnassigned = selectedAssignees.includes("unassigned");
+  const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
+  if (wantsUnassigned && selectedAssigneeIds.length) {
+    tasksRequest = tasksRequest.or(
+      `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
+    );
+  } else if (wantsUnassigned) {
+    tasksRequest = tasksRequest.is("assignee_user_id", null);
+  } else if (selectedAssigneeIds.length) {
+    tasksRequest = tasksRequest.in("assignee_user_id", selectedAssigneeIds);
+  }
+  if (selectedProjectIds.length) {
+    tasksRequest = tasksRequest.in("project_id", selectedProjectIds);
+  }
+  const wantsCompletedStatuses =
+    selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+  if (hideCompleted && !wantsCompletedStatuses) {
+    tasksRequest = tasksRequest.not("status", "in", "(completed,cancelled)");
+  }
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  if (selectedDue === "overdue") {
+    tasksRequest = tasksRequest.lt("due_date", todayIso);
+  } else if (selectedDue === "next_7") {
+    const next = new Date(today);
+    next.setDate(next.getDate() + 7);
+    const nextIso = next.toISOString().slice(0, 10);
+    tasksRequest = tasksRequest.gte("due_date", todayIso).lte("due_date", nextIso);
+  } else if (selectedDue === "none") {
+    tasksRequest = tasksRequest.is("due_date", null);
+  }
+
+  const { data: tasks } = await tasksRequest;
 
   const taskIds = (tasks || []).map((task) => task.id).filter(Boolean);
   const assigneesByTask: Record<string, string[]> = {};
@@ -141,25 +246,6 @@ export default async function ClientTasksPage(props: {
       }
     }
   }
-
-  const buildSortUrl = (key: ReturnType<typeof normalizeTaskSortKey>) => {
-    const params = new URLSearchParams();
-    const nextDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
-    params.set("sort", key);
-    params.set("dir", nextDir);
-    const query = params.toString();
-    return query ? `/clients/${clientId}/tasks?${query}` : `/clients/${clientId}/tasks`;
-  };
-
-  const sortIndicator = (key: ReturnType<typeof normalizeTaskSortKey>) => {
-    if (sortKey !== key) return null;
-    return (
-      <span aria-hidden="true" className="text-[10px] text-slate-400">
-        {sortDir === "asc" ? "▲" : "▼"}
-      </span>
-    );
-  };
-
   type TaskTemplateRow = {
     id: string;
     name: string;
@@ -566,109 +652,42 @@ export default async function ClientTasksPage(props: {
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("title")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Task
-                    {sortIndicator("title")}
-                  </a>
-                </th>
-                <th className="px-6 py-3 text-right">Open subtasks</th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("project")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Project
-                    {sortIndicator("project")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("assignees")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Assignee
-                    {sortIndicator("assignees")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("status")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Status
-                    {sortIndicator("status")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("priority")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Priority
-                    {sortIndicator("priority")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("start")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Start
-                    {sortIndicator("start")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("due")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Due
-                    {sortIndicator("due")}
-                  </a>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTasks?.length ? (
-                sortedTasks.map((task) => (
-                  <ClientTaskInlineRow
-                    key={task.id}
-                    task={task}
-                    openSubtaskCount={openSubtaskCountByTaskId[task.id] ?? 0}
-                    assigneeUserIds={assigneesByTask[task.id] || []}
-                    users={users || []}
-                    projects={projects || []}
-                    statusOptions={statusOptions}
-                    priorityOptions={priorityOptions}
-                    onUpdate={updateTaskInline}
-                    returnTo={returnTo}
-                  />
-                ))
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={8}>
-                    No tasks yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <TasksView
+          tasks={sortedTasks || []}
+          users={users || []}
+          clients={[client]}
+          projects={(projects || []).map((project) => ({
+            ...project,
+            client_id: client.id,
+            clients: [{ name: client.name }],
+          }))}
+          assigneesByTask={assigneesByTask}
+          openSubtaskCountByTaskId={openSubtaskCountByTaskId}
+          statusOptions={statusOptions}
+          priorityOptions={priorityOptions}
+          dueOptions={dueDateFilters}
+          initialView={selectedView}
+          returnTo={returnTo}
+          initialFilters={{
+            status: selectedStatuses,
+            priority: selectedPriorities,
+            assignee: selectedAssignees,
+            due: selectedDue,
+            client: [client.id],
+            project: selectedProjectIds,
+          }}
+          onUpdate={updateTaskInline}
+          hideCompleted={hideCompleted}
+          toggleUrl={toggleUrl}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          basePath={`/clients/${clientId}/tasks`}
+        />
       </section>
     </div>
   );
 }
+
 
 
 

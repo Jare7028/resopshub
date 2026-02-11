@@ -28,6 +28,7 @@ export default function ProjectsTable({
   hideCompleted,
   openTaskCountByProjectId,
   onUpdate,
+  basePath = "/projects",
 }: {
   projects: ProjectRow[];
   clients: ClientOption[];
@@ -36,6 +37,7 @@ export default function ProjectsTable({
   hideCompleted: boolean;
   openTaskCountByProjectId: Record<string, number>;
   onUpdate: (formData: FormData) => void;
+  basePath?: string;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -82,7 +84,7 @@ export default function ProjectsTable({
     setFilters(next);
     const query = buildQuery(next);
     startTransition(() => {
-      router.replace(query ? `/projects?${query}` : "/projects", { scroll: false });
+      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
   };
 

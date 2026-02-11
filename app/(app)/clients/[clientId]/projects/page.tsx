@@ -5,8 +5,10 @@ import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import ProjectsTable from "../../../projects/ProjectsTable";
 
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
@@ -37,6 +39,9 @@ export default async function ClientProjectsPage(props: {
   params: Promise<{ clientId: string }>;
   searchParams?: Promise<{
     error?: string;
+    client?: string | string[];
+    status?: string | string[];
+    hide?: string;
     create_mode?: string;
     template_project_id?: string;
   }>;
@@ -45,6 +50,11 @@ export default async function ClientProjectsPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+  const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
+  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const returnParams = new URLSearchParams();
+  returnParams.set("hide", hideCompleted ? "1" : "0");
 
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
@@ -73,6 +83,20 @@ export default async function ClientProjectsPage(props: {
   if (!client) {
     notFound();
   }
+  const selectedClientIds = selectedClientIdsRaw.filter((id) => id === clientId);
+  const selectedStatuses = selectedStatusesRaw.filter((value) =>
+    statusOptions.includes(value as (typeof statusOptions)[number])
+  );
+  setCsvParam(returnParams, "client", selectedClientIds);
+  setCsvParam(returnParams, "status", selectedStatuses);
+  const returnTo = returnParams.toString()
+    ? `/clients/${clientId}/projects?${returnParams}`
+    : `/clients/${clientId}/projects`;
+  const toggleParams = new URLSearchParams(returnParams);
+  toggleParams.set("hide", hideCompleted ? "0" : "1");
+  const toggleUrl = toggleParams.toString()
+    ? `/clients/${clientId}/projects?${toggleParams}`
+    : `/clients/${clientId}/projects`;
 
   let projects: Array<{
     id: string;
@@ -80,16 +104,26 @@ export default async function ClientProjectsPage(props: {
     status: string | null;
     start_date: string | null;
     end_date: string | null;
+    client_id: string | null;
+    clients?: { name?: string | null } | { name?: string | null }[] | null;
   }> = [];
 
   const projectsQuery = supabase
     .from("projects")
-    .select("id,name,status,start_date,end_date")
+    .select("id,name,status,start_date,end_date,client_id,clients(name)")
     .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
+  let filteredProjectsQuery = projectsQuery;
+  if (selectedStatuses.length) {
+    filteredProjectsQuery = filteredProjectsQuery.in("status", selectedStatuses);
+  }
+  if (hideCompleted) {
+    filteredProjectsQuery = filteredProjectsQuery.not("status", "in", "(completed,cancelled)");
+  }
+
   if (isAdmin) {
-    const { data } = await projectsQuery;
+    const { data } = await filteredProjectsQuery;
     projects = data || [];
   } else if (currentUserId) {
     const { data: assignments } = await supabase
@@ -100,7 +134,7 @@ export default async function ClientProjectsPage(props: {
       .map((assignment) => assignment.project_id)
       .filter(Boolean) as string[];
     if (assignedIds.length) {
-      const { data } = await projectsQuery.in("id", assignedIds);
+      const { data } = await filteredProjectsQuery.in("id", assignedIds);
       projects = data || [];
     }
   }
@@ -383,6 +417,51 @@ export default async function ClientProjectsPage(props: {
     revalidatePath("/tasks");
   }
 
+  async function updateProjectInline(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const projectId = String(formData.get("project_id") || "").trim();
+    const formClientId = String(formData.get("client_id") || "").trim();
+    const status = String(formData.get("status") || "").trim();
+    const startDate = String(formData.get("start_date") || "").trim();
+    const endDate = String(formData.get("end_date") || "").trim();
+    const updates: Record<string, string | null> = {};
+
+    if (!projectId) {
+      const errorUrl = returnTo.includes("?")
+        ? `${returnTo}&error=Missing%20project%20id`
+        : `${returnTo}?error=Missing%20project%20id`;
+      redirect(errorUrl);
+    }
+
+    if (formData.has("client_id")) {
+      updates.client_id = formClientId || null;
+    }
+    if (formData.has("status")) {
+      updates.status = status;
+    }
+    if (formData.has("start_date")) {
+      updates.start_date = startDate || null;
+    }
+    if (formData.has("end_date")) {
+      updates.end_date = endDate || null;
+    }
+    if (!Object.keys(updates).length) {
+      redirect(returnTo);
+    }
+
+    const { error } = await supabase.from("projects").update(updates).eq("id", projectId);
+    if (error) {
+      const errorUrl = returnTo.includes("?")
+        ? `${returnTo}&error=${encodeURIComponent(error.message)}`
+        : `${returnTo}?error=${encodeURIComponent(error.message)}`;
+      redirect(errorUrl);
+    }
+
+    revalidatePath(`/clients/${clientId}/projects`);
+    redirect(returnTo);
+  }
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -558,60 +637,27 @@ export default async function ClientProjectsPage(props: {
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
+          <a
+            href={toggleUrl}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+          >
+            {hideCompleted
+              ? "Show completed & cancelled"
+              : "Hide completed & cancelled"}
+          </a>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Project</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Start</th>
-                <th className="px-6 py-3">End</th>
-                <th className="px-6 py-3 text-right">Open tasks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects?.length ? (
-                projects.map((project) => (
-                  <tr key={project.id} className="border-t border-slate-200">
-                    <td className="px-6 py-3 font-medium text-slate-900">
-                      <Link
-                        href={`/projects/${project.id}`}
-                        className="hover:underline"
-                      >
-                        {project.name}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {project.status?.replace("_", " ")}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {project.start_date
-                        ? new Date(project.start_date).toLocaleDateString("en-US")
-                        : "-"}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {project.end_date
-                        ? new Date(project.end_date).toLocaleDateString("en-US")
-                        : "-"}
-                    </td>
-                    <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
-                      {openTaskCountByProjectId[project.id] ?? 0}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={5}>
-                    No projects yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ProjectsTable
+          projects={projects || []}
+          clients={[client]}
+          statusOptions={statusOptions}
+          initialFilters={{ client: selectedClientIds, status: selectedStatuses }}
+          hideCompleted={hideCompleted}
+          openTaskCountByProjectId={openTaskCountByProjectId}
+          onUpdate={updateProjectInline}
+          basePath={`/clients/${clientId}/projects`}
+        />
       </section>
     </div>
   );
