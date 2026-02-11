@@ -87,6 +87,7 @@ export default function ChatPageClient(props: {
   initialSelectedConversationId: string | null;
   initialMessages: MessageRow[];
   initialLatestByConversationId: Record<string, LatestPreview | null>;
+  initialUnreadByConversationId: Record<string, number>;
   linkOptions: Record<LinkEntityType, Array<{ id: string; label: string }>>;
 }) {
   const {
@@ -97,6 +98,7 @@ export default function ChatPageClient(props: {
     initialSelectedConversationId,
     initialMessages,
     initialLatestByConversationId,
+    initialUnreadByConversationId,
     linkOptions,
   } = props;
 
@@ -111,6 +113,9 @@ export default function ChatPageClient(props: {
       : {}
   );
   const [latestByConversationId, setLatestByConversationId] = useState(initialLatestByConversationId);
+  const [unreadByConversationId, setUnreadByConversationId] = useState(
+    initialUnreadByConversationId
+  );
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
   const [isSending, setIsSending] = useState(false);
@@ -207,6 +212,18 @@ export default function ChatPageClient(props: {
     }));
   };
 
+  const markConversationRead = async (conversationId: string) => {
+    setUnreadByConversationId((prev) => ({
+      ...prev,
+      [conversationId]: 0,
+    }));
+    await fetch("/api/chat/conversations/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId }),
+    }).catch(() => null);
+  };
+
   const selectConversation = async (conversationId: string) => {
     setError("");
     setSuccess("");
@@ -215,9 +232,12 @@ export default function ChatPageClient(props: {
     if (!messagesByConversation[conversationId]) {
       try {
         await fetchMessages(conversationId);
+        await markConversationRead(conversationId);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load messages");
       }
+    } else {
+      await markConversationRead(conversationId);
     }
   };
 
@@ -454,8 +474,20 @@ export default function ChatPageClient(props: {
                       isActive ? "bg-slate-100" : ""
                     }`}
                   >
-                    <div className="text-sm font-semibold text-slate-900 truncate">
-                      {getConversationTitle(conversation)}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-sm font-semibold text-slate-900 truncate">
+                        {getConversationTitle(conversation)}
+                      </div>
+                      <div className="flex min-w-[52px] flex-col items-end gap-1">
+                        <div className="text-xs text-slate-500">{latest ? new Date(latest.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""}</div>
+                        {(unreadByConversationId[conversation.id] || 0) > 0 ? (
+                          <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                            {unreadByConversationId[conversation.id]}
+                          </span>
+                        ) : (
+                          <span className="h-5" />
+                        )}
+                      </div>
                     </div>
                     <div className="mt-1 line-clamp-1 text-xs text-slate-600">{latestLine}</div>
                   </button>
@@ -565,6 +597,11 @@ export default function ChatPageClient(props: {
                       ...prev,
                       [selectedConversationId]: message,
                     }));
+                    setUnreadByConversationId((prev) => ({
+                      ...prev,
+                      [selectedConversationId]: 0,
+                    }));
+                    await markConversationRead(selectedConversationId);
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Unable to send message");
                     throw err;

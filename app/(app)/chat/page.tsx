@@ -121,6 +121,13 @@ export default async function ChatPage(props: {
 
   const myMemberships = (myMembershipsRaw || []) as ConversationMemberRow[];
   const myConversationIds = myMemberships.map((row) => row.conversation_id).filter(Boolean);
+  const myLastReadByConversationId = myMemberships.reduce<Record<string, string | null>>(
+    (acc, row) => {
+      acc[row.conversation_id] = row.last_read_at || null;
+      return acc;
+    },
+    {}
+  );
 
   const { data: conversationsRaw } = myConversationIds.length
     ? await supabase
@@ -266,6 +273,29 @@ export default async function ChatPage(props: {
     })),
   } as const;
 
+  const unreadEntries = await Promise.all(
+    myConversationIds.map(async (conversationId) => {
+      const lastReadAt = myLastReadByConversationId[conversationId];
+      let query = supabase
+        .from("chat_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", conversationId)
+        .neq("sender_id", currentUserId);
+      if (lastReadAt) {
+        query = query.gt("created_at", lastReadAt);
+      }
+      const { count } = await query;
+      return [conversationId, count || 0] as const;
+    })
+  );
+  const initialUnreadByConversationId = unreadEntries.reduce<Record<string, number>>(
+    (acc, [conversationId, count]) => {
+      acc[conversationId] = count;
+      return acc;
+    },
+    {}
+  );
+
   return (
     <div className="-mx-6 -my-8 h-[calc(100vh-73px)]">
       <ChatPageClient
@@ -276,6 +306,7 @@ export default async function ChatPage(props: {
         initialSelectedConversationId={selectedConversationId}
         initialMessages={initialMessages}
         initialLatestByConversationId={latestMessageByConversationId}
+        initialUnreadByConversationId={initialUnreadByConversationId}
         linkOptions={linkOptions}
       />
     </div>
