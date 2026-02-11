@@ -30,10 +30,11 @@ const typeLabel: Record<LinkEntityType, string> = {
 
 export default function ChatComposer(props: {
   conversationId: string;
-  submitAction: (formData: FormData) => void | Promise<void>;
+  onSend: (input: { body: string; links: AttachedLink[] }) => Promise<void>;
+  isSending?: boolean;
   linkOptions: Record<LinkEntityType, LinkOption[]>;
 }) {
-  const { conversationId, submitAction, linkOptions } = props;
+  const { onSend, isSending = false, linkOptions } = props;
   const [body, setBody] = useState("");
   const [isSlashOpen, setIsSlashOpen] = useState(false);
   const [entityType, setEntityType] = useState<LinkEntityType>("task");
@@ -73,17 +74,20 @@ export default function ChatComposer(props: {
   };
 
   return (
-    <form action={submitAction} className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
-      <input type="hidden" name="conversation_id" value={conversationId} />
-      <input type="hidden" name="message_body" value={body} />
-      {attachedLinks.map((link, index) => (
-        <div key={`${link.entityType}:${link.entityId}:${index}`}>
-          <input type="hidden" name="link_entity_type" value={link.entityType} />
-          <input type="hidden" name="link_entity_id" value={link.entityId} />
-          <input type="hidden" name="link_label" value={link.label} />
-        </div>
-      ))}
-
+    <form
+      onSubmit={async (event) => {
+        event.preventDefault();
+        await onSend({
+          body,
+          links: attachedLinks,
+        });
+        setBody("");
+        setAttachedLinks([]);
+        setQuery("");
+        setEntityId("");
+      }}
+      className="space-y-3 rounded-md border border-slate-200 bg-white p-3"
+    >
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -132,9 +136,10 @@ export default function ChatComposer(props: {
         </button>
         <button
           type="submit"
+          disabled={isSending}
           className="rounded-md btn-primary px-3 py-1.5 text-xs font-semibold text-white"
         >
-          Send
+          {isSending ? "Sending..." : "Send"}
         </button>
       </div>
 
@@ -194,4 +199,3 @@ export default function ChatComposer(props: {
     </form>
   );
 }
-
