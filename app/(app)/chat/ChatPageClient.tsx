@@ -245,15 +245,7 @@ export default function ChatPageClient(props: {
   };
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden bg-slate-100 lg:grid-cols-[64px_360px_minmax(0,1fr)]">
-      <aside className="hidden border-r border-slate-200 bg-slate-50 lg:flex lg:flex-col lg:items-center lg:gap-3 lg:p-3">
-        <div className="mt-1 h-10 w-10 rounded-xl border border-slate-200 bg-white" />
-        <div className="h-10 w-10 rounded-xl border border-slate-200 bg-white" />
-        <div className="h-10 w-10 rounded-xl border border-blue-300 bg-blue-100" />
-        <div className="h-10 w-10 rounded-xl border border-slate-200 bg-white" />
-        <div className="h-10 w-10 rounded-xl border border-slate-200 bg-white" />
-      </aside>
-
+    <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden bg-slate-100 lg:grid-cols-[360px_minmax(0,1fr)]">
       <aside className="min-h-0 overflow-hidden border-r border-slate-200 bg-slate-50">
         <div className="flex h-full min-h-0 flex-col p-3">
         {error ? (
