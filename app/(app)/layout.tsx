@@ -11,6 +11,7 @@ const navLinks = [
   { href: "/clients", label: "Clients" },
   { href: "/projects", label: "Projects" },
   { href: "/tasks", label: "Tasks" },
+  { href: "/chat", label: "Chat" },
   { href: "/personal", label: "Personal" },
   { href: "/notes", label: "Notes" },
   { href: "/admin", label: "Admin" },
