@@ -256,9 +256,26 @@ export default async function ProjectTasksPage(props: {
       redirect(`/projects/${projectId}/tasks?error=Deadline%20date%20and%20time%20are%20required`);
     }
 
-    const primaryAssignee =
-      assigneeIds.find((value) => value !== "unassigned") ||
-      (assigneeUserId || "");
+    const manualAssigneeIds = Array.from(
+      new Set(assigneeIds.filter((value) => value !== "unassigned"))
+    );
+    let templateAssigneeIds: string[] = [];
+    if (templateTaskIdFromForm) {
+      const { data: templateAssigneeRows, error: templateAssigneesError } = await supabase
+        .from("task_template_assignees")
+        .select("user_id")
+        .eq("task_template_id", templateTaskIdFromForm);
+      if (templateAssigneesError && !isSupabaseMissingTableError(templateAssigneesError)) {
+        redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(templateAssigneesError.message)}`);
+      }
+      templateAssigneeIds = (templateAssigneeRows || [])
+        .map((row) => row.user_id)
+        .filter(Boolean);
+    }
+    const uniqueAssigneeIds = Array.from(
+      new Set([...manualAssigneeIds, ...templateAssigneeIds])
+    );
+    const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || "";
 
     let recurrenceConfig: RecurrenceConfig | null = null;
     let recurrenceNextDate: string | null = null;
@@ -327,9 +344,6 @@ export default async function ProjectTasksPage(props: {
     }
 
     const taskId = created?.id;
-    const uniqueAssigneeIds = Array.from(
-      new Set(assigneeIds.filter((value) => value !== "unassigned"))
-    );
     if (taskId && uniqueAssigneeIds.length) {
       const inserts = uniqueAssigneeIds.map((userId) => ({
         task_id: taskId,

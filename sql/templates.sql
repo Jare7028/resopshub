@@ -123,6 +123,18 @@ end $$;
 create index if not exists task_template_subtasks_template_id_position_idx
   on public.task_template_subtasks (task_template_id, position);
 
+-- Default assignees for a task template.
+create table if not exists public.task_template_assignees (
+  task_template_id uuid not null references public.task_templates(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
+  created_by uuid default auth.uid(),
+  created_at timestamptz not null default now(),
+  primary key (task_template_id, user_id)
+);
+
+create index if not exists task_template_assignees_user_id_idx
+  on public.task_template_assignees (user_id);
+
 -- Task templates included in a project template (ordered).
 create table if not exists public.project_template_tasks (
   id uuid primary key default gen_random_uuid(),
@@ -183,11 +195,13 @@ for each row execute function public.set_updated_at();
 grant select, insert, update, delete on table public.task_templates to authenticated;
 grant select, insert, update, delete on table public.project_templates to authenticated;
 grant select, insert, update, delete on table public.task_template_subtasks to authenticated;
+grant select, insert, update, delete on table public.task_template_assignees to authenticated;
 grant select, insert, update, delete on table public.project_template_tasks to authenticated;
 
 alter table public.task_templates enable row level security;
 alter table public.project_templates enable row level security;
 alter table public.task_template_subtasks enable row level security;
+alter table public.task_template_assignees enable row level security;
 alter table public.project_template_tasks enable row level security;
 
 -- Company-wide templates; any authenticated user can manage them.
@@ -274,6 +288,35 @@ create policy task_template_subtasks_update
 drop policy if exists task_template_subtasks_delete on public.task_template_subtasks;
 create policy task_template_subtasks_delete
   on public.task_template_subtasks
+  for delete
+  to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists task_template_assignees_select on public.task_template_assignees;
+create policy task_template_assignees_select
+  on public.task_template_assignees
+  for select
+  to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists task_template_assignees_insert on public.task_template_assignees;
+create policy task_template_assignees_insert
+  on public.task_template_assignees
+  for insert
+  to authenticated
+  with check (auth.uid() is not null);
+
+drop policy if exists task_template_assignees_update on public.task_template_assignees;
+create policy task_template_assignees_update
+  on public.task_template_assignees
+  for update
+  to authenticated
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
+
+drop policy if exists task_template_assignees_delete on public.task_template_assignees;
+create policy task_template_assignees_delete
+  on public.task_template_assignees
   for delete
   to authenticated
   using (auth.uid() is not null);

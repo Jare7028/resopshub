@@ -255,10 +255,29 @@ export default async function ClientProjectsPage(props: {
           },
           {}
         );
+        const { data: templateAssigneesRaw, error: templateAssigneesError } = await supabase
+          .from("task_template_assignees")
+          .select("task_template_id,user_id")
+          .in("task_template_id", templateTaskIds);
+        if (templateAssigneesError && !isSupabaseMissingTableError(templateAssigneesError)) {
+          redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(templateAssigneesError.message)}`);
+        }
+        const assigneeIdsByTemplateId = ((templateAssigneesError
+          ? []
+          : templateAssigneesRaw || []) as Array<{ task_template_id: string; user_id: string }>)
+          .reduce<Record<string, string[]>>((acc, row) => {
+            acc[row.task_template_id] ||= [];
+            acc[row.task_template_id].push(row.user_id);
+            return acc;
+          }, {});
 
         for (const link of links) {
           const tpl = templateTaskById[link.task_template_id];
           if (!tpl) continue;
+          const assigneeIds = Array.from(
+            new Set(assigneeIdsByTemplateId[tpl.id] || [])
+          );
+          const primaryAssignee = assigneeIds[0] || null;
 
           const { data: createdTask, error: taskError } = await supabase
             .from("tasks")
@@ -268,6 +287,7 @@ export default async function ClientProjectsPage(props: {
               title: tpl.title,
               status: normalizeTaskStatusOrDefault(String(tpl.status || "to_do")),
               priority: String(tpl.priority || "medium"),
+              assignee_user_id: primaryAssignee,
               content: DEFAULT_EDITOR_CONTENT,
               content_text: defaultContentText,
             })
@@ -280,6 +300,19 @@ export default async function ClientProjectsPage(props: {
 
           const parentTaskId = createdTask?.id;
           if (!parentTaskId) continue;
+          if (assigneeIds.length) {
+            const { error: parentAssigneesError } = await supabase
+              .from("task_assignees")
+              .insert(
+                assigneeIds.map((userId) => ({
+                  task_id: parentTaskId,
+                  user_id: userId,
+                }))
+              );
+            if (parentAssigneesError) {
+              redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(parentAssigneesError.message)}`);
+            }
+          }
 
           const { data: subtaskTemplatesRaw, error: subtaskTemplatesError } = await supabase
             .from("task_template_subtasks")
@@ -313,14 +346,30 @@ export default async function ClientProjectsPage(props: {
               priority: String(subtaskTpl.priority || "medium"),
               due_date: null,
               due_time: null,
-              assignee_user_id: null,
+              assignee_user_id: primaryAssignee,
               content: DEFAULT_EDITOR_CONTENT,
               content_text: defaultContentText,
             }));
 
-            const { error: subtaskInsertError } = await supabase.from("tasks").insert(payloads);
+            const { data: createdSubtasks, error: subtaskInsertError } = await supabase
+              .from("tasks")
+              .insert(payloads)
+              .select("id");
             if (subtaskInsertError) {
               redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(subtaskInsertError.message)}`);
+            }
+            const subtaskIds = (createdSubtasks || []).map((row) => row.id).filter(Boolean);
+            if (subtaskIds.length && assigneeIds.length) {
+              const { error: subtaskAssigneesError } = await supabase
+                .from("task_assignees")
+                .insert(
+                  subtaskIds.flatMap((subtaskId) =>
+                    assigneeIds.map((userId) => ({ task_id: subtaskId, user_id: userId }))
+                  )
+                );
+              if (subtaskAssigneesError) {
+                redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(subtaskAssigneesError.message)}`);
+              }
             }
           }
         }

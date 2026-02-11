@@ -46,6 +46,12 @@ function prefValue(value: boolean | null | undefined, fallback: boolean): boolea
   return value === false ? false : value === true ? true : fallback;
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
 export default async function SettingsPage(props: {
   searchParams?: Promise<{
     tab?: string;
@@ -83,6 +89,16 @@ export default async function SettingsPage(props: {
   if (!profile) {
     redirect("/dashboard?error=Missing%20profile");
   }
+
+  const { data: usersRaw } = await supabase
+    .from("users")
+    .select("id,full_name,email")
+    .order("full_name", { ascending: true });
+  const users = usersRaw || [];
+  const userNameById = users.reduce<Record<string, string>>((acc, row) => {
+    acc[row.id] = row.full_name || row.email || "Unknown user";
+    return acc;
+  }, {});
 
   const { data: prefsRaw } = await supabase
     .from("user_notification_preferences")
@@ -168,6 +184,11 @@ export default async function SettingsPage(props: {
     position: number;
   };
 
+  type TaskTemplateAssigneeRow = {
+    task_template_id: string;
+    user_id: string;
+  };
+
   const {
     data: taskTemplateSubtasksRaw,
     error: taskTemplateSubtasksError,
@@ -183,6 +204,11 @@ export default async function SettingsPage(props: {
     .order("project_template_id", { ascending: true })
     .order("position", { ascending: true });
 
+  const { data: taskTemplateAssigneesRaw, error: taskTemplateAssigneesError } = await supabase
+    .from("task_template_assignees")
+    .select("task_template_id,user_id")
+    .order("created_at", { ascending: true });
+
   const taskTemplateSubtasks = (taskTemplateSubtasksError
     ? []
     : taskTemplateSubtasksRaw || []) as TaskTemplateSubtaskRow[];
@@ -190,6 +216,9 @@ export default async function SettingsPage(props: {
   const projectTemplateTasks = (projectTemplateTasksError
     ? []
     : projectTemplateTasksRaw || []) as ProjectTemplateTaskRow[];
+  const taskTemplateAssignees = (taskTemplateAssigneesError
+    ? []
+    : taskTemplateAssigneesRaw || []) as TaskTemplateAssigneeRow[];
 
   const subtasksByTemplateId = taskTemplateSubtasks.reduce<Record<string, TaskTemplateSubtaskRow[]>>(
     (acc, row) => {
@@ -209,10 +238,22 @@ export default async function SettingsPage(props: {
     {}
   );
 
+  const assigneeIdsByTaskTemplateId = taskTemplateAssignees.reduce<Record<string, string[]>>(
+    (acc, row) => {
+      acc[row.task_template_id] ||= [];
+      acc[row.task_template_id].push(row.user_id);
+      return acc;
+    },
+    {}
+  );
+
   const taskTemplateById = taskTemplates.reduce<Record<string, TaskTemplateRow>>((acc, tpl) => {
     acc[tpl.id] = tpl;
     return acc;
   }, {});
+  const selectedTaskTemplateAssigneeIds = selectedTaskTemplate
+    ? assigneeIdsByTaskTemplateId[selectedTaskTemplate.id] || []
+    : [];
 
   async function updateProfile(formData: FormData) {
     "use server";
@@ -289,6 +330,14 @@ export default async function SettingsPage(props: {
     const dueTime = String(formData.get("due_time") || "").trim();
     const recurrenceFrequency = String(formData.get("recurrence_frequency") || "").trim();
     const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
+    const assigneeIds = Array.from(
+      new Set(
+        formData
+          .getAll("assignee_user_ids")
+          .map((value) => String(value).trim())
+          .filter((value) => isUuid(value))
+      )
+    );
 
     if (!name || !title) {
       redirect("/settings?tab=templates&error=Template%20name%20and%20task%20title%20are%20required");
@@ -315,6 +364,28 @@ export default async function SettingsPage(props: {
       );
     }
 
+    if (created?.id && assigneeIds.length) {
+      const { error: assigneeError } = await supabase
+        .from("task_template_assignees")
+        .insert(
+          assigneeIds.map((userId) => ({
+            task_template_id: created.id,
+            user_id: userId,
+          }))
+        );
+
+      if (assigneeError) {
+        const message = isSupabaseMissingTableError(assigneeError)
+          ? "Run sql/templates.sql to enable template assignees."
+          : assigneeError.message;
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            created.id
+          )}&error=${encodeURIComponent(message)}`
+        );
+      }
+    }
+
     revalidatePath("/settings");
     const nextId = created?.id ? `&task_template_id=${encodeURIComponent(created.id)}` : "";
     redirect(
@@ -337,6 +408,14 @@ export default async function SettingsPage(props: {
     const dueTime = String(formData.get("due_time") || "").trim();
     const recurrenceFrequency = String(formData.get("recurrence_frequency") || "").trim();
     const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
+    const assigneeIds = Array.from(
+      new Set(
+        formData
+          .getAll("assignee_user_ids")
+          .map((value) => String(value).trim())
+          .filter((value) => isUuid(value))
+      )
+    );
 
     if (!id) {
       redirect("/settings?tab=templates&templates=tasks&error=Missing%20template%20id");
@@ -362,6 +441,43 @@ export default async function SettingsPage(props: {
           id
         )}&error=${encodeURIComponent(error.message)}`
       );
+    }
+
+    const { error: clearAssigneesError } = await supabase
+      .from("task_template_assignees")
+      .delete()
+      .eq("task_template_id", id);
+    if (clearAssigneesError) {
+      const message = isSupabaseMissingTableError(clearAssigneesError)
+        ? "Run sql/templates.sql to enable template assignees."
+        : clearAssigneesError.message;
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          id
+        )}&error=${encodeURIComponent(message)}`
+      );
+    }
+
+    if (assigneeIds.length) {
+      const { error: assigneeError } = await supabase
+        .from("task_template_assignees")
+        .insert(
+          assigneeIds.map((userId) => ({
+            task_template_id: id,
+            user_id: userId,
+          }))
+        );
+
+      if (assigneeError) {
+        const message = isSupabaseMissingTableError(assigneeError)
+          ? "Run sql/templates.sql to enable template assignees."
+          : assigneeError.message;
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            id
+          )}&error=${encodeURIComponent(message)}`
+        );
+      }
     }
 
     revalidatePath("/settings");
@@ -888,6 +1004,13 @@ export default async function SettingsPage(props: {
                 </p>
               </div>
             ) : null}
+            {taskTemplateAssigneesError &&
+            isSupabaseMissingTableError(taskTemplateAssigneesError) ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Task template assignees are not set up yet. Re-run `sql/templates.sql` in
+                Supabase SQL editor, then refresh this page.
+              </div>
+            ) : null}
 
             <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
               <a
@@ -983,11 +1106,23 @@ export default async function SettingsPage(props: {
                       className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                       defaultValue={7}
                     />
+                    <select
+                      name="assignee_user_ids"
+                      multiple
+                      className="md:col-span-6 h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      disabled={Boolean(taskTemplateAssigneesError)}
+                    >
+                      {users.map((userRow) => (
+                        <option key={userRow.id} value={userRow.id}>
+                          {userRow.full_name || userRow.email || "Unknown user"}
+                        </option>
+                      ))}
+                    </select>
 
                     <button
                       type="submit"
                       className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-                      disabled={Boolean(taskTemplatesError)}
+                      disabled={Boolean(taskTemplatesError) || Boolean(taskTemplateAssigneesError)}
                     >
                       Create template
                     </button>
@@ -1064,6 +1199,14 @@ export default async function SettingsPage(props: {
                           <h4 className="truncate text-lg font-semibold text-slate-900">
                             {selectedTaskTemplate.name}
                           </h4>
+                          <p className="mt-1 text-sm text-slate-600">
+                            Preset assignees:{" "}
+                            {selectedTaskTemplateAssigneeIds.length
+                              ? selectedTaskTemplateAssigneeIds
+                                  .map((userId) => userNameById[userId] || "Unknown user")
+                                  .join(", ")
+                              : "None"}
+                          </p>
                         </div>
                         <form action={deleteTaskTemplate} className="shrink-0">
                           <input type="hidden" name="id" value={selectedTaskTemplate.id} />
@@ -1143,10 +1286,24 @@ export default async function SettingsPage(props: {
                           defaultValue={selectedTaskTemplate.recurrence_lead_days ?? 7}
                           className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                         />
+                        <select
+                          name="assignee_user_ids"
+                          multiple
+                          defaultValue={selectedTaskTemplateAssigneeIds}
+                          className="md:col-span-6 h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          disabled={Boolean(taskTemplateAssigneesError)}
+                        >
+                          {users.map((userRow) => (
+                            <option key={userRow.id} value={userRow.id}>
+                              {userRow.full_name || userRow.email || "Unknown user"}
+                            </option>
+                          ))}
+                        </select>
                         <div className="md:col-span-6 flex items-center justify-end">
                           <button
                             type="submit"
                             className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                            disabled={Boolean(taskTemplateAssigneesError)}
                           >
                             Save
                           </button>
