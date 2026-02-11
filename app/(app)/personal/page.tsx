@@ -143,6 +143,18 @@ export default async function PersonalHome(props: {
   }
 
   const { data: pages } = await pagesRequest;
+  const { data: sectionPageRows } = await supabase
+    .from("personal_pages")
+    .select("section_id");
+  const pageCountBySectionId = (sectionPageRows || []).reduce<Record<string, number>>(
+    (acc, row) => {
+      const sectionId = row.section_id;
+      if (!sectionId) return acc;
+      acc[sectionId] = (acc[sectionId] || 0) + 1;
+      return acc;
+    },
+    {}
+  );
 
   async function createSection(formData: FormData) {
     "use server";
@@ -419,84 +431,98 @@ export default async function PersonalHome(props: {
               <h2 className="text-lg font-semibold text-slate-900">Sections</h2>
             </div>
             <div className="p-6">
-            <form action={createSection} className="flex flex-wrap gap-2">
-              <input
-                name="title"
-                placeholder="New section title"
-                className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <button
-                type="submit"
-                className="rounded-md btn-primary px-3 py-2 text-xs font-semibold text-white"
-              >
-                Add section
-              </button>
-            </form>
+              <form action={createSection} className="flex flex-wrap gap-2">
+                <input
+                  name="title"
+                  placeholder="New section title"
+                  className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md btn-primary px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Add section
+                </button>
+              </form>
 
-            {sections?.length ? (
-              <div className="mt-5 space-y-3">
-                {sections.map((section) => {
-                  const isOwner = section.owner_id === user.id;
-                  return (
-                    <div
-                      key={section.id}
-                      className="rounded-md border border-slate-200 bg-white p-3"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {section.title}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {isOwner ? "Owner" : "Shared"}
-                          </p>
-                        </div>
-                        {isOwner ? (
-                          <details className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                            <summary className="cursor-pointer select-none font-semibold">
-                              Delete
-                            </summary>
-                            <div className="mt-2 space-y-2">
-                              <p>
-                                Pages in this section will remain, but will be moved to General.
-                              </p>
-                              <form action={deleteSection}>
-                                <input type="hidden" name="section_id" value={section.id} />
-                                <button
-                                  type="submit"
-                                  className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                                >
-                                  Confirm delete section
-                                </button>
-                              </form>
-                            </div>
-                          </details>
-                        ) : null}
-                      </div>
-
-                      {isOwner ? (
-                        <form action={renameSection} className="mt-3 flex flex-wrap gap-2">
-                          <input type="hidden" name="section_id" value={section.id} />
-                          <input
-                            name="title"
-                            defaultValue={section.title}
-                            className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          />
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-                          >
-                            Rename
-                          </button>
-                        </form>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        </section>
+              {sections?.length ? (
+                <div className="mt-5 overflow-x-auto rounded-md border border-slate-200">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Section</th>
+                        <th className="px-4 py-3">Access</th>
+                        <th className="px-4 py-3 text-right">Pages</th>
+                        <th className="px-4 py-3">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {sections.map((section) => {
+                        const isOwner = section.owner_id === user.id;
+                        return (
+                          <tr key={section.id}>
+                            <td className="px-4 py-3 font-semibold text-slate-900">
+                              {section.title}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {isOwner ? "Owner" : "Shared"}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-600">
+                              {pageCountBySectionId[section.id] || 0}
+                            </td>
+                            <td className="px-4 py-3">
+                              {isOwner ? (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <form action={renameSection} className="flex items-center gap-2">
+                                    <input type="hidden" name="section_id" value={section.id} />
+                                    <input
+                                      name="title"
+                                      defaultValue={section.title}
+                                      className="w-52 rounded-md border border-slate-300 px-2 py-1.5 text-xs"
+                                    />
+                                    <button
+                                      type="submit"
+                                      className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                                    >
+                                      Rename
+                                    </button>
+                                  </form>
+                                  <details className="rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-800">
+                                    <summary className="cursor-pointer select-none font-semibold">
+                                      Delete
+                                    </summary>
+                                    <div className="mt-2 w-64 space-y-2">
+                                      <p>
+                                        Pages in this section will remain, but will be moved to
+                                        General.
+                                      </p>
+                                      <form action={deleteSection}>
+                                        <input type="hidden" name="section_id" value={section.id} />
+                                        <button
+                                          type="submit"
+                                          className="rounded-md bg-red-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                                        >
+                                          Confirm delete
+                                        </button>
+                                      </form>
+                                    </div>
+                                  </details>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-500">View only</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-600">No sections yet.</p>
+              )}
+            </div>
+          </section>
         ) : null}
 
         {activeTab === "pages" ? (
