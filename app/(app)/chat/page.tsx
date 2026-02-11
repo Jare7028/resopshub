@@ -267,14 +267,7 @@ export default async function ChatPage(props: {
   } as const;
 
   return (
-    <div className="space-y-6">
-      <section className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Chat</h1>
-        <p className="text-sm text-slate-600">
-          Direct and team messaging with structured links to tasks, projects, clients, notes,
-          and feature suggestions.
-        </p>
-      </section>
+    <div className="-mx-6 -my-8 h-[calc(100vh-73px)]">
       <ChatPageClient
         currentUserId={currentUserId}
         users={users}

@@ -245,8 +245,17 @@ export default function ChatPageClient(props: {
   };
 
   return (
-    <div className="grid gap-5 lg:grid-cols-12">
-      <aside className="space-y-4 lg:col-span-4">
+    <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden bg-slate-100 lg:grid-cols-[64px_360px_minmax(0,1fr)]">
+      <aside className="hidden border-r border-slate-200 bg-slate-50 lg:flex lg:flex-col lg:items-center lg:gap-3 lg:p-3">
+        <div className="mt-1 h-10 w-10 rounded-xl border border-slate-200 bg-white" />
+        <div className="h-10 w-10 rounded-xl border border-slate-200 bg-white" />
+        <div className="h-10 w-10 rounded-xl border border-blue-300 bg-blue-100" />
+        <div className="h-10 w-10 rounded-xl border border-slate-200 bg-white" />
+        <div className="h-10 w-10 rounded-xl border border-slate-200 bg-white" />
+      </aside>
+
+      <aside className="min-h-0 overflow-hidden border-r border-slate-200 bg-slate-50">
+        <div className="flex h-full min-h-0 flex-col p-3">
         {error ? (
           <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {error}
@@ -425,7 +434,7 @@ export default function ChatPageClient(props: {
           )}
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <section className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="space-y-3 border-b border-slate-200 px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-900">Chats</h2>
             <input
@@ -435,7 +444,7 @@ export default function ChatPageClient(props: {
               className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm"
             />
           </div>
-          <div className="max-h-[520px] overflow-y-auto">
+          <div className="h-full overflow-y-auto pb-3">
             {filteredConversations.length ? (
               filteredConversations.map((conversation) => {
                 const isActive = selectedConversationId === conversation.id;
@@ -465,10 +474,11 @@ export default function ChatPageClient(props: {
             )}
           </div>
         </section>
+        </div>
       </aside>
 
-      <section className="lg:col-span-8">
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <section className="min-h-0 overflow-hidden bg-slate-100">
+        <div className="flex h-full min-h-0 flex-col border-l border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-5 py-4">
             <h2 className="text-base font-semibold text-slate-900">
               {selectedConversation ? getConversationTitle(selectedConversation) : "Select chat"}
@@ -484,8 +494,8 @@ export default function ChatPageClient(props: {
           </div>
 
           {selectedConversationId ? (
-            <div className="space-y-4 px-5 py-4">
-              <div className="max-h-[520px] space-y-3 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-3">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-3">
                 {selectedMessages.length ? (
                   selectedMessages.map((message) => {
                     const senderName = getUserDisplayName(userById[message.sender_id]);
