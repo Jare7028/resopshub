@@ -293,7 +293,8 @@ export default function ChatPageClient(props: {
                 event.preventDefault();
                 setError("");
                 setSuccess("");
-                const formData = new FormData(event.currentTarget);
+                const formEl = event.currentTarget;
+                const formData = new FormData(formEl);
                 const otherUserId = String(formData.get("other_user_id") || "").trim();
                 if (!otherUserId) {
                   setError("Select a teammate");
@@ -316,7 +317,7 @@ export default function ChatPageClient(props: {
                   }
                   upsertConversationState(json.conversation, json.members || []);
                   setSuccess("Direct chat ready");
-                  event.currentTarget.reset();
+                  formEl.reset();
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "Unable to create chat");
                 } finally {
@@ -354,7 +355,8 @@ export default function ChatPageClient(props: {
                 event.preventDefault();
                 setError("");
                 setSuccess("");
-                const formData = new FormData(event.currentTarget);
+                const formEl = event.currentTarget;
+                const formData = new FormData(formEl);
                 const title = String(formData.get("title") || "").trim();
                 const memberUserIds = formData
                   .getAll("member_user_ids")
@@ -384,7 +386,7 @@ export default function ChatPageClient(props: {
                   }
                   upsertConversationState(json.conversation, json.members || []);
                   setSuccess("Group chat created");
-                  event.currentTarget.reset();
+                  formEl.reset();
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "Unable to create group");
                 } finally {
