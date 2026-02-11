@@ -359,18 +359,32 @@ export default async function PersonalHome(props: {
             user_id: member.user_id,
             role: member.role,
           }));
-          await supabase
+          const { error: sectionShareError } = await supabase
             .from("personal_section_members")
             .upsert(inserts, { onConflict: "section_id,user_id" });
+          if (sectionShareError) {
+            redirect(
+              buildPersonalUrlFromBase(baseQuery, "pages", {
+                error: sectionShareError.message,
+              })
+            );
+          }
         } else {
           const inserts = members.map((member) => ({
             page_id: page.id,
             user_id: member.user_id,
             role: member.role,
           }));
-          await supabase
+          const { error: pageShareError } = await supabase
             .from("personal_page_members")
             .upsert(inserts, { onConflict: "page_id,user_id" });
+          if (pageShareError) {
+            redirect(
+              buildPersonalUrlFromBase(baseQuery, "pages", {
+                error: pageShareError.message,
+              })
+            );
+          }
         }
       }
     }

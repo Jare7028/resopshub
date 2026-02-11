@@ -22,30 +22,42 @@ async function syncPageShareMode(
   sectionId: string | null
 ) {
   if (sectionId) {
-    const { count: sectionCount } = await supabase
+    const { count: sectionCount, error: sectionCountError } = await supabase
       .from("personal_section_members")
       .select("id", { count: "exact", head: true })
       .eq("section_id", sectionId);
+    if (sectionCountError) {
+      throw new Error(sectionCountError.message);
+    }
 
     if ((sectionCount || 0) > 0) {
-      await supabase
+      const { error: inheritError } = await supabase
         .from("personal_pages")
         .update({ share_mode: "inherit", updated_at: new Date().toISOString() })
         .eq("id", pageId);
+      if (inheritError) {
+        throw new Error(inheritError.message);
+      }
       return;
     }
   }
 
-  const { count: pageCount } = await supabase
+  const { count: pageCount, error: pageCountError } = await supabase
     .from("personal_page_members")
     .select("id", { count: "exact", head: true })
     .eq("page_id", pageId);
+  if (pageCountError) {
+    throw new Error(pageCountError.message);
+  }
 
   const shareMode = (pageCount || 0) > 0 ? "custom" : "private";
-  await supabase
+  const { error: pageModeError } = await supabase
     .from("personal_pages")
     .update({ share_mode: shareMode, updated_at: new Date().toISOString() })
     .eq("id", pageId);
+  if (pageModeError) {
+    throw new Error(pageModeError.message);
+  }
 }
 
 async function syncSectionShareMode(supabase: SupabaseServerClient, sectionId: string | null) {
@@ -53,48 +65,66 @@ async function syncSectionShareMode(supabase: SupabaseServerClient, sectionId: s
     return;
   }
 
-  const { count: sectionCount } = await supabase
+  const { count: sectionCount, error: sectionCountError } = await supabase
     .from("personal_section_members")
     .select("id", { count: "exact", head: true })
     .eq("section_id", sectionId);
+  if (sectionCountError) {
+    throw new Error(sectionCountError.message);
+  }
 
   if ((sectionCount || 0) > 0) {
-    await supabase
+    const { error: inheritError } = await supabase
       .from("personal_pages")
       .update({ share_mode: "inherit", updated_at: new Date().toISOString() })
       .eq("section_id", sectionId);
+    if (inheritError) {
+      throw new Error(inheritError.message);
+    }
     return;
   }
 
-  const { data: pagesInSection } = await supabase
+  const { data: pagesInSection, error: pagesInSectionError } = await supabase
     .from("personal_pages")
     .select("id")
     .eq("section_id", sectionId);
+  if (pagesInSectionError) {
+    throw new Error(pagesInSectionError.message);
+  }
 
   const pageIds = (pagesInSection || []).map((row) => row.id);
   if (!pageIds.length) {
     return;
   }
 
-  await supabase
+  const { error: privateError } = await supabase
     .from("personal_pages")
     .update({ share_mode: "private", updated_at: new Date().toISOString() })
     .in("id", pageIds);
+  if (privateError) {
+    throw new Error(privateError.message);
+  }
 
-  const { data: pageMemberRows } = await supabase
+  const { data: pageMemberRows, error: pageMemberRowsError } = await supabase
     .from("personal_page_members")
     .select("page_id")
     .in("page_id", pageIds);
+  if (pageMemberRowsError) {
+    throw new Error(pageMemberRowsError.message);
+  }
 
   const pageIdsWithMembers = Array.from(
     new Set((pageMemberRows || []).map((row) => row.page_id))
   );
 
   if (pageIdsWithMembers.length) {
-    await supabase
+    const { error: customError } = await supabase
       .from("personal_pages")
       .update({ share_mode: "custom", updated_at: new Date().toISOString() })
       .in("id", pageIdsWithMembers);
+    if (customError) {
+      throw new Error(customError.message);
+    }
   }
 }
 
@@ -152,29 +182,32 @@ export default async function PersonalPage(props: {
     ? lastEditedByUser.full_name || lastEditedByUser.email
     : null;
 
-  const getUserLabel = (
-    relation:
-      | { full_name?: string | null; email?: string | null }
-      | { full_name?: string | null; email?: string | null }[]
-      | null
-      | undefined,
-    fallback: string
-  ) => {
-    const user = Array.isArray(relation) ? relation[0] : relation;
-    return user?.full_name || user?.email || fallback;
-  };
-
-  const { data: sectionMembers } = await supabase
+  const { data: sectionMembersRaw } = await supabase
     .from("personal_section_members")
-    .select("id,user_id,role,users(full_name,email)")
+    .select("id,user_id,role,created_at")
     .eq("section_id", sectionId)
     .order("created_at", { ascending: true });
 
-  const { data: pageMembers } = await supabase
+  const { data: pageMembersRaw } = await supabase
     .from("personal_page_members")
-    .select("id,user_id,role,users(full_name,email)")
+    .select("id,user_id,role,created_at")
     .eq("page_id", pageId)
     .order("created_at", { ascending: true });
+
+  const userLabelById = (users || []).reduce<Record<string, string>>((acc, member) => {
+    acc[member.id] = member.full_name || member.email || "Unknown user";
+    return acc;
+  }, {});
+  const sectionMembers = (sectionMembersRaw || []) as Array<{
+    id: string;
+    user_id: string;
+    role: string;
+  }>;
+  const pageMembers = (pageMembersRaw || []) as Array<{
+    id: string;
+    user_id: string;
+    role: string;
+  }>;
 
   async function updatePageDetails(formData: FormData) {
     "use server";
@@ -278,7 +311,14 @@ export default async function PersonalPage(props: {
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
-    await syncSectionShareMode(supabase, sectionId);
+    try {
+      await syncSectionShareMode(supabase, sectionId);
+    } catch (e) {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", e instanceof Error ? e.message : "Unable to apply section sharing");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
     revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
     {
@@ -347,7 +387,14 @@ export default async function PersonalPage(props: {
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
-    await syncSectionShareMode(supabase, sectionId);
+    try {
+      await syncSectionShareMode(supabase, sectionId);
+    } catch (e) {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", e instanceof Error ? e.message : "Unable to apply section sharing");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
     revalidatePath(`/personal/${pageId}`);
     revalidatePath("/personal");
     {
@@ -387,7 +434,14 @@ export default async function PersonalPage(props: {
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
-    await syncPageShareMode(supabase, pageId, sectionId);
+    try {
+      await syncPageShareMode(supabase, pageId, sectionId);
+    } catch (e) {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", e instanceof Error ? e.message : "Unable to apply page sharing");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
     revalidatePath(`/personal/${pageId}`);
     {
       const sp = new URLSearchParams();
@@ -422,7 +476,14 @@ export default async function PersonalPage(props: {
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
-    await syncPageShareMode(supabase, pageId, sectionId);
+    try {
+      await syncPageShareMode(supabase, pageId, sectionId);
+    } catch (e) {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", e instanceof Error ? e.message : "Unable to apply page sharing");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
     revalidatePath(`/personal/${pageId}`);
     {
       const sp = new URLSearchParams();
@@ -456,7 +517,14 @@ export default async function PersonalPage(props: {
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
-    await syncPageShareMode(supabase, pageId, sectionId);
+    try {
+      await syncPageShareMode(supabase, pageId, sectionId);
+    } catch (e) {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", e instanceof Error ? e.message : "Unable to apply page sharing");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
     revalidatePath(`/personal/${pageId}`);
     {
       const sp = new URLSearchParams();
@@ -585,7 +653,7 @@ export default async function PersonalPage(props: {
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
                   >
                     <span className="text-slate-600">
-                      {getUserLabel(member.users, "Unknown user")}
+                      {userLabelById[member.user_id] || "Unknown user"}
                     </span>
                     <form className="flex items-center gap-2" action={updateSectionMember}>
                       <input type="hidden" name="member_id" value={member.id} />
@@ -662,7 +730,7 @@ export default async function PersonalPage(props: {
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
                   >
                     <span className="text-slate-600">
-                      {getUserLabel(member.users, "Unknown user")}
+                      {userLabelById[member.user_id] || "Unknown user"}
                     </span>
                     <form className="flex items-center gap-2" action={updatePageMember}>
                       <input type="hidden" name="member_id" value={member.id} />
