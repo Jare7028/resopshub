@@ -473,6 +473,7 @@ export default async function ClientProjectsPage(props: {
             name="name"
             placeholder="Project name"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            defaultValue={selectedTemplate?.name || ""}
             required
           />
           <select
