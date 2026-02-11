@@ -96,7 +96,7 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen app-bg text-slate-900">
       <div className="flex min-h-screen">
-        <aside className="flex w-64 flex-col border-r app-border app-surface">
+        <aside className="sticky top-0 flex h-screen w-64 flex-col border-r app-border app-surface">
           <div className="px-6 py-6">
             <Link href="/clients" className="flex items-center">
               <Image
@@ -108,7 +108,7 @@ export default async function AppLayout({
               />
             </Link>
           </div>
-          <nav className="flex-1 px-3">
+          <nav className="min-h-0 flex-1 overflow-y-auto px-3">
             <div className="space-y-1">
               {navLinks.map((link) => (
                 <Link
