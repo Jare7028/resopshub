@@ -92,6 +92,7 @@ export default function ProjectsTable({
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
             <th className="px-6 py-3 text-slate-700">Project</th>
+            <th className="px-6 py-3 text-right text-slate-700">Open tasks</th>
             <th className="px-6 py-3">
               <div className="relative flex items-center justify-between gap-2">
                 <span className="text-slate-700">Client</span>
@@ -150,7 +151,6 @@ export default function ProjectsTable({
             </th>
             <th className="px-6 py-3 text-slate-700">Start</th>
             <th className="px-6 py-3 text-slate-700">End</th>
-            <th className="px-6 py-3 text-right text-slate-700">Open tasks</th>
           </tr>
         </thead>
         <tbody>

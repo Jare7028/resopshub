@@ -46,6 +46,9 @@ export default function ProjectInlineRow({
           {project.name}
         </Link>
       </td>
+      <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
+        {openTaskCount}
+      </td>
       <td className="px-6 py-3 text-slate-600">
         <form action={onUpdate}>
           <input type="hidden" name="project_id" value={project.id} />
@@ -108,9 +111,6 @@ export default function ProjectInlineRow({
             onChange={handleChange}
           />
         </form>
-      </td>
-      <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
-        {openTaskCount}
       </td>
     </tr>
   );
