@@ -16,6 +16,7 @@ type PayrollRow = {
   job_title: string | null;
   client_id: string | null;
   contract_type: string | null;
+  billable: string | null;
 };
 
 type DropdownOption = {
@@ -74,6 +75,7 @@ export default function PayrollRowsTable({
   clients,
   jobTitleOptions,
   contractTypeOptions,
+  billableOptions,
   onDeleteRow,
 }: {
   rows: PayrollRow[];
@@ -83,6 +85,7 @@ export default function PayrollRowsTable({
   clients: ClientOption[];
   jobTitleOptions: DropdownOption[];
   contractTypeOptions: DropdownOption[];
+  billableOptions: DropdownOption[];
   onDeleteRow: (formData: FormData) => Promise<void>;
 }) {
   const [rowsState, setRowsState] = useState(rows);
@@ -145,6 +148,7 @@ export default function PayrollRowsTable({
             <th className="px-6 py-3">Job Title</th>
             <th className="px-6 py-3">Client</th>
             <th className="px-6 py-3">Contract Type</th>
+            <th className="px-6 py-3">Billable</th>
             {columns.map((column) => (
               <th key={column.id} className="px-6 py-3">
                 <div className="flex flex-col">
@@ -193,6 +197,26 @@ export default function PayrollRowsTable({
                   >
                     <option value="">N/A</option>
                     {jobTitleOptions.map((option) => (
+                      <option key={option.id} value={option.value}>
+                        {option.value}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-6 py-3">
+                  <select
+                    value={row.billable || ""}
+                    className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setRowsState((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, billable: next } : item))
+                      );
+                      queueRowSave(row.id, { billable: next || null });
+                    }}
+                  >
+                    <option value="">N/A</option>
+                    {billableOptions.map((option) => (
                       <option key={option.id} value={option.value}>
                         {option.value}
                       </option>
@@ -292,7 +316,7 @@ export default function PayrollRowsTable({
             ))
           ) : (
             <tr>
-              <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 5}>
+              <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 6}>
                 No payroll rows yet.
               </td>
             </tr>
@@ -302,4 +326,3 @@ export default function PayrollRowsTable({
     </div>
   );
 }
-

@@ -26,6 +26,7 @@ create table if not exists public.employee_payroll_rows (
   client_id uuid references public.clients(id) on delete restrict,
   job_title text,
   contract_type text,
+  billable text,
   created_by_user_id uuid not null references public.users(id) on delete restrict,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -39,6 +40,9 @@ alter table public.employee_payroll_rows
 
 alter table public.employee_payroll_rows
   add column if not exists contract_type text;
+
+alter table public.employee_payroll_rows
+  add column if not exists billable text;
 
 create index if not exists employee_payroll_rows_client_id_idx
   on public.employee_payroll_rows(client_id);
@@ -71,7 +75,7 @@ create index if not exists employee_payroll_cell_values_column_id_idx
 
 create table if not exists public.employee_payroll_dropdown_options (
   id uuid primary key default gen_random_uuid(),
-  field_type text not null check (field_type in ('job_title', 'contract_type')),
+  field_type text not null check (field_type in ('job_title', 'contract_type', 'billable')),
   value text not null,
   position integer not null default 0,
   created_at timestamptz not null default now(),

@@ -130,7 +130,7 @@ export default async function SettingsPage(props: {
 
   type PayrollDropdownOptionRow = {
     id: string;
-    field_type: "job_title" | "contract_type";
+    field_type: "job_title" | "contract_type" | "billable";
     value: string;
     position: number;
   };
@@ -151,6 +151,9 @@ export default async function SettingsPage(props: {
   );
   const contractTypeOptions = payrollDropdownOptions.filter(
     (option) => option.field_type === "contract_type"
+  );
+  const billableOptions = payrollDropdownOptions.filter(
+    (option) => option.field_type === "billable"
   );
 
   type TaskTemplateRow = {
@@ -974,7 +977,11 @@ export default async function SettingsPage(props: {
     const fieldTypeRaw = String(formData.get("field_type") || "").trim().toLowerCase();
     const value = String(formData.get("value") || "").trim();
     const fieldType =
-      fieldTypeRaw === "job_title" || fieldTypeRaw === "contract_type" ? fieldTypeRaw : "";
+      fieldTypeRaw === "job_title" ||
+      fieldTypeRaw === "contract_type" ||
+      fieldTypeRaw === "billable"
+        ? fieldTypeRaw
+        : "";
 
     if (!fieldType || !value) {
       redirect("/settings?tab=payroll&error=Field%20type%20and%20value%20are%20required");
@@ -1277,7 +1284,7 @@ export default async function SettingsPage(props: {
               </div>
             ) : null}
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6 lg:grid-cols-3">
               <section className="rounded-md border border-slate-200 bg-slate-50 p-4">
                 <h3 className="text-sm font-semibold text-slate-900">Job titles</h3>
                 <form action={createPayrollDropdownOption} className="mt-3 flex gap-2">
@@ -1358,6 +1365,48 @@ export default async function SettingsPage(props: {
                     ))
                   ) : (
                     <p className="text-sm text-slate-500">No contract types configured yet.</p>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Billable options</h3>
+                <form action={createPayrollDropdownOption} className="mt-3 flex gap-2">
+                  <input type="hidden" name="field_type" value="billable" />
+                  <input
+                    name="value"
+                    placeholder="Add billable option"
+                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Add
+                  </button>
+                </form>
+                <div className="mt-3 space-y-2">
+                  {billableOptions.length ? (
+                    billableOptions.map((option) => (
+                      <div
+                        key={option.id}
+                        className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <span className="text-slate-800">{option.value}</span>
+                        <form action={deletePayrollDropdownOption}>
+                          <input type="hidden" name="id" value={option.id} />
+                          <button
+                            type="submit"
+                            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                          >
+                            Delete
+                          </button>
+                        </form>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">No billable options configured yet.</p>
                   )}
                 </div>
               </section>

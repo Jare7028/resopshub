@@ -49,6 +49,11 @@ export async function PATCH(
     updates.contract_type = value || null;
   }
 
+  if (Object.prototype.hasOwnProperty.call(body, "billable")) {
+    const value = String(body.billable || "").trim();
+    updates.billable = value || null;
+  }
+
   if (!Object.keys(updates).length) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
@@ -67,4 +72,3 @@ export async function PATCH(
 
   return NextResponse.json({ ok: true });
 }
-

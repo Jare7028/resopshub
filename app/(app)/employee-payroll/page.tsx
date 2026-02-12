@@ -18,6 +18,7 @@ type PayrollRow = {
   job_title: string | null;
   client_id: string | null;
   contract_type: string | null;
+  billable: string | null;
   created_by_user_id: string;
   clients?: { name: string | null } | { name: string | null }[] | null;
 };
@@ -30,7 +31,7 @@ type PayrollCell = {
 
 type PayrollDropdownOption = {
   id: string;
-  field_type: "job_title" | "contract_type";
+  field_type: "job_title" | "contract_type" | "billable";
   value: string;
   position: number;
 };
@@ -136,7 +137,9 @@ export default async function EmployeePayrollPage(props: {
 
   const { data: rowsRaw } = await supabase
     .from("employee_payroll_rows")
-    .select("id,employee_name,job_title,client_id,contract_type,created_by_user_id,clients(name)")
+    .select(
+      "id,employee_name,job_title,client_id,contract_type,billable,created_by_user_id,clients(name)"
+    )
     .order("created_at", { ascending: false });
 
   const { data: dropdownOptionsRaw, error: dropdownOptionsError } = await supabase
@@ -154,6 +157,7 @@ export default async function EmployeePayrollPage(props: {
   const contractTypeOptions = dropdownOptions.filter(
     (option) => option.field_type === "contract_type"
   );
+  const billableOptions = dropdownOptions.filter((option) => option.field_type === "billable");
 
   const rowIds = rows.map((row) => row.id).filter(Boolean);
   const { data: cellValuesRaw } = rowIds.length
@@ -268,6 +272,7 @@ export default async function EmployeePayrollPage(props: {
     const jobTitle = String(formData.get("job_title") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
     const contractType = String(formData.get("contract_type") || "").trim();
+    const billable = String(formData.get("billable") || "").trim();
 
     if (!employeeName) {
       redirect("/employee-payroll?error=Employee%20name%20is%20required");
@@ -278,6 +283,7 @@ export default async function EmployeePayrollPage(props: {
       job_title: jobTitle || null,
       client_id: clientId || null,
       contract_type: contractType || null,
+      billable: billable || null,
       created_by_user_id: currentUser.id,
     });
 
@@ -338,7 +344,7 @@ export default async function EmployeePayrollPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Add employee row</h2>
-        <form action={createRow} className="mt-4 grid gap-3 md:grid-cols-8">
+        <form action={createRow} className="mt-4 grid gap-3 md:grid-cols-10">
           <input
             name="employee_name"
             placeholder="Employee name"
@@ -372,7 +378,7 @@ export default async function EmployeePayrollPage(props: {
           <select
             name="contract_type"
             defaultValue=""
-            className="md:col-span-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
           >
             <option value="">Contract (N/A)</option>
             {contractTypeOptions.map((option) => (
@@ -381,9 +387,21 @@ export default async function EmployeePayrollPage(props: {
               </option>
             ))}
           </select>
+          <select
+            name="billable"
+            defaultValue=""
+            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Billable (N/A)</option>
+            {billableOptions.map((option) => (
+              <option key={option.id} value={option.value}>
+                {option.value}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
-            className="md:col-span-1 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            className="md:col-span-2 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
           >
             Add row
           </button>
@@ -443,6 +461,7 @@ export default async function EmployeePayrollPage(props: {
           clients={clients}
           jobTitleOptions={jobTitleOptions}
           contractTypeOptions={contractTypeOptions}
+          billableOptions={billableOptions}
           onDeleteRow={deleteRow}
         />
       </section>
