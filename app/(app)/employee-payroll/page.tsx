@@ -14,7 +14,9 @@ type PayrollColumn = {
 type PayrollRow = {
   id: string;
   employee_name: string;
+  job_title: string | null;
   client_id: string | null;
+  contract_type: string | null;
   created_by_user_id: string;
   clients?: { name: string | null } | { name: string | null }[] | null;
 };
@@ -23,6 +25,13 @@ type PayrollCell = {
   row_id: string;
   column_id: string;
   number_value: number | null;
+};
+
+type PayrollDropdownOption = {
+  id: string;
+  field_type: "job_title" | "contract_type";
+  value: string;
+  position: number;
 };
 
 const payrollRoles = new Set(["admin", "ops", "manager"]);
@@ -164,12 +173,24 @@ export default async function EmployeePayrollPage(props: {
 
   const { data: rowsRaw } = await supabase
     .from("employee_payroll_rows")
-    .select("id,employee_name,client_id,created_by_user_id,clients(name)")
+    .select("id,employee_name,job_title,client_id,contract_type,created_by_user_id,clients(name)")
     .order("created_at", { ascending: false });
+
+  const { data: dropdownOptionsRaw, error: dropdownOptionsError } = await supabase
+    .from("employee_payroll_dropdown_options")
+    .select("id,field_type,value,position")
+    .order("field_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
 
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
   const columns = (columnsRaw || []) as PayrollColumn[];
   const rows = (rowsRaw || []) as PayrollRow[];
+  const dropdownOptions = (dropdownOptionsError ? [] : dropdownOptionsRaw || []) as PayrollDropdownOption[];
+  const jobTitleOptions = dropdownOptions.filter((option) => option.field_type === "job_title");
+  const contractTypeOptions = dropdownOptions.filter(
+    (option) => option.field_type === "contract_type"
+  );
 
   const rowIds = rows.map((row) => row.id).filter(Boolean);
   const { data: cellValuesRaw } = rowIds.length
@@ -281,7 +302,9 @@ export default async function EmployeePayrollPage(props: {
     await requirePayrollAccess(currentUser.id);
 
     const employeeName = String(formData.get("employee_name") || "").trim();
+    const jobTitle = String(formData.get("job_title") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
+    const contractType = String(formData.get("contract_type") || "").trim();
 
     if (!employeeName) {
       redirect("/employee-payroll?error=Employee%20name%20is%20required");
@@ -289,7 +312,9 @@ export default async function EmployeePayrollPage(props: {
 
     const { error } = await supabase.from("employee_payroll_rows").insert({
       employee_name: employeeName,
+      job_title: jobTitle || null,
       client_id: clientId || null,
+      contract_type: contractType || null,
       created_by_user_id: currentUser.id,
     });
 
@@ -311,7 +336,9 @@ export default async function EmployeePayrollPage(props: {
 
     const rowId = String(formData.get("row_id") || "").trim();
     const employeeName = String(formData.get("employee_name") || "").trim();
+    const jobTitle = String(formData.get("job_title") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
+    const contractType = String(formData.get("contract_type") || "").trim();
 
     if (!rowId || !employeeName) {
       redirect("/employee-payroll?error=Row%20update%20is%20missing%20required%20fields");
@@ -321,7 +348,9 @@ export default async function EmployeePayrollPage(props: {
       .from("employee_payroll_rows")
       .update({
         employee_name: employeeName,
+        job_title: jobTitle || null,
         client_id: clientId || null,
+        contract_type: contractType || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", rowId);
@@ -419,13 +448,25 @@ export default async function EmployeePayrollPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Add employee row</h2>
-        <form action={createRow} className="mt-4 grid gap-3 md:grid-cols-6">
+        <form action={createRow} className="mt-4 grid gap-3 md:grid-cols-8">
           <input
             name="employee_name"
             placeholder="Employee name"
             className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
             required
           />
+          <select
+            name="job_title"
+            defaultValue=""
+            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Job title (N/A)</option>
+            {jobTitleOptions.map((option) => (
+              <option key={option.id} value={option.value}>
+                {option.value}
+              </option>
+            ))}
+          </select>
           <select
             name="client_id"
             defaultValue=""
@@ -438,9 +479,21 @@ export default async function EmployeePayrollPage(props: {
               </option>
             ))}
           </select>
+          <select
+            name="contract_type"
+            defaultValue=""
+            className="md:col-span-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Contract (N/A)</option>
+            {contractTypeOptions.map((option) => (
+              <option key={option.id} value={option.value}>
+                {option.value}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
-            className="md:col-span-2 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            className="md:col-span-1 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
           >
             Add row
           </button>
@@ -497,7 +550,9 @@ export default async function EmployeePayrollPage(props: {
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-6 py-3">Name</th>
+                <th className="px-6 py-3">Job Title</th>
                 <th className="px-6 py-3">Client</th>
+                <th className="px-6 py-3">Contract Type</th>
                 {columns.map((column) => (
                   <th key={column.id} className="px-6 py-3">
                     <div className="flex flex-col">
@@ -544,6 +599,21 @@ export default async function EmployeePayrollPage(props: {
                       <td className="px-6 py-3">
                         <select
                           form={`payroll-row-${row.id}`}
+                          name="job_title"
+                          defaultValue={row.job_title || ""}
+                          className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        >
+                          <option value="">N/A</option>
+                          {jobTitleOptions.map((option) => (
+                            <option key={option.id} value={option.value}>
+                              {option.value}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-6 py-3">
+                        <select
+                          form={`payroll-row-${row.id}`}
                           name="client_id"
                           defaultValue={row.client_id || ""}
                           className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
@@ -552,6 +622,21 @@ export default async function EmployeePayrollPage(props: {
                           {clients.map((client) => (
                             <option key={client.id} value={client.id}>
                               {client.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-6 py-3">
+                        <select
+                          form={`payroll-row-${row.id}`}
+                          name="contract_type"
+                          defaultValue={row.contract_type || ""}
+                          className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        >
+                          <option value="">N/A</option>
+                          {contractTypeOptions.map((option) => (
+                            <option key={option.id} value={option.value}>
+                              {option.value}
                             </option>
                           ))}
                         </select>
@@ -607,7 +692,7 @@ export default async function EmployeePayrollPage(props: {
                 })
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 3}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 5}>
                     No payroll rows yet.
                   </td>
                 </tr>

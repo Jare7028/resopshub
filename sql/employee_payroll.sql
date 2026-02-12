@@ -24,6 +24,8 @@ create table if not exists public.employee_payroll_rows (
   id uuid primary key default gen_random_uuid(),
   employee_name text not null,
   client_id uuid references public.clients(id) on delete restrict,
+  job_title text,
+  contract_type text,
   created_by_user_id uuid not null references public.users(id) on delete restrict,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -31,6 +33,12 @@ create table if not exists public.employee_payroll_rows (
 
 alter table public.employee_payroll_rows
   alter column client_id drop not null;
+
+alter table public.employee_payroll_rows
+  add column if not exists job_title text;
+
+alter table public.employee_payroll_rows
+  add column if not exists contract_type text;
 
 create index if not exists employee_payroll_rows_client_id_idx
   on public.employee_payroll_rows(client_id);
@@ -60,6 +68,23 @@ create table if not exists public.employee_payroll_cell_values (
 
 create index if not exists employee_payroll_cell_values_column_id_idx
   on public.employee_payroll_cell_values(column_id);
+
+create table if not exists public.employee_payroll_dropdown_options (
+  id uuid primary key default gen_random_uuid(),
+  field_type text not null check (field_type in ('job_title', 'contract_type')),
+  value text not null,
+  position integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint employee_payroll_dropdown_options_value_not_blank
+    check (length(trim(value)) > 0)
+);
+
+create unique index if not exists employee_payroll_dropdown_options_unique_value_idx
+  on public.employee_payroll_dropdown_options (field_type, lower(value));
+
+create index if not exists employee_payroll_dropdown_options_field_position_idx
+  on public.employee_payroll_dropdown_options (field_type, position, value);
 
 create or replace function public.can_access_employee_payroll()
 returns boolean
@@ -136,6 +161,7 @@ alter table public.employee_payroll_columns enable row level security;
 alter table public.employee_payroll_rows enable row level security;
 alter table public.employee_payroll_row_users enable row level security;
 alter table public.employee_payroll_cell_values enable row level security;
+alter table public.employee_payroll_dropdown_options enable row level security;
 
 drop policy if exists employee_payroll_columns_select on public.employee_payroll_columns;
 create policy employee_payroll_columns_select
@@ -299,7 +325,37 @@ create policy employee_payroll_cell_values_delete
     and public.can_edit_employee_payroll_row(row_id)
   );
 
+drop policy if exists employee_payroll_dropdown_options_select on public.employee_payroll_dropdown_options;
+create policy employee_payroll_dropdown_options_select
+  on public.employee_payroll_dropdown_options
+  for select
+  to authenticated
+  using (public.can_access_employee_payroll());
+
+drop policy if exists employee_payroll_dropdown_options_insert on public.employee_payroll_dropdown_options;
+create policy employee_payroll_dropdown_options_insert
+  on public.employee_payroll_dropdown_options
+  for insert
+  to authenticated
+  with check (public.can_access_employee_payroll());
+
+drop policy if exists employee_payroll_dropdown_options_update on public.employee_payroll_dropdown_options;
+create policy employee_payroll_dropdown_options_update
+  on public.employee_payroll_dropdown_options
+  for update
+  to authenticated
+  using (public.can_access_employee_payroll())
+  with check (public.can_access_employee_payroll());
+
+drop policy if exists employee_payroll_dropdown_options_delete on public.employee_payroll_dropdown_options;
+create policy employee_payroll_dropdown_options_delete
+  on public.employee_payroll_dropdown_options
+  for delete
+  to authenticated
+  using (public.can_access_employee_payroll());
+
 grant select, insert, update, delete on table public.employee_payroll_columns to authenticated;
 grant select, insert, update, delete on table public.employee_payroll_rows to authenticated;
 grant select, insert, update, delete on table public.employee_payroll_row_users to authenticated;
 grant select, insert, update, delete on table public.employee_payroll_cell_values to authenticated;
+grant select, insert, update, delete on table public.employee_payroll_dropdown_options to authenticated;
