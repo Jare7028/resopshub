@@ -20,16 +20,22 @@ type ClientRow = {
 };
 
 type HeaderMenuKey = "name" | "status" | "industry";
+type ClientSortKey = "name" | "status" | "industry" | "created";
+type ClientSortDir = "asc" | "desc";
 
 export default function ClientsTable({
   clients,
   statusOptions,
   initialFilters,
+  sortKey,
+  sortDir,
   onDelete,
 }: {
   clients: ClientRow[];
   statusOptions: readonly string[];
   initialFilters: { q: string; status: string[]; industry: string[] };
+  sortKey: ClientSortKey;
+  sortDir: ClientSortDir;
   onDelete: (formData: FormData) => void;
 }) {
   const router = useRouter();
@@ -84,7 +90,28 @@ export default function ClientsTable({
     if (next.q.trim()) params.set("q", next.q.trim());
     setCsvParam(params, "status", next.status);
     setCsvParam(params, "industry", next.industry);
+    params.set("sort", sortKey);
+    params.set("dir", sortDir);
     return params.toString();
+  };
+
+  const buildSortUrl = (nextSortKey: ClientSortKey) => {
+    const params = new URLSearchParams();
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    setCsvParam(params, "status", filters.status);
+    setCsvParam(params, "industry", filters.industry);
+    params.set("sort", nextSortKey);
+    params.set("dir", sortKey === nextSortKey && sortDir === "asc" ? "desc" : "asc");
+    const query = params.toString();
+    return query ? `/clients?${query}` : "/clients";
+  };
+
+  const headerClass = (key: ClientSortKey) =>
+    `font-semibold hover:text-slate-900 ${sortKey === key ? "text-slate-900" : "text-slate-500"}`;
+
+  const sortIndicator = (key: ClientSortKey) => {
+    if (sortKey !== key) return null;
+    return <span className="ml-1 text-[10px]">{sortDir === "asc" ? "^" : "v"}</span>;
   };
 
   const applyFilters = (next: typeof filters) => {
@@ -102,7 +129,9 @@ export default function ClientsTable({
           <tr>
             <th className="px-6 py-3">
               <div className="relative flex items-center justify-between gap-2">
-                <span className="text-slate-700">Client</span>
+                <a href={buildSortUrl("name")} className={headerClass("name")}>
+                  Client {sortIndicator("name")}
+                </a>
                 <button
                   type="button"
                   aria-label="Filter client name"
@@ -133,7 +162,9 @@ export default function ClientsTable({
             </th>
             <th className="px-6 py-3">
               <div className="relative flex items-center justify-between gap-2">
-                <span className="text-slate-700">Status</span>
+                <a href={buildSortUrl("status")} className={headerClass("status")}>
+                  Status {sortIndicator("status")}
+                </a>
                 <button
                   type="button"
                   aria-label="Filter status"
@@ -161,7 +192,9 @@ export default function ClientsTable({
             </th>
             <th className="px-6 py-3">
               <div className="relative flex items-center justify-between gap-2">
-                <span className="text-slate-700">Industry</span>
+                <a href={buildSortUrl("industry")} className={headerClass("industry")}>
+                  Industry {sortIndicator("industry")}
+                </a>
                 <button
                   type="button"
                   aria-label="Filter industry"
@@ -186,7 +219,11 @@ export default function ClientsTable({
                 ) : null}
               </div>
             </th>
-            <th className="px-6 py-3 text-slate-700">Created</th>
+            <th className="px-6 py-3">
+              <a href={buildSortUrl("created")} className={headerClass("created")}>
+                Created {sortIndicator("created")}
+              </a>
+            </th>
             <th className="px-6 py-3 text-slate-700">Actions</th>
           </tr>
         </thead>
@@ -228,4 +265,3 @@ export default function ClientsTable({
     </div>
   );
 }
-

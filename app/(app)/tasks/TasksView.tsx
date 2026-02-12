@@ -74,6 +74,7 @@ type TasksViewProps = {
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
   basePath?: string;
+  fixedParams?: Record<string, string | null | undefined>;
 };
 
 const statusColors: Record<string, string> = {
@@ -129,6 +130,7 @@ export default function TasksView({
   sortKey,
   sortDir,
   basePath = "/tasks",
+  fixedParams = {},
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const router = useRouter();
@@ -181,6 +183,12 @@ export default function TasksView({
     nextHideCompleted: boolean
   ) => {
     const params = new URLSearchParams();
+    Object.entries(fixedParams).forEach(([key, value]) => {
+      const normalized = String(value || "").trim();
+      if (normalized) {
+        params.set(key, normalized);
+      }
+    });
     setCsvParam(params, "status", next.status);
     setCsvParam(params, "priority", next.priority);
     setCsvParam(params, "assignee", next.assignee);

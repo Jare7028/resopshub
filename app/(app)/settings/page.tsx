@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
+import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
   normalizeSettingsTabKey,
 } from "./_components/SettingsTabs";
@@ -328,8 +329,6 @@ export default async function SettingsPage(props: {
     const status = String(formData.get("status") || "to_do").trim();
     const priority = String(formData.get("priority") || "medium").trim();
     const dueTime = String(formData.get("due_time") || "").trim();
-    const recurrenceFrequency = String(formData.get("recurrence_frequency") || "").trim();
-    const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
     const assigneeIds = Array.from(
       new Set(
         formData
@@ -352,8 +351,8 @@ export default async function SettingsPage(props: {
         status,
         priority,
         due_time: dueTime || null,
-        recurrence_frequency: recurrenceFrequency || null,
-        recurrence_lead_days: recurrenceLeadDays,
+        recurrence_frequency: null,
+        recurrence_lead_days: 7,
       })
       .select("id")
       .single();
@@ -406,8 +405,6 @@ export default async function SettingsPage(props: {
     const status = String(formData.get("status") || "to_do").trim();
     const priority = String(formData.get("priority") || "medium").trim();
     const dueTime = String(formData.get("due_time") || "").trim();
-    const recurrenceFrequency = String(formData.get("recurrence_frequency") || "").trim();
-    const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
     const assigneeIds = Array.from(
       new Set(
         formData
@@ -430,8 +427,8 @@ export default async function SettingsPage(props: {
         status,
         priority,
         due_time: dueTime || null,
-        recurrence_frequency: recurrenceFrequency || null,
-        recurrence_lead_days: recurrenceLeadDays,
+        recurrence_frequency: null,
+        recurrence_lead_days: 7,
       })
       .eq("id", id);
 
@@ -1088,36 +1085,9 @@ export default async function SettingsPage(props: {
                       className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                       defaultValue="09:00"
                     />
-                    <select
-                      name="recurrence_frequency"
-                      className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      defaultValue=""
-                    >
-                      <option value="">Frequency: Once</option>
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="monthly">Monthly</option>
-                      <option value="yearly">Yearly</option>
-                    </select>
-                    <input
-                      type="number"
-                      min="0"
-                      name="recurrence_lead_days"
-                      className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      defaultValue={7}
-                    />
-                    <select
-                      name="assignee_user_ids"
-                      multiple
-                      className="md:col-span-6 h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      disabled={Boolean(taskTemplateAssigneesError)}
-                    >
-                      {users.map((userRow) => (
-                        <option key={userRow.id} value={userRow.id}>
-                          {userRow.full_name || userRow.email || "Unknown user"}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="md:col-span-6 relative">
+                      <AssigneeMultiSelect users={users} name="assignee_user_ids" />
+                    </div>
 
                     <button
                       type="submit"
@@ -1268,37 +1238,13 @@ export default async function SettingsPage(props: {
                           defaultValue={selectedTaskTemplate.due_time || ""}
                           className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                         />
-                        <select
-                          name="recurrence_frequency"
-                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          defaultValue={selectedTaskTemplate.recurrence_frequency || ""}
-                        >
-                          <option value="">Frequency: Once</option>
-                          <option value="daily">Daily</option>
-                          <option value="weekly">Weekly</option>
-                          <option value="monthly">Monthly</option>
-                          <option value="yearly">Yearly</option>
-                        </select>
-                        <input
-                          type="number"
-                          min="0"
-                          name="recurrence_lead_days"
-                          defaultValue={selectedTaskTemplate.recurrence_lead_days ?? 7}
-                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                        />
-                        <select
-                          name="assignee_user_ids"
-                          multiple
-                          defaultValue={selectedTaskTemplateAssigneeIds}
-                          className="md:col-span-6 h-28 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          disabled={Boolean(taskTemplateAssigneesError)}
-                        >
-                          {users.map((userRow) => (
-                            <option key={userRow.id} value={userRow.id}>
-                              {userRow.full_name || userRow.email || "Unknown user"}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="md:col-span-6 relative">
+                          <AssigneeMultiSelect
+                            users={users}
+                            name="assignee_user_ids"
+                            defaultSelected={selectedTaskTemplateAssigneeIds}
+                          />
+                        </div>
                         <div className="md:col-span-6 flex items-center justify-end">
                           <button
                             type="submit"

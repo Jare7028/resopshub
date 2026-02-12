@@ -6,12 +6,29 @@ import { parseCsvParam } from "@/lib/queryParams";
 import ClientsTable from "./ClientsTable";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
+const clientSortKeys = ["name", "status", "industry", "created"] as const;
+const clientSortDirs = ["asc", "desc"] as const;
+
+type ClientSortKey = (typeof clientSortKeys)[number];
+type ClientSortDir = (typeof clientSortDirs)[number];
+
+function normalizeClientSortKey(value: string | undefined): ClientSortKey {
+  if (!value) return "name";
+  return (clientSortKeys as readonly string[]).includes(value) ? (value as ClientSortKey) : "name";
+}
+
+function normalizeClientSortDir(value: string | undefined): ClientSortDir {
+  if (!value) return "asc";
+  return (clientSortDirs as readonly string[]).includes(value) ? (value as ClientSortDir) : "asc";
+}
 
 export default async function ClientsPage(props: {
   searchParams?: Promise<{
     q?: string;
     status?: string | string[];
     industry?: string | string[];
+    sort?: string;
+    dir?: string;
     error?: string;
   }>;
 }) {
@@ -22,11 +39,27 @@ export default async function ClientsPage(props: {
     statusOptions.includes(value as (typeof statusOptions)[number])
   );
   const selectedIndustries = parseCsvParam(searchParams?.industry);
+  const sortKey = normalizeClientSortKey(searchParams?.sort);
+  const sortDir = normalizeClientSortDir(searchParams?.dir);
+  const ascending = sortDir === "asc";
 
-  let request = supabase
-    .from("clients")
-    .select("id,name,status,industry,created_at")
-    .order("created_at", { ascending: false });
+  let request = supabase.from("clients").select("id,name,status,industry,created_at");
+
+  switch (sortKey) {
+    case "status":
+      request = request.order("status", { ascending }).order("name", { ascending: true });
+      break;
+    case "industry":
+      request = request.order("industry", { ascending }).order("name", { ascending: true });
+      break;
+    case "created":
+      request = request.order("created_at", { ascending }).order("name", { ascending: true });
+      break;
+    case "name":
+    default:
+      request = request.order("name", { ascending });
+      break;
+  }
 
   if (query) {
     request = request.ilike("name", `%${query}%`);
@@ -95,6 +128,8 @@ export default async function ClientsPage(props: {
             status: selectedStatuses,
             industry: selectedIndustries,
           }}
+          sortKey={sortKey}
+          sortDir={sortDir}
           onDelete={deleteClient}
         />
       </section>

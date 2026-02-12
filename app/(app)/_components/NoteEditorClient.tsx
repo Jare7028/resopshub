@@ -20,6 +20,7 @@ type ContextMenuState = {
   open: boolean;
   x: number;
   y: number;
+  inTable: boolean;
 };
 
 type SlashRange = {
@@ -272,6 +273,7 @@ export default function NoteEditorClient({
     open: false,
     x: 0,
     y: 0,
+    inTable: false,
   });
   const [activeTableColType, setActiveTableColType] = useState<TableColumnType>("text");
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>({
@@ -676,14 +678,34 @@ export default function NoteEditorClient({
     }
   }, [slashMenu.open, slashMenu.x, slashMenu.y]);
 
-  const handleContextMenu = useCallback((event: ReactMouseEvent) => {
-    event.preventDefault();
-    setContextMenu({
-      open: true,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  }, []);
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+
+      const target = event.target as HTMLElement | null;
+      const inTable = Boolean(target?.closest("table"));
+
+      if (editor) {
+        const pos = editor.view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        });
+        if (pos) {
+          editor.chain().focus().setTextSelection(pos.pos).run();
+        } else {
+          editor.commands.focus();
+        }
+      }
+
+      setContextMenu({
+        open: true,
+        x: event.clientX,
+        y: event.clientY,
+        inTable,
+      });
+    },
+    [editor]
+  );
 
   const run = useCallback(
     (command: () => void) => {
@@ -1002,7 +1024,7 @@ export default function NoteEditorClient({
 
       {contextMenu.open ? (
         <div
-          className="fixed z-50 w-52 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+          className="fixed z-50 w-56 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           ref={contextMenuRef}
         >
@@ -1078,6 +1100,60 @@ export default function NoteEditorClient({
           >
             Insert table
           </button>
+          {contextMenu.inTable ? (
+            <>
+              <div className="my-1 border-t border-slate-200" />
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().addRowBefore().run())}
+                className="context-menu-item"
+              >
+                Insert row above
+              </button>
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().addRowAfter().run())}
+                className="context-menu-item"
+              >
+                Insert row below
+              </button>
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().addColumnBefore().run())}
+                className="context-menu-item"
+              >
+                Insert column left
+              </button>
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().addColumnAfter().run())}
+                className="context-menu-item"
+              >
+                Insert column right
+              </button>
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().deleteRow().run())}
+                className="context-menu-item"
+              >
+                Delete row
+              </button>
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().deleteColumn().run())}
+                className="context-menu-item"
+              >
+                Delete column
+              </button>
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().deleteTable().run())}
+                className="context-menu-item text-red-600 hover:text-red-700"
+              >
+                Delete table
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             onClick={() => run(() => editor.chain().focus().setHorizontalRule().run())}
