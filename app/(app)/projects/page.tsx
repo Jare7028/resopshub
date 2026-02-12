@@ -232,7 +232,7 @@ export default async function ProjectsPage(props: {
     }
 
     if (!Object.keys(updates).length) {
-      redirect(returnTo);
+      return;
     }
 
     const { error } = await supabase.from("projects").update(updates).eq("id", projectId);
@@ -245,7 +245,7 @@ export default async function ProjectsPage(props: {
     }
 
     revalidatePath("/projects");
-    redirect(returnTo);
+    return;
   }
 
   async function createProject(formData: FormData) {

@@ -103,5 +103,5 @@ export async function updateTaskInlineAction(formData: FormData) {
   const pathOnly = returnTo.split("?")[0] || "/tasks";
   revalidatePath("/tasks");
   revalidatePath(pathOnly);
-  redirect(returnTo);
+  return { ok: true };
 }

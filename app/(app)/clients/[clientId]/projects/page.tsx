@@ -489,7 +489,7 @@ export default async function ClientProjectsPage(props: {
       updates.end_date = endDate || null;
     }
     if (!Object.keys(updates).length) {
-      redirect(returnTo);
+      return;
     }
 
     const { error } = await supabase.from("projects").update(updates).eq("id", projectId);
@@ -501,7 +501,7 @@ export default async function ClientProjectsPage(props: {
     }
 
     revalidatePath(`/clients/${clientId}/projects`);
-    redirect(returnTo);
+    return;
   }
 
   return (

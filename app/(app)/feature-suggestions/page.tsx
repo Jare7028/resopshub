@@ -529,7 +529,7 @@ export default async function FeatureSuggestionsPage(props: {
     }
 
     revalidatePath("/feature-suggestions");
-    redirect(returnTo);
+    return;
   }
 
   async function updateStatus(formData: FormData) {
