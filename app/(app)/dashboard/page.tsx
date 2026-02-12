@@ -139,7 +139,7 @@ export default async function DashboardPage(props: {
 
   const { data: clients } = await supabase
     .from("clients")
-    .select("id,name")
+    .select("id,name,status,start_date")
     .order("name", { ascending: true });
 
   let visibleProjectIds: string[] = [];
@@ -212,6 +212,11 @@ export default async function DashboardPage(props: {
     .from("users")
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
+
+  const { data: myTaskAssignments } = await supabase
+    .from("task_assignees")
+    .select("task_id")
+    .eq("user_id", currentUserId);
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const filteredClientIds = selectedClientIds.filter((id) => clientIdSet.has(id));
@@ -309,6 +314,18 @@ export default async function DashboardPage(props: {
 
   const openTasks = (tasks || []).filter(
     (task) => task.status !== "completed" && task.status !== "cancelled"
+  );
+
+  const myTaskIdSet = new Set((myTaskAssignments || []).map((row) => row.task_id));
+  const myOpenTasks = openTasks.filter(
+    (task) => task.assignee_user_id === currentUserId || myTaskIdSet.has(task.id)
+  );
+  const myBlockedTasks = myOpenTasks.filter((task) => task.status === "blocked");
+  const myOverdueTasks = myOpenTasks.filter(
+    (task) => task.due_date && task.due_date < todayIso
+  );
+  const myDueSoonTasks = myOpenTasks.filter(
+    (task) => task.due_date && task.due_date >= todayIso && task.due_date <= nextWeekIso
   );
 
   const blockedTasks = openTasks.filter((task) => task.status === "blocked");
@@ -566,6 +583,36 @@ export default async function DashboardPage(props: {
     (a, b) => b.open - a.open
   );
 
+  const projectIdsForCoverage = filteredProjectsAllStatuses.map((project) => project.id);
+  let projectsWithoutAssignees = 0;
+  let projectsWithoutWatchers = 0;
+  if (projectIdsForCoverage.length) {
+    const [{ data: projectAssignments }, { data: projectWatchers }] = await Promise.all([
+      supabase
+        .from("project_users")
+        .select("project_id")
+        .in("project_id", projectIdsForCoverage),
+      supabase
+        .from("project_watchers")
+        .select("project_id")
+        .in("project_id", projectIdsForCoverage),
+    ]);
+
+    const assignedProjectIdSet = new Set(
+      (projectAssignments || []).map((row) => row.project_id).filter(Boolean)
+    );
+    const watchedProjectIdSet = new Set(
+      (projectWatchers || []).map((row) => row.project_id).filter(Boolean)
+    );
+
+    projectsWithoutAssignees = projectIdsForCoverage.filter(
+      (projectId) => !assignedProjectIdSet.has(projectId)
+    ).length;
+    projectsWithoutWatchers = projectIdsForCoverage.filter(
+      (projectId) => !watchedProjectIdSet.has(projectId)
+    ).length;
+  }
+
   let activityQuery = supabase
     .from("tasks")
     .select("id,title,created_at,project_id,client_id,projects(name),clients(name)")
@@ -625,6 +672,30 @@ export default async function DashboardPage(props: {
   const { data: suggestionVotes } = await supabase
     .from("feature_suggestion_votes")
     .select("suggestion_id");
+
+  const { data: chatMembershipRows } = await supabase
+    .from("chat_conversation_members")
+    .select("conversation_id,last_read_at")
+    .eq("user_id", currentUserId);
+
+  const unreadChatCount = chatMembershipRows?.length
+    ? (
+        await Promise.all(
+          chatMembershipRows.map(async (membership) => {
+            let query = supabase
+              .from("chat_messages")
+              .select("id", { count: "exact", head: true })
+              .eq("conversation_id", membership.conversation_id)
+              .neq("sender_id", currentUserId);
+            if (membership.last_read_at) {
+              query = query.gt("created_at", membership.last_read_at);
+            }
+            const { count } = await query;
+            return count || 0;
+          })
+        )
+      ).reduce((sum, value) => sum + value, 0)
+    : 0;
 
   const suggestionVoteCounts = new Map<string, number>();
   (suggestionVotes || []).forEach((vote) => {
@@ -725,6 +796,24 @@ export default async function DashboardPage(props: {
     .sort((a, b) => b.votes - a.votes || (a.created_at < b.created_at ? 1 : -1))
     .slice(0, 5);
 
+  const clientStatusCounts = new Map<string, number>();
+  (clients || []).forEach((client) => {
+    const status = client.status || "prospect";
+    clientStatusCounts.set(status, (clientStatusCounts.get(status) || 0) + 1);
+  });
+  const clientsMissingStartDate = (clients || []).filter(
+    (client) => !client.start_date
+  ).length;
+
+  const openSuggestionStatuses = new Set(["idea", "needs_checking", "planned"]);
+  const topOpenSuggestion = (suggestionRows || [])
+    .map((row) => ({
+      ...row,
+      votes: suggestionVoteCounts.get(row.id) || 0,
+    }))
+    .filter((row) => openSuggestionStatuses.has(row.status || "idea"))
+    .sort((a, b) => b.votes - a.votes || (a.created_at < b.created_at ? 1 : -1))[0];
+
   return (
     <div className="space-y-8">
       <section className="flex flex-wrap items-start justify-between gap-4">
@@ -756,6 +845,76 @@ export default async function DashboardPage(props: {
             priority: selectedPriorities,
           }}
         />
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-400">My open tasks</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{myOpenTasks.length}</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {myOverdueTasks.length} overdue, {myBlockedTasks.length} blocked
+          </p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Due in 7 days (me)</p>
+          <p className="mt-2 text-2xl font-semibold text-amber-700">{myDueSoonTasks.length}</p>
+          <p className="mt-2 text-xs text-slate-500">From currently open assigned tasks</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Unread chat messages</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{unreadChatCount}</p>
+          <Link href="/chat" className="mt-2 inline-block text-xs font-semibold text-slate-700 hover:underline">
+            Open chat
+          </Link>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Clients missing start date</p>
+          <p className="mt-2 text-2xl font-semibold text-rose-600">{clientsMissingStartDate}</p>
+          <Link href="/clients" className="mt-2 inline-block text-xs font-semibold text-slate-700 hover:underline">
+            Review clients
+          </Link>
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Client status mix</h2>
+          <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
+            {Array.from(clientStatusCounts.entries()).map(([status, count]) => (
+              <span key={status} className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+                {status.replaceAll("_", " ")}: {count}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Project coverage</h2>
+          <div className="mt-4 space-y-2 text-sm text-slate-700">
+            <p>Projects without assignees: <span className="font-semibold">{projectsWithoutAssignees}</span></p>
+            <p>Projects without watchers: <span className="font-semibold">{projectsWithoutWatchers}</span></p>
+          </div>
+          <Link href="/projects" className="mt-4 inline-block text-xs font-semibold text-slate-700 hover:underline">
+            Open projects
+          </Link>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Top open feature request</h2>
+          {topOpenSuggestion ? (
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium text-slate-900">{topOpenSuggestion.title}</p>
+              <p className="text-xs text-slate-500">
+                {formatSuggestionStatusLabel(topOpenSuggestion.status || "idea")} - {topOpenSuggestion.votes} votes
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">No open suggestions.</p>
+          )}
+          <Link href="/feature-suggestions" className="mt-4 inline-block text-xs font-semibold text-slate-700 hover:underline">
+            Open feature suggestions
+          </Link>
+        </div>
       </section>
 
       <section className="space-y-6">
@@ -1097,5 +1256,4 @@ export default async function DashboardPage(props: {
     </div>
   );
 }
-
 

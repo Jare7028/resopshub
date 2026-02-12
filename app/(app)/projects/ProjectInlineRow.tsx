@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent } from "react";
+import { type ChangeEvent, useTransition } from "react";
 
 type ClientOption = {
   id: string;
@@ -23,7 +23,7 @@ type ProjectInlineRowProps = {
   clients: ClientOption[];
   statusOptions: readonly string[];
   openTaskCount: number;
-  onUpdate: (formData: FormData) => void;
+  onUpdate: (formData: FormData) => Promise<unknown> | void;
 };
 
 export default function ProjectInlineRow({
@@ -33,10 +33,16 @@ export default function ProjectInlineRow({
   openTaskCount,
   onUpdate,
 }: ProjectInlineRowProps) {
+  const [, startTransition] = useTransition();
   const handleChange = (
     event: ChangeEvent<HTMLSelectElement | HTMLInputElement>
   ) => {
-    event.currentTarget.form?.requestSubmit();
+    const form = event.currentTarget.form;
+    if (!form) return;
+    const formData = new FormData(form);
+    startTransition(() => {
+      void onUpdate(formData);
+    });
   };
 
   return (
@@ -50,7 +56,7 @@ export default function ProjectInlineRow({
         {openTaskCount}
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="project_id" value={project.id} />
           <select
             name="client_id"
@@ -69,7 +75,7 @@ export default function ProjectInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="project_id" value={project.id} />
           <select
             name="status"
@@ -87,7 +93,7 @@ export default function ProjectInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="project_id" value={project.id} />
           <input
             type="date"
@@ -100,7 +106,7 @@ export default function ProjectInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="project_id" value={project.id} />
           <input
             type="date"
@@ -115,3 +121,5 @@ export default function ProjectInlineRow({
     </tr>
   );
 }
+
+

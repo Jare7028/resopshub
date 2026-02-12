@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import {
@@ -53,7 +53,7 @@ type TaskInlineRowProps = {
   projects: ProjectOption[];
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
-  onUpdate: (formData: FormData) => void;
+  onUpdate: (formData: FormData) => Promise<unknown> | void;
   returnTo: string;
 };
 
@@ -72,6 +72,7 @@ export default function TaskInlineRow({
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
   const normalizedStatus = normalizeTaskStatusOrDefault(task.status);
+  const [, startTransition] = useTransition();
 
   const getRelationName = (
     relation:
@@ -90,7 +91,12 @@ export default function TaskInlineRow({
   const handleChange = (
     event: ChangeEvent<HTMLSelectElement | HTMLInputElement>
   ) => {
-    event.currentTarget.form?.requestSubmit();
+    const form = event.currentTarget.form;
+    if (!form) return;
+    const formData = new FormData(form);
+    startTransition(() => {
+      void onUpdate(formData);
+    });
   };
 
   const [assigneeOpen, setAssigneeOpen] = useState(false);
@@ -171,7 +177,7 @@ export default function TaskInlineRow({
         {openSubtaskCount}
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <select
@@ -191,7 +197,7 @@ export default function TaskInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <select
@@ -215,7 +221,7 @@ export default function TaskInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <select
@@ -236,7 +242,7 @@ export default function TaskInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <select
@@ -257,7 +263,7 @@ export default function TaskInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate} id={assigneeFormId}>
+        <form id={assigneeFormId}>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="assignee_user_ids" value="" />
@@ -326,7 +332,7 @@ export default function TaskInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <input
@@ -340,7 +346,7 @@ export default function TaskInlineRow({
         </form>
       </td>
       <td className="px-6 py-3 text-slate-600">
-        <form action={onUpdate}>
+        <form>
           <input type="hidden" name="task_id" value={task.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <input
@@ -358,5 +364,7 @@ export default function TaskInlineRow({
     </tr>
   );
 }
+
+
 
 

@@ -29,6 +29,7 @@ export default async function ClientsPage(props: {
     industry?: string | string[];
     sort?: string;
     dir?: string;
+    view?: string;
     error?: string;
   }>;
 }) {
@@ -41,11 +42,15 @@ export default async function ClientsPage(props: {
   const selectedIndustries = parseCsvParam(searchParams?.industry);
   const sortKey = normalizeClientSortKey(searchParams?.sort);
   const sortDir = normalizeClientSortDir(searchParams?.dir);
+  const initialView =
+    searchParams?.view === "board" || searchParams?.view === "gantt"
+      ? searchParams.view
+      : "table";
   const ascending = sortDir === "asc";
 
   let request = supabase
     .from("clients")
-    .select("id,name,status,industry,account_owner,start_date");
+    .select("id,name,status,industry,account_owner,start_date,end_date");
 
   switch (sortKey) {
     case "status":
@@ -132,6 +137,7 @@ export default async function ClientsPage(props: {
           }}
           sortKey={sortKey}
           sortDir={sortDir}
+          initialView={initialView}
           onDelete={deleteClient}
         />
       </section>

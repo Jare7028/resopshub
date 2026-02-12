@@ -1,10 +1,12 @@
 "use client";
 
+import { type ChangeEvent, useTransition } from "react";
+
 type FeatureSuggestionStatusProps = {
   suggestionId: string;
   defaultStatus: string;
   statusOptions: readonly string[];
-  onUpdate: (formData: FormData) => void;
+  onUpdate: (formData: FormData) => Promise<unknown> | void;
 };
 
 export default function FeatureSuggestionStatus({
@@ -13,6 +15,8 @@ export default function FeatureSuggestionStatus({
   statusOptions,
   onUpdate,
 }: FeatureSuggestionStatusProps) {
+  const [, startTransition] = useTransition();
+
   const formatStatusLabel = (status: string) =>
     status
       .split("_")
@@ -20,14 +24,23 @@ export default function FeatureSuggestionStatus({
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
 
+  const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const form = event.currentTarget.form;
+    if (!form) return;
+    const formData = new FormData(form);
+    startTransition(() => {
+      void onUpdate(formData);
+    });
+  };
+
   return (
-    <form action={onUpdate} className="flex flex-wrap items-center gap-2">
+    <form className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="suggestion_id" value={suggestionId} />
       <select
         name="status"
         defaultValue={defaultStatus}
         className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-        onChange={(event) => event.currentTarget.form?.requestSubmit()}
+        onChange={handleChange}
       >
         {statusOptions.map((status) => (
           <option key={status} value={status}>
@@ -38,3 +51,4 @@ export default function FeatureSuggestionStatus({
     </form>
   );
 }
+

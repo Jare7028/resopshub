@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -68,7 +68,7 @@ type TasksViewProps = {
     client: string[];
     project: string[];
   };
-  onUpdate: (formData: FormData) => void;
+  onUpdate: (formData: FormData) => Promise<unknown> | void;
   hideCompleted: boolean;
   toggleUrl: string;
   sortKey: TaskSortKey;
@@ -138,9 +138,6 @@ export default function TasksView({
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const statusUpdateFormRef = useRef<HTMLFormElement | null>(null);
-  const statusUpdateTaskIdRef = useRef<HTMLInputElement | null>(null);
-  const statusUpdateStatusRef = useRef<HTMLInputElement | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -324,11 +321,13 @@ export default function TasksView({
   }, [tasks]);
 
   const submitStatusUpdate = (taskId: string, status: string) => {
-    if (!statusUpdateFormRef.current) return;
-    if (!statusUpdateTaskIdRef.current || !statusUpdateStatusRef.current) return;
-    statusUpdateTaskIdRef.current.value = taskId;
-    statusUpdateStatusRef.current.value = status;
-    statusUpdateFormRef.current.requestSubmit();
+    const formData = new FormData();
+    formData.set("task_id", taskId);
+    formData.set("status", status);
+    formData.set("return_to", returnTo);
+    startTransition(() => {
+      void onUpdate(formData);
+    });
   };
 
   return (
@@ -392,13 +391,6 @@ export default function TasksView({
           </button>
         </div>
       </div>
-
-      {/* Hidden form for board drag-and-drop status changes. */}
-      <form action={onUpdate} ref={statusUpdateFormRef} className="hidden">
-        <input ref={statusUpdateTaskIdRef} type="hidden" name="task_id" defaultValue="" />
-        <input ref={statusUpdateStatusRef} type="hidden" name="status" defaultValue="" />
-        <input type="hidden" name="return_to" value={returnTo} />
-      </form>
 
       {view === "table" ? (
         <div className="overflow-x-auto">
@@ -840,7 +832,7 @@ export default function TasksView({
                                 {(clientName || projectName) ? (
                                   <p className="mt-1 text-xs text-slate-500">
                                     {clientName || "Client N/A"}
-                                    {projectName ? ` · ${projectName}` : ""}
+                                    {projectName ? ` - ${projectName}` : ""}
                                   </p>
                                 ) : null}
 

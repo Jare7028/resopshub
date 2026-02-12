@@ -36,7 +36,7 @@ export default function ProjectsTable({
   initialFilters: { client: string[]; status: string[] };
   hideCompleted: boolean;
   openTaskCountByProjectId: Record<string, number>;
-  onUpdate: (formData: FormData) => void;
+  onUpdate: (formData: FormData) => Promise<unknown> | void;
   basePath?: string;
 }) {
   const router = useRouter();
@@ -179,3 +179,4 @@ export default function ProjectsTable({
     </div>
   );
 }
+
