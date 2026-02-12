@@ -84,6 +84,13 @@ create table if not exists public.employee_payroll_dropdown_options (
     check (length(trim(value)) > 0)
 );
 
+alter table public.employee_payroll_dropdown_options
+  drop constraint if exists employee_payroll_dropdown_options_field_type_check;
+
+alter table public.employee_payroll_dropdown_options
+  add constraint employee_payroll_dropdown_options_field_type_check
+  check (field_type in ('job_title', 'contract_type', 'billable'));
+
 create unique index if not exists employee_payroll_dropdown_options_unique_value_idx
   on public.employee_payroll_dropdown_options (field_type, lower(value));
 
