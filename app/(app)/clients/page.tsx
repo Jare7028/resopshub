@@ -48,39 +48,87 @@ export default async function ClientsPage(props: {
       : "table";
   const ascending = sortDir === "asc";
 
-  let request = supabase
-    .from("clients")
-    .select("id,name,status,industry,account_owner,start_date,end_date");
+  const buildClientsQuery = (includeEndDate: boolean) => {
+    let request = supabase
+      .from("clients")
+      .select(
+        includeEndDate
+          ? "id,name,status,industry,account_owner,start_date,end_date"
+          : "id,name,status,industry,account_owner,start_date"
+      );
 
-  switch (sortKey) {
-    case "status":
-      request = request.order("status", { ascending }).order("name", { ascending: true });
-      break;
-    case "industry":
-      request = request.order("industry", { ascending }).order("name", { ascending: true });
-      break;
-    case "start":
-      request = request.order("start_date", { ascending }).order("name", { ascending: true });
-      break;
-    case "name":
-    default:
-      request = request.order("name", { ascending });
-      break;
+    switch (sortKey) {
+      case "status":
+        request = request.order("status", { ascending }).order("name", { ascending: true });
+        break;
+      case "industry":
+        request = request.order("industry", { ascending }).order("name", { ascending: true });
+        break;
+      case "start":
+        request = request.order("start_date", { ascending }).order("name", { ascending: true });
+        break;
+      case "name":
+      default:
+        request = request.order("name", { ascending });
+        break;
+    }
+
+    if (query) {
+      request = request.ilike("name", `%${query}%`);
+    }
+
+    if (selectedStatuses.length) {
+      request = request.in("status", selectedStatuses);
+    }
+
+    if (selectedIndustries.length) {
+      request = request.in("industry", selectedIndustries);
+    }
+
+    return request;
+  };
+
+  let clientsError: string | null = null;
+  type ClientRow = {
+    id: string;
+    name: string;
+    status: string | null;
+    industry: string | null;
+    account_owner: string | null;
+    start_date: string | null;
+    end_date: string | null;
+  };
+  let clients: ClientRow[] = [];
+
+  const { data: clientsWithEndDate, error: clientsWithEndDateError } =
+    await buildClientsQuery(true);
+
+  if (clientsWithEndDateError) {
+    const missingEndDateColumn =
+      clientsWithEndDateError.message.includes("end_date") ||
+      clientsWithEndDateError.details?.includes("end_date");
+
+    if (missingEndDateColumn) {
+      const { data: clientsWithoutEndDate, error: clientsWithoutEndDateError } =
+        await buildClientsQuery(false);
+      if (clientsWithoutEndDateError) {
+        clientsError = clientsWithoutEndDateError.message;
+      } else {
+        clients = (
+          (clientsWithoutEndDate || []) as unknown as Array<
+            Omit<ClientRow, "end_date">
+          >
+        ).map((client) => ({
+          ...client,
+          end_date: null,
+        }));
+      }
+    } else {
+      clientsError = clientsWithEndDateError.message;
+    }
+  } else {
+    clients = (clientsWithEndDate || []) as unknown as ClientRow[];
   }
-
-  if (query) {
-    request = request.ilike("name", `%${query}%`);
-  }
-
-  if (selectedStatuses.length) {
-    request = request.in("status", selectedStatuses);
-  }
-
-  if (selectedIndustries.length) {
-    request = request.in("industry", selectedIndustries);
-  }
-
-  const { data: clients } = await request;
 
   async function deleteClient(formData: FormData) {
     "use server";
@@ -117,9 +165,9 @@ export default async function ClientsPage(props: {
         </Link>
       </section>
 
-      {searchParams?.error ? (
+      {searchParams?.error || clientsError ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-          {searchParams.error}
+          {searchParams?.error || clientsError}
         </p>
       ) : null}
 
@@ -128,7 +176,7 @@ export default async function ClientsPage(props: {
           <h2 className="text-lg font-semibold text-slate-900">All clients</h2>
         </div>
         <ClientsTable
-          clients={clients || []}
+          clients={clients}
           statusOptions={statusOptions}
           initialFilters={{
             q: query,
