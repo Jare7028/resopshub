@@ -71,7 +71,7 @@ export default async function ClientOverviewPage(props: {
   const { data: client } = await supabase
     .from("clients")
     .select(
-      "id,name,code,status,industry,website,notes,created_at,start_date,contract_renewal_date,hq_address"
+      "id,name,code,status,industry,account_owner,website,notes,created_at,start_date,contract_renewal_date,hq_address"
     )
     .eq("id", params.clientId)
     .single();
@@ -199,6 +199,7 @@ export default async function ClientOverviewPage(props: {
     const code = String(formData.get("code") || "").trim();
     const status = String(formData.get("status") || "active");
     const industry = String(formData.get("industry") || "").trim();
+    const accountOwner = String(formData.get("account_owner") || "").trim();
     const website = String(formData.get("website") || "").trim();
     const startDate = String(formData.get("start_date") || "");
     const contractRenewalDate = String(formData.get("contract_renewal_date") || "");
@@ -216,6 +217,7 @@ export default async function ClientOverviewPage(props: {
         code,
         status,
         industry: industry || null,
+        account_owner: accountOwner || null,
         website: website || null,
         start_date: startDate || null,
         contract_renewal_date: contractRenewalDate || null,
@@ -403,6 +405,17 @@ export default async function ClientOverviewPage(props: {
               id="website"
               name="website"
               defaultValue={client.website || ""}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700" htmlFor="account_owner">
+              Account owner
+            </label>
+            <input
+              id="account_owner"
+              name="account_owner"
+              defaultValue={client.account_owner || ""}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </div>

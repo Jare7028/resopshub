@@ -43,7 +43,9 @@ export default async function ClientsPage(props: {
   const sortDir = normalizeClientSortDir(searchParams?.dir);
   const ascending = sortDir === "asc";
 
-  let request = supabase.from("clients").select("id,name,status,industry,created_at");
+  let request = supabase
+    .from("clients")
+    .select("id,name,status,industry,account_owner,created_at");
 
   switch (sortKey) {
     case "status":

@@ -16,6 +16,7 @@ type ClientRow = {
   name: string;
   status: string | null;
   industry: string | null;
+  account_owner: string | null;
   created_at: string | null;
 };
 
@@ -220,6 +221,9 @@ export default function ClientsTable({
               </div>
             </th>
             <th className="px-6 py-3">
+              <span className="text-slate-700">Account owner</span>
+            </th>
+            <th className="px-6 py-3">
               <a href={buildSortUrl("created")} className={headerClass("created")}>
                 Created {sortIndicator("created")}
               </a>
@@ -241,6 +245,9 @@ export default function ClientsTable({
                 </td>
                 <td className="px-6 py-3 text-slate-600">{client.industry || "-"}</td>
                 <td className="px-6 py-3 text-slate-600">
+                  {client.account_owner || "-"}
+                </td>
+                <td className="px-6 py-3 text-slate-600">
                   {client.created_at
                     ? new Date(client.created_at).toLocaleDateString("en-US")
                     : "-"}
@@ -255,7 +262,7 @@ export default function ClientsTable({
             ))
           ) : (
             <tr>
-              <td className="px-6 py-6 text-slate-500" colSpan={5}>
+              <td className="px-6 py-6 text-slate-500" colSpan={6}>
                 No clients found.
               </td>
             </tr>
