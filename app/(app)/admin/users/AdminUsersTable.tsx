@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   FilterIcon,
   FilterMenuMulti,
@@ -20,21 +20,55 @@ type HeaderMenuKey = "name" | "email" | "role" | "status";
 type UserSortKey = "name" | "email" | "role" | "status";
 type UserSortDir = "asc" | "desc";
 
+type SavePayload = {
+  user_id: string;
+  full_name?: string | null;
+  email?: string;
+  role?: string;
+  status?: string;
+};
+
+type SaveResponse = {
+  ok: boolean;
+  user?: UserRow;
+  error?: string;
+};
+
 function compareText(a: string, b: string) {
   return a.localeCompare(b, undefined, { sensitivity: "base" });
+}
+
+async function saveUser(payload: SavePayload): Promise<SaveResponse> {
+  const response = await fetch("/api/admin/users/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const json = (await response.json().catch(() => null)) as SaveResponse | null;
+  if (!response.ok || !json?.ok || !json.user) {
+    return {
+      ok: false,
+      error: json?.error || "Failed to save user",
+    };
+  }
+
+  return {
+    ok: true,
+    user: json.user,
+  };
 }
 
 export default function AdminUsersTable({
   users,
   roleOptions,
   statusOptions,
-  onUpdate,
 }: {
   users: UserRow[];
   roleOptions: readonly string[];
   statusOptions: readonly string[];
-  onUpdate: (formData: FormData) => void;
 }) {
+  const [tableUsers, setTableUsers] = useState(users);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const [sortKey, setSortKey] = useState<UserSortKey>("name");
   const [sortDir, setSortDir] = useState<UserSortDir>("asc");
@@ -44,7 +78,13 @@ export default function AdminUsersTable({
     role: [] as string[],
     status: [] as string[],
   });
+  const [savingUserIds, setSavingUserIds] = useState<string[]>([]);
+  const [errorByUserId, setErrorByUserId] = useState<Record<string, string>>({});
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setTableUsers(users);
+  }, [users]);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -76,7 +116,7 @@ export default function AdminUsersTable({
     const normalizedName = filters.name.trim().toLowerCase();
     const normalizedEmail = filters.email.trim().toLowerCase();
 
-    const filtered = users.filter((user) => {
+    const filtered = tableUsers.filter((user) => {
       const userName = (user.full_name || "").toLowerCase();
       const userEmail = user.email.toLowerCase();
 
@@ -102,7 +142,7 @@ export default function AdminUsersTable({
     });
 
     return sortDir === "asc" ? sorted : sorted.reverse();
-  }, [users, filters, sortKey, sortDir]);
+  }, [tableUsers, filters, sortKey, sortDir]);
 
   const toggleSort = (nextSortKey: UserSortKey) => {
     if (sortKey === nextSortKey) {
@@ -125,6 +165,69 @@ export default function AdminUsersTable({
       ) : null}
     </button>
   );
+
+  const setUserPatch = (userId: string, patch: Partial<UserRow>) => {
+    setTableUsers((current) =>
+      current.map((user) => (user.id === userId ? { ...user, ...patch } : user))
+    );
+  };
+
+  const runSave = async (
+    payload: SavePayload,
+    rollbackPatch: Partial<UserRow> | null = null
+  ) => {
+    setSavingUserIds((current) => Array.from(new Set([...current, payload.user_id])));
+    setErrorByUserId((current) => ({ ...current, [payload.user_id]: "" }));
+
+    const result = await saveUser(payload);
+
+    if (!result.ok || !result.user) {
+      if (rollbackPatch) {
+        setUserPatch(payload.user_id, rollbackPatch);
+      }
+      setErrorByUserId((current) => ({
+        ...current,
+        [payload.user_id]: result.error || "Failed to save user",
+      }));
+      setSavingUserIds((current) => current.filter((id) => id !== payload.user_id));
+      return;
+    }
+
+    setUserPatch(payload.user_id, result.user);
+    setSavingUserIds((current) => current.filter((id) => id !== payload.user_id));
+  };
+
+  const onRoleChange = async (user: UserRow, role: string) => {
+    const previousRole = user.role;
+    setUserPatch(user.id, { role });
+    await runSave({ user_id: user.id, role }, { role: previousRole });
+  };
+
+  const onStatusChange = async (user: UserRow, status: string) => {
+    const previousStatus = user.status;
+    setUserPatch(user.id, { status });
+    await runSave({ user_id: user.id, status }, { status: previousStatus });
+  };
+
+  const onUpdateSubmit = async (event: FormEvent<HTMLFormElement>, userId: string) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    const fullNameRaw = String(formData.get("full_name") || "").trim();
+    const email = String(formData.get("email") || "")
+      .trim()
+      .toLowerCase();
+    const role = String(formData.get("role") || "");
+    const status = String(formData.get("status") || "");
+
+    await runSave({
+      user_id: userId,
+      full_name: fullNameRaw || null,
+      email,
+      role,
+      status,
+    });
+  };
 
   return (
     <div className="overflow-x-auto">
@@ -242,6 +345,8 @@ export default function AdminUsersTable({
           {filteredAndSortedUsers.length ? (
             filteredAndSortedUsers.map((user) => {
               const formId = `user-update-${user.id}`;
+              const isSaving = savingUserIds.includes(user.id);
+              const error = errorByUserId[user.id];
 
               return (
                 <tr key={user.id} className="border-t border-slate-200">
@@ -268,7 +373,8 @@ export default function AdminUsersTable({
                     <select
                       form={formId}
                       name="role"
-                      defaultValue={user.role}
+                      value={user.role}
+                      onChange={(event) => onRoleChange(user, event.target.value)}
                       className="rounded-md border border-slate-300 px-2 py-1 text-sm"
                     >
                       {roleOptions.map((role) => (
@@ -282,7 +388,8 @@ export default function AdminUsersTable({
                     <select
                       form={formId}
                       name="status"
-                      defaultValue={user.status}
+                      value={user.status}
+                      onChange={(event) => onStatusChange(user, event.target.value)}
                       className="rounded-md border border-slate-300 px-2 py-1 text-sm"
                     >
                       {statusOptions.map((status) => (
@@ -293,14 +400,20 @@ export default function AdminUsersTable({
                     </select>
                   </td>
                   <td className="px-6 py-3">
-                    <form id={formId} action={onUpdate}>
+                    <form id={formId} onSubmit={(event) => onUpdateSubmit(event, user.id)}>
                       <input type="hidden" name="user_id" value={user.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md btn-primary px-3 py-1.5 text-xs font-semibold text-white "
-                      >
-                        Update
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="submit"
+                          className="rounded-md btn-primary px-3 py-1.5 text-xs font-semibold text-white"
+                          disabled={isSaving}
+                        >
+                          {isSaving ? "Saving..." : "Update"}
+                        </button>
+                        {error ? (
+                          <span className="text-xs text-red-600">{error}</span>
+                        ) : null}
+                      </div>
                     </form>
                   </td>
                 </tr>
