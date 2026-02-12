@@ -145,13 +145,15 @@ export default function PayrollRowsTable({
       <table className="min-w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-6 py-3">Name</th>
-            <th className="px-6 py-3">Job Title</th>
-            <th className="px-6 py-3">Billable</th>
-            <th className="px-6 py-3">Client</th>
-            <th className="px-6 py-3">Contract Type</th>
+            <th className="sticky left-0 top-0 z-30 border-r border-slate-200 bg-slate-50 px-6 py-3">
+              Name
+            </th>
+            <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Job Title</th>
+            <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Billable</th>
+            <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Client</th>
+            <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Contract Type</th>
             {columns.map((column) => (
-              <th key={column.id} className="px-6 py-3">
+              <th key={column.id} className="sticky top-0 z-20 bg-slate-50 px-6 py-3">
                 <div className="flex flex-col">
                   <span>{column.label}</span>
                   {column.kind === "formula" ? (
@@ -160,14 +162,14 @@ export default function PayrollRowsTable({
                 </div>
               </th>
             ))}
-            <th className="px-6 py-3">Actions</th>
+            <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Actions</th>
           </tr>
         </thead>
         <tbody>
           {rowsState.length ? (
             rowsState.map((row) => (
               <tr key={row.id} className="border-t border-slate-200 align-top">
-                <td className="px-6 py-3">
+                <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-6 py-3">
                   <input
                     value={row.employee_name}
                     className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
