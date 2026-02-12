@@ -4,6 +4,7 @@ create table if not exists feature_suggestions (
   details text,
   status text not null default 'idea',
   type text not null default 'new_feature',
+  closed_at timestamp with time zone,
   created_by uuid references users(id) on delete set null,
   created_at timestamp with time zone not null default now()
 );
@@ -22,6 +23,9 @@ alter table feature_suggestions
 
 alter table feature_suggestions
   add column if not exists type text not null default 'new_feature';
+
+alter table feature_suggestions
+  add column if not exists closed_at timestamp with time zone;
 
 -- Comments on feature suggestions (visible to all authenticated users).
 create table if not exists feature_suggestion_comments (

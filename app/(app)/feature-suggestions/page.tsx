@@ -12,6 +12,7 @@ type SuggestionRow = {
   status: string | null;
   type: string | null;
   created_at: string;
+  closed_at: string | null;
   created_by: string | null;
 };
 
@@ -81,6 +82,30 @@ function buildFeatureSuggestionsReturnUrl(
   return query ? `/feature-suggestions?${query}` : "/feature-suggestions";
 }
 
+function normalizeFeatureView(value: string | undefined): "table" | "gantt" | "board" {
+  if (value === "gantt" || value === "board") return value;
+  return "table";
+}
+
+function toDate(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toDayStamp(date: Date) {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function diffDays(start: Date, end: Date) {
+  const dayMs = 1000 * 60 * 60 * 24;
+  return Math.round((toDayStamp(end) - toDayStamp(start)) / dayMs);
+}
+
+function formatTick(date: Date) {
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export default async function FeatureSuggestionsPage(props: {
   searchParams?: Promise<{
     error?: string;
@@ -96,6 +121,7 @@ export default async function FeatureSuggestionsPage(props: {
     date_to?: string;
     my_votes?: string;
     has_comments?: string;
+    view?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -113,6 +139,7 @@ export default async function FeatureSuggestionsPage(props: {
   const dateToParam = (searchParams?.date_to || "").trim();
   const onlyMyVotes = (searchParams?.my_votes || "0").trim() === "1";
   const onlyWithComments = (searchParams?.has_comments || "0").trim() === "1";
+  const selectedView = normalizeFeatureView((searchParams?.view || "").trim());
 
   if (!authEmail) {
     redirect("/login");
@@ -182,6 +209,9 @@ export default async function FeatureSuggestionsPage(props: {
   if (onlyWithComments) {
     baseParams.set("has_comments", "1");
   }
+  if (selectedView !== "table") {
+    baseParams.set("view", selectedView);
+  }
   const returnBaseQuery = baseParams.toString();
   const returnTo = buildFeatureSuggestionsReturnUrl(returnBaseQuery);
 
@@ -189,6 +219,9 @@ export default async function FeatureSuggestionsPage(props: {
   resetParams.set("hide", hideCompleted ? "1" : "0");
   if (selectedSort && selectedSort !== "latest") {
     resetParams.set("sort", selectedSort);
+  }
+  if (selectedView !== "table") {
+    resetParams.set("view", selectedView);
   }
   const resetQuery = resetParams.toString();
   const resetUrl = resetQuery ? `/feature-suggestions?${resetQuery}` : "/feature-suggestions";
@@ -216,7 +249,7 @@ export default async function FeatureSuggestionsPage(props: {
 
   let suggestionsQuery = supabase
     .from("feature_suggestions")
-    .select("id,title,details,status,type,created_at,created_by")
+    .select("id,title,details,status,type,created_at,closed_at,created_by")
     .order("created_at", { ascending: false });
 
   if (selectedStatus !== "all") {
@@ -494,9 +527,10 @@ export default async function FeatureSuggestionsPage(props: {
       );
     }
 
+    const shouldClose = status === "completed" || status === "rejected";
     const { error } = await supabase
       .from("feature_suggestions")
-      .update({ status })
+      .update({ status, closed_at: shouldClose ? new Date().toISOString() : null })
       .eq("id", suggestionId);
 
     if (error) {
@@ -739,6 +773,67 @@ export default async function FeatureSuggestionsPage(props: {
     );
   }
 
+  const buildViewUrl = (nextView: "table" | "gantt" | "board") => {
+    const params = new URLSearchParams(returnBaseQuery);
+    if (nextView === "table") {
+      params.delete("view");
+    } else {
+      params.set("view", nextView);
+    }
+    const query = params.toString();
+    return query ? `/feature-suggestions?${query}` : "/feature-suggestions";
+  };
+
+  const ganttData = (() => {
+    const normalized = suggestionRows.map((suggestion) => {
+      const start = toDate(suggestion.created_at) || new Date();
+      const closedAt = toDate(suggestion.closed_at);
+      const end = closedAt && closedAt > start ? closedAt : start;
+      return { ...suggestion, start, end };
+    });
+
+    if (!normalized.length) {
+      const today = new Date();
+      return { items: normalized, rangeStart: today, rangeDays: 1 };
+    }
+
+    const rangeStart = normalized.reduce(
+      (min, suggestion) => (suggestion.start < min ? suggestion.start : min),
+      normalized[0].start
+    );
+    const rangeEnd = normalized.reduce(
+      (max, suggestion) => (suggestion.end > max ? suggestion.end : max),
+      normalized[0].end
+    );
+    const rangeDays = Math.max(1, diffDays(rangeStart, rangeEnd) + 1);
+
+    return { items: normalized, rangeStart, rangeDays };
+  })();
+
+  const timelineTicks = (() => {
+    const ticks = [];
+    const steps = 4;
+    for (let i = 0; i <= steps; i += 1) {
+      const offset = Math.round((ganttData.rangeDays - 1) * (i / steps));
+      const tickDate = new Date(ganttData.rangeStart);
+      tickDate.setDate(tickDate.getDate() + offset);
+      ticks.push({ label: formatTick(tickDate), left: (i / steps) * 100 });
+    }
+    return ticks;
+  })();
+
+  const timelineWidth = Math.max(560, ganttData.rangeDays * 18);
+
+  const boardByStatus = statusOptions.reduce<Record<string, SuggestionRow[]>>((acc, status) => {
+    acc[status] = [];
+    return acc;
+  }, {});
+  suggestionRows.forEach((suggestion) => {
+    const status = suggestion.status || "idea";
+    const key = boardByStatus[status] ? status : "idea";
+    boardByStatus[key].push(suggestion);
+  });
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -807,15 +902,52 @@ export default async function FeatureSuggestionsPage(props: {
         <div className="border-b border-slate-200 px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Ideas</h2>
-            <FeatureSuggestionControls
-              hideCompleted={hideCompleted}
-              selectedSort={selectedSort === "most_upvoted" ? "most_upvoted" : "latest"}
-            />
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap gap-2 text-sm">
+                <Link
+                  href={buildViewUrl("table")}
+                  className={`rounded-md px-3 py-1.5 font-medium ${
+                    selectedView === "table"
+                      ? "tab-active"
+                      : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  Table
+                </Link>
+                <Link
+                  href={buildViewUrl("gantt")}
+                  className={`rounded-md px-3 py-1.5 font-medium ${
+                    selectedView === "gantt"
+                      ? "tab-active"
+                      : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  Gantt
+                </Link>
+                <Link
+                  href={buildViewUrl("board")}
+                  className={`rounded-md px-3 py-1.5 font-medium ${
+                    selectedView === "board"
+                      ? "tab-active"
+                      : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  Board
+                </Link>
+              </div>
+              <FeatureSuggestionControls
+                hideCompleted={hideCompleted}
+                selectedSort={selectedSort === "most_upvoted" ? "most_upvoted" : "latest"}
+              />
+            </div>
           </div>
         </div>
         <div className="border-b border-slate-200 px-6 py-4">
           <form className="flex flex-wrap items-end gap-3">
             <input type="hidden" name="hide" value={hideCompleted ? "1" : "0"} />
+            {selectedView !== "table" ? (
+              <input type="hidden" name="view" value={selectedView} />
+            ) : null}
             {selectedSort && selectedSort !== "latest" ? (
               <input type="hidden" name="sort" value={selectedSort} />
             ) : null}
@@ -903,7 +1035,7 @@ export default async function FeatureSuggestionsPage(props: {
             </Link>
           </form>
         </div>
-        <div className="divide-y divide-slate-200">
+        <div className={selectedView === "table" ? "divide-y divide-slate-200" : "hidden"}>
           {suggestionRows.length ? (
             suggestionRows.map((suggestion) => {
               const scoreForSuggestion = voteScores.get(suggestion.id) || 0;
@@ -1084,6 +1216,117 @@ export default async function FeatureSuggestionsPage(props: {
             </p>
           )}
         </div>
+        {selectedView === "gantt" ? (
+          <div className="overflow-x-auto px-6 py-4">
+            {ganttData.items.length ? (
+              <div className="min-w-[560px]" style={{ width: timelineWidth }}>
+                <div className="relative mb-2 h-8 border-b border-slate-200">
+                  {timelineTicks.map((tick) => (
+                    <span
+                      key={`${tick.label}-${tick.left}`}
+                      className="absolute top-0 -translate-x-1/2 text-xs text-slate-400"
+                      style={{ left: `${tick.left}%` }}
+                    >
+                      {tick.label}
+                    </span>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  {ganttData.items.map((suggestion) => {
+                    const startOffset = diffDays(ganttData.rangeStart, suggestion.start);
+                    const duration = Math.max(1, diffDays(suggestion.start, suggestion.end) + 1);
+                    const leftPercent = (startOffset / ganttData.rangeDays) * 100;
+                    const widthPercent = (duration / ganttData.rangeDays) * 100;
+                    return (
+                      <div key={suggestion.id} className="grid grid-cols-[260px_1fr] items-center gap-3">
+                        <div className="truncate text-sm font-medium text-slate-700">
+                          {suggestion.title}
+                        </div>
+                        <div className="relative h-8 rounded-md bg-slate-100">
+                          <div
+                            className="absolute top-1 h-6 rounded-md bg-slate-900/80 px-2 text-xs font-semibold leading-6 text-white"
+                            style={{
+                              left: `${Math.max(0, leftPercent)}%`,
+                              width: `${Math.max(2, widthPercent)}%`,
+                            }}
+                            title={`${new Date(suggestion.created_at).toLocaleDateString()} -> ${
+                              suggestion.closed_at
+                                ? new Date(suggestion.closed_at).toLocaleDateString()
+                                : new Date(suggestion.created_at).toLocaleDateString()
+                            }`}
+                          >
+                            {formatStatusLabel(suggestion.status || "idea")}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p className="py-4 text-sm text-slate-500">No suggestions yet.</p>
+            )}
+          </div>
+        ) : null}
+        {selectedView === "board" ? (
+          <div className="overflow-x-auto px-6 py-4">
+            {suggestionRows.length ? (
+              <div className="grid min-w-[960px] grid-cols-5 gap-4">
+                {statusOptions.map((status) => {
+                  const items = boardByStatus[status] || [];
+                  return (
+                    <section
+                      key={status}
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <h3 className="mb-3 text-sm font-semibold text-slate-700">
+                        {formatStatusLabel(status)} ({items.length})
+                      </h3>
+                      <div className="space-y-3">
+                        {items.length ? (
+                          items.map((suggestion) => {
+                            const score = voteScores.get(suggestion.id) || 0;
+                            return (
+                              <div
+                                key={suggestion.id}
+                                className="rounded-md border border-slate-200 bg-white p-3"
+                              >
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {suggestion.title}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {formatTypeLabel(suggestion.type || "new_feature")} - Score {score}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {new Date(suggestion.created_at).toLocaleDateString()}
+                                  {suggestion.closed_at
+                                    ? ` -> ${new Date(suggestion.closed_at).toLocaleDateString()}`
+                                    : ""}
+                                </p>
+                                <div className="mt-2">
+                                  <FeatureSuggestionStatus
+                                    suggestionId={suggestion.id}
+                                    defaultStatus={suggestion.status || "idea"}
+                                    statusOptions={statusOptions}
+                                    onUpdate={updateStatus}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-xs text-slate-500">No suggestions</p>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="py-4 text-sm text-slate-500">No suggestions yet.</p>
+            )}
+          </div>
+        ) : null}
       </section>
     </div>
   );
