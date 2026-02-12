@@ -45,7 +45,7 @@ function diffDays(start: Date, end: Date) {
 }
 
 function formatTick(date: Date) {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
 export default function ClientsTable({
@@ -195,6 +195,13 @@ export default function ClientsTable({
 
   const ganttData = useMemo(() => {
     const today = new Date();
+    const statusWeight: Record<string, number> = {
+      active: 0,
+      on_hold: 1,
+      prospect: 2,
+      offboarded: 3,
+    };
+
     const normalized = clients
       .map((client) => {
         const start = toDate(client.start_date);
@@ -206,7 +213,13 @@ export default function ClientsTable({
           end: end < start ? start : end,
         };
       })
-      .filter((client): client is ClientRow & { start: Date; end: Date } => Boolean(client));
+      .filter((client): client is ClientRow & { start: Date; end: Date } => Boolean(client))
+      .sort((a, b) => {
+        const aWeight = statusWeight[a.status || "prospect"] ?? 99;
+        const bWeight = statusWeight[b.status || "prospect"] ?? 99;
+        if (aWeight !== bWeight) return aWeight - bWeight;
+        return b.start.getTime() - a.start.getTime();
+      });
 
     if (!normalized.length) {
       return { clients: [], rangeStart: today, rangeEnd: today, rangeDays: 1 };
@@ -248,16 +261,18 @@ export default function ClientsTable({
   }, [view]);
 
   const timelineTicks = useMemo(() => {
-    const ticks = [];
-    const steps = 4;
-    for (let i = 0; i <= steps; i += 1) {
-      const offset = Math.round((ganttData.rangeDays - 1) * (i / steps));
-      const tickDate = new Date(ganttData.rangeStart);
-      tickDate.setDate(tickDate.getDate() + offset);
-      ticks.push({ label: formatTick(tickDate), left: (i / steps) * 100 });
+    const ticks: Array<{ label: string; left: number }> = [];
+    const start = new Date(ganttData.rangeStart.getFullYear(), ganttData.rangeStart.getMonth(), 1);
+    const end = new Date(ganttData.rangeEnd.getFullYear(), ganttData.rangeEnd.getMonth(), 1);
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const offset = diffDays(ganttData.rangeStart, cursor);
+      const left = Math.max(0, Math.min(100, (offset / ganttData.rangeDays) * 100));
+      ticks.push({ label: formatTick(cursor), left });
+      cursor.setMonth(cursor.getMonth() + 1);
     }
     return ticks;
-  }, [ganttData.rangeDays, ganttData.rangeStart]);
+  }, [ganttData.rangeDays, ganttData.rangeEnd, ganttData.rangeStart]);
 
   const todayMarker = useMemo(() => {
     const todayOffset = diffDays(ganttData.rangeStart, new Date());
@@ -334,7 +349,7 @@ export default function ClientsTable({
       </div>
 
       {view === "table" ? (
-        <div className="overflow-x-auto" ref={ganttScrollRef}>
+        <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
@@ -540,15 +555,22 @@ export default function ClientsTable({
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" ref={ganttScrollRef}>
           {ganttData.clients.length ? (
             <div className="min-w-full" style={{ minWidth: timelineWidth + 240 }}>
               <div className="grid grid-cols-[240px_1fr] border-b border-slate-200">
-                <div className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">
+                <div className="sticky left-0 z-20 bg-white px-6 py-3 text-xs font-semibold uppercase text-slate-500">
                   Client
                 </div>
                 <div className="relative px-6 py-3 text-xs font-semibold uppercase text-slate-500">
-                  <div className="absolute inset-y-0 left-6 right-6 flex items-end">
+                  <div className="absolute inset-y-0 left-6 right-6">
+                    {timelineTicks.map((tick) => (
+                      <div
+                        key={`line-${tick.label}`}
+                        className="pointer-events-none absolute inset-y-0 border-l border-slate-200"
+                        style={{ left: `${tick.left}%` }}
+                      />
+                    ))}
                     {todayMarker ? (
                       <div
                         aria-hidden="true"
@@ -579,17 +601,27 @@ export default function ClientsTable({
                 const widthPercent = (duration / ganttData.rangeDays) * 100;
                 const barColor = statusColors[client.status || ""] || "bg-slate-400";
                 return (
-                  <div
-                    key={client.id}
-                    className="grid grid-cols-[240px_1fr] border-b border-slate-100"
-                  >
-                    <div className="px-6 py-3 text-sm text-slate-900">
+                <div
+                  key={client.id}
+                  className="grid grid-cols-[240px_1fr] border-b border-slate-100"
+                >
+                    <div className="sticky left-0 z-10 bg-white px-6 py-3 text-sm text-slate-900">
                       <Link href={`/clients/${client.id}`} className="hover:underline">
                         {client.name}
                       </Link>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {(client.status || "prospect").replaceAll("_", " ")}
+                      </p>
                     </div>
                     <div className="relative px-6 py-3">
                       <div className="absolute inset-y-0 left-6 right-6">
+                        {timelineTicks.map((tick) => (
+                          <div
+                            key={`row-line-${client.id}-${tick.label}`}
+                            className="pointer-events-none absolute inset-y-0 border-l border-slate-100"
+                            style={{ left: `${tick.left}%` }}
+                          />
+                        ))}
                         {todayMarker ? (
                           <div
                             aria-hidden="true"
@@ -602,7 +634,7 @@ export default function ClientsTable({
                         ) : null}
                         <Link
                           href={`/clients/${client.id}`}
-                          className={`absolute top-1/2 h-3 -translate-y-1/2 rounded-full ${barColor}`}
+                          className={`absolute top-1/2 h-4 -translate-y-1/2 rounded-full ${barColor} shadow-sm`}
                           style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
                           aria-label={`Open ${client.name}`}
                         />
