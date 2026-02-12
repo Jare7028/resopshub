@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  badRequest,
+  isUuid,
+  requirePayrollApiAccess,
+} from "@/app/api/employee-payroll/_lib/auth";
 
 export async function PUT(request: Request) {
-  const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requirePayrollApiAccess();
+  if ("error" in access) {
+    return access.error;
   }
+  const { supabase } = access;
 
   let body: {
     row_id?: string;
@@ -21,15 +24,18 @@ export async function PUT(request: Request) {
       value?: string | null;
     };
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return badRequest("Invalid JSON body");
   }
 
   const rowId = String(body.row_id || "").trim();
   const columnId = String(body.column_id || "").trim();
-  const value = String(body.value ?? "").trim();
+  const value = String(body.value ?? "").trim().slice(0, 2000);
 
   if (!rowId || !columnId) {
-    return NextResponse.json({ error: "Missing row_id or column_id" }, { status: 400 });
+    return badRequest("Missing row_id or column_id");
+  }
+  if (!isUuid(rowId) || !isUuid(columnId)) {
+    return badRequest("Invalid row_id or column_id");
   }
 
   if (!value) {
@@ -40,7 +46,7 @@ export async function PUT(request: Request) {
       .eq("column_id", columnId);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: "Failed to clear cell value" }, { status: 400 });
     }
 
     return NextResponse.json({ ok: true });
@@ -58,7 +64,7 @@ export async function PUT(request: Request) {
   );
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: "Failed to save cell value" }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });

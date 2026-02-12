@@ -1,27 +1,30 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  badRequest,
+  isUuid,
+  requirePayrollApiAccess,
+} from "@/app/api/employee-payroll/_lib/auth";
 
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ rowId: string }> }
 ) {
-  const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requirePayrollApiAccess();
+  if ("error" in access) {
+    return access.error;
   }
+  const { supabase } = access;
 
   const { rowId } = await context.params;
-  if (!rowId) {
-    return NextResponse.json({ error: "Missing row id" }, { status: 400 });
+  if (!rowId || !isUuid(rowId)) {
+    return badRequest("Invalid row id");
   }
 
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return badRequest("Invalid JSON body");
   }
 
   const updates: Record<string, string | null> = {};
@@ -29,7 +32,10 @@ export async function PATCH(
   if (Object.prototype.hasOwnProperty.call(body, "employee_name")) {
     const employeeName = String(body.employee_name || "").trim();
     if (!employeeName) {
-      return NextResponse.json({ error: "Employee name is required" }, { status: 400 });
+      return badRequest("Employee name is required");
+    }
+    if (employeeName.length > 200) {
+      return badRequest("Employee name is too long");
     }
     updates.employee_name = employeeName;
   }
@@ -41,6 +47,9 @@ export async function PATCH(
 
   if (Object.prototype.hasOwnProperty.call(body, "client_id")) {
     const value = String(body.client_id || "").trim();
+    if (value && !isUuid(value)) {
+      return badRequest("Invalid client id");
+    }
     updates.client_id = value || null;
   }
 
@@ -55,7 +64,7 @@ export async function PATCH(
   }
 
   if (!Object.keys(updates).length) {
-    return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    return badRequest("No fields to update");
   }
 
   const { error } = await supabase
@@ -67,7 +76,7 @@ export async function PATCH(
     .eq("id", rowId);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: "Failed to update row" }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });

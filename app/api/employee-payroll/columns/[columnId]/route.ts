@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  badRequest,
+  isUuid,
+  requirePayrollApiAccess,
+} from "@/app/api/employee-payroll/_lib/auth";
 
 function toSlug(input: string) {
   const slug = input
@@ -14,27 +18,30 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ columnId: string }> }
 ) {
-  const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requirePayrollApiAccess();
+  if ("error" in access) {
+    return access.error;
   }
+  const { supabase } = access;
 
   const { columnId } = await context.params;
-  if (!columnId) {
-    return NextResponse.json({ error: "Missing column id" }, { status: 400 });
+  if (!columnId || !isUuid(columnId)) {
+    return badRequest("Invalid column id");
   }
 
   let body: { label?: string };
   try {
     body = (await request.json()) as { label?: string };
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return badRequest("Invalid JSON body");
   }
 
   const label = String(body.label || "").trim();
   if (!label) {
-    return NextResponse.json({ error: "Label is required" }, { status: 400 });
+    return badRequest("Label is required");
+  }
+  if (label.length > 80) {
+    return badRequest("Label is too long");
   }
 
   const baseKey = toSlug(label);
@@ -62,9 +69,8 @@ export async function PATCH(
     .eq("id", columnId);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: "Failed to update column" }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true, label, key });
 }
-

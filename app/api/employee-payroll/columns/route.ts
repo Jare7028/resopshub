@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requirePayrollApiAccess } from "@/app/api/employee-payroll/_lib/auth";
 
 function toSlug(input: string) {
   const slug = input
@@ -11,11 +11,11 @@ function toSlug(input: string) {
 }
 
 export async function POST() {
-  const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requirePayrollApiAccess();
+  if ("error" in access) {
+    return access.error;
   }
+  const { supabase } = access;
 
   const { data: last } = await supabase
     .from("employee_payroll_columns")
@@ -53,9 +53,8 @@ export async function POST() {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: "Failed to create column" }, { status: 400 });
   }
 
   return NextResponse.json({ column: data });
 }
-

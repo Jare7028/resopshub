@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-const payrollRoles = new Set(["admin", "ops", "manager"]);
+import { requirePayrollApiAccess } from "@/app/api/employee-payroll/_lib/auth";
 
 function csvEscape(value: string) {
   if (/[",\n\r]/.test(value)) {
@@ -11,27 +9,11 @@ function csvEscape(value: string) {
 }
 
 export async function GET() {
-  const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requirePayrollApiAccess();
+  if ("error" in access) {
+    return access.error;
   }
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("id,role,status")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (
-    !profile ||
-    profile.status === "disabled" ||
-    !payrollRoles.has(String(profile.role || ""))
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { supabase } = access;
 
   const { data: columnsRaw } = await supabase
     .from("employee_payroll_columns")
@@ -102,4 +84,3 @@ export async function GET() {
     },
   });
 }
-
