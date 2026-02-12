@@ -514,11 +514,6 @@ export default async function EmployeePayrollPage(props: {
             <tbody>
               {rows.length ? (
                 rows.map((row) => {
-                  const relation = row.clients;
-                  const clientName = Array.isArray(relation)
-                    ? relation[0]?.name || ""
-                    : relation?.name || "";
-
                   const valuesByKey = numberColumns.reduce<Record<string, number>>((acc, column) => {
                     const value = cellValueByKey[`${row.id}:${column.id}`];
                     acc[column.key] = Number(value || 0);
@@ -560,7 +555,6 @@ export default async function EmployeePayrollPage(props: {
                             </option>
                           ))}
                         </select>
-                        <p className="mt-1 text-xs text-slate-500">Current: {clientName || "N/A"}</p>
                       </td>
 
                       {columns.map((column) => {
