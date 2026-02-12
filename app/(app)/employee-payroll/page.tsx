@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -49,7 +50,6 @@ function evaluateFormula(formula: string | null, valuesByColumnKey: Record<strin
   }
 
   try {
-    // Expression is restricted to numeric literals and operators above.
     const result = Function(`"use strict"; return (${expression});`)();
     if (typeof result !== "number" || !Number.isFinite(result)) {
       return null;
@@ -58,6 +58,13 @@ function evaluateFormula(formula: string | null, valuesByColumnKey: Record<strin
   } catch {
     return null;
   }
+}
+
+function formatMoneyLike(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+  return value.toFixed(2);
 }
 
 async function requirePayrollAccess(userId: string) {
@@ -80,9 +87,10 @@ async function requirePayrollAccess(userId: string) {
 }
 
 export default async function EmployeePayrollPage(props: {
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; edit?: string }>;
 }) {
   const searchParams = await props.searchParams;
+  const editRowId = String(searchParams?.edit || "").trim();
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const user = authData.user;
@@ -113,19 +121,22 @@ export default async function EmployeePayrollPage(props: {
   const rows = (rowsRaw || []) as PayrollRow[];
 
   const rowIds = rows.map((row) => row.id).filter(Boolean);
-
   const { data: cellValuesRaw } = rowIds.length
     ? await supabase
         .from("employee_payroll_cell_values")
         .select("row_id,column_id,number_value")
         .in("row_id", rowIds)
     : { data: [] as PayrollCell[] };
+
   const cellValues = (cellValuesRaw || []) as PayrollCell[];
 
   const cellValueByKey = cellValues.reduce<Record<string, number | null>>((acc, entry) => {
     acc[`${entry.row_id}:${entry.column_id}`] = entry.number_value;
     return acc;
   }, {});
+
+  const numberColumns = columns.filter((column) => column.kind === "number");
+  const activeEditRow = rows.find((row) => row.id === editRowId) || null;
 
   async function createColumn(formData: FormData) {
     "use server";
@@ -198,31 +209,26 @@ export default async function EmployeePayrollPage(props: {
 
     const employeeName = String(formData.get("employee_name") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
+
     if (!employeeName) {
       redirect("/employee-payroll?error=Employee%20name%20is%20required");
     }
 
-    const { data: created, error } = await supabase
-      .from("employee_payroll_rows")
-      .insert({
-        employee_name: employeeName,
-        client_id: clientId || null,
-        created_by_user_id: currentUser.id,
-      })
-      .select("id")
-      .single();
+    const { error } = await supabase.from("employee_payroll_rows").insert({
+      employee_name: employeeName,
+      client_id: clientId || null,
+      created_by_user_id: currentUser.id,
+    });
 
-    if (error || !created?.id) {
-      redirect(
-        `/employee-payroll?error=${encodeURIComponent(error?.message || "Failed to create row")}`
-      );
+    if (error) {
+      redirect(`/employee-payroll?error=${encodeURIComponent(error.message)}`);
     }
 
     revalidatePath("/employee-payroll");
     redirect("/employee-payroll?success=Row%20created");
   }
 
-  async function updateRow(formData: FormData) {
+  async function saveRow(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
     const { data: authData } = await supabase.auth.getUser();
@@ -238,7 +244,7 @@ export default async function EmployeePayrollPage(props: {
       redirect("/employee-payroll?error=Row%20update%20is%20missing%20required%20fields");
     }
 
-    const { error } = await supabase
+    const { error: rowError } = await supabase
       .from("employee_payroll_rows")
       .update({
         employee_name: employeeName,
@@ -247,68 +253,48 @@ export default async function EmployeePayrollPage(props: {
       })
       .eq("id", rowId);
 
-    if (error) {
-      redirect(`/employee-payroll?error=${encodeURIComponent(error.message)}`);
+    if (rowError) {
+      redirect(`/employee-payroll?edit=${encodeURIComponent(rowId)}&error=${encodeURIComponent(rowError.message)}`);
     }
 
-    revalidatePath("/employee-payroll");
-    redirect("/employee-payroll?success=Row%20updated");
-  }
-
-  async function upsertCellValue(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
-    if (!currentUser) redirect("/login");
-    await requirePayrollAccess(currentUser.id);
-
-    const rowId = String(formData.get("row_id") || "").trim();
-    const columnId = String(formData.get("column_id") || "").trim();
-    const valueRaw = String(formData.get("number_value") || "").trim();
-
-    if (!rowId || !columnId) {
-      redirect("/employee-payroll?error=Missing%20row%20or%20column");
-    }
-
-    if (!valueRaw) {
-      const { error: deleteError } = await supabase
-        .from("employee_payroll_cell_values")
-        .delete()
-        .eq("row_id", rowId)
-        .eq("column_id", columnId);
-
-      if (deleteError) {
-        redirect(`/employee-payroll?error=${encodeURIComponent(deleteError.message)}`);
+    for (const column of numberColumns) {
+      const rawValue = String(formData.get(`col_${column.id}`) || "").trim();
+      if (!rawValue) {
+        const { error: deleteError } = await supabase
+          .from("employee_payroll_cell_values")
+          .delete()
+          .eq("row_id", rowId)
+          .eq("column_id", column.id);
+        if (deleteError) {
+          redirect(`/employee-payroll?edit=${encodeURIComponent(rowId)}&error=${encodeURIComponent(deleteError.message)}`);
+        }
+        continue;
       }
 
-      revalidatePath("/employee-payroll");
-      redirect("/employee-payroll?success=Cell%20cleared");
-    }
+      const parsedValue = Number(rawValue);
+      if (!Number.isFinite(parsedValue)) {
+        redirect(`/employee-payroll?edit=${encodeURIComponent(rowId)}&error=Cell%20values%20must%20be%20numeric`);
+      }
 
-    const parsed = Number(valueRaw);
-    if (!Number.isFinite(parsed)) {
-      redirect("/employee-payroll?error=Cell%20value%20must%20be%20numeric");
-    }
+      const { error: upsertError } = await supabase
+        .from("employee_payroll_cell_values")
+        .upsert(
+          {
+            row_id: rowId,
+            column_id: column.id,
+            number_value: parsedValue,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "row_id,column_id" }
+        );
 
-    const { error } = await supabase
-      .from("employee_payroll_cell_values")
-      .upsert(
-        {
-          row_id: rowId,
-          column_id: columnId,
-          number_value: parsed,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "row_id,column_id" }
-      );
-
-    if (error) {
-      redirect(`/employee-payroll?error=${encodeURIComponent(error.message)}`);
+      if (upsertError) {
+        redirect(`/employee-payroll?edit=${encodeURIComponent(rowId)}&error=${encodeURIComponent(upsertError.message)}`);
+      }
     }
 
     revalidatePath("/employee-payroll");
-    redirect("/employee-payroll?success=Cell%20saved");
+    redirect("/employee-payroll?success=Row%20saved");
   }
 
   async function deleteRow(formData: FormData) {
@@ -333,8 +319,6 @@ export default async function EmployeePayrollPage(props: {
     revalidatePath("/employee-payroll");
     redirect("/employee-payroll?success=Row%20deleted");
   }
-
-  const numberColumns = columns.filter((column) => column.kind === "number");
 
   return (
     <div className="space-y-8">
@@ -424,6 +408,67 @@ export default async function EmployeePayrollPage(props: {
         </form>
       </section>
 
+      {editRowId && !activeEditRow ? (
+        <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          The selected row could not be found.
+        </section>
+      ) : null}
+
+      {activeEditRow ? (
+        <section className="rounded-lg border border-slate-200 bg-white p-6">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Edit row</h2>
+            <Link
+              href="/employee-payroll"
+              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              Close editor
+            </Link>
+          </div>
+          <form action={saveRow} className="mt-4 grid gap-3 md:grid-cols-6">
+            <input type="hidden" name="row_id" value={activeEditRow.id} />
+            <input
+              name="employee_name"
+              defaultValue={activeEditRow.employee_name}
+              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+              required
+            />
+            <select
+              name="client_id"
+              defaultValue={activeEditRow.client_id || ""}
+              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">N/A</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+            <div className="md:col-span-2 text-sm text-slate-500 flex items-center">Update fields and save once.</div>
+
+            {numberColumns.map((column) => (
+              <input
+                key={column.id}
+                type="number"
+                step="0.01"
+                name={`col_${column.id}`}
+                defaultValue={cellValueByKey[`${activeEditRow.id}:${column.id}`] ?? ""}
+                placeholder={column.label}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            ))}
+
+            <button
+              type="submit"
+              className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              Save row
+            </button>
+          </form>
+        </section>
+      ) : null}
+
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">Payroll rows</h2>
@@ -440,9 +485,7 @@ export default async function EmployeePayrollPage(props: {
                     <div className="flex flex-col">
                       <span>{column.label}</span>
                       {column.kind === "formula" ? (
-                        <span className="normal-case text-[11px] text-slate-400">
-                          {column.formula}
-                        </span>
+                        <span className="normal-case text-[11px] text-slate-400">{column.formula}</span>
                       ) : null}
                     </div>
                   </th>
@@ -465,95 +508,45 @@ export default async function EmployeePayrollPage(props: {
                   }, {});
 
                   return (
-                    <tr key={row.id} className="border-t border-slate-200 align-top">
-                      <td className="px-6 py-3">
-                        <form action={updateRow} className="space-y-2">
-                          <input type="hidden" name="row_id" value={row.id} />
-                          <input type="hidden" name="client_id" value={row.client_id || ""} />
-                          <input
-                            name="employee_name"
-                            defaultValue={row.employee_name}
-                            className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                            required
-                          />
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Save row
-                          </button>
-                        </form>
-                      </td>
-
-                      <td className="px-6 py-3">
-                        <form action={updateRow} className="space-y-2">
-                          <input type="hidden" name="row_id" value={row.id} />
-                          <input type="hidden" name="employee_name" value={row.employee_name} />
-                          <select
-                            name="client_id"
-                            defaultValue={row.client_id || ""}
-                            className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                          >
-                            <option value="">N/A</option>
-                            {clients.map((client) => (
-                              <option key={client.id} value={client.id}>
-                                {client.name}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-xs text-slate-500">Current: {clientName || "N/A"}</p>
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Save client
-                          </button>
-                        </form>
-                      </td>
+                    <tr key={row.id} className="border-t border-slate-200">
+                      <td className="px-6 py-3 text-slate-900">{row.employee_name}</td>
+                      <td className="px-6 py-3 text-slate-700">{clientName || "N/A"}</td>
 
                       {columns.map((column) => {
                         if (column.kind === "formula") {
                           const formulaValue = evaluateFormula(column.formula, valuesByKey);
                           return (
                             <td key={column.id} className="px-6 py-3 text-slate-700">
-                              {formulaValue === null ? "-" : formulaValue.toFixed(2)}
+                              {formatMoneyLike(formulaValue)}
                             </td>
                           );
                         }
 
                         return (
-                          <td key={column.id} className="px-6 py-3">
-                            <form action={upsertCellValue} className="space-y-2">
-                              <input type="hidden" name="row_id" value={row.id} />
-                              <input type="hidden" name="column_id" value={column.id} />
-                              <input
-                                type="number"
-                                step="0.01"
-                                name="number_value"
-                                defaultValue={cellValueByKey[`${row.id}:${column.id}`] ?? ""}
-                                className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                              />
-                              <button
-                                type="submit"
-                                className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                              >
-                                Save
-                              </button>
-                            </form>
+                          <td key={column.id} className="px-6 py-3 text-slate-700">
+                            {formatMoneyLike(cellValueByKey[`${row.id}:${column.id}`])}
                           </td>
                         );
                       })}
 
                       <td className="px-6 py-3">
-                        <form action={deleteRow}>
-                          <input type="hidden" name="row_id" value={row.id} />
-                          <button
-                            type="submit"
-                            className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/employee-payroll?edit=${encodeURIComponent(row.id)}`}
+                            className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                           >
-                            Delete row
-                          </button>
-                        </form>
+                            Edit
+                          </Link>
+                          <form action={deleteRow}>
+                            <input type="hidden" name="row_id" value={row.id} />
+                            <button
+                              type="submit"
+                              className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                            >
+                              Delete
+                            </button>
+                          </form>
+                        </div>
                       </td>
                     </tr>
                   );
