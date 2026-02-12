@@ -32,6 +32,12 @@ type PayrollRowUser = {
   role: "owner" | "editor" | "viewer";
 };
 
+type PayrollRowUserUpsert = {
+  row_id: string;
+  user_id: string;
+  role: "owner" | "editor";
+};
+
 const payrollRoles = new Set(["admin", "ops", "manager"]);
 
 function toSlug(input: string) {
@@ -275,11 +281,16 @@ export default async function EmployeePayrollPage(props: {
       );
     }
 
-    const assignments = [{ row_id: created.id, user_id: currentUser.id, role: "owner" }].concat(
-      assignedUserIds
+    const assignments: PayrollRowUserUpsert[] = [
+      { row_id: created.id, user_id: currentUser.id, role: "owner" },
+      ...assignedUserIds
         .filter((userId) => userId !== currentUser.id)
-        .map((userId) => ({ row_id: created.id, user_id: userId, role: "editor" as const }))
-    );
+        .map((userId): PayrollRowUserUpsert => ({
+          row_id: created.id,
+          user_id: userId,
+          role: "editor",
+        })),
+    ];
 
     const { error: assignmentError } = await supabase
       .from("employee_payroll_row_users")
@@ -366,11 +377,16 @@ export default async function EmployeePayrollPage(props: {
       redirect(`/employee-payroll?error=${encodeURIComponent(clearError.message)}`);
     }
 
-    const upserts = [{ row_id: rowId, user_id: ownerId, role: "owner" as const }].concat(
-      selectedUserIds
+    const upserts: PayrollRowUserUpsert[] = [
+      { row_id: rowId, user_id: ownerId, role: "owner" },
+      ...selectedUserIds
         .filter((userId) => userId !== ownerId)
-        .map((userId) => ({ row_id: rowId, user_id: userId, role: "editor" as const }))
-    );
+        .map((userId): PayrollRowUserUpsert => ({
+          row_id: rowId,
+          user_id: userId,
+          role: "editor",
+        })),
+    ];
 
     const { error: upsertError } = await supabase
       .from("employee_payroll_row_users")
