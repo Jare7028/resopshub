@@ -46,7 +46,7 @@ export default function SettingsTabs({
           href="/admin/users"
           className="rounded-md px-3 py-1.5 font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
         >
-          Admin
+          Users
         </Link>
       ) : null}
     </nav>
