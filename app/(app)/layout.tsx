@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
+import ChatNavLink from "./_components/ChatNavLink";
 
 const navLinks = [
   { href: "/dashboard", label: "Dashboard" },
@@ -154,18 +155,21 @@ export default async function AppLayout({
           <nav className="min-h-0 flex-1 overflow-y-auto px-3">
             <div className="space-y-1">
               {navLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-                >
-                  <span>{link.label}</span>
-                  {link.href === "/chat" && unreadChatCount > 0 ? (
-                    <span className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
-                      {unreadChatCount > 99 ? "99+" : unreadChatCount}
-                    </span>
-                  ) : null}
-                </Link>
+                link.href === "/chat" ? (
+                  <ChatNavLink
+                    key={link.href}
+                    initialUnreadCount={unreadChatCount}
+                    userId={user.id}
+                  />
+                ) : (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    <span>{link.label}</span>
+                  </Link>
+                )
               ))}
             </div>
             <PersonalNavSections

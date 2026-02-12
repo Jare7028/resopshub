@@ -1,0 +1,102 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+
+export default function ChatNavLink({
+  initialUnreadCount,
+  userId,
+}: {
+  initialUnreadCount: number;
+  userId: string;
+}) {
+  const pathname = usePathname();
+  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+
+  const refreshUnreadCount = useCallback(async () => {
+    const { data: membershipsRaw, error: membershipsError } = await supabase
+      .from("chat_conversation_members")
+      .select("conversation_id,last_read_at")
+      .eq("user_id", userId);
+
+    if (membershipsError || !(membershipsRaw || []).length) {
+      setUnreadCount(0);
+      return;
+    }
+
+    const memberships = (membershipsRaw || []) as Array<{
+      conversation_id: string;
+      last_read_at: string | null;
+    }>;
+
+    const unreadCounts = await Promise.all(
+      memberships.map(async (membership) => {
+        let query = supabase
+          .from("chat_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("conversation_id", membership.conversation_id)
+          .neq("sender_id", userId);
+        if (membership.last_read_at) {
+          query = query.gt("created_at", membership.last_read_at);
+        }
+        const { count } = await query;
+        return count || 0;
+      })
+    );
+
+    setUnreadCount(unreadCounts.reduce((sum, value) => sum + value, 0));
+  }, [userId]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`chat-nav-unread-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages" },
+        () => {
+          void refreshUnreadCount();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "chat_conversation_members",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void refreshUnreadCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [refreshUnreadCount, userId]);
+
+  const unreadLabel = useMemo(() => {
+    if (!unreadCount) return "";
+    return unreadCount > 99 ? "99+" : String(unreadCount);
+  }, [unreadCount]);
+
+  const showBadge = pathname !== "/chat" && unreadCount > 0;
+
+  return (
+    <Link
+      href="/chat"
+      className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+    >
+      <span>Chat</span>
+      {showBadge ? (
+        <span className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+          {unreadLabel}
+        </span>
+      ) : null}
+    </Link>
+  );
+}
+
