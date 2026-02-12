@@ -92,6 +92,7 @@ export default function PayrollRowsTable({
   const [cellsState, setCellsState] = useState(cellValueByKey);
   const rowTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const cellTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const selectBaseClass = "w-56 rounded-md border px-2 py-1 text-sm";
 
   const formulaByRowId = useMemo(() => {
     return rowsState.reduce<Record<string, Record<string, number>>>((acc, row) => {
@@ -186,7 +187,11 @@ export default function PayrollRowsTable({
                 <td className="px-6 py-3">
                   <select
                     value={row.job_title || ""}
-                    className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    className={`${selectBaseClass} ${
+                      row.job_title
+                        ? "border-slate-300"
+                        : "border-red-200 bg-red-50 text-red-700"
+                    }`}
                     onChange={(event) => {
                       const next = event.target.value;
                       setRowsState((prev) =>
@@ -206,7 +211,11 @@ export default function PayrollRowsTable({
                 <td className="px-6 py-3">
                   <select
                     value={row.billable || ""}
-                    className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    className={`${selectBaseClass} ${
+                      row.billable
+                        ? "border-slate-300"
+                        : "border-red-200 bg-red-50 text-red-700"
+                    }`}
                     onChange={(event) => {
                       const next = event.target.value;
                       setRowsState((prev) =>
@@ -226,7 +235,11 @@ export default function PayrollRowsTable({
                 <td className="px-6 py-3">
                   <select
                     value={row.client_id || ""}
-                    className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    className={`${selectBaseClass} ${
+                      row.client_id
+                        ? "border-slate-300"
+                        : "border-red-200 bg-red-50 text-red-700"
+                    }`}
                     onChange={(event) => {
                       const next = event.target.value;
                       setRowsState((prev) =>
