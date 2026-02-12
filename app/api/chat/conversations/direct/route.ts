@@ -6,10 +6,17 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 export async function POST(req: Request) {
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
-  if (!userId) {
+  const authUserId = authData.user?.id;
+  const authEmail = authData.user?.email || "";
+  if (!authUserId || !authEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("id")
+    .eq("email", authEmail)
+    .maybeSingle();
+  const userId = currentUser?.id || authUserId;
 
   const json = (await req.json().catch(() => null)) as { other_user_id?: string } | null;
   if (!json) {
@@ -101,4 +108,3 @@ export async function POST(req: Request) {
     members: membersRaw || [],
   });
 }
-
