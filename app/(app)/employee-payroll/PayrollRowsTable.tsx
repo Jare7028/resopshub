@@ -147,9 +147,9 @@ export default function PayrollRowsTable({
           <tr>
             <th className="px-6 py-3">Name</th>
             <th className="px-6 py-3">Job Title</th>
-            <th className="px-6 py-3">Client</th>
-            <th className="px-6 py-3">Client</th>
             <th className="px-6 py-3">Billable</th>
+            <th className="px-6 py-3">Client</th>
+            <th className="px-6 py-3">Contract Type</th>
             {columns.map((column) => (
               <th key={column.id} className="px-6 py-3">
                 <div className="flex flex-col">
