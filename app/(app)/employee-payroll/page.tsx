@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import PayrollRowsTable from "./PayrollRowsTable";
 
 type PayrollColumn = {
   id: string;
@@ -88,44 +89,6 @@ function normalizeFormulaInput(
   }
 
   return { formula: normalized, error: null as string | null };
-}
-
-function evaluateFormula(formula: string | null, valuesByColumnKey: Record<string, number>) {
-  if (!formula) return null;
-
-  const normalized = formula
-    .trim()
-    .replace(/^=\s*/, "")
-    .replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (token: string) => {
-      const key = token.toLowerCase();
-      return key in valuesByColumnKey ? `{${key}}` : token;
-    });
-
-  const expression = normalized.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => {
-    const value = valuesByColumnKey[key] ?? 0;
-    return Number.isFinite(value) ? String(value) : "0";
-  });
-
-  if (/[^0-9+\-*/().\s]/.test(expression)) {
-    return null;
-  }
-
-  try {
-    const result = Function(`"use strict"; return (${expression});`)();
-    if (typeof result !== "number" || !Number.isFinite(result)) {
-      return null;
-    }
-    return result;
-  } catch {
-    return null;
-  }
-}
-
-function formatMoneyLike(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return "-";
-  }
-  return value.toFixed(2);
 }
 
 async function requirePayrollAccess(userId: string) {
@@ -326,79 +289,6 @@ export default async function EmployeePayrollPage(props: {
     redirect("/employee-payroll?success=Row%20created");
   }
 
-  async function saveRow(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
-    if (!currentUser) redirect("/login");
-    await requirePayrollAccess(currentUser.id);
-
-    const rowId = String(formData.get("row_id") || "").trim();
-    const employeeName = String(formData.get("employee_name") || "").trim();
-    const jobTitle = String(formData.get("job_title") || "").trim();
-    const clientId = String(formData.get("client_id") || "").trim();
-    const contractType = String(formData.get("contract_type") || "").trim();
-
-    if (!rowId || !employeeName) {
-      redirect("/employee-payroll?error=Row%20update%20is%20missing%20required%20fields");
-    }
-
-    const { error: rowError } = await supabase
-      .from("employee_payroll_rows")
-      .update({
-        employee_name: employeeName,
-        job_title: jobTitle || null,
-        client_id: clientId || null,
-        contract_type: contractType || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", rowId);
-
-    if (rowError) {
-      redirect(`/employee-payroll?error=${encodeURIComponent(rowError.message)}`);
-    }
-
-    for (const column of numberColumns) {
-      const rawValue = String(formData.get(`col_${column.id}`) || "").trim();
-      if (!rawValue) {
-        const { error: deleteError } = await supabase
-          .from("employee_payroll_cell_values")
-          .delete()
-          .eq("row_id", rowId)
-          .eq("column_id", column.id);
-        if (deleteError) {
-          redirect(`/employee-payroll?error=${encodeURIComponent(deleteError.message)}`);
-        }
-        continue;
-      }
-
-      const parsedValue = Number(rawValue);
-      if (!Number.isFinite(parsedValue)) {
-        redirect("/employee-payroll?error=Cell%20values%20must%20be%20numeric");
-      }
-
-      const { error: upsertError } = await supabase
-        .from("employee_payroll_cell_values")
-        .upsert(
-          {
-            row_id: rowId,
-            column_id: column.id,
-            number_value: parsedValue,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "row_id,column_id" }
-        );
-
-      if (upsertError) {
-        redirect(`/employee-payroll?error=${encodeURIComponent(upsertError.message)}`);
-      }
-    }
-
-    revalidatePath("/employee-payroll");
-    redirect("/employee-payroll?success=Row%20saved");
-  }
-
   async function deleteRow(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -545,161 +435,16 @@ export default async function EmployeePayrollPage(props: {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">Job Title</th>
-                <th className="px-6 py-3">Client</th>
-                <th className="px-6 py-3">Contract Type</th>
-                {columns.map((column) => (
-                  <th key={column.id} className="px-6 py-3">
-                    <div className="flex flex-col">
-                      <span>{column.label}</span>
-                      {column.kind === "formula" ? (
-                        <span className="normal-case text-[11px] text-slate-400">{column.formula}</span>
-                      ) : null}
-                    </div>
-                  </th>
-                ))}
-                <th className="px-6 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length ? (
-                rows.map((row) => {
-                  const valuesByKey = numberColumns.reduce<Record<string, number>>((acc, column) => {
-                    const value = cellValueByKey[`${row.id}:${column.id}`];
-                    acc[column.key] = Number(value || 0);
-                    return acc;
-                  }, {});
-
-                  return (
-                    <tr key={row.id} className="border-t border-slate-200 align-top">
-                      <td className="px-6 py-3">
-                        {(() => {
-                          const rowFormId = `payroll-row-${row.id}`;
-                          return (
-                            <>
-                              <form id={rowFormId} action={saveRow}>
-                                <input type="hidden" name="row_id" value={row.id} />
-                              </form>
-                              <input
-                                form={rowFormId}
-                                name="employee_name"
-                                defaultValue={row.employee_name}
-                                className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                                required
-                              />
-                            </>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-6 py-3">
-                        <select
-                          form={`payroll-row-${row.id}`}
-                          name="job_title"
-                          defaultValue={row.job_title || ""}
-                          className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        >
-                          <option value="">N/A</option>
-                          {jobTitleOptions.map((option) => (
-                            <option key={option.id} value={option.value}>
-                              {option.value}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-6 py-3">
-                        <select
-                          form={`payroll-row-${row.id}`}
-                          name="client_id"
-                          defaultValue={row.client_id || ""}
-                          className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        >
-                          <option value="">N/A</option>
-                          {clients.map((client) => (
-                            <option key={client.id} value={client.id}>
-                              {client.name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-6 py-3">
-                        <select
-                          form={`payroll-row-${row.id}`}
-                          name="contract_type"
-                          defaultValue={row.contract_type || ""}
-                          className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        >
-                          <option value="">N/A</option>
-                          {contractTypeOptions.map((option) => (
-                            <option key={option.id} value={option.value}>
-                              {option.value}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-
-                      {columns.map((column) => {
-                        if (column.kind === "formula") {
-                          const formulaValue = evaluateFormula(column.formula, valuesByKey);
-                          return (
-                            <td key={column.id} className="px-6 py-3 text-slate-700">
-                              {formatMoneyLike(formulaValue)}
-                            </td>
-                          );
-                        }
-
-                        return (
-                          <td key={column.id} className="px-6 py-3">
-                            <input
-                              form={`payroll-row-${row.id}`}
-                              type="number"
-                              step="0.01"
-                              name={`col_${column.id}`}
-                              defaultValue={cellValueByKey[`${row.id}:${column.id}`] ?? ""}
-                              className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                              placeholder={column.label}
-                            />
-                          </td>
-                        );
-                      })}
-
-                      <td className="px-6 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="submit"
-                            form={`payroll-row-${row.id}`}
-                            className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Save
-                          </button>
-                          <form action={deleteRow}>
-                            <input type="hidden" name="row_id" value={row.id} />
-                            <button
-                              type="submit"
-                              className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
-                            >
-                              Delete
-                            </button>
-                          </form>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 5}>
-                    No payroll rows yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <PayrollRowsTable
+          rows={rows}
+          columns={columns}
+          numberColumns={numberColumns}
+          cellValueByKey={cellValueByKey}
+          clients={clients}
+          jobTitleOptions={jobTitleOptions}
+          contractTypeOptions={contractTypeOptions}
+          onDeleteRow={deleteRow}
+        />
       </section>
     </div>
   );
