@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 type PayrollColumn = {
   id: string;
@@ -8,6 +8,7 @@ type PayrollColumn = {
   label: string;
   kind: "number" | "formula";
   formula: string | null;
+  position: number;
 };
 
 type PayrollRow = {
@@ -29,48 +30,13 @@ type ClientOption = {
   name: string;
 };
 
-function evaluateFormula(formula: string | null, valuesByColumnKey: Record<string, number>) {
-  if (!formula) return null;
-
-  const normalized = formula
-    .trim()
-    .replace(/^=\s*/, "")
-    .replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (token: string) => {
-      const key = token.toLowerCase();
-      return key in valuesByColumnKey ? `{${key}}` : token;
-    });
-
-  const expression = normalized.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => {
-    const value = valuesByColumnKey[key] ?? 0;
-    return Number.isFinite(value) ? String(value) : "0";
-  });
-
-  if (/[^0-9+\-*/().\s]/.test(expression)) {
-    return null;
-  }
-
-  try {
-    const result = Function(`"use strict"; return (${expression});`)();
-    if (typeof result !== "number" || !Number.isFinite(result)) {
-      return null;
-    }
-    return result;
-  } catch {
-    return null;
-  }
-}
-
-function formatMoneyLike(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return "-";
-  }
-  return value.toFixed(2);
-}
+type NewColumnResponse = {
+  column: PayrollColumn;
+};
 
 export default function PayrollRowsTable({
   rows,
   columns,
-  numberColumns,
   cellValueByKey,
   clients,
   jobTitleOptions,
@@ -80,8 +46,7 @@ export default function PayrollRowsTable({
 }: {
   rows: PayrollRow[];
   columns: PayrollColumn[];
-  numberColumns: PayrollColumn[];
-  cellValueByKey: Record<string, number | null>;
+  cellValueByKey: Record<string, string>;
   clients: ClientOption[];
   jobTitleOptions: DropdownOption[];
   contractTypeOptions: DropdownOption[];
@@ -89,22 +54,13 @@ export default function PayrollRowsTable({
   onDeleteRow: (formData: FormData) => Promise<void>;
 }) {
   const [rowsState, setRowsState] = useState(rows);
+  const [columnsState, setColumnsState] = useState(columns);
   const [cellsState, setCellsState] = useState(cellValueByKey);
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
   const rowTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const cellTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const columnTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const selectBaseClass = "w-56 rounded-md border px-2 py-1 text-sm";
-
-  const formulaByRowId = useMemo(() => {
-    return rowsState.reduce<Record<string, Record<string, number>>>((acc, row) => {
-      const valuesByKey = numberColumns.reduce<Record<string, number>>((map, column) => {
-        const value = cellsState[`${row.id}:${column.id}`];
-        map[column.key] = Number(value || 0);
-        return map;
-      }, {});
-      acc[row.id] = valuesByKey;
-      return acc;
-    }, {});
-  }, [rowsState, numberColumns, cellsState]);
 
   const queueRowSave = (rowId: string, payload: Partial<PayrollRow>) => {
     if (rowTimers.current[rowId]) {
@@ -119,25 +75,48 @@ export default function PayrollRowsTable({
     }, 350);
   };
 
-  const queueCellSave = (rowId: string, columnId: string, rawValue: string) => {
+  const queueCellSave = (rowId: string, columnId: string, value: string) => {
     const key = `${rowId}:${columnId}`;
     if (cellTimers.current[key]) {
       clearTimeout(cellTimers.current[key]);
     }
     cellTimers.current[key] = setTimeout(async () => {
-      const trimmed = rawValue.trim();
-      const numberValue = trimmed === "" ? null : Number(trimmed);
-      if (trimmed !== "" && !Number.isFinite(numberValue)) return;
       await fetch("/api/employee-payroll/cells", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           row_id: rowId,
           column_id: columnId,
-          number_value: numberValue,
+          value,
         }),
       });
     }, 350);
+  };
+
+  const queueColumnSave = (columnId: string, label: string) => {
+    if (columnTimers.current[columnId]) {
+      clearTimeout(columnTimers.current[columnId]);
+    }
+    columnTimers.current[columnId] = setTimeout(async () => {
+      await fetch(`/api/employee-payroll/columns/${columnId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+    }, 400);
+  };
+
+  const addColumn = async () => {
+    if (isAddingColumn) return;
+    setIsAddingColumn(true);
+    try {
+      const response = await fetch("/api/employee-payroll/columns", { method: "POST" });
+      const payload = (await response.json()) as NewColumnResponse | { error?: string };
+      if (!response.ok || !("column" in payload) || !payload.column) return;
+      setColumnsState((prev) => [...prev, payload.column].sort((a, b) => a.position - b.position));
+    } finally {
+      setIsAddingColumn(false);
+    }
   };
 
   return (
@@ -152,16 +131,33 @@ export default function PayrollRowsTable({
             <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Billable</th>
             <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Client</th>
             <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Contract Type</th>
-            {columns.map((column) => (
+            {columnsState.map((column) => (
               <th key={column.id} className="sticky top-0 z-20 bg-slate-50 px-6 py-3">
-                <div className="flex flex-col">
-                  <span>{column.label}</span>
-                  {column.kind === "formula" ? (
-                    <span className="normal-case text-[11px] text-slate-400">{column.formula}</span>
-                  ) : null}
-                </div>
+                <input
+                  value={column.label}
+                  className="w-44 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold uppercase text-slate-700"
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setColumnsState((prev) =>
+                      prev.map((item) => (item.id === column.id ? { ...item, label: next } : item))
+                    );
+                    if (next.trim()) {
+                      queueColumnSave(column.id, next.trim());
+                    }
+                  }}
+                />
               </th>
             ))}
+            <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">
+              <button
+                type="button"
+                onClick={addColumn}
+                disabled={isAddingColumn}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-lg font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                +
+              </button>
+            </th>
             <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Actions</th>
           </tr>
         </thead>
@@ -180,9 +176,7 @@ export default function PayrollRowsTable({
                           item.id === row.id ? { ...item, employee_name: next } : item
                         )
                       );
-                      if (next.trim()) {
-                        queueRowSave(row.id, { employee_name: next });
-                      }
+                      if (next.trim()) queueRowSave(row.id, { employee_name: next });
                     }}
                   />
                 </td>
@@ -190,9 +184,7 @@ export default function PayrollRowsTable({
                   <select
                     value={row.job_title || ""}
                     className={`${selectBaseClass} ${
-                      row.job_title
-                        ? "border-slate-300"
-                        : "border-red-200 bg-red-50 text-red-700"
+                      row.job_title ? "border-slate-300" : "border-red-200 bg-red-50 text-red-700"
                     }`}
                     onChange={(event) => {
                       const next = event.target.value;
@@ -214,9 +206,7 @@ export default function PayrollRowsTable({
                   <select
                     value={row.billable || ""}
                     className={`${selectBaseClass} ${
-                      row.billable
-                        ? "border-slate-300"
-                        : "border-red-200 bg-red-50 text-red-700"
+                      row.billable ? "border-slate-300" : "border-red-200 bg-red-50 text-red-700"
                     }`}
                     onChange={(event) => {
                       const next = event.target.value;
@@ -238,9 +228,7 @@ export default function PayrollRowsTable({
                   <select
                     value={row.client_id || ""}
                     className={`${selectBaseClass} ${
-                      row.client_id
-                        ? "border-slate-300"
-                        : "border-red-200 bg-red-50 text-red-700"
+                      row.client_id ? "border-slate-300" : "border-red-200 bg-red-50 text-red-700"
                     }`}
                     onChange={(event) => {
                       const next = event.target.value;
@@ -281,34 +269,19 @@ export default function PayrollRowsTable({
                   </select>
                 </td>
 
-                {columns.map((column) => {
-                  if (column.kind === "formula") {
-                    const formulaValue = evaluateFormula(
-                      column.formula,
-                      formulaByRowId[row.id] || {}
-                    );
-                    return (
-                      <td key={column.id} className="px-6 py-3 text-slate-700">
-                        {formatMoneyLike(formulaValue)}
-                      </td>
-                    );
-                  }
-
+                {columnsState.map((column) => {
                   const mapKey = `${row.id}:${column.id}`;
+                  const rawValue = cellsState[mapKey] ?? "";
                   return (
                     <td key={column.id} className="px-6 py-3">
                       <input
-                        type="number"
-                        step="0.01"
-                        value={cellsState[mapKey] ?? ""}
-                        className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        type="text"
+                        value={rawValue}
+                        className="w-44 rounded-md border border-slate-300 px-2 py-1 text-sm"
                         placeholder={column.label}
                         onChange={(event) => {
                           const next = event.target.value;
-                          setCellsState((prev) => ({
-                            ...prev,
-                            [mapKey]: next === "" ? null : Number(next),
-                          }));
+                          setCellsState((prev) => ({ ...prev, [mapKey]: next }));
                           queueCellSave(row.id, column.id, next);
                         }}
                       />
@@ -316,6 +289,7 @@ export default function PayrollRowsTable({
                   );
                 })}
 
+                <td className="px-6 py-3" />
                 <td className="px-6 py-3">
                   <form action={onDeleteRow}>
                     <input type="hidden" name="row_id" value={row.id} />
@@ -331,7 +305,7 @@ export default function PayrollRowsTable({
             ))
           ) : (
             <tr>
-              <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 6}>
+              <td className="px-6 py-6 text-slate-500" colSpan={columnsState.length + 8}>
                 No payroll rows yet.
               </td>
             </tr>
@@ -341,3 +315,4 @@ export default function PayrollRowsTable({
     </div>
   );
 }
+

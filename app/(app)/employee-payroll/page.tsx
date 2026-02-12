@@ -26,6 +26,7 @@ type PayrollRow = {
 type PayrollCell = {
   row_id: string;
   column_id: string;
+  text_value: string | null;
   number_value: number | null;
 };
 
@@ -37,60 +38,6 @@ type PayrollDropdownOption = {
 };
 
 const payrollRoles = new Set(["admin", "ops", "manager"]);
-
-function toSlug(input: string) {
-  const slug = input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return slug || "column";
-}
-
-function normalizeFormulaInput(
-  rawFormula: string,
-  numberColumns: Array<{ key: string; label: string }>
-) {
-  let expression = rawFormula.trim();
-  if (expression.startsWith("=")) {
-    expression = expression.slice(1).trim();
-  }
-
-  if (!expression) {
-    return { formula: "", error: "Formula cannot be empty." };
-  }
-
-  const aliases = new Map<string, string>();
-  for (const column of numberColumns) {
-    const key = column.key.trim();
-    const label = column.label.trim();
-    if (key) {
-      aliases.set(key.toUpperCase(), key);
-    }
-    if (label) {
-      aliases.set(label.toUpperCase(), key);
-      aliases.set(label.replace(/\s+/g, "_").toUpperCase(), key);
-    }
-  }
-
-  const normalized = expression.replace(
-    /\b([A-Za-z_][A-Za-z0-9_]*)\b/g,
-    (token: string) => {
-      const mapped = aliases.get(token.toUpperCase());
-      return mapped ? `{${mapped}}` : token;
-    }
-  );
-
-  const unresolved = normalized.replace(/\{[A-Za-z0-9_]+\}/g, "");
-  if (/[A-Za-z]/.test(unresolved)) {
-    return {
-      formula: "",
-      error: "Formula contains unknown column references. Use existing numeric column names.",
-    };
-  }
-
-  return { formula: normalized, error: null as string | null };
-}
 
 async function requirePayrollAccess(userId: string) {
   const supabase = createSupabaseServerClient();
@@ -163,102 +110,21 @@ export default async function EmployeePayrollPage(props: {
   const { data: cellValuesRaw } = rowIds.length
     ? await supabase
         .from("employee_payroll_cell_values")
-        .select("row_id,column_id,number_value")
+        .select("row_id,column_id,text_value,number_value")
         .in("row_id", rowIds)
     : { data: [] as PayrollCell[] };
 
   const cellValues = (cellValuesRaw || []) as PayrollCell[];
 
-  const cellValueByKey = cellValues.reduce<Record<string, number | null>>((acc, entry) => {
-    acc[`${entry.row_id}:${entry.column_id}`] = entry.number_value;
+  const cellValueByKey = cellValues.reduce<Record<string, string>>((acc, entry) => {
+    const value =
+      entry.text_value ??
+      (entry.number_value === null || entry.number_value === undefined
+        ? ""
+        : String(entry.number_value));
+    acc[`${entry.row_id}:${entry.column_id}`] = value;
     return acc;
   }, {});
-
-  const numberColumns = columns.filter((column) => column.kind === "number");
-
-  async function createColumn(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
-    if (!currentUser) redirect("/login");
-    await requirePayrollAccess(currentUser.id);
-
-    const rawLabel = String(formData.get("label") || "").trim();
-    const kindRaw = String(formData.get("kind") || "number").trim().toLowerCase();
-    const manualFormula = String(formData.get("formula") || "").trim();
-    const inlineFormula = rawLabel.startsWith("=") ? rawLabel : "";
-    const kind: "number" | "formula" =
-      inlineFormula || kindRaw === "formula" ? "formula" : "number";
-
-    if (!rawLabel) {
-      redirect("/employee-payroll?error=Column%20label%20is%20required");
-    }
-
-    const { data: existingColumnsRaw } = await supabase
-      .from("employee_payroll_columns")
-      .select("key,label,kind");
-    const existingColumns = (existingColumnsRaw || []) as Array<{
-      key: string;
-      label: string;
-      kind: "number" | "formula";
-    }>;
-    const numberColumns = existingColumns.filter((column) => column.kind === "number");
-
-    const formulaInput = inlineFormula || manualFormula;
-    let formula: string | null = null;
-    if (kind === "formula") {
-      const normalized = normalizeFormulaInput(formulaInput, numberColumns);
-      if (normalized.error) {
-        redirect(`/employee-payroll?error=${encodeURIComponent(normalized.error)}`);
-      }
-      formula = normalized.formula;
-    }
-
-    const label =
-      kind === "formula" && inlineFormula
-        ? `Formula ${existingColumns.length + 1}`
-        : rawLabel;
-
-    const baseKey = toSlug(label);
-    let key = baseKey;
-    let suffix = 1;
-
-    while (true) {
-      const { data: existing } = await supabase
-        .from("employee_payroll_columns")
-        .select("id")
-        .eq("key", key)
-        .maybeSingle();
-      if (!existing) break;
-      suffix += 1;
-      key = `${baseKey}_${suffix}`;
-    }
-
-    const { data: last } = await supabase
-      .from("employee_payroll_columns")
-      .select("position")
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const nextPosition = (Number(last?.position) || 0) + 1;
-
-    const { error } = await supabase.from("employee_payroll_columns").insert({
-      key,
-      label,
-      kind,
-      formula: kind === "formula" ? formula : null,
-      position: nextPosition,
-    });
-
-    if (error) {
-      redirect(`/employee-payroll?error=${encodeURIComponent(error.message)}`);
-    }
-
-    revalidatePath("/employee-payroll");
-    redirect("/employee-payroll?success=Column%20created");
-  }
 
   async function createRow(formData: FormData) {
     "use server";
@@ -410,53 +276,12 @@ export default async function EmployeePayrollPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-slate-900">Payroll rows</h2>
-            <details className="group">
-              <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 text-lg font-semibold text-slate-700 hover:bg-slate-100">
-                +
-              </summary>
-              <div className="absolute right-6 z-20 mt-2 w-[28rem] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
-                <p className="mb-2 text-xs text-slate-500">
-                  Add column. Start with <code>=</code> for formula, e.g.{" "}
-                  <code>=SALARY*1.05</code>.
-                </p>
-                <form action={createColumn} className="grid gap-2 md:grid-cols-6">
-                  <input
-                    name="label"
-                    placeholder="Column label or =FORMULA"
-                    className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
-                  />
-                  <select
-                    name="kind"
-                    defaultValue="number"
-                    className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    <option value="number">Number</option>
-                    <option value="formula">Formula</option>
-                  </select>
-                  <input
-                    name="formula"
-                    placeholder="Formula (for formula type)"
-                    className="md:col-span-6 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="submit"
-                    className="md:col-span-6 rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    Add column
-                  </button>
-                </form>
-              </div>
-            </details>
-          </div>
+          <h2 className="text-lg font-semibold text-slate-900">Payroll rows</h2>
         </div>
 
         <PayrollRowsTable
           rows={rows}
           columns={columns}
-          numberColumns={numberColumns}
           cellValueByKey={cellValueByKey}
           clients={clients}
           jobTitleOptions={jobTitleOptions}

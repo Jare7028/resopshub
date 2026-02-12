@@ -64,11 +64,15 @@ create index if not exists employee_payroll_row_users_user_id_idx
 create table if not exists public.employee_payroll_cell_values (
   row_id uuid not null references public.employee_payroll_rows(id) on delete cascade,
   column_id uuid not null references public.employee_payroll_columns(id) on delete cascade,
+  text_value text,
   number_value numeric,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (row_id, column_id)
 );
+
+alter table public.employee_payroll_cell_values
+  add column if not exists text_value text;
 
 create index if not exists employee_payroll_cell_values_column_id_idx
   on public.employee_payroll_cell_values(column_id);
