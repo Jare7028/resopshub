@@ -82,6 +82,15 @@ function buildFeatureSuggestionsReturnUrl(
   return query ? `/feature-suggestions?${query}` : "/feature-suggestions";
 }
 
+function isMissingFeatureSuggestionClosedAtColumnError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const message = String((error as { message?: unknown }).message || "").toLowerCase();
+  return (
+    message.includes("feature_suggestions.closed_at") &&
+    message.includes("does not exist")
+  );
+}
+
 function normalizeFeatureView(value: string | undefined): "table" | "gantt" | "board" {
   if (value === "gantt" || value === "board") return value;
   return "table";
@@ -247,42 +256,58 @@ export default async function FeatureSuggestionsPage(props: {
         .order("full_name", { ascending: true })
     : { data: [] as SuggestionUserRow[] };
 
-  let suggestionsQuery = supabase
-    .from("feature_suggestions")
-    .select("id,title,details,status,type,created_at,closed_at,created_by")
-    .order("created_at", { ascending: false });
+  const buildSuggestionsQuery = (includeClosedAt: boolean) => {
+    let queryBuilder = supabase
+      .from("feature_suggestions")
+      .select(
+        includeClosedAt
+          ? "id,title,details,status,type,created_at,closed_at,created_by"
+          : "id,title,details,status,type,created_at,created_by"
+      )
+      .order("created_at", { ascending: false });
 
-  if (selectedStatus !== "all") {
-    suggestionsQuery = suggestionsQuery.eq("status", selectedStatus);
-  } else if (hideCompleted) {
-    suggestionsQuery = suggestionsQuery.not("status", "in", "(completed,rejected)");
+    if (selectedStatus !== "all") {
+      queryBuilder = queryBuilder.eq("status", selectedStatus);
+    } else if (hideCompleted) {
+      queryBuilder = queryBuilder.not("status", "in", "(completed,rejected)");
+    }
+
+    if (selectedType !== "all") {
+      queryBuilder = queryBuilder.eq("type", selectedType);
+    }
+
+    if (selectedSubmittedBy !== "all") {
+      const submittedByUserId =
+        selectedSubmittedBy === "me" ? currentUser.id : selectedSubmittedBy;
+      queryBuilder = queryBuilder.eq("created_by", submittedByUserId);
+    }
+
+    if (query) {
+      queryBuilder = queryBuilder.or(`title.ilike.%${query}%,details.ilike.%${query}%`);
+    }
+
+    if (dateFrom) {
+      queryBuilder = queryBuilder.gte("created_at", `${dateFrom}T00:00:00Z`);
+    }
+
+    if (dateTo) {
+      queryBuilder = queryBuilder.lte("created_at", `${dateTo}T23:59:59.999Z`);
+    }
+
+    return queryBuilder;
+  };
+
+  const suggestionsWithClosedAt = await buildSuggestionsQuery(true);
+  let suggestions = suggestionsWithClosedAt.data as SuggestionRow[] | null;
+  let suggestionsError = suggestionsWithClosedAt.error;
+
+  if (suggestionsError && isMissingFeatureSuggestionClosedAtColumnError(suggestionsError)) {
+    const suggestionsWithoutClosedAt = await buildSuggestionsQuery(false);
+    suggestionsError = suggestionsWithoutClosedAt.error;
+    suggestions = ((suggestionsWithoutClosedAt.data || []) as Array<
+      Omit<SuggestionRow, "closed_at">
+    >).map((row) => ({ ...row, closed_at: null }));
   }
-
-  if (selectedType !== "all") {
-    suggestionsQuery = suggestionsQuery.eq("type", selectedType);
-  }
-
-  if (selectedSubmittedBy !== "all") {
-    const submittedByUserId =
-      selectedSubmittedBy === "me" ? currentUser.id : selectedSubmittedBy;
-    suggestionsQuery = suggestionsQuery.eq("created_by", submittedByUserId);
-  }
-
-  if (query) {
-    suggestionsQuery = suggestionsQuery.or(
-      `title.ilike.%${query}%,details.ilike.%${query}%`
-    );
-  }
-
-  if (dateFrom) {
-    suggestionsQuery = suggestionsQuery.gte("created_at", `${dateFrom}T00:00:00Z`);
-  }
-
-  if (dateTo) {
-    suggestionsQuery = suggestionsQuery.lte("created_at", `${dateTo}T23:59:59.999Z`);
-  }
-
-  const { data: suggestions, error: suggestionsError } = await suggestionsQuery;
 
   let suggestionRows = (suggestions || []) as SuggestionRow[];
   const suggestionIds = suggestionRows.map((row) => row.id);
@@ -528,10 +553,18 @@ export default async function FeatureSuggestionsPage(props: {
     }
 
     const shouldClose = status === "completed" || status === "rejected";
-    const { error } = await supabase
+    let { error } = await supabase
       .from("feature_suggestions")
       .update({ status, closed_at: shouldClose ? new Date().toISOString() : null })
       .eq("id", suggestionId);
+
+    if (error && isMissingFeatureSuggestionClosedAtColumnError(error)) {
+      const retry = await supabase
+        .from("feature_suggestions")
+        .update({ status })
+        .eq("id", suggestionId);
+      error = retry.error;
+    }
 
     if (error) {
       redirect(
