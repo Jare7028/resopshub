@@ -145,8 +145,8 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="min-h-screen app-bg text-slate-900">
-      <div className="flex min-h-screen">
+    <div className="min-h-screen overflow-x-hidden app-bg text-slate-900">
+      <div className="flex min-h-screen overflow-x-hidden">
         <aside className="sticky top-0 flex h-screen w-64 flex-col border-r app-border app-surface">
           <div className="px-6 py-6">
             <Link href="/clients" className="flex items-center">
@@ -209,7 +209,7 @@ export default async function AppLayout({
           </div>
         </aside>
 
-        <div className="flex min-h-screen flex-1 flex-col">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col overflow-x-hidden">
           <header className="flex items-center justify-between border-b app-border app-header px-6 py-4">
             <div>
               <p className="text-sm text-slate-500">Signed in as</p>
@@ -227,7 +227,7 @@ export default async function AppLayout({
               </form>
             </div>
           </header>
-          <main className="flex-1 px-6 py-8">{children}</main>
+          <main className="flex-1 min-w-0 overflow-x-hidden px-6 py-8">{children}</main>
         </div>
       </div>
     </div>
