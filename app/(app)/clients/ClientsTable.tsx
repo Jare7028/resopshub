@@ -68,6 +68,9 @@ export default function ClientsTable({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [view, setView] = useState<"table" | "board" | "gantt">(initialView);
+  const ganttScrollRef = useRef<HTMLDivElement | null>(null);
+  const ganttAutoScrollKeyRef = useRef<string | null>(null);
+  const [ganttViewportWidth, setGanttViewportWidth] = useState(960);
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -220,9 +223,29 @@ export default function ClientsTable({
   }, [clients]);
 
   const timelineWidth = useMemo(() => {
-    const dayWidth = 18;
-    return Math.max(560, ganttData.rangeDays * dayWidth);
-  }, [ganttData.rangeDays]);
+    // Fit roughly the last 12 months into the visible viewport by default.
+    const dayWidth = Math.max(2, ganttViewportWidth / 365);
+    return Math.max(ganttViewportWidth, Math.ceil(ganttData.rangeDays * dayWidth));
+  }, [ganttData.rangeDays, ganttViewportWidth]);
+
+  useEffect(() => {
+    if (view !== "gantt") {
+      return;
+    }
+    const container = ganttScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setGanttViewportWidth(container.clientWidth || 960);
+    };
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [view]);
 
   const timelineTicks = useMemo(() => {
     const ticks = [];
@@ -241,6 +264,36 @@ export default function ClientsTable({
     if (todayOffset < 0 || todayOffset > ganttData.rangeDays - 1) return null;
     return { leftPercent: (todayOffset / ganttData.rangeDays) * 100 };
   }, [ganttData.rangeDays, ganttData.rangeStart]);
+
+  useEffect(() => {
+    if (view !== "gantt") {
+      return;
+    }
+    const container = ganttScrollRef.current;
+    if (!container || !ganttData.rangeDays) {
+      return;
+    }
+
+    const rangeKey = `${ganttData.rangeStart.toISOString()}-${ganttData.rangeDays}-${timelineWidth}`;
+    if (ganttAutoScrollKeyRef.current === rangeKey) {
+      return;
+    }
+
+    const today = new Date();
+    const windowStart = new Date(today);
+    windowStart.setFullYear(windowStart.getFullYear() - 1);
+
+    const startOffsetDays = Math.max(0, diffDays(ganttData.rangeStart, windowStart));
+    const pixelsPerDay = timelineWidth / ganttData.rangeDays;
+    const maxScrollLeft = Math.max(0, timelineWidth - container.clientWidth);
+    const targetScrollLeft = Math.min(
+      maxScrollLeft,
+      Math.max(0, Math.round(startOffsetDays * pixelsPerDay))
+    );
+
+    container.scrollLeft = targetScrollLeft;
+    ganttAutoScrollKeyRef.current = rangeKey;
+  }, [ganttData.rangeDays, ganttData.rangeStart, timelineWidth, view]);
 
   return (
     <div>
@@ -281,7 +334,7 @@ export default function ClientsTable({
       </div>
 
       {view === "table" ? (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" ref={ganttScrollRef}>
           <table className="min-w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
