@@ -213,10 +213,16 @@ export default async function DashboardPage(props: {
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
 
-  const { data: myTaskAssignments } = await supabase
-    .from("task_assignees")
-    .select("task_id")
-    .eq("user_id", currentUserId);
+  let myTaskAssignments: Array<{ task_id: string | null }> = [];
+  try {
+    const { data } = await supabase
+      .from("task_assignees")
+      .select("task_id")
+      .eq("user_id", currentUserId);
+    myTaskAssignments = (data || []) as Array<{ task_id: string | null }>;
+  } catch {
+    myTaskAssignments = [];
+  }
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const filteredClientIds = selectedClientIds.filter((id) => clientIdSet.has(id));
@@ -587,30 +593,35 @@ export default async function DashboardPage(props: {
   let projectsWithoutAssignees = 0;
   let projectsWithoutWatchers = 0;
   if (projectIdsForCoverage.length) {
-    const [{ data: projectAssignments }, { data: projectWatchers }] = await Promise.all([
-      supabase
-        .from("project_users")
-        .select("project_id")
-        .in("project_id", projectIdsForCoverage),
-      supabase
-        .from("project_watchers")
-        .select("project_id")
-        .in("project_id", projectIdsForCoverage),
-    ]);
+    try {
+      const [{ data: projectAssignments }, { data: projectWatchers }] = await Promise.all([
+        supabase
+          .from("project_users")
+          .select("project_id")
+          .in("project_id", projectIdsForCoverage),
+        supabase
+          .from("project_watchers")
+          .select("project_id")
+          .in("project_id", projectIdsForCoverage),
+      ]);
 
-    const assignedProjectIdSet = new Set(
-      (projectAssignments || []).map((row) => row.project_id).filter(Boolean)
-    );
-    const watchedProjectIdSet = new Set(
-      (projectWatchers || []).map((row) => row.project_id).filter(Boolean)
-    );
+      const assignedProjectIdSet = new Set(
+        (projectAssignments || []).map((row) => row.project_id).filter(Boolean)
+      );
+      const watchedProjectIdSet = new Set(
+        (projectWatchers || []).map((row) => row.project_id).filter(Boolean)
+      );
 
-    projectsWithoutAssignees = projectIdsForCoverage.filter(
-      (projectId) => !assignedProjectIdSet.has(projectId)
-    ).length;
-    projectsWithoutWatchers = projectIdsForCoverage.filter(
-      (projectId) => !watchedProjectIdSet.has(projectId)
-    ).length;
+      projectsWithoutAssignees = projectIdsForCoverage.filter(
+        (projectId) => !assignedProjectIdSet.has(projectId)
+      ).length;
+      projectsWithoutWatchers = projectIdsForCoverage.filter(
+        (projectId) => !watchedProjectIdSet.has(projectId)
+      ).length;
+    } catch {
+      projectsWithoutAssignees = 0;
+      projectsWithoutWatchers = 0;
+    }
   }
 
   let activityQuery = supabase
@@ -673,29 +684,34 @@ export default async function DashboardPage(props: {
     .from("feature_suggestion_votes")
     .select("suggestion_id");
 
-  const { data: chatMembershipRows } = await supabase
-    .from("chat_conversation_members")
-    .select("conversation_id,last_read_at")
-    .eq("user_id", currentUserId);
+  let unreadChatCount = 0;
+  try {
+    const { data: chatMembershipRows } = await supabase
+      .from("chat_conversation_members")
+      .select("conversation_id,last_read_at")
+      .eq("user_id", currentUserId);
 
-  const unreadChatCount = chatMembershipRows?.length
-    ? (
-        await Promise.all(
-          chatMembershipRows.map(async (membership) => {
-            let query = supabase
-              .from("chat_messages")
-              .select("id", { count: "exact", head: true })
-              .eq("conversation_id", membership.conversation_id)
-              .neq("sender_id", currentUserId);
-            if (membership.last_read_at) {
-              query = query.gt("created_at", membership.last_read_at);
-            }
-            const { count } = await query;
-            return count || 0;
-          })
-        )
-      ).reduce((sum, value) => sum + value, 0)
-    : 0;
+    unreadChatCount = chatMembershipRows?.length
+      ? (
+          await Promise.all(
+            chatMembershipRows.map(async (membership) => {
+              let query = supabase
+                .from("chat_messages")
+                .select("id", { count: "exact", head: true })
+                .eq("conversation_id", membership.conversation_id)
+                .neq("sender_id", currentUserId);
+              if (membership.last_read_at) {
+                query = query.gt("created_at", membership.last_read_at);
+              }
+              const { count } = await query;
+              return count || 0;
+            })
+          )
+        ).reduce((sum, value) => sum + value, 0)
+      : 0;
+  } catch {
+    unreadChatCount = 0;
+  }
 
   const suggestionVoteCounts = new Map<string, number>();
   (suggestionVotes || []).forEach((vote) => {
@@ -1256,4 +1272,3 @@ export default async function DashboardPage(props: {
     </div>
   );
 }
-
