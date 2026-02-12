@@ -15,7 +15,6 @@ const navLinks = [
   { href: "/chat", label: "Chat" },
   { href: "/personal", label: "Personal" },
   { href: "/notes", label: "Notes" },
-  { href: "/admin", label: "Admin" },
   { href: "/feature-suggestions", label: "Feature Suggestions" },
 ];
 

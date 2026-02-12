@@ -83,7 +83,7 @@ export default async function SettingsPage(props: {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("id,email,full_name")
+    .select("id,email,full_name,role")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -951,7 +951,7 @@ export default async function SettingsPage(props: {
       {renderMessage(searchParams?.error, "error")}
       {renderMessage(searchParams?.success, "success")}
 
-      <SettingsTabs active={activeTab} />
+      <SettingsTabs active={activeTab} showAdminLink={profile.role === "admin"} />
 
       {activeTab === "profile" ? (
         <section className="rounded-lg border border-slate-200 bg-white">

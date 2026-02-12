@@ -19,7 +19,13 @@ export function normalizeSettingsTabKey(
   return match ? match.key : "profile";
 }
 
-export default function SettingsTabs({ active }: { active: SettingsTabKey }) {
+export default function SettingsTabs({
+  active,
+  showAdminLink = false,
+}: {
+  active: SettingsTabKey;
+  showAdminLink?: boolean;
+}) {
   return (
     <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
       {tabs.map((tab) => (
@@ -35,6 +41,14 @@ export default function SettingsTabs({ active }: { active: SettingsTabKey }) {
           {tab.label}
         </Link>
       ))}
+      {showAdminLink ? (
+        <Link
+          href="/admin/users"
+          className="rounded-md px-3 py-1.5 font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+        >
+          Admin
+        </Link>
+      ) : null}
     </nav>
   );
 }
