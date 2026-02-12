@@ -195,6 +195,8 @@ export default function ClientsTable({
 
   const ganttData = useMemo(() => {
     const today = new Date();
+    const defaultWindowStart = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate());
+    const defaultWindowEnd = new Date(today.getFullYear(), today.getMonth() + 3, today.getDate());
     const statusWeight: Record<string, number> = {
       active: 0,
       on_hold: 1,
@@ -222,22 +224,30 @@ export default function ClientsTable({
       });
 
     if (!normalized.length) {
-      return { clients: [], rangeStart: today, rangeEnd: today, rangeDays: 1 };
+      const rangeDays = Math.max(1, diffDays(defaultWindowStart, defaultWindowEnd) + 1);
+      return {
+        clients: [],
+        rangeStart: defaultWindowStart,
+        rangeEnd: defaultWindowEnd,
+        rangeDays,
+      };
     }
 
-    const rangeStart = normalized.reduce((min, client) =>
+    const dataRangeStart = normalized.reduce((min, client) =>
       client.start < min ? client.start : min
     , normalized[0].start);
-    const rangeEnd = normalized.reduce((max, client) =>
+    const dataRangeEnd = normalized.reduce((max, client) =>
       client.end > max ? client.end : max
     , normalized[0].end);
+    const rangeStart = dataRangeStart < defaultWindowStart ? dataRangeStart : defaultWindowStart;
+    const rangeEnd = dataRangeEnd > defaultWindowEnd ? dataRangeEnd : defaultWindowEnd;
     const rangeDays = Math.max(1, diffDays(rangeStart, rangeEnd) + 1);
     return { clients: normalized, rangeStart, rangeEnd, rangeDays };
   }, [clients]);
 
   const timelineWidth = useMemo(() => {
-    // Fit roughly the last 12 months into the visible viewport by default.
-    const dayWidth = Math.max(2, ganttViewportWidth / 365);
+    // Default viewport target: ~3 months before today and ~3 months after today.
+    const dayWidth = Math.max(2, ganttViewportWidth / 183);
     return Math.max(ganttViewportWidth, Math.ceil(ganttData.rangeDays * dayWidth));
   }, [ganttData.rangeDays, ganttViewportWidth]);
 
@@ -295,16 +305,11 @@ export default function ClientsTable({
     }
 
     const today = new Date();
-    const windowStart = new Date(today);
-    windowStart.setFullYear(windowStart.getFullYear() - 1);
-
-    const startOffsetDays = Math.max(0, diffDays(ganttData.rangeStart, windowStart));
+    const todayOffsetDays = diffDays(ganttData.rangeStart, today);
     const pixelsPerDay = timelineWidth / ganttData.rangeDays;
+    const todayPixel = Math.max(0, todayOffsetDays * pixelsPerDay);
     const maxScrollLeft = Math.max(0, timelineWidth - container.clientWidth);
-    const targetScrollLeft = Math.min(
-      maxScrollLeft,
-      Math.max(0, Math.round(startOffsetDays * pixelsPerDay))
-    );
+    const targetScrollLeft = Math.min(maxScrollLeft, Math.max(0, Math.round(todayPixel - container.clientWidth / 2)));
 
     container.scrollLeft = targetScrollLeft;
     ganttAutoScrollKeyRef.current = rangeKey;
