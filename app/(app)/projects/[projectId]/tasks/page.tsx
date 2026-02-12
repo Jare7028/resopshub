@@ -5,9 +5,10 @@ import ProjectTabs from "../_components/ProjectTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
-import ProjectTaskInlineRow from "./ProjectTaskInlineRow";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import AssigneeMultiSelect from "@/app/(app)/tasks/_components/AssigneeMultiSelect";
 import RecurrenceFields from "@/app/(app)/tasks/_components/RecurrenceFields";
+import TasksView from "@/app/(app)/tasks/TasksView";
 import {
   DEFAULT_RECURRENCE_TZ,
   getFirstOccurrence,
@@ -29,12 +30,24 @@ import { updateTaskInlineAction } from "../../../tasks/actions";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
+const dueDateFilters = [
+  { value: "all", label: "All" },
+  { value: "overdue", label: "Overdue" },
+  { value: "next_7", label: "Next 7 days" },
+  { value: "none", label: "No due date" },
+] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 export default async function ProjectTasksPage(props: {
   params: Promise<{ projectId: string }>;
   searchParams?: Promise<{
     error?: string;
+    view?: string;
+    status?: string | string[];
+    priority?: string | string[];
+    assignee?: string | string[];
+    due?: string;
+    hide?: string;
     sort?: string;
     dir?: string;
     create_mode?: string;
@@ -46,6 +59,26 @@ export default async function ProjectTasksPage(props: {
   const supabase = createSupabaseServerClient();
   const sortKey = normalizeTaskSortKey(searchParams?.sort);
   const sortDir = normalizeTaskSortDir(searchParams?.dir);
+  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const selectedView: "table" | "gantt" | "board" =
+    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
+      ? (viewRaw as "table" | "gantt" | "board")
+      : "table";
+  const selectedStatuses = parseCsvParam(searchParams?.status).filter((status) =>
+    statusOptions.includes(status as (typeof statusOptions)[number])
+  );
+  const selectedPriorities = parseCsvParam(searchParams?.priority).filter((priority) =>
+    priorityOptions.includes(priority as (typeof priorityOptions)[number])
+  );
+  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  let selectedDue = (searchParams?.due || "all").trim();
+  const allowedDueValues = new Set<string>(
+    dueDateFilters.map((filter) => filter.value)
+  );
+  if (!allowedDueValues.has(selectedDue)) {
+    selectedDue = "all";
+  }
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
     .toLowerCase();
@@ -76,6 +109,7 @@ export default async function ProjectTasksPage(props: {
 
   const projectId = project.id;
   const projectClientId = project.client_id;
+  const basePath = `/projects/${projectId}/tasks`;
 
   if (!isAdmin && currentUserId) {
     const { data: assignment } = await supabase
@@ -102,12 +136,97 @@ export default async function ProjectTasksPage(props: {
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
 
-  const { data: tasks } = await supabase
+  const userIdSet = new Set((users || []).map((user) => user.id));
+  const selectedAssignees = selectedAssigneesRaw.filter(
+    (value) => value === "unassigned" || userIdSet.has(value)
+  );
+  const returnParams = new URLSearchParams();
+  setCsvParam(returnParams, "status", selectedStatuses);
+  setCsvParam(returnParams, "priority", selectedPriorities);
+  setCsvParam(returnParams, "assignee", selectedAssignees);
+  if (selectedDue !== "all") {
+    returnParams.set("due", selectedDue);
+  }
+  returnParams.set("hide", hideCompleted ? "1" : "0");
+  returnParams.set("sort", sortKey);
+  returnParams.set("dir", sortDir);
+  if (selectedView !== "table") {
+    returnParams.set("view", selectedView);
+  }
+  const returnTo = returnParams.toString() ? `${basePath}?${returnParams}` : basePath;
+  const toggleParams = new URLSearchParams(returnParams);
+  toggleParams.set("hide", hideCompleted ? "0" : "1");
+  const toggleUrl = toggleParams.toString() ? `${basePath}?${toggleParams}` : basePath;
+  let clientName: string | null = null;
+  if (projectClientId) {
+    const { data: clientRow } = await supabase
+      .from("clients")
+      .select("name")
+      .eq("id", projectClientId)
+      .maybeSingle();
+    clientName = clientRow?.name || null;
+  }
+  const clients = projectClientId
+    ? [{ id: projectClientId, name: clientName || "Client" }]
+    : [];
+  const projects = [
+    {
+      id: projectId,
+      name: project.name,
+      client_id: projectClientId,
+      clients: clientName ? { name: clientName } : null,
+    },
+  ];
+
+  let request = supabase
     .from("tasks")
-    .select("id,title,status,priority,start_date,due_date,assignee_user_id,parent_task_id")
+    .select(
+      "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,parent_task_id,client_id,project_id,projects(name),clients(name)"
+    )
     .eq("project_id", projectId)
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
+
+  if (selectedStatuses.length) {
+    request = request.in("status", selectedStatuses);
+  }
+
+  if (selectedPriorities.length) {
+    request = request.in("priority", selectedPriorities);
+  }
+
+  const wantsUnassigned = selectedAssignees.includes("unassigned");
+  const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
+  if (wantsUnassigned && selectedAssigneeIds.length) {
+    request = request.or(
+      `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
+    );
+  } else if (wantsUnassigned) {
+    request = request.is("assignee_user_id", null);
+  } else if (selectedAssigneeIds.length) {
+    request = request.in("assignee_user_id", selectedAssigneeIds);
+  }
+
+  const wantsCompletedStatuses =
+    selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+  if (hideCompleted && !wantsCompletedStatuses) {
+    request = request.not("status", "in", "(completed,cancelled)");
+  }
+
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  if (selectedDue === "overdue") {
+    request = request.lt("due_date", todayIso);
+  } else if (selectedDue === "next_7") {
+    const next = new Date(today);
+    next.setDate(next.getDate() + 7);
+    const nextIso = next.toISOString().slice(0, 10);
+    request = request.gte("due_date", todayIso).lte("due_date", nextIso);
+  } else if (selectedDue === "none") {
+    request = request.is("due_date", null);
+  }
+
+  const { data: tasks } = await request;
 
   const taskIds = (tasks || []).map((task) => task.id).filter(Boolean);
   const assigneesByTask: Record<string, string[]> = {};
@@ -163,24 +282,6 @@ export default async function ProjectTasksPage(props: {
       }
     }
   }
-
-  const buildSortUrl = (key: ReturnType<typeof normalizeTaskSortKey>) => {
-    const params = new URLSearchParams();
-    const nextDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
-    params.set("sort", key);
-    params.set("dir", nextDir);
-    const query = params.toString();
-    return query ? `/projects/${projectId}/tasks?${query}` : `/projects/${projectId}/tasks`;
-  };
-
-  const sortIndicator = (key: ReturnType<typeof normalizeTaskSortKey>) => {
-    if (sortKey !== key) return null;
-    return (
-      <span aria-hidden="true" className="text-[10px] text-slate-400">
-        {sortDir === "asc" ? "▲" : "▼"}
-      </span>
-    );
-  };
 
   type TaskTemplateRow = {
     id: string;
@@ -440,242 +541,189 @@ export default async function ProjectTasksPage(props: {
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Add task</h2>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2 text-sm">
-            <Link
-              href={`/projects/${projectId}/tasks`}
-              className={`rounded-md px-3 py-1.5 font-medium ${
-                createMode === "new"
-                  ? "tab-active"
-                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-            >
-              New task
-            </Link>
-            <Link
-              href={
-                templateTaskId
-                  ? `/projects/${projectId}/tasks?create_mode=template&template_task_id=${encodeURIComponent(
-                      templateTaskId
-                    )}`
-                  : `/projects/${projectId}/tasks?create_mode=template`
-              }
-              className={`rounded-md px-3 py-1.5 font-medium ${
-                createMode === "template"
-                  ? "tab-active"
-                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-            >
-              Choose from template
-            </Link>
-          </div>
-
-          {createMode === "template" ? (
-            <form
-              method="get"
-              action={`/projects/${projectId}/tasks`}
-              className="flex flex-wrap items-center gap-2"
-            >
-              <input type="hidden" name="create_mode" value="template" />
-              <select
-                name="template_task_id"
-                defaultValue={templateTaskId || ""}
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                disabled={Boolean(taskTemplatesError)}
-              >
-                <option value="">Select a template</option>
-                {taskTemplates.map((tpl) => (
-                  <option key={tpl.id} value={tpl.id}>
-                    {tpl.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                disabled={Boolean(taskTemplatesError)}
-              >
-                Apply
-              </button>
+        <details>
+          <summary className="cursor-pointer text-lg font-semibold text-slate-900">
+            Add task
+          </summary>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2 text-sm">
               <Link
-                href="/settings?tab=templates&templates=tasks"
-                className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                href={`/projects/${projectId}/tasks`}
+                className={`rounded-md px-3 py-1.5 font-medium ${
+                  createMode === "new"
+                    ? "tab-active"
+                    : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                }`}
               >
-                Manage templates
+                New task
               </Link>
-            </form>
-          ) : null}
-        </div>
+              <Link
+                href={
+                  templateTaskId
+                    ? `/projects/${projectId}/tasks?create_mode=template&template_task_id=${encodeURIComponent(
+                        templateTaskId
+                      )}`
+                    : `/projects/${projectId}/tasks?create_mode=template`
+                }
+                className={`rounded-md px-3 py-1.5 font-medium ${
+                  createMode === "template"
+                    ? "tab-active"
+                    : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                }`}
+              >
+                Choose from template
+              </Link>
+            </div>
 
-        {createMode === "template" && taskTemplatesError ? (
-          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-            Templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor,
-            then refresh this page.
-          </p>
-        ) : null}
-        <form action={createTask} className="mt-4 grid gap-4 md:grid-cols-6">
-          {createMode === "template" && templateTaskId ? (
-            <>
-              <input type="hidden" name="create_mode" value="template" />
-              <input type="hidden" name="template_task_id" value={templateTaskId} />
-            </>
-          ) : null}
-          <input
-            name="title"
-            placeholder="Task title"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue={selectedTemplate?.title || ""}
-            required
-          />
-          <select
-            name="parent_task_id"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue=""
-          >
-            <option value="">Parent task (optional)</option>
-            {tasks?.map((task) => (
-              <option key={task.id} value={task.id}>
-                {task.title}
-              </option>
-            ))}
-          </select>
-          <div className="relative">
-            <AssigneeMultiSelect
-              users={users || []}
-              name="assignee_user_ids"
-            />
+            {createMode === "template" ? (
+              <form
+                method="get"
+                action={`/projects/${projectId}/tasks`}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <input type="hidden" name="create_mode" value="template" />
+                <select
+                  name="template_task_id"
+                  defaultValue={templateTaskId || ""}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  disabled={Boolean(taskTemplatesError)}
+                >
+                  <option value="">Select a template</option>
+                  {taskTemplates.map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  disabled={Boolean(taskTemplatesError)}
+                >
+                  Apply
+                </button>
+                <Link
+                  href="/settings?tab=templates&templates=tasks"
+                  className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                >
+                  Manage templates
+                </Link>
+              </form>
+            ) : null}
           </div>
-          <select
-            name="status"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue={selectedTemplate?.status || "to_do"}
-          >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {formatTaskStatusLabel(status)}
-              </option>
-            ))}
-          </select>
-          <select
-            name="priority"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue={selectedTemplate?.priority || "medium"}
-          >
-            {priorityOptions.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
-          <RecurrenceFields
-            className="md:col-span-6"
-            initialFrequency={initialRecurrenceFrequency}
-            initialDueTime={selectedTemplate?.due_time || undefined}
-            initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
-          />
-          <button
-            type="submit"
-            className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-          >
-            Create task
-          </button>
-        </form>
+
+          {createMode === "template" && taskTemplatesError ? (
+            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+              Templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor,
+              then refresh this page.
+            </p>
+          ) : null}
+          <form action={createTask} className="mt-4 grid gap-4 md:grid-cols-6">
+            {createMode === "template" && templateTaskId ? (
+              <>
+                <input type="hidden" name="create_mode" value="template" />
+                <input type="hidden" name="template_task_id" value={templateTaskId} />
+              </>
+            ) : null}
+            <input
+              name="title"
+              placeholder="Task title"
+              className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
+              defaultValue={selectedTemplate?.title || ""}
+              required
+            />
+            <select
+              name="parent_task_id"
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              defaultValue=""
+            >
+              <option value="">Parent task (optional)</option>
+              {tasks?.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {task.title}
+                </option>
+              ))}
+            </select>
+            <div className="relative">
+              <AssigneeMultiSelect
+                users={users || []}
+                name="assignee_user_ids"
+              />
+            </div>
+            <select
+              name="status"
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              defaultValue={selectedTemplate?.status || "to_do"}
+            >
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {formatTaskStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="priority"
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              defaultValue={selectedTemplate?.priority || "medium"}
+            >
+              {priorityOptions.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priority}
+                </option>
+              ))}
+            </select>
+            <RecurrenceFields
+              className="md:col-span-6"
+              initialFrequency={initialRecurrenceFrequency}
+              initialDueTime={selectedTemplate?.due_time || undefined}
+              initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
+            />
+            <button
+              type="submit"
+              className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+            >
+              Create task
+            </button>
+          </form>
+        </details>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("title")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Task
-                    {sortIndicator("title")}
-                  </a>
-                </th>
-                <th className="px-6 py-3 text-right">Open subtasks</th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("assignees")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Assignee
-                    {sortIndicator("assignees")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("status")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Status
-                    {sortIndicator("status")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("priority")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Priority
-                    {sortIndicator("priority")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("start")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Start
-                    {sortIndicator("start")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a
-                    href={buildSortUrl("due")}
-                    className="inline-flex items-center gap-2 hover:text-slate-900"
-                  >
-                    Due
-                    {sortIndicator("due")}
-                  </a>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTasks?.length ? (
-                sortedTasks.map((task) => (
-                  <ProjectTaskInlineRow
-                    key={task.id}
-                    task={task}
-                    openSubtaskCount={openSubtaskCountByTaskId[task.id] ?? 0}
-                    assigneeUserIds={assigneesByTask[task.id] || []}
-                    users={users || []}
-                    statusOptions={statusOptions}
-                    priorityOptions={priorityOptions}
-                    onUpdate={updateTaskInline}
-                    returnTo={`/projects/${projectId}/tasks`}
-                  />
-                ))
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={7}>
-                    No tasks yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <TasksView
+          tasks={sortedTasks}
+          users={users || []}
+          clients={clients}
+          projects={projects}
+          assigneesByTask={assigneesByTask}
+          openSubtaskCountByTaskId={openSubtaskCountByTaskId}
+          statusOptions={statusOptions}
+          priorityOptions={priorityOptions}
+          dueOptions={dueDateFilters}
+          returnTo={returnTo}
+          initialFilters={{
+            status: selectedStatuses,
+            priority: selectedPriorities,
+            assignee: selectedAssignees,
+            due: selectedDue,
+            client: projectClientId ? [projectClientId] : [],
+            project: [projectId],
+          }}
+          onUpdate={updateTaskInline}
+          hideCompleted={hideCompleted}
+          toggleUrl={toggleUrl}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          initialView={selectedView}
+          basePath={basePath}
+          fixedParams={{
+            project: projectId,
+            ...(projectClientId ? { client: projectClientId } : {}),
+          }}
+        />
       </section>
     </div>
   );
 }
+
 
 

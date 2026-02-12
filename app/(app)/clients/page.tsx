@@ -6,7 +6,7 @@ import { parseCsvParam } from "@/lib/queryParams";
 import ClientsTable from "./ClientsTable";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
-const clientSortKeys = ["name", "status", "industry", "created"] as const;
+const clientSortKeys = ["name", "status", "industry", "start"] as const;
 const clientSortDirs = ["asc", "desc"] as const;
 
 type ClientSortKey = (typeof clientSortKeys)[number];
@@ -45,7 +45,7 @@ export default async function ClientsPage(props: {
 
   let request = supabase
     .from("clients")
-    .select("id,name,status,industry,account_owner,created_at");
+    .select("id,name,status,industry,account_owner,start_date");
 
   switch (sortKey) {
     case "status":
@@ -54,8 +54,8 @@ export default async function ClientsPage(props: {
     case "industry":
       request = request.order("industry", { ascending }).order("name", { ascending: true });
       break;
-    case "created":
-      request = request.order("created_at", { ascending }).order("name", { ascending: true });
+    case "start":
+      request = request.order("start_date", { ascending }).order("name", { ascending: true });
       break;
     case "name":
     default:

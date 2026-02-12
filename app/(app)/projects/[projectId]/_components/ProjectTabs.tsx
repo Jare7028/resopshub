@@ -2,6 +2,7 @@
 
 const tabs = [
   { key: "overview", label: "Overview", suffix: "" },
+  { key: "assignees", label: "Assignees", suffix: "/assignees" },
   { key: "tasks", label: "Tasks", suffix: "/tasks" },
 ] as const;
 

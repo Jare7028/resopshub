@@ -9,6 +9,11 @@ export const dynamic = "force-dynamic";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
 const visibilityOptions = ["internal", "client_shared"] as const;
+const toClientCode = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
 
 type ClientNoteRow = {
   id: string;
@@ -46,6 +51,27 @@ function truncate(value: string, max = 80) {
     return text;
   }
   return `${text.slice(0, max - 1)}…`;
+}
+
+async function ensureUniqueClientCode(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  base: string,
+  excludeClientId: string
+) {
+  const safeBase = base || "client";
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = attempt === 0 ? safeBase : `${safeBase}-${attempt + 1}`;
+    const { data } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("code", candidate)
+      .neq("id", excludeClientId)
+      .maybeSingle();
+    if (!data) {
+      return candidate;
+    }
+  }
+  return `${safeBase}-${Date.now()}`;
 }
 
 export default async function ClientOverviewPage(props: {
@@ -140,6 +166,16 @@ export default async function ClientOverviewPage(props: {
         .order("full_name", { ascending: true })
     : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
 
+  const { data: ownerUsers } = await supabase
+    .from("users")
+    .select("id,full_name,email")
+    .order("full_name", { ascending: true });
+  const accountOwnerOptions = (ownerUsers || [])
+    .map((user) => user.full_name || user.email || "")
+    .filter(Boolean);
+  const hasLegacyAccountOwner =
+    Boolean(client.account_owner) && !accountOwnerOptions.includes(client.account_owner);
+
   const { data: clientUsers } = isAdmin
     ? await supabase
         .from("client_users")
@@ -196,7 +232,6 @@ export default async function ClientOverviewPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
     const name = String(formData.get("name") || "").trim();
-    const code = String(formData.get("code") || "").trim();
     const status = String(formData.get("status") || "active");
     const industry = String(formData.get("industry") || "").trim();
     const accountOwner = String(formData.get("account_owner") || "").trim();
@@ -210,11 +245,23 @@ export default async function ClientOverviewPage(props: {
       redirect(`/clients/${clientId}?error=${encodeURIComponent("Name is required")}`);
     }
 
+    const { data: currentClient, error: currentClientError } = await supabase
+      .from("clients")
+      .select("code")
+      .eq("id", clientId)
+      .single();
+    if (currentClientError) {
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(currentClientError.message)}`);
+    }
+
+    const currentCode = String(currentClient?.code || "").trim();
+    const safeCode = currentCode || (await ensureUniqueClientCode(supabase, toClientCode(name), clientId));
+
     const { error } = await supabase
       .from("clients")
       .update({
         name,
-        code,
+        code: safeCode,
         status,
         industry: industry || null,
         account_owner: accountOwner || null,
@@ -412,12 +459,24 @@ export default async function ClientOverviewPage(props: {
             <label className="text-sm font-medium text-slate-700" htmlFor="account_owner">
               Account owner
             </label>
-            <input
+            <select
               id="account_owner"
               name="account_owner"
               defaultValue={client.account_owner || ""}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
+            >
+              <option value="">Unassigned</option>
+              {hasLegacyAccountOwner ? (
+                <option value={client.account_owner || ""}>
+                  {client.account_owner}
+                </option>
+              ) : null}
+              {accountOwnerOptions.map((label) => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700" htmlFor="start_date">

@@ -17,11 +17,11 @@ type ClientRow = {
   status: string | null;
   industry: string | null;
   account_owner: string | null;
-  created_at: string | null;
+  start_date: string | null;
 };
 
 type HeaderMenuKey = "name" | "status" | "industry";
-type ClientSortKey = "name" | "status" | "industry" | "created";
+type ClientSortKey = "name" | "status" | "industry" | "start";
 type ClientSortDir = "asc" | "desc";
 
 export default function ClientsTable({
@@ -224,8 +224,8 @@ export default function ClientsTable({
               <span className="text-slate-700">Account owner</span>
             </th>
             <th className="px-6 py-3">
-              <a href={buildSortUrl("created")} className={headerClass("created")}>
-                Created {sortIndicator("created")}
+              <a href={buildSortUrl("start")} className={headerClass("start")}>
+                Start date {sortIndicator("start")}
               </a>
             </th>
             <th className="px-6 py-3 text-slate-700">Actions</th>
@@ -248,8 +248,8 @@ export default function ClientsTable({
                   {client.account_owner || "-"}
                 </td>
                 <td className="px-6 py-3 text-slate-600">
-                  {client.created_at
-                    ? new Date(client.created_at).toLocaleDateString("en-US")
+                  {client.start_date
+                    ? new Date(client.start_date).toLocaleDateString("en-US")
                     : "-"}
                 </td>
                 <td className="px-6 py-3">

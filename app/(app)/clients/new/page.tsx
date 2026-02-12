@@ -30,6 +30,12 @@ export default async function NewClientPage(props: {
   searchParams?: Promise<{ error?: string }>;
 }) {
   const searchParams = await props.searchParams;
+  const supabase = createSupabaseServerClient();
+  const { data: users } = await supabase
+    .from("users")
+    .select("id,full_name,email")
+    .order("full_name", { ascending: true });
+
   async function createClient(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -42,6 +48,7 @@ export default async function NewClientPage(props: {
     const status = String(formData.get("status") || "active");
     const industry = String(formData.get("industry") || "").trim();
     const website = String(formData.get("website") || "").trim();
+    const accountOwner = String(formData.get("account_owner") || "").trim();
     const notes = String(formData.get("notes") || "").trim();
 
     if (!name) {
@@ -68,6 +75,7 @@ export default async function NewClientPage(props: {
         status,
         created_by_user_id: creatorId,
         industry: industry || null,
+        account_owner: accountOwner || null,
         website: website || null,
         notes: notes || null,
       })
@@ -149,6 +157,27 @@ export default async function NewClientPage(props: {
               type="url"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700" htmlFor="account_owner">
+              Account owner
+            </label>
+            <select
+              id="account_owner"
+              name="account_owner"
+              defaultValue=""
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">Unassigned</option>
+              {(users || []).map((user) => {
+                const label = user.full_name || user.email || "";
+                return (
+                  <option key={user.id} value={label}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-medium text-slate-700" htmlFor="notes">
