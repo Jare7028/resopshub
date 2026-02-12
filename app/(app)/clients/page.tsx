@@ -171,7 +171,7 @@ export default async function ClientsPage(props: {
         </p>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
+      <section className="w-full max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">All clients</h2>
         </div>

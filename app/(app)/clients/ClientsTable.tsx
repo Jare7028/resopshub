@@ -327,7 +327,7 @@ export default function ClientsTable({
   }, [ganttAnchorDate, ganttData.rangeDays, ganttData.rangeStart, timelineWidth, view]);
 
   return (
-    <div>
+    <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="flex items-center justify-end gap-2 border-b border-slate-200 px-6 py-4 text-sm">
         <button
           type="button"
@@ -571,8 +571,8 @@ export default function ClientsTable({
           </div>
         </div>
       ) : (
-        <div className="px-4 py-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="w-full min-w-0 max-w-full px-4 py-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 overflow-x-hidden">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Timeline window defaults to 2 years back and 3 months forward.
             </div>
@@ -596,7 +596,10 @@ export default function ClientsTable({
               </button>
             </div>
           </div>
-          <div className="max-h-[70vh] overflow-auto rounded-lg border border-slate-200" ref={ganttScrollRef}>
+          <div
+            className="w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-lg border border-slate-200 max-h-[70vh]"
+            ref={ganttScrollRef}
+          >
           {ganttData.clients.length ? (
             <div className="min-w-full" style={{ minWidth: timelineWidth + 240 }}>
               <div className="sticky top-0 z-30 grid grid-cols-[240px_1fr] border-b border-slate-200">
