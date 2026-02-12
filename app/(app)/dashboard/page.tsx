@@ -322,6 +322,10 @@ export default async function DashboardPage(props: {
     (task) => task.status !== "completed" && task.status !== "cancelled"
   );
 
+  const nextWeek = new Date(now);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  const nextWeekIso = toIsoDate(nextWeek);
+
   const myTaskIdSet = new Set((myTaskAssignments || []).map((row) => row.task_id));
   const myOpenTasks = openTasks.filter(
     (task) => task.assignee_user_id === currentUserId || myTaskIdSet.has(task.id)
@@ -338,9 +342,6 @@ export default async function DashboardPage(props: {
   const overdueTasks = openTasks.filter(
     (task) => task.due_date && task.due_date < todayIso
   );
-  const nextWeek = new Date(now);
-  nextWeek.setDate(nextWeek.getDate() + 7);
-  const nextWeekIso = toIsoDate(nextWeek);
   const dueSoonTasks = openTasks.filter(
     (task) => task.due_date && task.due_date >= todayIso && task.due_date <= nextWeekIso
   );
