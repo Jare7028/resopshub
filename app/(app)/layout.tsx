@@ -45,28 +45,35 @@ export default async function AppLayout({
       const { count } = await supabase
         .from("users")
         .select("id", { count: "exact", head: true });
-      const role = count === 0 ? "admin" : "member";
 
-      const fullName =
-        (user.user_metadata?.full_name as string | undefined) ||
-        (user.user_metadata?.name as string | undefined) ||
-        email.split("@")[0] ||
-        "Team member";
+      if ((count || 0) === 0) {
+        const fullName =
+          (user.user_metadata?.full_name as string | undefined) ||
+          (user.user_metadata?.name as string | undefined) ||
+          email.split("@")[0] ||
+          "Team member";
 
-      const { error: insertError } = await supabase.from("users").insert({
-        id: user.id,
-        email,
-        full_name: fullName,
-        role,
-        status: "active",
-      });
+        const { error: insertError } = await supabase.from("users").insert({
+          id: user.id,
+          email,
+          full_name: fullName,
+          role: "admin",
+          status: "active",
+        });
 
-      if (insertError) {
-        // Without a profile row keyed by auth.uid(), RLS/FKs can break in confusing ways.
+        if (insertError) {
+          await supabase.auth.signOut();
+          redirect(
+            `/login?error=${encodeURIComponent(
+              "Profile setup failed. Please contact an admin."
+            )}`
+          );
+        }
+      } else {
         await supabase.auth.signOut();
         redirect(
           `/login?error=${encodeURIComponent(
-            "Profile setup failed. Please contact an admin."
+            "Account is not provisioned. Ask an admin to create your user."
           )}`
         );
       }

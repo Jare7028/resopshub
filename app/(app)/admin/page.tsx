@@ -1,6 +1,26 @@
-﻿import Link from "next/link";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export default function AdminPage() {
+export default async function AdminPage() {
+  const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authEmail = authData.user?.email || "";
+
+  if (!authEmail) {
+    redirect("/login");
+  }
+
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("id,role")
+    .eq("email", authEmail)
+    .maybeSingle();
+
+  if (currentUser?.role !== "admin") {
+    redirect("/clients");
+  }
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold text-slate-900">Admin</h1>
@@ -22,4 +42,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
