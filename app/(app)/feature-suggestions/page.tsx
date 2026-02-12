@@ -304,7 +304,7 @@ export default async function FeatureSuggestionsPage(props: {
   if (suggestionsError && isMissingFeatureSuggestionClosedAtColumnError(suggestionsError)) {
     const suggestionsWithoutClosedAt = await buildSuggestionsQuery(false);
     suggestionsError = suggestionsWithoutClosedAt.error;
-    suggestions = ((suggestionsWithoutClosedAt.data || []) as Array<
+    suggestions = ((suggestionsWithoutClosedAt.data || []) as unknown as Array<
       Omit<SuggestionRow, "closed_at">
     >).map((row) => ({ ...row, closed_at: null }));
   }
