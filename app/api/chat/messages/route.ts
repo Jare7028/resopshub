@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -16,6 +17,14 @@ type DbMessageLinkRow = {
   entity_type: LinkEntityType;
   entity_id: string;
   label: string;
+};
+
+type DbMessageReactionRow = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
 };
 
 async function getNoteClientMap(
@@ -110,6 +119,28 @@ export async function GET(req: Request) {
     return acc;
   }, {});
 
+  let reactionsByMessageId: Record<string, DbMessageReactionRow[]> = {};
+  if (messageIds.length) {
+    const { data: reactionsRaw, error: reactionsError } = await supabase
+      .from("chat_message_reactions")
+      .select("id,message_id,user_id,emoji,created_at")
+      .in("message_id", messageIds);
+
+    if (reactionsError && !isSupabaseMissingTableError(reactionsError)) {
+      return NextResponse.json({ error: reactionsError.message }, { status: 400 });
+    }
+
+    if (reactionsRaw?.length) {
+      reactionsByMessageId = (reactionsRaw as DbMessageReactionRow[]).reduce<
+        Record<string, DbMessageReactionRow[]>
+      >((acc, row) => {
+        acc[row.message_id] ||= [];
+        acc[row.message_id].push(row);
+        return acc;
+      }, {});
+    }
+  }
+
   const payload = messages.map((message) => ({
     ...message,
     links: (linksByMessageId[message.id] || []).map((link) => ({
@@ -119,6 +150,7 @@ export async function GET(req: Request) {
       label: link.label,
       href: linkHref(link, noteClientById),
     })),
+    reactions: reactionsByMessageId[message.id] || [],
   }));
 
   return NextResponse.json({ messages: payload });
@@ -228,7 +260,7 @@ export async function POST(req: Request) {
     message: {
       ...createdMessage,
       links,
+      reactions: [],
     },
   });
 }
-

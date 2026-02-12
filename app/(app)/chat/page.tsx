@@ -48,6 +48,14 @@ type DbMessageLinkRow = {
   label: string;
 };
 
+type DbMessageReactionRow = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
 function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string | null>) {
   if (link.entity_type === "task") return `/tasks/${link.entity_id}`;
   if (link.entity_type === "project") return `/projects/${link.entity_id}`;
@@ -188,6 +196,14 @@ export default async function ChatPage(props: {
     : { data: [] as DbMessageLinkRow[] };
   const selectedLinks = (selectedLinksRaw || []) as DbMessageLinkRow[];
 
+  const { data: selectedReactionsRaw } = selectedMessageIds.length
+    ? await supabase
+        .from("chat_message_reactions")
+        .select("id,message_id,user_id,emoji,created_at")
+        .in("message_id", selectedMessageIds)
+    : { data: [] as DbMessageReactionRow[] };
+  const selectedReactions = (selectedReactionsRaw || []) as DbMessageReactionRow[];
+
   const noteIds = Array.from(
     new Set(
       selectedLinks
@@ -211,6 +227,13 @@ export default async function ChatPage(props: {
     acc[row.message_id].push(row);
     return acc;
   }, {});
+  const reactionsByMessageId = selectedReactions.reduce<
+    Record<string, DbMessageReactionRow[]>
+  >((acc, row) => {
+    acc[row.message_id] ||= [];
+    acc[row.message_id].push(row);
+    return acc;
+  }, {});
   const initialMessages = selectedMessages.map((message) => ({
     ...message,
     links: (linksByMessageId[message.id] || []).map((link) => ({
@@ -220,6 +243,7 @@ export default async function ChatPage(props: {
       label: link.label,
       href: linkHref(link, noteClientById),
     })),
+    reactions: reactionsByMessageId[message.id] || [],
   }));
 
   const { data: tasksRaw } = await supabase

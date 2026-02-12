@@ -40,6 +40,14 @@ type MessageLinkRow = {
   href: string;
 };
 
+type MessageReactionRow = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
 type MessageRow = {
   id: string;
   conversation_id: string;
@@ -48,6 +56,7 @@ type MessageRow = {
   created_at: string;
   edited_at: string | null;
   links: MessageLinkRow[];
+  reactions: MessageReactionRow[];
 };
 
 type LatestPreview = {
@@ -123,6 +132,9 @@ export default function ChatPageClient(props: {
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [searchChats, setSearchChats] = useState("");
   const [addMode, setAddMode] = useState<"direct" | "group">("direct");
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+
+  const reactionOptions = ["👍", "❤️", "😂", "🎉", "👀", "🔥"] as const;
 
   const userById = useMemo(
     () =>
@@ -262,6 +274,69 @@ export default function ChatPageClient(props: {
       ...prev,
       [conversation.id]: prev[conversation.id] || [],
     }));
+  };
+
+  const toggleReaction = async (message: MessageRow, emoji: string) => {
+    const existingReaction = message.reactions.find(
+      (reaction) => reaction.user_id === currentUserId && reaction.emoji === emoji
+    );
+
+    const method = existingReaction ? "DELETE" : "POST";
+    const res = await fetch("/api/chat/reactions", {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message_id: message.id,
+        emoji,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      reaction?: MessageReactionRow;
+    };
+    if (!res.ok) {
+      throw new Error(json.error || "Unable to update reaction");
+    }
+
+    if (!selectedConversationId) {
+      return;
+    }
+
+    setMessagesByConversation((prev) => {
+      const current = prev[selectedConversationId] || [];
+      const updated = current.map((row) => {
+        if (row.id !== message.id) {
+          return row;
+        }
+        if (existingReaction) {
+          return {
+            ...row,
+            reactions: row.reactions.filter(
+              (reaction) =>
+                !(
+                  reaction.user_id === currentUserId &&
+                  reaction.emoji === emoji
+                )
+            ),
+          };
+        }
+        const addedReaction = json.reaction || {
+          id: `${message.id}-${currentUserId}-${emoji}`,
+          message_id: message.id,
+          user_id: currentUserId,
+          emoji,
+          created_at: new Date().toISOString(),
+        };
+        return {
+          ...row,
+          reactions: [...row.reactions, addedReaction],
+        };
+      });
+      return {
+        ...prev,
+        [selectedConversationId]: updated,
+      };
+    });
   };
 
   return (
@@ -523,10 +598,28 @@ export default function ChatPageClient(props: {
                 {selectedMessages.length ? (
                   selectedMessages.map((message) => {
                     const senderName = getUserDisplayName(userById[message.sender_id]);
+                    const reactionCounts = message.reactions.reduce<
+                      Array<{ emoji: string; count: number; reactedByMe: boolean }>
+                    >((acc, reaction) => {
+                      const found = acc.find((item) => item.emoji === reaction.emoji);
+                      if (found) {
+                        found.count += 1;
+                        if (reaction.user_id === currentUserId) {
+                          found.reactedByMe = true;
+                        }
+                        return acc;
+                      }
+                      acc.push({
+                        emoji: reaction.emoji,
+                        count: 1,
+                        reactedByMe: reaction.user_id === currentUserId,
+                      });
+                      return acc;
+                    }, []);
                     return (
                       <article
                         key={message.id}
-                        className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                        className="relative rounded-lg border border-slate-200 bg-white p-3 pb-10 shadow-sm"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-semibold text-slate-900">{senderName}</span>
@@ -552,6 +645,71 @@ export default function ChatPageClient(props: {
                             ))}
                           </div>
                         ) : null}
+                        <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                          {reactionCounts.map((item) => (
+                            <button
+                              key={`${message.id}-${item.emoji}`}
+                              type="button"
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+                                item.reactedByMe
+                                  ? "border-blue-300 bg-blue-50 text-blue-700"
+                                  : "border-slate-200 bg-slate-50 text-slate-600"
+                              }`}
+                              onClick={async () => {
+                                try {
+                                  await toggleReaction(message, item.emoji);
+                                } catch (err) {
+                                  setError(
+                                    err instanceof Error
+                                      ? err.message
+                                      : "Unable to update reaction"
+                                  );
+                                }
+                              }}
+                            >
+                              <span>{item.emoji}</span>
+                              <span>{item.count}</span>
+                            </button>
+                          ))}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-100"
+                              onClick={() =>
+                                setReactionPickerMessageId((current) =>
+                                  current === message.id ? null : message.id
+                                )
+                              }
+                            >
+                              +
+                            </button>
+                            {reactionPickerMessageId === message.id ? (
+                              <div className="absolute bottom-7 right-0 z-10 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                {reactionOptions.map((emoji) => (
+                                  <button
+                                    key={`${message.id}-${emoji}`}
+                                    type="button"
+                                    className="rounded px-1 py-0.5 text-base hover:bg-slate-100"
+                                    onClick={async () => {
+                                      try {
+                                        await toggleReaction(message, emoji);
+                                        setReactionPickerMessageId(null);
+                                      } catch (err) {
+                                        setError(
+                                          err instanceof Error
+                                            ? err.message
+                                            : "Unable to update reaction"
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
                       </article>
                     );
                   })
