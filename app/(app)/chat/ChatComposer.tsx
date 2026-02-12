@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 
 export type LinkEntityType =
@@ -218,7 +219,14 @@ export default function ChatComposer(props: {
               key={`${image.storage_path}-${index}`}
               className="relative h-16 w-16 overflow-hidden rounded-md border border-slate-200 bg-slate-50"
             >
-              <img src={image.url} alt={image.filename} className="h-full w-full object-cover" />
+              <Image
+                src={image.url}
+                alt={image.filename}
+                fill
+                unoptimized
+                sizes="64px"
+                className="object-cover"
+              />
               <button
                 type="button"
                 onClick={() =>
@@ -317,4 +325,3 @@ export default function ChatComposer(props: {
     </form>
   );
 }
-

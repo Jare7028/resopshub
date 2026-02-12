@@ -213,17 +213,6 @@ export default async function DashboardPage(props: {
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
 
-  let myTaskAssignments: Array<{ task_id: string | null }> = [];
-  try {
-    const { data } = await supabase
-      .from("task_assignees")
-      .select("task_id")
-      .eq("user_id", currentUserId);
-    myTaskAssignments = (data || []) as Array<{ task_id: string | null }>;
-  } catch {
-    myTaskAssignments = [];
-  }
-
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const filteredClientIds = selectedClientIds.filter((id) => clientIdSet.has(id));
 
@@ -325,18 +314,6 @@ export default async function DashboardPage(props: {
   const nextWeek = new Date(now);
   nextWeek.setDate(nextWeek.getDate() + 7);
   const nextWeekIso = toIsoDate(nextWeek);
-
-  const myTaskIdSet = new Set((myTaskAssignments || []).map((row) => row.task_id));
-  const myOpenTasks = openTasks.filter(
-    (task) => task.assignee_user_id === currentUserId || myTaskIdSet.has(task.id)
-  );
-  const myBlockedTasks = myOpenTasks.filter((task) => task.status === "blocked");
-  const myOverdueTasks = myOpenTasks.filter(
-    (task) => task.due_date && task.due_date < todayIso
-  );
-  const myDueSoonTasks = myOpenTasks.filter(
-    (task) => task.due_date && task.due_date >= todayIso && task.due_date <= nextWeekIso
-  );
 
   const blockedTasks = openTasks.filter((task) => task.status === "blocked");
   const overdueTasks = openTasks.filter(
@@ -590,41 +567,6 @@ export default async function DashboardPage(props: {
     (a, b) => b.open - a.open
   );
 
-  const projectIdsForCoverage = filteredProjectsAllStatuses.map((project) => project.id);
-  let projectsWithoutAssignees = 0;
-  let projectsWithoutWatchers = 0;
-  if (projectIdsForCoverage.length) {
-    try {
-      const [{ data: projectAssignments }, { data: projectWatchers }] = await Promise.all([
-        supabase
-          .from("project_users")
-          .select("project_id")
-          .in("project_id", projectIdsForCoverage),
-        supabase
-          .from("project_watchers")
-          .select("project_id")
-          .in("project_id", projectIdsForCoverage),
-      ]);
-
-      const assignedProjectIdSet = new Set(
-        (projectAssignments || []).map((row) => row.project_id).filter(Boolean)
-      );
-      const watchedProjectIdSet = new Set(
-        (projectWatchers || []).map((row) => row.project_id).filter(Boolean)
-      );
-
-      projectsWithoutAssignees = projectIdsForCoverage.filter(
-        (projectId) => !assignedProjectIdSet.has(projectId)
-      ).length;
-      projectsWithoutWatchers = projectIdsForCoverage.filter(
-        (projectId) => !watchedProjectIdSet.has(projectId)
-      ).length;
-    } catch {
-      projectsWithoutAssignees = 0;
-      projectsWithoutWatchers = 0;
-    }
-  }
-
   let activityQuery = supabase
     .from("tasks")
     .select("id,title,created_at,project_id,client_id,projects(name),clients(name)")
@@ -684,35 +626,6 @@ export default async function DashboardPage(props: {
   const { data: suggestionVotes } = await supabase
     .from("feature_suggestion_votes")
     .select("suggestion_id");
-
-  let unreadChatCount = 0;
-  try {
-    const { data: chatMembershipRows } = await supabase
-      .from("chat_conversation_members")
-      .select("conversation_id,last_read_at")
-      .eq("user_id", currentUserId);
-
-    unreadChatCount = chatMembershipRows?.length
-      ? (
-          await Promise.all(
-            chatMembershipRows.map(async (membership) => {
-              let query = supabase
-                .from("chat_messages")
-                .select("id", { count: "exact", head: true })
-                .eq("conversation_id", membership.conversation_id)
-                .neq("sender_id", currentUserId);
-              if (membership.last_read_at) {
-                query = query.gt("created_at", membership.last_read_at);
-              }
-              const { count } = await query;
-              return count || 0;
-            })
-          )
-        ).reduce((sum, value) => sum + value, 0)
-      : 0;
-  } catch {
-    unreadChatCount = 0;
-  }
 
   const suggestionVoteCounts = new Map<string, number>();
   (suggestionVotes || []).forEach((vote) => {
@@ -818,19 +731,6 @@ export default async function DashboardPage(props: {
     const status = client.status || "prospect";
     clientStatusCounts.set(status, (clientStatusCounts.get(status) || 0) + 1);
   });
-  const clientsMissingStartDate = (clients || []).filter(
-    (client) => !client.start_date
-  ).length;
-
-  const openSuggestionStatuses = new Set(["idea", "needs_checking", "planned"]);
-  const topOpenSuggestion = (suggestionRows || [])
-    .map((row) => ({
-      ...row,
-      votes: suggestionVoteCounts.get(row.id) || 0,
-    }))
-    .filter((row) => openSuggestionStatuses.has(row.status || "idea"))
-    .sort((a, b) => b.votes - a.votes || (a.created_at < b.created_at ? 1 : -1))[0];
-
   return (
     <div className="space-y-8">
       <section className="flex flex-wrap items-start justify-between gap-4">

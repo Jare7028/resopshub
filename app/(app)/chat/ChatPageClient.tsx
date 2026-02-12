@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import ChatComposer from "./ChatComposer";
@@ -666,9 +667,12 @@ export default function ChatPageClient(props: {
                                 rel="noreferrer"
                                 className="block overflow-hidden rounded-md border border-slate-200"
                               >
-                                <img
+                                <Image
                                   src={attachment.url}
                                   alt={attachment.filename}
+                                  width={320}
+                                  height={112}
+                                  unoptimized
                                   className="h-28 w-full object-cover"
                                 />
                               </a>
