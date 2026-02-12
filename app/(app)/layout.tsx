@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 
@@ -93,6 +94,49 @@ export default async function AppLayout({
     .select("id,title,section_id,updated_at")
     .order("updated_at", { ascending: false });
 
+  let unreadChatCount = 0;
+  const { data: myMembershipsRaw, error: myMembershipsError } = await supabase
+    .from("chat_conversation_members")
+    .select("conversation_id,last_read_at")
+    .eq("user_id", user.id);
+
+  if (!myMembershipsError && (myMembershipsRaw || []).length) {
+    const myMemberships = (myMembershipsRaw || []) as Array<{
+      conversation_id: string;
+      last_read_at: string | null;
+    }>;
+    const conversationIds = myMemberships
+      .map((row) => row.conversation_id)
+      .filter(Boolean);
+    const lastReadByConversationId = myMemberships.reduce<Record<string, string | null>>(
+      (acc, row) => {
+        acc[row.conversation_id] = row.last_read_at || null;
+        return acc;
+      },
+      {}
+    );
+
+    const unreadCounts = await Promise.all(
+      conversationIds.map(async (conversationId) => {
+        const lastReadAt = lastReadByConversationId[conversationId];
+        let query = supabase
+          .from("chat_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("conversation_id", conversationId)
+          .neq("sender_id", user.id);
+        if (lastReadAt) {
+          query = query.gt("created_at", lastReadAt);
+        }
+        const { count } = await query;
+        return count || 0;
+      })
+    );
+
+    unreadChatCount = unreadCounts.reduce((sum, count) => sum + count, 0);
+  } else if (myMembershipsError && !isSupabaseMissingTableError(myMembershipsError)) {
+    unreadChatCount = 0;
+  }
+
   return (
     <div className="min-h-screen app-bg text-slate-900">
       <div className="flex min-h-screen">
@@ -114,9 +158,14 @@ export default async function AppLayout({
                 <Link
                   key={link.href}
                   href={link.href}
-                  className="block rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                  className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                 >
-                  {link.label}
+                  <span>{link.label}</span>
+                  {link.href === "/chat" && unreadChatCount > 0 ? (
+                    <span className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                      {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                    </span>
+                  ) : null}
                 </Link>
               ))}
             </div>

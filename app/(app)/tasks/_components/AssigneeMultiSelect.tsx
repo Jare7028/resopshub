@@ -13,6 +13,7 @@ type AssigneeMultiSelectProps = {
   name: string;
   className?: string;
   defaultSelected?: string[];
+  form?: string;
 };
 
 export default function AssigneeMultiSelect({
@@ -20,6 +21,7 @@ export default function AssigneeMultiSelect({
   name,
   className,
   defaultSelected = [],
+  form,
 }: AssigneeMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(defaultSelected);
@@ -91,6 +93,7 @@ export default function AssigneeMultiSelect({
                   type="checkbox"
                   name={name}
                   value={user.id}
+                  form={form}
                   checked={selectedIds.includes(user.id)}
                   onChange={() => toggle(user.id)}
                 />

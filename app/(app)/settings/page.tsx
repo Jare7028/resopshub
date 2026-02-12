@@ -189,6 +189,10 @@ export default async function SettingsPage(props: {
     task_template_id: string;
     user_id: string;
   };
+  type TaskTemplateSubtaskAssigneeRow = {
+    task_template_subtask_id: string;
+    user_id: string;
+  };
 
   const {
     data: taskTemplateSubtasksRaw,
@@ -209,6 +213,13 @@ export default async function SettingsPage(props: {
     .from("task_template_assignees")
     .select("task_template_id,user_id")
     .order("created_at", { ascending: true });
+  const {
+    data: taskTemplateSubtaskAssigneesRaw,
+    error: taskTemplateSubtaskAssigneesError,
+  } = await supabase
+    .from("task_template_subtask_assignees")
+    .select("task_template_subtask_id,user_id")
+    .order("created_at", { ascending: true });
 
   const taskTemplateSubtasks = (taskTemplateSubtasksError
     ? []
@@ -220,6 +231,9 @@ export default async function SettingsPage(props: {
   const taskTemplateAssignees = (taskTemplateAssigneesError
     ? []
     : taskTemplateAssigneesRaw || []) as TaskTemplateAssigneeRow[];
+  const taskTemplateSubtaskAssignees = (taskTemplateSubtaskAssigneesError
+    ? []
+    : taskTemplateSubtaskAssigneesRaw || []) as TaskTemplateSubtaskAssigneeRow[];
 
   const subtasksByTemplateId = taskTemplateSubtasks.reduce<Record<string, TaskTemplateSubtaskRow[]>>(
     (acc, row) => {
@@ -247,6 +261,13 @@ export default async function SettingsPage(props: {
     },
     {}
   );
+  const assigneeIdsByTaskTemplateSubtaskId = taskTemplateSubtaskAssignees.reduce<
+    Record<string, string[]>
+  >((acc, row) => {
+    acc[row.task_template_subtask_id] ||= [];
+    acc[row.task_template_subtask_id].push(row.user_id);
+    return acc;
+  }, {});
 
   const taskTemplateById = taskTemplates.reduce<Record<string, TaskTemplateRow>>((acc, tpl) => {
     acc[tpl.id] = tpl;
@@ -619,6 +640,14 @@ export default async function SettingsPage(props: {
     const description = String(formData.get("description") || "").trim();
     const status = String(formData.get("status") || "to_do").trim();
     const priority = String(formData.get("priority") || "medium").trim();
+    const assigneeIds = Array.from(
+      new Set(
+        formData
+          .getAll("assignee_user_ids")
+          .map((value) => String(value).trim())
+          .filter((value) => isUuid(value))
+      )
+    );
 
     if (!taskTemplateId || !title) {
       redirect(
@@ -636,14 +665,18 @@ export default async function SettingsPage(props: {
 
     const nextPosition = (Number(last?.position) || 0) + 1;
 
-    const { error } = await supabase.from("task_template_subtasks").insert({
-      task_template_id: taskTemplateId,
-      position: nextPosition,
-      title,
-      description: description || null,
-      status,
-      priority,
-    });
+    const { data: createdSubtask, error } = await supabase
+      .from("task_template_subtasks")
+      .insert({
+        task_template_id: taskTemplateId,
+        position: nextPosition,
+        title,
+        description: description || null,
+        status,
+        priority,
+      })
+      .select("id")
+      .single();
 
     if (error) {
       const hint = isSupabaseMissingTableError(error)
@@ -654,6 +687,26 @@ export default async function SettingsPage(props: {
           `${error.message}${hint}`
         )}`
       );
+    }
+    if (createdSubtask?.id && assigneeIds.length) {
+      const { error: assigneeError } = await supabase
+        .from("task_template_subtask_assignees")
+        .insert(
+          assigneeIds.map((userId) => ({
+            task_template_subtask_id: createdSubtask.id,
+            user_id: userId,
+          }))
+        );
+      if (assigneeError) {
+        const message = isSupabaseMissingTableError(assigneeError)
+          ? "Run sql/templates.sql to enable subtask template assignees."
+          : assigneeError.message;
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            taskTemplateId
+          )}&error=${encodeURIComponent(message)}`
+        );
+      }
     }
 
     revalidatePath("/settings");
@@ -689,6 +742,104 @@ export default async function SettingsPage(props: {
       ? `&task_template_id=${encodeURIComponent(taskTemplateId)}`
       : "";
     redirect(`/settings?tab=templates&templates=tasks${nextId}&success=Subtask%20deleted`);
+  }
+
+  async function updateTaskTemplateSubtask(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const id = String(formData.get("id") || "").trim();
+    const taskTemplateId = String(formData.get("task_template_id") || "").trim();
+    const title = String(formData.get("title") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const status = String(formData.get("status") || "to_do").trim();
+    const priority = String(formData.get("priority") || "medium").trim();
+    const assigneeIds = Array.from(
+      new Set(
+        formData
+          .getAll("assignee_user_ids")
+          .map((value) => String(value).trim())
+          .filter((value) => isUuid(value))
+      )
+    );
+
+    if (!id || !taskTemplateId || !title) {
+      redirect(
+        "/settings?tab=templates&templates=tasks&error=Subtask%20id,%20template%20id,%20and%20title%20are%20required"
+      );
+    }
+
+    const { error } = await supabase
+      .from("task_template_subtasks")
+      .update({
+        title,
+        description: description || null,
+        status,
+        priority,
+      })
+      .eq("id", id)
+      .eq("task_template_id", taskTemplateId);
+
+    if (error) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          taskTemplateId
+        )}&error=${encodeURIComponent(error.message)}`
+      );
+    }
+
+    const { error: clearAssigneesError } = await supabase
+      .from("task_template_subtask_assignees")
+      .delete()
+      .eq("task_template_subtask_id", id);
+
+    if (clearAssigneesError && !isSupabaseMissingTableError(clearAssigneesError)) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          taskTemplateId
+        )}&error=${encodeURIComponent(clearAssigneesError.message)}`
+      );
+    }
+
+    if (assigneeIds.length) {
+      if (clearAssigneesError && isSupabaseMissingTableError(clearAssigneesError)) {
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            taskTemplateId
+          )}&error=${encodeURIComponent(
+            "Run sql/templates.sql to enable subtask template assignees."
+          )}`
+        );
+      }
+
+      const { error: assigneeError } = await supabase
+        .from("task_template_subtask_assignees")
+        .insert(
+          assigneeIds.map((userId) => ({
+            task_template_subtask_id: id,
+            user_id: userId,
+          }))
+        );
+      if (assigneeError) {
+        const message = isSupabaseMissingTableError(assigneeError)
+          ? "Run sql/templates.sql to enable subtask template assignees."
+          : assigneeError.message;
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            taskTemplateId
+          )}&error=${encodeURIComponent(message)}`
+        );
+      }
+    }
+
+    revalidatePath("/settings");
+    redirect(
+      `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+        taskTemplateId
+      )}&success=Subtask%20updated`
+    );
   }
 
   async function addProjectTemplateTask(formData: FormData) {
@@ -1266,39 +1417,143 @@ export default async function SettingsPage(props: {
                             editor, then refresh this page.
                           </p>
                         ) : null}
+                        {taskTemplateSubtaskAssigneesError &&
+                        isSupabaseMissingTableError(taskTemplateSubtaskAssigneesError) ? (
+                          <p className="mt-2 text-sm text-amber-900">
+                            Subtask assignees are not set up yet. Re-run `sql/templates.sql` in
+                            Supabase SQL editor, then refresh this page.
+                          </p>
+                        ) : null}
 
-                        <div className="mt-3 space-y-2">
+                        <div className="mt-3">
                           {(subtasksByTemplateId[selectedTaskTemplate.id] || []).length ? (
-                            (subtasksByTemplateId[selectedTaskTemplate.id] || []).map((subtask) => (
-                              <div
-                                key={subtask.id}
-                                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                              >
-                                <div className="min-w-0">
-                                  <p className="truncate font-semibold text-slate-900">
-                                    {subtask.position}. {subtask.title}
-                                  </p>
-                                  <p className="truncate text-slate-600">
-                                    {(subtask.status || "").replace("_", " ")} - {subtask.priority}
-                                  </p>
-                                </div>
-                                <form action={deleteTaskTemplateSubtask}>
-                                  <input type="hidden" name="id" value={subtask.id} />
-                                  <input
-                                    type="hidden"
-                                    name="task_template_id"
-                                    value={selectedTaskTemplate.id}
-                                  />
-                                  <ConfirmSubmitButton
-                                    className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                                    confirmText={`Delete subtask: ${subtask.title}?`}
-                                    disabled={Boolean(taskTemplateSubtasksError)}
-                                  >
-                                    Delete
-                                  </ConfirmSubmitButton>
-                                </form>
-                              </div>
-                            ))
+                            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                              <table className="min-w-full text-left text-sm">
+                                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                                  <tr>
+                                    <th className="px-3 py-2">#</th>
+                                    <th className="px-3 py-2">Title</th>
+                                    <th className="px-3 py-2">Status</th>
+                                    <th className="px-3 py-2">Priority</th>
+                                    <th className="px-3 py-2">Assignees</th>
+                                    <th className="px-3 py-2">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200">
+                                  {(subtasksByTemplateId[selectedTaskTemplate.id] || []).map(
+                                    (subtask) => {
+                                      const rowFormId = `task-template-subtask-${subtask.id}-edit`;
+                                      return (
+                                        <tr key={subtask.id}>
+                                          <td className="px-3 py-2 text-slate-500">{subtask.position}</td>
+                                          <td className="px-3 py-2">
+                                            <input type="hidden" name="id" value={subtask.id} form={rowFormId} />
+                                            <input
+                                              type="hidden"
+                                              name="task_template_id"
+                                              value={selectedTaskTemplate.id}
+                                              form={rowFormId}
+                                            />
+                                            <input
+                                              name="title"
+                                              defaultValue={subtask.title}
+                                              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                              disabled={Boolean(taskTemplateSubtasksError)}
+                                              form={rowFormId}
+                                              required
+                                            />
+                                            <input
+                                              name="description"
+                                              defaultValue={subtask.description || ""}
+                                              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                              placeholder="Description (optional)"
+                                              disabled={Boolean(taskTemplateSubtasksError)}
+                                              form={rowFormId}
+                                            />
+                                          </td>
+                                          <td className="px-3 py-2 align-top">
+                                            <select
+                                              name="status"
+                                              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                              defaultValue={subtask.status || "to_do"}
+                                              disabled={Boolean(taskTemplateSubtasksError)}
+                                              form={rowFormId}
+                                            >
+                                              {[
+                                                "to_do",
+                                                "in_progress",
+                                                "blocked",
+                                                "completed",
+                                                "cancelled",
+                                              ].map((status) => (
+                                                <option key={status} value={status}>
+                                                  {status.replace("_", " ")}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </td>
+                                          <td className="px-3 py-2 align-top">
+                                            <select
+                                              name="priority"
+                                              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                              defaultValue={subtask.priority || "medium"}
+                                              disabled={Boolean(taskTemplateSubtasksError)}
+                                              form={rowFormId}
+                                            >
+                                              {["low", "medium", "high", "critical"].map((priority) => (
+                                                <option key={priority} value={priority}>
+                                                  {priority}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </td>
+                                          <td className="px-3 py-2 align-top">
+                                            <div className="relative min-w-[220px]">
+                                              <AssigneeMultiSelect
+                                                users={users}
+                                                name="assignee_user_ids"
+                                                form={rowFormId}
+                                                defaultSelected={
+                                                  assigneeIdsByTaskTemplateSubtaskId[subtask.id] || []
+                                                }
+                                              />
+                                            </div>
+                                          </td>
+                                          <td className="px-3 py-2 align-top">
+                                            <div className="flex gap-2">
+                                              <form id={rowFormId} action={updateTaskTemplateSubtask}>
+                                                <button
+                                                  type="submit"
+                                                  className="rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                                                  disabled={Boolean(taskTemplateSubtasksError)}
+                                                >
+                                                  Save
+                                                </button>
+                                              </form>
+                                              <form action={deleteTaskTemplateSubtask}>
+                                                <input type="hidden" name="id" value={subtask.id} />
+                                                <input
+                                                  type="hidden"
+                                                  name="task_template_id"
+                                                  value={selectedTaskTemplate.id}
+                                                />
+                                                <ConfirmSubmitButton
+                                                  className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                                  confirmText={`Delete subtask: ${subtask.title}?`}
+                                                  disabled={Boolean(taskTemplateSubtasksError)}
+                                                >
+                                                  Delete
+                                                </ConfirmSubmitButton>
+                                              </form>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    }
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
                           ) : (
                             <p className="text-sm text-slate-600">No subtasks yet.</p>
                           )}
@@ -1352,6 +1607,9 @@ export default async function SettingsPage(props: {
                             className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
                             disabled={Boolean(taskTemplateSubtasksError)}
                           />
+                          <div className="md:col-span-6 relative">
+                            <AssigneeMultiSelect users={users} name="assignee_user_ids" />
+                          </div>
                           <button
                             type="submit"
                             className="md:col-span-6 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"

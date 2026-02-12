@@ -582,24 +582,66 @@ export default async function TasksPage(props: {
       }
 
       if (subtaskTemplates.length) {
+        const subtaskTemplateIds = subtaskTemplates.map((tpl) => tpl.id).filter(Boolean);
+        const { data: subtaskTemplateAssigneesRaw, error: subtaskTemplateAssigneesError } =
+          subtaskTemplateIds.length
+            ? await supabase
+                .from("task_template_subtask_assignees")
+                .select("task_template_subtask_id,user_id")
+                .in("task_template_subtask_id", subtaskTemplateIds)
+            : { data: [] as Array<{ task_template_subtask_id: string; user_id: string }>, error: null };
+
+        if (
+          subtaskTemplateAssigneesError &&
+          !isSupabaseMissingTableError(subtaskTemplateAssigneesError)
+        ) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: subtaskTemplateAssigneesError.message,
+            })
+          );
+        }
+
+        const assigneeIdsBySubtaskTemplateId = (
+          (subtaskTemplateAssigneesError ? [] : subtaskTemplateAssigneesRaw || []) as Array<{
+            task_template_subtask_id: string;
+            user_id: string;
+          }>
+        ).reduce<Record<string, string[]>>((acc, row) => {
+          acc[row.task_template_subtask_id] ||= [];
+          acc[row.task_template_subtask_id].push(row.user_id);
+          return acc;
+        }, {});
+
         const primaryAssigneeForSubtasks = primaryAssignee || null;
-        const payloads = subtaskTemplates.map((tpl) => ({
-          client_id: clientId,
-          project_id: projectId,
-          parent_task_id: taskId,
-          title: tpl.title,
-          status: normalizeTaskStatusOrDefault(String(tpl.status || "to_do")),
-          priority: String(tpl.priority || "medium"),
-          due_date: null,
-          due_time: null,
-          assignee_user_id: primaryAssigneeForSubtasks,
-          content: DEFAULT_EDITOR_CONTENT,
-          content_text: defaultContentText,
-        }));
+        const subtaskPlans = subtaskTemplates.map((tpl) => {
+          const subtaskAssigneeIds = Array.from(
+            new Set(assigneeIdsBySubtaskTemplateId[tpl.id] || [])
+          );
+          const primarySubtaskAssignee =
+            subtaskAssigneeIds[0] || primaryAssigneeForSubtasks;
+          return {
+            assigneeIds: subtaskAssigneeIds,
+            payload: {
+              client_id: clientId,
+              project_id: projectId,
+              parent_task_id: taskId,
+              title: tpl.title,
+              status: normalizeTaskStatusOrDefault(String(tpl.status || "to_do")),
+              priority: String(tpl.priority || "medium"),
+              due_date: null,
+              due_time: null,
+              assignee_user_id: primarySubtaskAssignee,
+              content: DEFAULT_EDITOR_CONTENT,
+              content_text: defaultContentText,
+            },
+          };
+        });
 
         const { data: createdSubtasks, error: subtaskInsertError } = await supabase
           .from("tasks")
-          .insert(payloads)
+          .insert(subtaskPlans.map((plan) => plan.payload))
           .select("id");
 
         if (subtaskInsertError) {
@@ -611,11 +653,13 @@ export default async function TasksPage(props: {
           );
         }
 
-        const subtaskIds = (createdSubtasks || []).map((row) => row.id).filter(Boolean);
-        if (subtaskIds.length && uniqueAssigneeIds.length) {
-          const inserts = subtaskIds.flatMap((subtaskId) =>
-            uniqueAssigneeIds.map((userId) => ({ task_id: subtaskId, user_id: userId }))
-          );
+        const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
+        const inserts = createdSubtaskRows.flatMap((row, index) => {
+          const explicitIds = subtaskPlans[index]?.assigneeIds || [];
+          const effectiveIds = explicitIds.length ? explicitIds : uniqueAssigneeIds;
+          return effectiveIds.map((userId) => ({ task_id: row.id, user_id: userId }));
+        });
+        if (inserts.length) {
           const { error: subtaskAssigneesError } = await supabase
             .from("task_assignees")
             .insert(inserts);
