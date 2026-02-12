@@ -91,7 +91,6 @@ export default function AssigneeMultiSelect({
               >
                 <input
                   type="checkbox"
-                  name={name}
                   value={user.id}
                   form={form}
                   checked={selectedIds.includes(user.id)}
@@ -105,6 +104,9 @@ export default function AssigneeMultiSelect({
           )}
         </div>
       ) : null}
+      {selectedIds.map((id) => (
+        <input key={id} type="hidden" name={name} value={id} form={form} />
+      ))}
     </div>
   );
 }
