@@ -123,7 +123,6 @@ export default async function ClientRequirementsPage(props: {
                 <th className="px-6 py-3">Start date</th>
                 <th className="px-6 py-3">Requirement Type</th>
                 <th className="px-6 py-3">Notes</th>
-                <th className="px-6 py-3">Created</th>
               </tr>
             </thead>
             <tbody>
@@ -144,16 +143,11 @@ export default async function ClientRequirementsPage(props: {
                     <td className="px-6 py-3 text-slate-700">
                       {req.notes || ""}
                     </td>
-                    <td className="px-6 py-3 text-slate-500">
-                      {req.created_at
-                        ? new Date(req.created_at).toLocaleDateString("en-US")
-                        : ""}
-                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={4}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={3}>
                     No requirements yet.
                   </td>
                 </tr>
