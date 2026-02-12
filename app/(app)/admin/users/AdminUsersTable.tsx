@@ -34,6 +34,12 @@ type SaveResponse = {
   error?: string;
 };
 
+type DeleteResponse = {
+  ok: boolean;
+  user_id?: string;
+  error?: string;
+};
+
 function compareText(a: string, b: string) {
   return a.localeCompare(b, undefined, { sensitivity: "base" });
 }
@@ -59,14 +65,37 @@ async function saveUser(payload: SavePayload): Promise<SaveResponse> {
   };
 }
 
+async function permanentlyDeleteUser(userId: string): Promise<DeleteResponse> {
+  const response = await fetch("/api/admin/users/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId }),
+  });
+
+  const json = (await response.json().catch(() => null)) as DeleteResponse | null;
+  if (!response.ok || !json?.ok || !json.user_id) {
+    return {
+      ok: false,
+      error: json?.error || "Failed to delete user",
+    };
+  }
+
+  return {
+    ok: true,
+    user_id: json.user_id,
+  };
+}
+
 export default function AdminUsersTable({
   users,
   roleOptions,
   statusOptions,
+  currentUserId,
 }: {
   users: UserRow[];
   roleOptions: readonly string[];
   statusOptions: readonly string[];
+  currentUserId: string;
 }) {
   const [tableUsers, setTableUsers] = useState(users);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
@@ -79,6 +108,7 @@ export default function AdminUsersTable({
     status: [] as string[],
   });
   const [savingUserIds, setSavingUserIds] = useState<string[]>([]);
+  const [deletingUserIds, setDeletingUserIds] = useState<string[]>([]);
   const [errorByUserId, setErrorByUserId] = useState<Record<string, string>>({});
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -229,6 +259,30 @@ export default function AdminUsersTable({
     });
   };
 
+  const onDeleteUser = async (user: UserRow) => {
+    const confirmed = window.confirm(
+      `Permanently delete ${user.full_name || user.email}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingUserIds((current) => Array.from(new Set([...current, user.id])));
+    setErrorByUserId((current) => ({ ...current, [user.id]: "" }));
+
+    const result = await permanentlyDeleteUser(user.id);
+
+    if (!result.ok || !result.user_id) {
+      setErrorByUserId((current) => ({
+        ...current,
+        [user.id]: result.error || "Failed to delete user",
+      }));
+      setDeletingUserIds((current) => current.filter((id) => id !== user.id));
+      return;
+    }
+
+    setTableUsers((current) => current.filter((row) => row.id !== result.user_id));
+    setDeletingUserIds((current) => current.filter((id) => id !== user.id));
+  };
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-left text-sm">
@@ -346,7 +400,9 @@ export default function AdminUsersTable({
             filteredAndSortedUsers.map((user) => {
               const formId = `user-update-${user.id}`;
               const isSaving = savingUserIds.includes(user.id);
+              const isDeleting = deletingUserIds.includes(user.id);
               const error = errorByUserId[user.id];
+              const isSelf = user.id === currentUserId;
 
               return (
                 <tr key={user.id} className="border-t border-slate-200">
@@ -406,9 +462,18 @@ export default function AdminUsersTable({
                         <button
                           type="submit"
                           className="rounded-md btn-primary px-3 py-1.5 text-xs font-semibold text-white"
-                          disabled={isSaving}
+                          disabled={isSaving || isDeleting}
                         >
                           {isSaving ? "Saving..." : "Update"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void onDeleteUser(user)}
+                          className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={isDeleting || isSaving || isSelf}
+                          title={isSelf ? "You cannot delete your own account" : undefined}
+                        >
+                          {isDeleting ? "Deleting..." : "Delete permanently"}
                         </button>
                         {error ? (
                           <span className="text-xs text-red-600">{error}</span>

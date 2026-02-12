@@ -207,6 +207,7 @@ export default async function AdminUsersPage({
           users={users || []}
           roleOptions={roleOptions}
           statusOptions={statusOptions}
+          currentUserId={currentUser?.id || ""}
         />
       </section>
     </div>
