@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import PayrollRowsTable from "./PayrollRowsTable";
 
@@ -276,7 +277,15 @@ export default async function EmployeePayrollPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Payroll rows</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Payroll rows</h2>
+            <Link
+              href="/api/employee-payroll/export"
+              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              Export to Excel
+            </Link>
+          </div>
         </div>
 
         <PayrollRowsTable
