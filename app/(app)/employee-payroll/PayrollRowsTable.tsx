@@ -60,6 +60,7 @@ export default function PayrollRowsTable({
   const rowTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const cellTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const columnTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const reorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectBaseClass = "w-56 rounded-md border px-2 py-1 text-sm";
 
   const queueRowSave = (rowId: string, payload: Partial<PayrollRow>) => {
@@ -106,6 +107,35 @@ export default function PayrollRowsTable({
     }, 400);
   };
 
+  const queueColumnOrderSave = (orderedIds: string[]) => {
+    if (reorderTimer.current) {
+      clearTimeout(reorderTimer.current);
+    }
+    reorderTimer.current = setTimeout(async () => {
+      await fetch("/api/employee-payroll/columns/reorder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ordered_column_ids: orderedIds }),
+      });
+    }, 300);
+  };
+
+  const moveColumn = (columnId: string, direction: "left" | "right") => {
+    setColumnsState((prev) => {
+      const currentIndex = prev.findIndex((column) => column.id === columnId);
+      if (currentIndex < 0) return prev;
+      const targetIndex = direction === "left" ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+
+      const next = [...prev];
+      const [moved] = next.splice(currentIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      const withPositions = next.map((column, index) => ({ ...column, position: index + 1 }));
+      queueColumnOrderSave(withPositions.map((column) => column.id));
+      return withPositions;
+    });
+  };
+
   const addColumn = async () => {
     if (isAddingColumn) return;
     setIsAddingColumn(true);
@@ -133,19 +163,39 @@ export default function PayrollRowsTable({
             <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">Contract Type</th>
             {columnsState.map((column) => (
               <th key={column.id} className="sticky top-0 z-20 bg-slate-50 px-6 py-3">
-                <input
-                  value={column.label}
-                  className="w-44 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold uppercase text-slate-700"
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setColumnsState((prev) =>
-                      prev.map((item) => (item.id === column.id ? { ...item, label: next } : item))
-                    );
-                    if (next.trim()) {
-                      queueColumnSave(column.id, next.trim());
-                    }
-                  }}
-                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => moveColumn(column.id, "left")}
+                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+                    aria-label={`Move ${column.label} left`}
+                    title="Move left"
+                  >
+                    ←
+                  </button>
+                  <input
+                    value={column.label}
+                    className="w-36 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold uppercase text-slate-700"
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setColumnsState((prev) =>
+                        prev.map((item) => (item.id === column.id ? { ...item, label: next } : item))
+                      );
+                      if (next.trim()) {
+                        queueColumnSave(column.id, next.trim());
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => moveColumn(column.id, "right")}
+                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+                    aria-label={`Move ${column.label} right`}
+                    title="Move right"
+                  >
+                    →
+                  </button>
+                </div>
               </th>
             ))}
             <th className="sticky top-0 z-20 bg-slate-50 px-6 py-3">
@@ -315,4 +365,3 @@ export default function PayrollRowsTable({
     </div>
   );
 }
-
