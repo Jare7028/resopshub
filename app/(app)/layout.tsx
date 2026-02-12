@@ -7,7 +7,7 @@ import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
 
-const navLinks = [
+const baseNavLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/search", label: "Search" },
   { href: "/clients", label: "Clients" },
@@ -33,6 +33,7 @@ export default async function AppLayout({
   }
 
   const email = user.email || "";
+  let canAccessPayroll = false;
 
   if (email) {
     const { data: profile } = await supabase
@@ -80,8 +81,14 @@ export default async function AppLayout({
     } else if (profile.status === "disabled") {
       await supabase.auth.signOut();
       redirect("/login?error=Account%20disabled");
+    } else {
+      canAccessPayroll = ["admin", "ops", "manager"].includes(profile.role || "");
     }
   }
+
+  const navLinks = canAccessPayroll
+    ? [...baseNavLinks, { href: "/employee-payroll", label: "Employee Payroll" }]
+    : baseNavLinks;
 
   async function signOut() {
     "use server";
