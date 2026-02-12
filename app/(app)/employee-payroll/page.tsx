@@ -37,10 +37,63 @@ function toSlug(input: string) {
   return slug || "column";
 }
 
+function normalizeFormulaInput(
+  rawFormula: string,
+  numberColumns: Array<{ key: string; label: string }>
+) {
+  let expression = rawFormula.trim();
+  if (expression.startsWith("=")) {
+    expression = expression.slice(1).trim();
+  }
+
+  if (!expression) {
+    return { formula: "", error: "Formula cannot be empty." };
+  }
+
+  const aliases = new Map<string, string>();
+  for (const column of numberColumns) {
+    const key = column.key.trim();
+    const label = column.label.trim();
+    if (key) {
+      aliases.set(key.toUpperCase(), key);
+    }
+    if (label) {
+      aliases.set(label.toUpperCase(), key);
+      aliases.set(label.replace(/\s+/g, "_").toUpperCase(), key);
+    }
+  }
+
+  const normalized = expression.replace(
+    /\b([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    (token: string) => {
+      const mapped = aliases.get(token.toUpperCase());
+      return mapped ? `{${mapped}}` : token;
+    }
+  );
+
+  const unresolved = normalized.replace(/\{[A-Za-z0-9_]+\}/g, "");
+  if (/[A-Za-z]/.test(unresolved)) {
+    return {
+      formula: "",
+      error: "Formula contains unknown column references. Use existing numeric column names.",
+    };
+  }
+
+  return { formula: normalized, error: null as string | null };
+}
+
 function evaluateFormula(formula: string | null, valuesByColumnKey: Record<string, number>) {
   if (!formula) return null;
 
-  const expression = formula.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => {
+  const normalized = formula
+    .trim()
+    .replace(/^=\s*/, "")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (token: string) => {
+      const key = token.toLowerCase();
+      return key in valuesByColumnKey ? `{${key}}` : token;
+    });
+
+  const expression = normalized.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => {
     const value = valuesByColumnKey[key] ?? 0;
     return Number.isFinite(value) ? String(value) : "0";
   });
@@ -146,18 +199,41 @@ export default async function EmployeePayrollPage(props: {
     if (!currentUser) redirect("/login");
     await requirePayrollAccess(currentUser.id);
 
-    const label = String(formData.get("label") || "").trim();
+    const rawLabel = String(formData.get("label") || "").trim();
     const kindRaw = String(formData.get("kind") || "number").trim().toLowerCase();
-    const kind: "number" | "formula" = kindRaw === "formula" ? "formula" : "number";
-    const formula = String(formData.get("formula") || "").trim();
+    const manualFormula = String(formData.get("formula") || "").trim();
+    const inlineFormula = rawLabel.startsWith("=") ? rawLabel : "";
+    const kind: "number" | "formula" =
+      inlineFormula || kindRaw === "formula" ? "formula" : "number";
 
-    if (!label) {
+    if (!rawLabel) {
       redirect("/employee-payroll?error=Column%20label%20is%20required");
     }
 
-    if (kind === "formula" && !formula) {
-      redirect("/employee-payroll?error=Formula%20is%20required%20for%20formula%20columns");
+    const { data: existingColumnsRaw } = await supabase
+      .from("employee_payroll_columns")
+      .select("key,label,kind");
+    const existingColumns = (existingColumnsRaw || []) as Array<{
+      key: string;
+      label: string;
+      kind: "number" | "formula";
+    }>;
+    const numberColumns = existingColumns.filter((column) => column.kind === "number");
+
+    const formulaInput = inlineFormula || manualFormula;
+    let formula: string | null = null;
+    if (kind === "formula") {
+      const normalized = normalizeFormulaInput(formulaInput, numberColumns);
+      if (normalized.error) {
+        redirect(`/employee-payroll?error=${encodeURIComponent(normalized.error)}`);
+      }
+      formula = normalized.formula;
     }
+
+    const label =
+      kind === "formula" && inlineFormula
+        ? `Formula ${existingColumns.length + 1}`
+        : rawLabel;
 
     const baseKey = toSlug(label);
     let key = baseKey;
@@ -445,12 +521,13 @@ export default async function EmployeePayrollPage(props: {
               </summary>
               <div className="absolute right-6 z-20 mt-2 w-[28rem] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
                 <p className="mb-2 text-xs text-slate-500">
-                  Add column. Formula example: <code>{"{salary} * 0.05"}</code>
+                  Add column. Start with <code>=</code> for formula, e.g.{" "}
+                  <code>=SALARY*1.05</code>.
                 </p>
                 <form action={createColumn} className="grid gap-2 md:grid-cols-6">
                   <input
                     name="label"
-                    placeholder="Column label"
+                    placeholder="Column label or =FORMULA"
                     className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
                     required
                   />
