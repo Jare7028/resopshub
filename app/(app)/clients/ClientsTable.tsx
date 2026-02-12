@@ -48,6 +48,13 @@ function formatTick(date: Date) {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function ClientsTable({
   clients,
   statusOptions,
@@ -69,8 +76,10 @@ export default function ClientsTable({
   const [, startTransition] = useTransition();
   const [view, setView] = useState<"table" | "board" | "gantt">(initialView);
   const ganttScrollRef = useRef<HTMLDivElement | null>(null);
-  const ganttAutoScrollKeyRef = useRef<string | null>(null);
   const [ganttViewportWidth, setGanttViewportWidth] = useState(960);
+  const [ganttAnchorDate, setGanttAnchorDate] = useState<string>(() =>
+    toDateInputValue(new Date())
+  );
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -195,8 +204,16 @@ export default function ClientsTable({
 
   const ganttData = useMemo(() => {
     const today = new Date();
-    const defaultWindowStart = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate());
-    const defaultWindowEnd = new Date(today.getFullYear(), today.getMonth() + 3, today.getDate());
+    const defaultWindowStart = new Date(
+      today.getFullYear() - 2,
+      today.getMonth(),
+      today.getDate()
+    );
+    const defaultWindowEnd = new Date(
+      today.getFullYear(),
+      today.getMonth() + 3,
+      today.getDate()
+    );
     const statusWeight: Record<string, number> = {
       active: 0,
       on_hold: 1,
@@ -246,8 +263,8 @@ export default function ClientsTable({
   }, [clients]);
 
   const timelineWidth = useMemo(() => {
-    // Default viewport target: ~3 months before today and ~3 months after today.
-    const dayWidth = Math.max(2, ganttViewportWidth / 183);
+    // Default viewport target: 2 years back + 3 months forward.
+    const dayWidth = Math.max(1, ganttViewportWidth / 822);
     return Math.max(ganttViewportWidth, Math.ceil(ganttData.rangeDays * dayWidth));
   }, [ganttData.rangeDays, ganttViewportWidth]);
 
@@ -299,21 +316,15 @@ export default function ClientsTable({
       return;
     }
 
-    const rangeKey = `${ganttData.rangeStart.toISOString()}-${ganttData.rangeDays}-${timelineWidth}`;
-    if (ganttAutoScrollKeyRef.current === rangeKey) {
-      return;
-    }
-
-    const today = new Date();
-    const todayOffsetDays = diffDays(ganttData.rangeStart, today);
+    const anchorDate = toDate(ganttAnchorDate) || new Date();
+    const todayOffsetDays = diffDays(ganttData.rangeStart, anchorDate);
     const pixelsPerDay = timelineWidth / ganttData.rangeDays;
     const todayPixel = Math.max(0, todayOffsetDays * pixelsPerDay);
     const maxScrollLeft = Math.max(0, timelineWidth - container.clientWidth);
     const targetScrollLeft = Math.min(maxScrollLeft, Math.max(0, Math.round(todayPixel - container.clientWidth / 2)));
 
     container.scrollLeft = targetScrollLeft;
-    ganttAutoScrollKeyRef.current = rangeKey;
-  }, [ganttData.rangeDays, ganttData.rangeStart, timelineWidth, view]);
+  }, [ganttAnchorDate, ganttData.rangeDays, ganttData.rangeStart, timelineWidth, view]);
 
   return (
     <div>
@@ -560,14 +571,39 @@ export default function ClientsTable({
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto" ref={ganttScrollRef}>
+        <div className="px-4 py-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Timeline window defaults to 2 years back and 3 months forward.
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <label htmlFor="clients-gantt-focus-date" className="text-slate-600">
+                Focus date
+              </label>
+              <input
+                id="clients-gantt-focus-date"
+                type="date"
+                value={ganttAnchorDate}
+                onChange={(event) => setGanttAnchorDate(event.target.value)}
+                className="rounded-md border border-slate-300 px-2 py-1.5 text-slate-700"
+              />
+              <button
+                type="button"
+                onClick={() => setGanttAnchorDate(toDateInputValue(new Date()))}
+                className="rounded-md border border-slate-300 px-2 py-1.5 text-slate-700"
+              >
+                Today
+              </button>
+            </div>
+          </div>
+          <div className="max-h-[70vh] overflow-auto rounded-lg border border-slate-200" ref={ganttScrollRef}>
           {ganttData.clients.length ? (
             <div className="min-w-full" style={{ minWidth: timelineWidth + 240 }}>
-              <div className="grid grid-cols-[240px_1fr] border-b border-slate-200">
-                <div className="sticky left-0 z-20 bg-white px-6 py-3 text-xs font-semibold uppercase text-slate-500">
+              <div className="sticky top-0 z-30 grid grid-cols-[240px_1fr] border-b border-slate-200">
+                <div className="sticky left-0 z-30 bg-white px-6 py-3 text-xs font-semibold uppercase text-slate-500">
                   Client
                 </div>
-                <div className="relative px-6 py-3 text-xs font-semibold uppercase text-slate-500">
+                <div className="relative bg-white px-6 py-3 text-xs font-semibold uppercase text-slate-500">
                   <div className="absolute inset-y-0 left-6 right-6">
                     {timelineTicks.map((tick) => (
                       <div
@@ -610,7 +646,7 @@ export default function ClientsTable({
                   key={client.id}
                   className="grid grid-cols-[240px_1fr] border-b border-slate-100"
                 >
-                    <div className="sticky left-0 z-10 bg-white px-6 py-3 text-sm text-slate-900">
+                    <div className="sticky left-0 z-20 bg-white px-6 py-3 text-sm text-slate-900">
                       <Link href={`/clients/${client.id}`} className="hover:underline">
                         {client.name}
                       </Link>
@@ -654,6 +690,7 @@ export default function ClientsTable({
               No clients with a start date found.
             </div>
           )}
+        </div>
         </div>
       )}
     </div>
