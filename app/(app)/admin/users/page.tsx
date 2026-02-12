@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import AdminUsersTable from "./AdminUsersTable";
 
 const roleOptions = ["admin", "ops", "manager", "member", "viewer"] as const;
 const statusOptions = ["active", "disabled"] as const;
@@ -342,95 +343,12 @@ export default async function AdminUsersPage({
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">Users</h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Role</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users?.length ? (
-                users.map((user) => {
-                  const formId = `user-update-${user.id}`;
-
-                  return (
-                    <tr key={user.id} className="border-t border-slate-200">
-                      <td className="px-6 py-3 font-medium text-slate-900">
-                        <input
-                          form={formId}
-                          name="full_name"
-                          defaultValue={user.full_name || ""}
-                          placeholder="Full name"
-                          className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        />
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        <input
-                          form={formId}
-                          type="email"
-                          name="email"
-                          defaultValue={user.email}
-                          className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                          required
-                        />
-                      </td>
-                      <td className="px-6 py-3">
-                        <select
-                          form={formId}
-                          name="role"
-                          defaultValue={user.role}
-                          className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        >
-                          {roleOptions.map((role) => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-6 py-3">
-                        <select
-                          form={formId}
-                          name="status"
-                          defaultValue={user.status}
-                          className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        >
-                          {statusOptions.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-6 py-3">
-                        <form id={formId} action={updateUser}>
-                          <input type="hidden" name="user_id" value={user.id} />
-                          <button
-                            type="submit"
-                            className="rounded-md btn-primary px-3 py-1.5 text-xs font-semibold text-white "
-                          >
-                            Update
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={5}>
-                    No users found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <AdminUsersTable
+          users={users || []}
+          roleOptions={roleOptions}
+          statusOptions={statusOptions}
+          onUpdate={updateUser}
+        />
       </section>
     </div>
   );
