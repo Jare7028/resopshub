@@ -23,7 +23,7 @@ export default async function ClientRequirementsPage(props: {
 
   const { data: requirements } = await supabase
     .from("requirements")
-    .select("id,start_date,billable_hours,notes,created_at")
+    .select("id,start_date,requirement_type,billable_hours,notes,created_at")
     .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
@@ -31,24 +31,33 @@ export default async function ClientRequirementsPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
     const startDate = String(formData.get("start_date") || "");
-    const billableHoursRaw = String(formData.get("billable_hours") || "");
+    const requirementType = String(formData.get("requirement_type") || "").trim();
     const notes = String(formData.get("notes") || "").trim();
-    const billableHours = Number(billableHoursRaw);
 
     if (!startDate) {
       redirect(`/clients/${clientId}/requirements?error=Start%20date%20is%20required`);
     }
 
-    if (!billableHoursRaw || Number.isNaN(billableHours) || billableHours < 0) {
-      redirect(`/clients/${clientId}/requirements?error=Billable%20hours%20must%20be%20a%20valid%20number`);
+    if (!requirementType) {
+      redirect(`/clients/${clientId}/requirements?error=Requirement%20type%20is%20required`);
     }
 
-    const { error } = await supabase.from("requirements").insert({
+    const basePayload = {
       client_id: clientId,
       start_date: startDate,
-      billable_hours: billableHours,
+      requirement_type: requirementType,
       notes: notes || null,
-    });
+    };
+
+    let { error } = await supabase.from("requirements").insert(basePayload);
+
+    // Legacy fallback if billable_hours still has a NOT NULL constraint.
+    if (error && error.message.toLowerCase().includes("billable_hours")) {
+      const retry = await supabase
+        .from("requirements")
+        .insert({ ...basePayload, billable_hours: 0 });
+      error = retry.error;
+    }
 
     if (error) {
       redirect(`/clients/${clientId}/requirements?error=${encodeURIComponent(error.message)}`);
@@ -82,11 +91,9 @@ export default async function ClientRequirementsPage(props: {
             required
           />
           <input
-            type="number"
-            step="0.25"
-            min="0"
-            name="billable_hours"
-            placeholder="Billable hours"
+            type="text"
+            name="requirement_type"
+            placeholder="Requirement type"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
             required
           />
@@ -114,7 +121,7 @@ export default async function ClientRequirementsPage(props: {
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-6 py-3">Start date</th>
-                <th className="px-6 py-3">Billable hours</th>
+                <th className="px-6 py-3">Requirement Type</th>
                 <th className="px-6 py-3">Notes</th>
                 <th className="px-6 py-3">Created</th>
               </tr>
@@ -129,7 +136,10 @@ export default async function ClientRequirementsPage(props: {
                         : ""}
                     </td>
                     <td className="px-6 py-3 text-slate-700">
-                      {req.billable_hours}
+                      {req.requirement_type ||
+                        (req.billable_hours !== null && req.billable_hours !== undefined
+                          ? String(req.billable_hours)
+                          : "")}
                     </td>
                     <td className="px-6 py-3 text-slate-700">
                       {req.notes || ""}
