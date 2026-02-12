@@ -23,11 +23,14 @@ create unique index if not exists employee_payroll_columns_position_uidx
 create table if not exists public.employee_payroll_rows (
   id uuid primary key default gen_random_uuid(),
   employee_name text not null,
-  client_id uuid not null references public.clients(id) on delete restrict,
+  client_id uuid references public.clients(id) on delete restrict,
   created_by_user_id uuid not null references public.users(id) on delete restrict,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.employee_payroll_rows
+  alter column client_id drop not null;
 
 create index if not exists employee_payroll_rows_client_id_idx
   on public.employee_payroll_rows(client_id);

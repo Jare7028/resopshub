@@ -15,7 +15,7 @@ type PayrollColumn = {
 type PayrollRow = {
   id: string;
   employee_name: string;
-  client_id: string;
+  client_id: string | null;
   created_by_user_id: string;
   clients?: { name: string | null } | { name: string | null }[] | null;
 };
@@ -261,15 +261,11 @@ export default async function EmployeePayrollPage(props: {
       redirect("/employee-payroll?error=Employee%20name%20is%20required");
     }
 
-    if (!clientId) {
-      redirect("/employee-payroll?error=Client%20is%20required");
-    }
-
     const { data: created, error } = await supabase
       .from("employee_payroll_rows")
       .insert({
         employee_name: employeeName,
-        client_id: clientId,
+        client_id: clientId || null,
         created_by_user_id: currentUser.id,
       })
       .select("id")
@@ -316,13 +312,17 @@ export default async function EmployeePayrollPage(props: {
     const employeeName = String(formData.get("employee_name") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
 
-    if (!rowId || !employeeName || !clientId) {
+    if (!rowId || !employeeName) {
       redirect("/employee-payroll?error=Row%20update%20is%20missing%20required%20fields");
     }
 
     const { error } = await supabase
       .from("employee_payroll_rows")
-      .update({ employee_name: employeeName, client_id: clientId, updated_at: new Date().toISOString() })
+      .update({
+        employee_name: employeeName,
+        client_id: clientId || null,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", rowId);
 
     if (error) {
@@ -518,11 +518,8 @@ export default async function EmployeePayrollPage(props: {
             name="client_id"
             defaultValue=""
             className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            required
           >
-            <option value="" disabled>
-              Select client
-            </option>
+            <option value="">Client (N/A)</option>
             {clients.map((client) => (
               <option key={client.id} value={client.id}>
                 {client.name}
@@ -626,7 +623,7 @@ export default async function EmployeePayrollPage(props: {
                       <td className="px-6 py-3">
                         <form action={updateRow} className="space-y-2">
                           <input type="hidden" name="row_id" value={row.id} />
-                          <input type="hidden" name="client_id" value={row.client_id} />
+                          <input type="hidden" name="client_id" value={row.client_id || ""} />
                           <input
                             name="employee_name"
                             defaultValue={row.employee_name}
@@ -648,9 +645,10 @@ export default async function EmployeePayrollPage(props: {
                           <input type="hidden" name="employee_name" value={row.employee_name} />
                           <select
                             name="client_id"
-                            defaultValue={row.client_id}
+                            defaultValue={row.client_id || ""}
                             className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
                           >
+                            <option value="">N/A</option>
                             {clients.map((client) => (
                               <option key={client.id} value={client.id}>
                                 {client.name}
