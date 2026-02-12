@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 
 type PayrollColumn = {
   id: string;
@@ -26,18 +25,6 @@ type PayrollCell = {
   number_value: number | null;
 };
 
-type PayrollRowUser = {
-  row_id: string;
-  user_id: string;
-  role: "owner" | "editor" | "viewer";
-};
-
-type PayrollRowUserUpsert = {
-  row_id: string;
-  user_id: string;
-  role: "owner" | "editor";
-};
-
 const payrollRoles = new Set(["admin", "ops", "manager"]);
 
 function toSlug(input: string) {
@@ -47,12 +34,6 @@ function toSlug(input: string) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return slug || "column";
-}
-
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value
-  );
 }
 
 function evaluateFormula(formula: string | null, valuesByColumnKey: Record<string, number>) {
@@ -117,11 +98,6 @@ export default async function EmployeePayrollPage(props: {
     .select("id,name")
     .order("name", { ascending: true });
 
-  const { data: usersRaw } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
-
   const { data: columnsRaw } = await supabase
     .from("employee_payroll_columns")
     .select("id,key,label,kind,formula,position")
@@ -133,44 +109,18 @@ export default async function EmployeePayrollPage(props: {
     .order("created_at", { ascending: false });
 
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
-  const users = (usersRaw || []) as Array<{
-    id: string;
-    full_name: string | null;
-    email: string | null;
-  }>;
   const columns = (columnsRaw || []) as PayrollColumn[];
   const rows = (rowsRaw || []) as PayrollRow[];
 
   const rowIds = rows.map((row) => row.id).filter(Boolean);
 
-  const [rowUsersResult, cellValuesResult] = await Promise.all([
-    rowIds.length
-      ? supabase
-          .from("employee_payroll_row_users")
-          .select("row_id,user_id,role")
-          .in("row_id", rowIds)
-      : Promise.resolve({ data: [] as PayrollRowUser[] }),
-    rowIds.length
-      ? supabase
-          .from("employee_payroll_cell_values")
-          .select("row_id,column_id,number_value")
-          .in("row_id", rowIds)
-      : Promise.resolve({ data: [] as PayrollCell[] }),
-  ]);
-
-  const rowUsers = (rowUsersResult.data || []) as PayrollRowUser[];
-  const cellValues = (cellValuesResult.data || []) as PayrollCell[];
-
-  const usersById = users.reduce<Record<string, string>>((acc, entry) => {
-    acc[entry.id] = entry.full_name || entry.email || "Unknown user";
-    return acc;
-  }, {});
-
-  const rowUsersByRowId = rowUsers.reduce<Record<string, PayrollRowUser[]>>((acc, entry) => {
-    acc[entry.row_id] ||= [];
-    acc[entry.row_id].push(entry);
-    return acc;
-  }, {});
+  const { data: cellValuesRaw } = rowIds.length
+    ? await supabase
+        .from("employee_payroll_cell_values")
+        .select("row_id,column_id,number_value")
+        .in("row_id", rowIds)
+    : { data: [] as PayrollCell[] };
+  const cellValues = (cellValuesRaw || []) as PayrollCell[];
 
   const cellValueByKey = cellValues.reduce<Record<string, number | null>>((acc, entry) => {
     acc[`${entry.row_id}:${entry.column_id}`] = entry.number_value;
@@ -248,15 +198,6 @@ export default async function EmployeePayrollPage(props: {
 
     const employeeName = String(formData.get("employee_name") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
-    const assignedUserIds = Array.from(
-      new Set(
-        formData
-          .getAll("assigned_user_ids")
-          .map((entry) => String(entry).trim())
-          .filter((entry) => isUuid(entry))
-      )
-    );
-
     if (!employeeName) {
       redirect("/employee-payroll?error=Employee%20name%20is%20required");
     }
@@ -275,25 +216,6 @@ export default async function EmployeePayrollPage(props: {
       redirect(
         `/employee-payroll?error=${encodeURIComponent(error?.message || "Failed to create row")}`
       );
-    }
-
-    const assignments: PayrollRowUserUpsert[] = [
-      { row_id: created.id, user_id: currentUser.id, role: "owner" },
-      ...assignedUserIds
-        .filter((userId) => userId !== currentUser.id)
-        .map((userId): PayrollRowUserUpsert => ({
-          row_id: created.id,
-          user_id: userId,
-          role: "editor",
-        })),
-    ];
-
-    const { error: assignmentError } = await supabase
-      .from("employee_payroll_row_users")
-      .upsert(assignments, { onConflict: "row_id,user_id" });
-
-    if (assignmentError) {
-      redirect(`/employee-payroll?error=${encodeURIComponent(assignmentError.message)}`);
     }
 
     revalidatePath("/employee-payroll");
@@ -331,73 +253,6 @@ export default async function EmployeePayrollPage(props: {
 
     revalidatePath("/employee-payroll");
     redirect("/employee-payroll?success=Row%20updated");
-  }
-
-  async function saveRowUsers(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
-    if (!currentUser) redirect("/login");
-    await requirePayrollAccess(currentUser.id);
-
-    const rowId = String(formData.get("row_id") || "").trim();
-    if (!rowId) {
-      redirect("/employee-payroll?error=Missing%20row%20id");
-    }
-
-    const selectedUserIds = Array.from(
-      new Set(
-        formData
-          .getAll("assigned_user_ids")
-          .map((entry) => String(entry).trim())
-          .filter((entry) => isUuid(entry))
-      )
-    );
-
-    const { data: row } = await supabase
-      .from("employee_payroll_rows")
-      .select("created_by_user_id")
-      .eq("id", rowId)
-      .maybeSingle();
-
-    if (!row?.created_by_user_id) {
-      redirect("/employee-payroll?error=Row%20not%20found");
-    }
-
-    const ownerId = row.created_by_user_id;
-
-    const { error: clearError } = await supabase
-      .from("employee_payroll_row_users")
-      .delete()
-      .eq("row_id", rowId)
-      .neq("role", "owner");
-
-    if (clearError) {
-      redirect(`/employee-payroll?error=${encodeURIComponent(clearError.message)}`);
-    }
-
-    const upserts: PayrollRowUserUpsert[] = [
-      { row_id: rowId, user_id: ownerId, role: "owner" },
-      ...selectedUserIds
-        .filter((userId) => userId !== ownerId)
-        .map((userId): PayrollRowUserUpsert => ({
-          row_id: rowId,
-          user_id: userId,
-          role: "editor",
-        })),
-    ];
-
-    const { error: upsertError } = await supabase
-      .from("employee_payroll_row_users")
-      .upsert(upserts, { onConflict: "row_id,user_id" });
-
-    if (upsertError) {
-      redirect(`/employee-payroll?error=${encodeURIComponent(upsertError.message)}`);
-    }
-
-    revalidatePath("/employee-payroll");
-    redirect("/employee-payroll?success=Assignments%20updated");
   }
 
   async function upsertCellValue(formData: FormData) {
@@ -526,12 +381,9 @@ export default async function EmployeePayrollPage(props: {
               </option>
             ))}
           </select>
-          <div className="md:col-span-2 relative">
-            <AssigneeMultiSelect users={users} name="assigned_user_ids" />
-          </div>
           <button
             type="submit"
-            className="md:col-span-6 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            className="md:col-span-2 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
           >
             Add row
           </button>
@@ -595,7 +447,6 @@ export default async function EmployeePayrollPage(props: {
                     </div>
                   </th>
                 ))}
-                <th className="px-6 py-3">Assigned users</th>
                 <th className="px-6 py-3">Actions</th>
               </tr>
             </thead>
@@ -606,11 +457,6 @@ export default async function EmployeePayrollPage(props: {
                   const clientName = Array.isArray(relation)
                     ? relation[0]?.name || ""
                     : relation?.name || "";
-
-                  const rowUsersForRow = rowUsersByRowId[row.id] || [];
-                  const nonOwnerUserIds = rowUsersForRow
-                    .filter((entry) => entry.role !== "owner")
-                    .map((entry) => entry.user_id);
 
                   const valuesByKey = numberColumns.reduce<Record<string, number>>((acc, column) => {
                     const value = cellValueByKey[`${row.id}:${column.id}`];
@@ -699,39 +545,6 @@ export default async function EmployeePayrollPage(props: {
                       })}
 
                       <td className="px-6 py-3">
-                        <form action={saveRowUsers} className="space-y-2">
-                          <input type="hidden" name="row_id" value={row.id} />
-                          <div className="relative min-w-[16rem]">
-                            <AssigneeMultiSelect
-                              users={users}
-                              name="assigned_user_ids"
-                              defaultSelected={nonOwnerUserIds}
-                            />
-                          </div>
-                          <div className="flex flex-wrap gap-1 text-[11px]">
-                            {rowUsersForRow.length ? (
-                              rowUsersForRow.map((entry) => (
-                                <span
-                                  key={`${entry.row_id}-${entry.user_id}`}
-                                  className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600"
-                                >
-                                  {usersById[entry.user_id] || "Unknown"} ({entry.role})
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-slate-500">No assigned users</span>
-                            )}
-                          </div>
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Save users
-                          </button>
-                        </form>
-                      </td>
-
-                      <td className="px-6 py-3">
                         <form action={deleteRow}>
                           <input type="hidden" name="row_id" value={row.id} />
                           <button
@@ -747,7 +560,7 @@ export default async function EmployeePayrollPage(props: {
                 })
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 4}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={columns.length + 3}>
                     No payroll rows yet.
                   </td>
                 </tr>
