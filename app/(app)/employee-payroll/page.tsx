@@ -374,40 +374,6 @@ export default async function EmployeePayrollPage(props: {
         </form>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Add payroll column</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Formula columns support expressions like <code>{"{salary} * 0.05"}</code>.
-        </p>
-        <form action={createColumn} className="mt-4 grid gap-3 md:grid-cols-6">
-          <input
-            name="label"
-            placeholder="Column label (e.g. Bonus)"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            required
-          />
-          <select
-            name="kind"
-            defaultValue="number"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="number">Number</option>
-            <option value="formula">Formula</option>
-          </select>
-          <input
-            name="formula"
-            placeholder="Formula (required for formula type)"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            className="md:col-span-6 rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-          >
-            Add column
-          </button>
-        </form>
-      </section>
-
       {editRowId && !activeEditRow ? (
         <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           The selected row could not be found.
@@ -416,7 +382,7 @@ export default async function EmployeePayrollPage(props: {
 
       {activeEditRow ? (
         <section className="rounded-lg border border-slate-200 bg-white p-6">
-          <div className="flex items-center justify-between gap-3">
+          <div className="relative flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Edit row</h2>
             <Link
               href="/employee-payroll"
@@ -471,7 +437,46 @@ export default async function EmployeePayrollPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Payroll rows</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Payroll rows</h2>
+            <details className="group">
+              <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 text-lg font-semibold text-slate-700 hover:bg-slate-100">
+                +
+              </summary>
+              <div className="absolute right-6 z-20 mt-2 w-[28rem] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+                <p className="mb-2 text-xs text-slate-500">
+                  Add column. Formula example: <code>{"{salary} * 0.05"}</code>
+                </p>
+                <form action={createColumn} className="grid gap-2 md:grid-cols-6">
+                  <input
+                    name="label"
+                    placeholder="Column label"
+                    className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    required
+                  />
+                  <select
+                    name="kind"
+                    defaultValue="number"
+                    className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="number">Number</option>
+                    <option value="formula">Formula</option>
+                  </select>
+                  <input
+                    name="formula"
+                    placeholder="Formula (for formula type)"
+                    className="md:col-span-6 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="submit"
+                    className="md:col-span-6 rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Add column
+                  </button>
+                </form>
+              </div>
+            </details>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
