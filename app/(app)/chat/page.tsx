@@ -56,6 +56,15 @@ type DbMessageReactionRow = {
   created_at: string;
 };
 
+type DbMessageAttachmentRow = {
+  id: string;
+  message_id: string;
+  storage_path: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+};
+
 function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string | null>) {
   if (link.entity_type === "task") return `/tasks/${link.entity_id}`;
   if (link.entity_type === "project") return `/projects/${link.entity_id}`;
@@ -204,6 +213,17 @@ export default async function ChatPage(props: {
     : { data: [] as DbMessageReactionRow[] };
   const selectedReactions = (selectedReactionsRaw || []) as DbMessageReactionRow[];
 
+  const { data: selectedAttachmentsRaw, error: selectedAttachmentsError } = selectedMessageIds.length
+    ? await supabase
+        .from("chat_message_attachments")
+        .select("id,message_id,storage_path,filename,mime_type,size_bytes")
+        .in("message_id", selectedMessageIds)
+    : { data: [] as DbMessageAttachmentRow[], error: null };
+  const selectedAttachments =
+    selectedAttachmentsError && isSupabaseMissingTableError(selectedAttachmentsError)
+      ? ([] as DbMessageAttachmentRow[])
+      : ((selectedAttachmentsRaw || []) as DbMessageAttachmentRow[]);
+
   const noteIds = Array.from(
     new Set(
       selectedLinks
@@ -234,6 +254,13 @@ export default async function ChatPage(props: {
     acc[row.message_id].push(row);
     return acc;
   }, {});
+  const attachmentsByMessageId = selectedAttachments.reduce<
+    Record<string, DbMessageAttachmentRow[]>
+  >((acc, row) => {
+    acc[row.message_id] ||= [];
+    acc[row.message_id].push(row);
+    return acc;
+  }, {});
   const initialMessages = selectedMessages.map((message) => ({
     ...message,
     links: (linksByMessageId[message.id] || []).map((link) => ({
@@ -242,6 +269,12 @@ export default async function ChatPage(props: {
       entity_id: link.entity_id,
       label: link.label,
       href: linkHref(link, noteClientById),
+    })),
+    attachments: (attachmentsByMessageId[message.id] || []).map((attachment) => ({
+      ...attachment,
+      url: supabase.storage
+        .from("chat-attachments")
+        .getPublicUrl(attachment.storage_path).data.publicUrl,
     })),
     reactions: reactionsByMessageId[message.id] || [],
   }));

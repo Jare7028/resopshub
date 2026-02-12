@@ -27,6 +27,16 @@ type DbMessageReactionRow = {
   created_at: string;
 };
 
+type DbMessageAttachmentRow = {
+  id: string;
+  message_id: string;
+  storage_path: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+};
+
 async function getNoteClientMap(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   links: DbMessageLinkRow[]
@@ -120,6 +130,7 @@ export async function GET(req: Request) {
   }, {});
 
   let reactionsByMessageId: Record<string, DbMessageReactionRow[]> = {};
+  let attachmentsByMessageId: Record<string, DbMessageAttachmentRow[]> = {};
   if (messageIds.length) {
     const { data: reactionsRaw, error: reactionsError } = await supabase
       .from("chat_message_reactions")
@@ -139,6 +150,25 @@ export async function GET(req: Request) {
         return acc;
       }, {});
     }
+
+    const { data: attachmentsRaw, error: attachmentsError } = await supabase
+      .from("chat_message_attachments")
+      .select("id,message_id,storage_path,filename,mime_type,size_bytes,created_at")
+      .in("message_id", messageIds);
+
+    if (attachmentsError && !isSupabaseMissingTableError(attachmentsError)) {
+      return NextResponse.json({ error: attachmentsError.message }, { status: 400 });
+    }
+
+    if (attachmentsRaw?.length) {
+      attachmentsByMessageId = (attachmentsRaw as DbMessageAttachmentRow[]).reduce<
+        Record<string, DbMessageAttachmentRow[]>
+      >((acc, row) => {
+        acc[row.message_id] ||= [];
+        acc[row.message_id].push(row);
+        return acc;
+      }, {});
+    }
   }
 
   const payload = messages.map((message) => ({
@@ -149,6 +179,12 @@ export async function GET(req: Request) {
       entity_id: link.entity_id,
       label: link.label,
       href: linkHref(link, noteClientById),
+    })),
+    attachments: (attachmentsByMessageId[message.id] || []).map((attachment) => ({
+      ...attachment,
+      url: supabase.storage
+        .from("chat-attachments")
+        .getPublicUrl(attachment.storage_path).data.publicUrl,
     })),
     reactions: reactionsByMessageId[message.id] || [],
   }));
@@ -168,6 +204,12 @@ export async function POST(req: Request) {
     | {
         conversation_id?: string;
         body?: string;
+        attachments?: Array<{
+          storage_path?: string;
+          filename?: string;
+          mime_type?: string;
+          size_bytes?: number;
+        }>;
         links?: Array<{ entity_type?: string; entity_id?: string; label?: string }>;
       }
     | null;
@@ -177,6 +219,7 @@ export async function POST(req: Request) {
 
   const conversationId = String(json.conversation_id || "").trim();
   const body = String(json.body || "").trim();
+  const attachmentsRaw = Array.isArray(json.attachments) ? json.attachments : [];
   const linksRaw = Array.isArray(json.links) ? json.links : [];
 
   if (!uuidRegex.test(conversationId)) {
@@ -199,7 +242,20 @@ export async function POST(req: Request) {
       return validType && uuidRegex.test(link.entity_id);
     });
 
-  if (!body && !validLinks.length) {
+  const validAttachments = attachmentsRaw
+    .map((attachment) => ({
+      storage_path: String(attachment.storage_path || "").trim(),
+      filename: String(attachment.filename || "image").trim() || "image",
+      mime_type: String(attachment.mime_type || "application/octet-stream").trim(),
+      size_bytes: Number(attachment.size_bytes || 0),
+    }))
+    .filter(
+      (attachment) =>
+        attachment.storage_path.startsWith(`${conversationId}/${userId}/`) &&
+        attachment.size_bytes >= 0
+    );
+
+  if (!body && !validLinks.length && !validAttachments.length) {
     return NextResponse.json({ error: "Message or link is required" }, { status: 400 });
   }
 
@@ -230,6 +286,7 @@ export async function POST(req: Request) {
   }
 
   let createdLinks: DbMessageLinkRow[] = [];
+  let createdAttachments: DbMessageAttachmentRow[] = [];
   if (validLinks.length) {
     const payload = validLinks.map((link) => ({
       message_id: createdMessage.id,
@@ -247,6 +304,26 @@ export async function POST(req: Request) {
     createdLinks = (linksData || []) as DbMessageLinkRow[];
   }
 
+  if (validAttachments.length) {
+    const payload = validAttachments.map((attachment) => ({
+      message_id: createdMessage.id,
+      storage_path: attachment.storage_path,
+      filename: attachment.filename,
+      mime_type: attachment.mime_type,
+      size_bytes: attachment.size_bytes,
+    }));
+
+    const { data: attachmentsData, error: attachmentsError } = await supabase
+      .from("chat_message_attachments")
+      .insert(payload)
+      .select("id,message_id,storage_path,filename,mime_type,size_bytes,created_at");
+
+    if (attachmentsError && !isSupabaseMissingTableError(attachmentsError)) {
+      return NextResponse.json({ error: attachmentsError.message }, { status: 400 });
+    }
+    createdAttachments = (attachmentsData || []) as DbMessageAttachmentRow[];
+  }
+
   const noteClientById = await getNoteClientMap(supabase, createdLinks);
   const links = createdLinks.map((link) => ({
     id: link.id,
@@ -260,6 +337,12 @@ export async function POST(req: Request) {
     message: {
       ...createdMessage,
       links,
+      attachments: createdAttachments.map((attachment) => ({
+        ...attachment,
+        url: supabase.storage
+          .from("chat-attachments")
+          .getPublicUrl(attachment.storage_path).data.publicUrl,
+      })),
       reactions: [],
     },
   });

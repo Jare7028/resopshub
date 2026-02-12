@@ -40,6 +40,16 @@ type MessageLinkRow = {
   href: string;
 };
 
+type MessageAttachmentRow = {
+  id: string;
+  message_id: string;
+  storage_path: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  url: string;
+};
+
 type MessageReactionRow = {
   id: string;
   message_id: string;
@@ -56,6 +66,7 @@ type MessageRow = {
   created_at: string;
   edited_at: string | null;
   links: MessageLinkRow[];
+  attachments: MessageAttachmentRow[];
   reactions: MessageReactionRow[];
 };
 
@@ -645,6 +656,25 @@ export default function ChatPageClient(props: {
                             ))}
                           </div>
                         ) : null}
+                        {message.attachments.length ? (
+                          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {message.attachments.map((attachment) => (
+                              <a
+                                key={attachment.id}
+                                href={attachment.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded-md border border-slate-200"
+                              >
+                                <img
+                                  src={attachment.url}
+                                  alt={attachment.filename}
+                                  className="h-28 w-full object-cover"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="absolute bottom-2 right-2 flex items-center gap-1">
                           {reactionCounts.map((item) => (
                             <button
@@ -721,7 +751,7 @@ export default function ChatPageClient(props: {
               <ChatComposer
                 conversationId={selectedConversationId}
                 isSending={isSending}
-                onSend={async ({ body, links }) => {
+                onSend={async ({ body, links, attachments }) => {
                   setError("");
                   setSuccess("");
                   try {
@@ -732,6 +762,7 @@ export default function ChatPageClient(props: {
                       body: JSON.stringify({
                         conversation_id: selectedConversationId,
                         body,
+                        attachments,
                         links: links.map((link) => ({
                           entity_type: link.entityType,
                           entity_id: link.entityId,

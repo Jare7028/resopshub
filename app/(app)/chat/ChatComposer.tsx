@@ -20,6 +20,14 @@ type AttachedLink = {
   label: string;
 };
 
+type AttachedImage = {
+  storage_path: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  url: string;
+};
+
 const typeLabel: Record<LinkEntityType, string> = {
   task: "Task",
   project: "Project",
@@ -30,17 +38,29 @@ const typeLabel: Record<LinkEntityType, string> = {
 
 export default function ChatComposer(props: {
   conversationId: string;
-  onSend: (input: { body: string; links: AttachedLink[] }) => Promise<void>;
+  onSend: (input: {
+    body: string;
+    links: AttachedLink[];
+    attachments: Array<{
+      storage_path: string;
+      filename: string;
+      mime_type: string;
+      size_bytes: number;
+    }>;
+  }) => Promise<void>;
   isSending?: boolean;
   linkOptions: Record<LinkEntityType, LinkOption[]>;
 }) {
-  const { onSend, isSending = false, linkOptions } = props;
+  const { conversationId, onSend, isSending = false, linkOptions } = props;
   const [body, setBody] = useState("");
   const [isSlashOpen, setIsSlashOpen] = useState(false);
   const [entityType, setEntityType] = useState<LinkEntityType>("task");
   const [query, setQuery] = useState("");
   const [entityId, setEntityId] = useState("");
   const [attachedLinks, setAttachedLinks] = useState<AttachedLink[]>([]);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [uploadError, setUploadError] = useState("");
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   const filteredOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -50,6 +70,24 @@ export default function ChatComposer(props: {
   }, [entityType, linkOptions, query]);
 
   const selectedOption = filteredOptions.find((option) => option.id === entityId) || null;
+
+  const uploadImage = async (file: File) => {
+    const formData = new FormData();
+    formData.set("conversation_id", conversationId);
+    formData.set("file", file);
+    const res = await fetch("/api/chat/uploads", {
+      method: "POST",
+      body: formData,
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      attachment?: AttachedImage;
+    };
+    if (!res.ok || !json.attachment) {
+      throw new Error(json.error || "Unable to upload image");
+    }
+    return json.attachment;
+  };
 
   const attachSelected = () => {
     if (!selectedOption) return;
@@ -77,12 +115,20 @@ export default function ChatComposer(props: {
     <form
       onSubmit={async (event) => {
         event.preventDefault();
+        setUploadError("");
         await onSend({
           body,
           links: attachedLinks,
+          attachments: attachedImages.map((image) => ({
+            storage_path: image.storage_path,
+            filename: image.filename,
+            mime_type: image.mime_type,
+            size_bytes: image.size_bytes,
+          })),
         });
         setBody("");
         setAttachedLinks([]);
+        setAttachedImages([]);
         setQuery("");
         setEntityId("");
       }}
@@ -92,19 +138,43 @@ export default function ChatComposer(props: {
         <textarea
           value={body}
           onChange={(event) => setBody(event.target.value)}
+          onPaste={async (event) => {
+            const items = Array.from(event.clipboardData?.items || []);
+            const imageItems = items.filter((item) => item.type.startsWith("image/"));
+            if (!imageItems.length) {
+              return;
+            }
+
+            event.preventDefault();
+            setUploadError("");
+            setIsUploadingImage(true);
+            try {
+              const files = imageItems
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => Boolean(file));
+              const uploaded = await Promise.all(files.map((file) => uploadImage(file)));
+              setAttachedImages((prev) => [...prev, ...uploaded]);
+            } catch (err) {
+              setUploadError(
+                err instanceof Error ? err.message : "Unable to upload pasted image"
+              );
+            } finally {
+              setIsUploadingImage(false);
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === "/") {
               setIsSlashOpen(true);
             }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              if (!isSending) {
+              if (!isSending && !isUploadingImage) {
                 event.currentTarget.form?.requestSubmit();
               }
             }
           }}
           rows={3}
-          placeholder="Message... Type / to attach Task, Project, Note, Client, or Feature Suggestion."
+          placeholder="Message... Paste image, or type / to attach Task, Project, Note, Client, or Feature Suggestion."
           className="w-full resize-none rounded-t-md border-0 px-3 py-2 text-sm focus:outline-none"
         />
         <div className="flex items-center justify-between border-t border-slate-200 px-2 py-1.5">
@@ -131,13 +201,40 @@ export default function ChatComposer(props: {
           </button>
           <button
             type="submit"
-            disabled={isSending}
+            disabled={isSending || isUploadingImage}
             className="rounded-md btn-primary px-3 py-1.5 text-xs font-semibold text-white"
           >
-            {isSending ? "Sending..." : "Send"}
+            {isSending ? "Sending..." : isUploadingImage ? "Uploading..." : "Send"}
           </button>
         </div>
       </div>
+
+      {uploadError ? <p className="text-xs text-red-600">{uploadError}</p> : null}
+
+      {attachedImages.length ? (
+        <div className="flex flex-wrap gap-2">
+          {attachedImages.map((image, index) => (
+            <div
+              key={`${image.storage_path}-${index}`}
+              className="relative h-16 w-16 overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+            >
+              <img src={image.url} alt={image.filename} className="h-full w-full object-cover" />
+              <button
+                type="button"
+                onClick={() =>
+                  setAttachedImages((prev) =>
+                    prev.filter((item) => item.storage_path !== image.storage_path)
+                  )
+                }
+                className="absolute right-1 top-1 rounded bg-black/70 px-1 text-[10px] text-white"
+                title="Remove image"
+              >
+                x
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {attachedLinks.length ? (
         <div className="flex flex-wrap gap-2">
@@ -220,3 +317,4 @@ export default function ChatComposer(props: {
     </form>
   );
 }
+
