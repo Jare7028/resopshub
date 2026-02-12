@@ -39,8 +39,6 @@ const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
   feature_suggestion_status: true,
 };
 
-const payrollRoles = new Set(["admin", "ops", "manager"]);
-
 function checkbox(formData: FormData, key: string) {
   return String(formData.get(key) || "") === "on";
 }
@@ -127,34 +125,6 @@ export default async function SettingsPage(props: {
       defaultPrefs.feature_suggestion_status
     ),
   };
-
-  type PayrollDropdownOptionRow = {
-    id: string;
-    field_type: "job_title" | "contract_type" | "billable";
-    value: string;
-    position: number;
-  };
-
-  const { data: payrollDropdownOptionsRaw, error: payrollDropdownOptionsError } = await supabase
-    .from("employee_payroll_dropdown_options")
-    .select("id,field_type,value,position")
-    .order("field_type", { ascending: true })
-    .order("position", { ascending: true })
-    .order("value", { ascending: true });
-
-  const payrollDropdownOptions = (payrollDropdownOptionsError
-    ? []
-    : payrollDropdownOptionsRaw || []) as PayrollDropdownOptionRow[];
-
-  const jobTitleOptions = payrollDropdownOptions.filter(
-    (option) => option.field_type === "job_title"
-  );
-  const contractTypeOptions = payrollDropdownOptions.filter(
-    (option) => option.field_type === "contract_type"
-  );
-  const billableOptions = payrollDropdownOptions.filter(
-    (option) => option.field_type === "billable"
-  );
 
   type TaskTemplateRow = {
     id: string;
@@ -951,108 +921,6 @@ export default async function SettingsPage(props: {
     );
   }
 
-  async function createPayrollDropdownOption(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
-    if (!currentUser) {
-      redirect("/login");
-    }
-
-    const { data: currentProfile } = await supabase
-      .from("users")
-      .select("role,status")
-      .eq("id", currentUser.id)
-      .maybeSingle();
-
-    if (
-      !currentProfile ||
-      currentProfile.status === "disabled" ||
-      !payrollRoles.has(String(currentProfile.role || ""))
-    ) {
-      redirect("/settings?tab=payroll&error=You%20do%20not%20have%20access");
-    }
-
-    const fieldTypeRaw = String(formData.get("field_type") || "").trim().toLowerCase();
-    const value = String(formData.get("value") || "").trim();
-    const fieldType =
-      fieldTypeRaw === "job_title" ||
-      fieldTypeRaw === "contract_type" ||
-      fieldTypeRaw === "billable"
-        ? fieldTypeRaw
-        : "";
-
-    if (!fieldType || !value) {
-      redirect("/settings?tab=payroll&error=Field%20type%20and%20value%20are%20required");
-    }
-
-    const { data: last } = await supabase
-      .from("employee_payroll_dropdown_options")
-      .select("position")
-      .eq("field_type", fieldType)
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const nextPosition = (Number(last?.position) || 0) + 1;
-
-    const { error } = await supabase.from("employee_payroll_dropdown_options").insert({
-      field_type: fieldType,
-      value,
-      position: nextPosition,
-    });
-
-    if (error) {
-      redirect(`/settings?tab=payroll&error=${encodeURIComponent(error.message)}`);
-    }
-
-    revalidatePath("/settings");
-    revalidatePath("/employee-payroll");
-    redirect("/settings?tab=payroll&success=Payroll%20option%20added");
-  }
-
-  async function deletePayrollDropdownOption(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
-    if (!currentUser) {
-      redirect("/login");
-    }
-
-    const { data: currentProfile } = await supabase
-      .from("users")
-      .select("role,status")
-      .eq("id", currentUser.id)
-      .maybeSingle();
-
-    if (
-      !currentProfile ||
-      currentProfile.status === "disabled" ||
-      !payrollRoles.has(String(currentProfile.role || ""))
-    ) {
-      redirect("/settings?tab=payroll&error=You%20do%20not%20have%20access");
-    }
-
-    const id = String(formData.get("id") || "").trim();
-    if (!id) {
-      redirect("/settings?tab=payroll&error=Missing%20option%20id");
-    }
-
-    const { error } = await supabase
-      .from("employee_payroll_dropdown_options")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      redirect(`/settings?tab=payroll&error=${encodeURIComponent(error.message)}`);
-    }
-
-    revalidatePath("/settings");
-    revalidatePath("/employee-payroll");
-    redirect("/settings?tab=payroll&success=Payroll%20option%20deleted");
-  }
 
   const renderMessage = (value: string | undefined, kind: "error" | "success") => {
     if (!value) return null;
@@ -1263,154 +1131,6 @@ export default async function SettingsPage(props: {
                 </button>
               </div>
             </form>
-          </div>
-        </section>
-      ) : null}
-
-      {activeTab === "payroll" ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Payroll dropdowns</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Manage Job Title and Contract Type options used in Employee Payroll.
-            </p>
-          </div>
-          <div className="space-y-6 p-6">
-            {payrollDropdownOptionsError &&
-            isSupabaseMissingTableError(payrollDropdownOptionsError) ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Payroll dropdown settings are not set up yet. Run `sql/employee_payroll.sql`
-                in Supabase SQL editor, then refresh this page.
-              </div>
-            ) : null}
-
-            <div className="grid gap-6 lg:grid-cols-3">
-              <section className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Job titles</h3>
-                <form action={createPayrollDropdownOption} className="mt-3 flex gap-2">
-                  <input type="hidden" name="field_type" value="job_title" />
-                  <input
-                    name="value"
-                    placeholder="Add job title"
-                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Add
-                  </button>
-                </form>
-                <div className="mt-3 space-y-2">
-                  {jobTitleOptions.length ? (
-                    jobTitleOptions.map((option) => (
-                      <div
-                        key={option.id}
-                        className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <span className="text-slate-800">{option.value}</span>
-                        <form action={deletePayrollDropdownOption}>
-                          <input type="hidden" name="id" value={option.id} />
-                          <button
-                            type="submit"
-                            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                          >
-                            Delete
-                          </button>
-                        </form>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-500">No job titles configured yet.</p>
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Contract types</h3>
-                <form action={createPayrollDropdownOption} className="mt-3 flex gap-2">
-                  <input type="hidden" name="field_type" value="contract_type" />
-                  <input
-                    name="value"
-                    placeholder="Add contract type"
-                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Add
-                  </button>
-                </form>
-                <div className="mt-3 space-y-2">
-                  {contractTypeOptions.length ? (
-                    contractTypeOptions.map((option) => (
-                      <div
-                        key={option.id}
-                        className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <span className="text-slate-800">{option.value}</span>
-                        <form action={deletePayrollDropdownOption}>
-                          <input type="hidden" name="id" value={option.id} />
-                          <button
-                            type="submit"
-                            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                          >
-                            Delete
-                          </button>
-                        </form>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-500">No contract types configured yet.</p>
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Billable options</h3>
-                <form action={createPayrollDropdownOption} className="mt-3 flex gap-2">
-                  <input type="hidden" name="field_type" value="billable" />
-                  <input
-                    name="value"
-                    placeholder="Add billable option"
-                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Add
-                  </button>
-                </form>
-                <div className="mt-3 space-y-2">
-                  {billableOptions.length ? (
-                    billableOptions.map((option) => (
-                      <div
-                        key={option.id}
-                        className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <span className="text-slate-800">{option.value}</span>
-                        <form action={deletePayrollDropdownOption}>
-                          <input type="hidden" name="id" value={option.id} />
-                          <button
-                            type="submit"
-                            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                          >
-                            Delete
-                          </button>
-                        </form>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-500">No billable options configured yet.</p>
-                  )}
-                </div>
-              </section>
-            </div>
           </div>
         </section>
       ) : null}
@@ -2155,3 +1875,4 @@ export default async function SettingsPage(props: {
     </div>
   );
 }
+
