@@ -113,7 +113,7 @@ create policy tasks_insert
             left join public.task_assignees pta
               on pta.task_id = parent.id
              and pta.user_id in (public.current_app_user_id(), auth.uid())
-            where parent.id = parent_task_id
+            where parent.id = tasks.parent_task_id
               and (
                 public.is_admin()
                 or parent.status::text = 'template'
@@ -125,7 +125,7 @@ create policy tasks_insert
           or exists (
             select 1
             from public.task_templates tt
-            where tt.id = parent_task_id
+            where tt.id = tasks.parent_task_id
           )
         )
       )
@@ -164,7 +164,7 @@ create policy tasks_insert_with_parent_access
         left join public.task_assignees pta
           on pta.task_id = parent.id
          and pta.user_id in (public.current_app_user_id(), auth.uid())
-        where parent.id = parent_task_id
+        where parent.id = tasks.parent_task_id
           and (
             public.is_admin()
             or parent.status::text = 'template'
@@ -176,7 +176,7 @@ create policy tasks_insert_with_parent_access
       or exists (
         select 1
         from public.task_templates tt
-        where tt.id = parent_task_id
+        where tt.id = tasks.parent_task_id
       )
     )
   );
