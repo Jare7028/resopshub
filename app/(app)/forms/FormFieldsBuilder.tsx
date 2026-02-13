@@ -253,23 +253,39 @@ export default function FormFieldsBuilder({
               </div>
 
               {field.type === "select" ? (
-                <label className="md:col-span-12 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  Dropdown options (comma separated)
-                  <input
-                    value={(field.options || []).join(", ")}
-                    onChange={(event) =>
-                      updateField(index, (item) => ({
-                        ...item,
-                        options: event.target.value
-                          .split(",")
-                          .map((value) => value.trim())
-                          .filter(Boolean),
-                      }))
-                    }
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                    placeholder="Option A, Option B"
-                  />
-                </label>
+                <div className="md:col-span-12 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Dropdown options
+                  </p>
+                  {[
+                    ...(field.options || []),
+                    ...((field.options || []).length === 0 ||
+                    (field.options || [])[Math.max((field.options || []).length - 1, 0)]?.trim()
+                      ? [""]
+                      : []),
+                  ].map((value, optionIndex) => (
+                    <input
+                      key={`${field.id}_option_${optionIndex}`}
+                      value={value}
+                      onChange={(event) =>
+                        updateField(index, (item) => {
+                          const existing = [...(item.options || [])];
+                          if (optionIndex >= existing.length) {
+                            existing.push(event.target.value);
+                          } else {
+                            existing[optionIndex] = event.target.value;
+                          }
+                          return {
+                            ...item,
+                            options: existing.filter((option) => option.trim().length > 0),
+                          };
+                        })
+                      }
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                      placeholder={`Dropdown ${optionIndex + 1}`}
+                    />
+                  ))}
+                </div>
               ) : null}
 
               {openAdvancedByFieldId[field.id] ? (
@@ -339,4 +355,3 @@ export default function FormFieldsBuilder({
     </div>
   );
 }
-
