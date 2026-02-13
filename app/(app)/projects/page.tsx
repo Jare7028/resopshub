@@ -297,7 +297,7 @@ export default async function ProjectsPage(props: {
         id: string;
         key: string;
         label: string;
-        field_kind: "text" | "dropdown";
+        field_kind: "text" | "dropdown" | "date" | "client";
         position: number;
       }>;
       if (!templateFields.length) {
@@ -389,7 +389,7 @@ export default async function ProjectsPage(props: {
             entity_type: targetEntityType,
             entity_id: targetEntityId,
             field_id: clonedFieldId,
-            text_value: fieldKind === "text" ? valueRow.text_value : null,
+            text_value: fieldKind === "dropdown" ? null : valueRow.text_value,
             option_value: fieldKind === "dropdown" ? valueRow.option_value : null,
           };
         })

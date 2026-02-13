@@ -7,7 +7,7 @@ export const CUSTOM_FIELD_ENTITY_TYPES = [
 ] as const;
 export type CustomFieldEntityType = (typeof CUSTOM_FIELD_ENTITY_TYPES)[number];
 
-export const CUSTOM_FIELD_KINDS = ["text", "dropdown"] as const;
+export const CUSTOM_FIELD_KINDS = ["text", "dropdown", "date", "client"] as const;
 export type CustomFieldKind = (typeof CUSTOM_FIELD_KINDS)[number];
 
 export type CustomFieldRow = {

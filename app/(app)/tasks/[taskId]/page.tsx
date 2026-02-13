@@ -168,6 +168,10 @@ export default async function TaskDetailPage(props: {
     .from("users")
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
+  const { data: clients } = await supabase
+    .from("clients")
+    .select("id,name")
+    .order("name", { ascending: true });
 
   const { data: taskAssignees } = await supabase
     .from("task_assignees")
@@ -366,12 +370,34 @@ export default async function TaskDetailPage(props: {
           );
         }
       }
+      if (field.field_kind === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        redirect(
+          buildTaskUrl(taskId, "details", {
+            error: `Invalid date for ${field.label}`,
+          })
+        );
+      }
+      if (field.field_kind === "client") {
+        const allowedClient = (clients || []).some((client) => client.id === value);
+        if (!allowedClient) {
+          redirect(
+            buildTaskUrl(taskId, "details", {
+              error: `Invalid client for ${field.label}`,
+            })
+          );
+        }
+      }
 
       upserts.push({
         entity_type: "task",
         entity_id: taskId,
         field_id: field.id,
-        text_value: field.field_kind === "text" ? value : null,
+        text_value:
+          field.field_kind === "text" ||
+          field.field_kind === "date" ||
+          field.field_kind === "client"
+            ? value
+            : null,
         option_value: field.field_kind === "dropdown" ? value : null,
       });
     }
@@ -790,6 +816,72 @@ export default async function TaskDetailPage(props: {
                   </div>
                 );
               }
+              if (field.field_kind === "date") {
+                return (
+                  <div key={field.id} className="grid gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor={inputId}
+                        className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        {field.label}
+                      </label>
+                      <button
+                        type="submit"
+                        formAction={deleteTaskCustomField}
+                        name="id"
+                        value={field.id}
+                        className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    <input
+                      id={inputId}
+                      type="date"
+                      name={`cf_${field.id}`}
+                      defaultValue={value}
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                );
+              }
+              if (field.field_kind === "client") {
+                return (
+                  <div key={field.id} className="grid gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor={inputId}
+                        className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        {field.label}
+                      </label>
+                      <button
+                        type="submit"
+                        formAction={deleteTaskCustomField}
+                        name="id"
+                        value={field.id}
+                        className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    <select
+                      id={inputId}
+                      name={`cf_${field.id}`}
+                      defaultValue={value}
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    >
+                      <option value="">Select client...</option>
+                      {(clients || []).map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              }
               return (
                 <div key={field.id} className="grid gap-1">
                   <div className="flex items-center justify-between gap-2">
@@ -851,10 +943,12 @@ export default async function TaskDetailPage(props: {
                   >
                     <option value="text">Text</option>
                     <option value="dropdown">Dropdown</option>
+                    <option value="date">Date</option>
+                    <option value="client">Client</option>
                   </select>
                   <input
                     name="options_csv"
-                    placeholder="Dropdown options (comma-separated)"
+                    placeholder="Dropdown options only (comma-separated)"
                     className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                   />
                   <div className="flex items-center justify-end gap-2 pt-1">

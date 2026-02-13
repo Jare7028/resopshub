@@ -7,7 +7,7 @@ create table if not exists public.custom_fields (
   entity_id uuid,
   key text not null,
   label text not null,
-  field_kind text not null check (field_kind in ('text', 'dropdown')),
+  field_kind text not null check (field_kind in ('text', 'dropdown', 'date', 'client')),
   position integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -25,6 +25,11 @@ alter table public.custom_fields
 alter table public.custom_fields
   add constraint custom_fields_entity_type_check
   check (entity_type in ('client', 'project', 'task', 'task_template', 'project_template'));
+alter table public.custom_fields
+  drop constraint if exists custom_fields_field_kind_check;
+alter table public.custom_fields
+  add constraint custom_fields_field_kind_check
+  check (field_kind in ('text', 'dropdown', 'date', 'client'));
 
 create unique index if not exists custom_fields_entity_key_uidx
   on public.custom_fields (entity_type, entity_id, key);
@@ -101,9 +106,24 @@ begin
     raise exception 'entity id does not match custom field scope';
   end if;
 
-  if field_kind = 'text' then
+  if field_kind = 'text' or field_kind = 'date' then
     if new.text_value is null or length(trim(new.text_value)) = 0 then
-      raise exception 'text custom field requires text_value';
+      raise exception 'text/date custom field requires text_value';
+    end if;
+    if field_kind = 'date' and not (new.text_value ~ '^\d{4}-\d{2}-\d{2}$') then
+      raise exception 'date custom field must use YYYY-MM-DD format';
+    end if;
+    new.option_value := null;
+  elsif field_kind = 'client' then
+    if new.text_value is null or length(trim(new.text_value)) = 0 then
+      raise exception 'client custom field requires text_value';
+    end if;
+    if not exists (
+      select 1
+      from public.clients c
+      where c.id::text = new.text_value
+    ) then
+      raise exception 'client custom field value must match an existing client id';
     end if;
     new.option_value := null;
   else

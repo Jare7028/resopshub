@@ -674,7 +674,7 @@ export default async function TasksPage(props: {
         id: string;
         key: string;
         label: string;
-        field_kind: "text" | "dropdown";
+        field_kind: "text" | "dropdown" | "date" | "client";
         position: number;
       }>;
       const templateCustomFieldIds = templateCustomFields.map((field) => field.id);
@@ -789,7 +789,7 @@ export default async function TasksPage(props: {
               entity_type: "task",
               entity_id: taskId,
               field_id: clonedFieldId,
-              text_value: fieldKind === "text" ? row.text_value : null,
+              text_value: fieldKind === "dropdown" ? null : row.text_value,
               option_value: fieldKind === "dropdown" ? row.option_value : null,
             };
           })
