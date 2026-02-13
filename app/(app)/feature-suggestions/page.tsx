@@ -16,14 +16,6 @@ type SuggestionRow = {
   created_by: string | null;
 };
 
-type SuggestionCommentRow = {
-  id: string;
-  suggestion_id: string;
-  user_id: string;
-  body: string;
-  created_at: string;
-};
-
 type SuggestionVoteRow = {
   suggestion_id: string;
   user_id: string;
@@ -46,6 +38,25 @@ const formatTypeLabel = (type: string) =>
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+
+const summarizeDescription = (value: string | null, maxLength = 120) => {
+  if (!value) return "";
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+
+  const punctuationIndexes = [".", "!", "?"]
+    .map((char) => normalized.indexOf(char))
+    .filter((index) => index >= 0);
+  const firstSentenceEnd = punctuationIndexes.length
+    ? Math.min(...punctuationIndexes) + 1
+    : normalized.length;
+
+  let summary = normalized.slice(0, firstSentenceEnd).trim();
+  if (summary.length > maxLength) {
+    summary = `${summary.slice(0, maxLength - 3).trimEnd()}...`;
+  }
+  return summary;
+};
 
 type SuggestionUserRow = {
   id: string;
@@ -139,7 +150,6 @@ export default async function FeatureSuggestionsPage(props: {
   const authEmail = authData.user?.email;
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const selectedSort = (searchParams?.sort || "latest").trim();
-  const openCommentsForSuggestionId = (searchParams?.open || "").trim();
   const selectedStatusParam = (searchParams?.status || "all").trim();
   const selectedTypeParam = (searchParams?.type || "all").trim();
   const selectedSubmittedByParam = (searchParams?.submitted_by || "all").trim();
@@ -163,8 +173,6 @@ export default async function FeatureSuggestionsPage(props: {
   if (!currentUser?.id) {
     redirect("/tasks?error=Missing%20user%20profile");
   }
-
-  const isAdmin = currentUser.role === "admin";
 
   const selectedStatus =
     selectedStatusParam === "all" ||
@@ -350,30 +358,22 @@ export default async function FeatureSuggestionsPage(props: {
     }
   });
 
-  const comments: SuggestionCommentRow[] = suggestionIds.length
+  const comments = suggestionIds.length
     ? ((
         await supabase
           .from("feature_suggestion_comments")
-          .select("id,suggestion_id,user_id,body,created_at")
+          .select("suggestion_id")
           .in("suggestion_id", suggestionIds)
-          .order("created_at", { ascending: true })
-      ).data as SuggestionCommentRow[]) || []
+      ).data as Array<{ suggestion_id: string }>) || []
     : [];
 
   const commentCounts = new Map<string, number>();
-  const commentsBySuggestionId = new Map<string, SuggestionCommentRow[]>();
 
   (comments || []).forEach((comment) => {
     commentCounts.set(
       comment.suggestion_id,
       (commentCounts.get(comment.suggestion_id) || 0) + 1
     );
-    const existing = commentsBySuggestionId.get(comment.suggestion_id);
-    if (existing) {
-      existing.push(comment);
-    } else {
-      commentsBySuggestionId.set(comment.suggestion_id, [comment]);
-    }
   });
 
   if (onlyMyVotes) {
@@ -576,118 +576,6 @@ export default async function FeatureSuggestionsPage(props: {
     redirect(returnTo);
   }
 
-  async function updateSuggestion(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const suggestionId = String(formData.get("suggestion_id") || "").trim();
-    const title = String(formData.get("title") || "").trim();
-    const details = String(formData.get("details") || "").trim();
-
-    if (!suggestionId) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
-          error: "Missing suggestion id",
-        })
-      );
-    }
-
-    if (!title) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
-          error: "Title is required",
-        })
-      );
-    }
-
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
-    if (!authEmail) {
-      redirect("/login");
-    }
-
-    const { data: editorUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", authEmail)
-      .maybeSingle();
-
-    if (!editorUser?.id) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
-          error: "Missing user profile",
-        })
-      );
-    }
-
-    const { data: existing, error: existingError } = await supabase
-      .from("feature_suggestions")
-      .select("id,created_by")
-      .eq("id", suggestionId)
-      .maybeSingle();
-
-    if (existingError) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
-          error: existingError.message,
-        })
-      );
-    }
-
-    if (!existing?.id) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
-          error: "Suggestion not found",
-        })
-      );
-    }
-
-    const canEdit = editorUser.role === "admin" || existing.created_by === editorUser.id;
-    if (!canEdit) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(returnBaseQuery, {
-          error: "Not allowed to edit this idea",
-        })
-      );
-    }
-
-    const { error } = await supabase
-      .from("feature_suggestions")
-      .update({
-        title,
-        details: details || null,
-      })
-      .eq("id", suggestionId);
-
-    if (error) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(returnBaseQuery, { error: error.message })
-      );
-    }
-
-    revalidatePath("/feature-suggestions");
-    redirect(buildFeatureSuggestionsReturnUrl(returnBaseQuery, { success: "Saved" }));
-  }
-
-  const userIds = Array.from(
-    new Set(
-      [
-        ...suggestionRows.map((row) => row.created_by).filter(Boolean),
-        ...comments.map((comment) => comment.user_id).filter(Boolean),
-      ] as string[]
-    )
-  );
-  const userMap = new Map<string, { full_name?: string | null; email?: string | null }>();
-
-  if (userIds.length) {
-    const { data: users } = await supabase
-      .from("users")
-      .select("id,full_name,email")
-      .in("id", userIds);
-    (users || []).forEach((user) => {
-      userMap.set(user.id, { full_name: user.full_name, email: user.email });
-    });
-  }
-
   if (selectedSort === "most_upvoted") {
     suggestionRows = [...suggestionRows].sort((a, b) => {
       const aScore = voteScores.get(a.id) || 0;
@@ -702,108 +590,6 @@ export default async function FeatureSuggestionsPage(props: {
       }
       return a.created_at < b.created_at ? 1 : -1;
     });
-  }
-
-  async function createComment(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const suggestionId = String(formData.get("suggestion_id") || "").trim();
-    const body = String(formData.get("body") || "").trim();
-
-    const params = new URLSearchParams(returnBaseQuery);
-    if (suggestionId) {
-      params.set("open", suggestionId);
-    }
-    const baseQueryWithOpen = params.toString();
-
-    if (!suggestionId) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
-          error: "Missing suggestion id",
-        })
-      );
-    }
-
-    if (!body) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
-          error: "Comment is required",
-        })
-      );
-    }
-
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user?.id) {
-      redirect("/login");
-    }
-
-    const authUserId = authData.user.id;
-    const authEmail = authData.user.email || "";
-    const authFullName =
-      (authData.user.user_metadata?.full_name as string | undefined) ||
-      authEmail.split("@")[0] ||
-      "Team member";
-
-    let { data: profile } = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", authUserId)
-      .maybeSingle();
-
-    if (!profile) {
-      const { data: emailMatch } = await supabase
-        .from("users")
-        .select("id")
-        .eq("email", authEmail)
-        .maybeSingle();
-
-      if (emailMatch?.id) {
-        profile = emailMatch;
-      } else {
-        const { error: insertError } = await supabase.from("users").insert({
-          id: authUserId,
-          email: authEmail,
-          full_name: authFullName,
-          role: "member",
-          status: "active",
-        });
-
-        if (insertError) {
-          redirect(
-            buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
-              error: insertError.message,
-            })
-          );
-        }
-
-        profile = { id: authUserId };
-      }
-    }
-
-    if (!profile?.id) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, {
-          error: "Missing user profile",
-        })
-      );
-    }
-
-    const { error } = await supabase.from("feature_suggestion_comments").insert({
-      suggestion_id: suggestionId,
-      user_id: profile.id,
-      body,
-    });
-
-    if (error) {
-      redirect(
-        buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, { error: error.message })
-      );
-    }
-
-    revalidatePath("/feature-suggestions");
-    redirect(
-      buildFeatureSuggestionsReturnUrl(baseQueryWithOpen, { success: "Comment added" })
-    );
   }
 
   const buildViewUrl = (nextView: "table" | "gantt" | "board") => {
@@ -1068,186 +854,89 @@ export default async function FeatureSuggestionsPage(props: {
             </Link>
           </form>
         </div>
-        <div className={selectedView === "table" ? "divide-y divide-slate-200" : "hidden"}>
-          {suggestionRows.length ? (
-            suggestionRows.map((suggestion) => {
-              const scoreForSuggestion = voteScores.get(suggestion.id) || 0;
-              const upvotesForSuggestion = upvoteCounts.get(suggestion.id) || 0;
-              const downvotesForSuggestion = downvoteCounts.get(suggestion.id) || 0;
-              const userVote = userVotes.get(suggestion.id) || 0;
-              const author = suggestion.created_by
-                ? userMap.get(suggestion.created_by)
-                : null;
-              const authorName = author?.full_name || author?.email || "Unknown";
-              const commentCount = commentCounts.get(suggestion.id) || 0;
-              const suggestionComments =
-                commentsBySuggestionId.get(suggestion.id) || [];
-              return (
-                <div key={suggestion.id} className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-start md:justify-between">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-base font-semibold text-slate-900">
-                        {suggestion.title}
-                      </p>
-                      <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">
-                        {(suggestion.type || "new_feature").replace("_", " ")}
-                      </span>
-                      <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600">
-                        {formatStatusLabel(suggestion.status || "idea")}
-                      </span>
-                      <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                        {commentCount} comment{commentCount === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                    {suggestion.details ? (
-                      <p className="text-sm text-slate-600">
-                        {suggestion.details}
-                      </p>
-                    ) : null}
-                    <p className="text-xs text-slate-500">
-                      Suggested by {authorName}
-                    </p>
-                    <FeatureSuggestionStatus
-                      suggestionId={suggestion.id}
-                      defaultStatus={suggestion.status || "idea"}
-                      statusOptions={statusOptions}
-                      onUpdate={updateStatus}
-                    />
-                    <details
-                      open={openCommentsForSuggestionId === suggestion.id}
-                      className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3"
-                    >
-                      <summary className="cursor-pointer select-none text-xs font-semibold text-slate-700">
-                        Comments ({commentCount})
-                      </summary>
-                      <div className="mt-3 space-y-3">
-                        {suggestionComments.length ? (
-                          <div className="space-y-2">
-                            {suggestionComments.map((comment) => {
-                              const commenter = userMap.get(comment.user_id);
-                              const commenterName =
-                                commenter?.full_name ||
-                                commenter?.email ||
-                                "Unknown";
-                              return (
-                                <div
-                                  key={comment.id}
-                                  className="rounded-md border border-slate-200 bg-white p-3"
-                                >
-                                  <p className="text-xs text-slate-500">
-                                    {commenterName} -{" "}
-                                    {new Date(comment.created_at).toLocaleString()}
-                                  </p>
-                                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
-                                    {comment.body}
-                                  </p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-slate-500">
-                            No comments yet.
-                          </p>
-                        )}
-
-                        <form action={createComment} className="grid gap-2">
-                          <input
-                            type="hidden"
-                            name="suggestion_id"
-                            value={suggestion.id}
-                          />
-                          <textarea
-                            name="body"
-                            rows={3}
-                            placeholder="Add a comment..."
-                            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                            required
-                          />
+        <div className={selectedView === "table" ? "overflow-x-auto" : "hidden"}>
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-6 py-3">Title</th>
+                <th className="px-6 py-3">Description</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Type</th>
+                <th className="px-6 py-3 text-right">Score</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {suggestionRows.length ? (
+                suggestionRows.map((suggestion) => {
+                  const scoreForSuggestion = voteScores.get(suggestion.id) || 0;
+                  const userVote = userVotes.get(suggestion.id) || 0;
+                  return (
+                    <tr key={suggestion.id}>
+                      <td className="px-6 py-3 font-semibold text-slate-900">{suggestion.title}</td>
+                      <td className="max-w-xl px-6 py-3 text-slate-600">
+                        <p className="truncate" title={suggestion.details || ""}>
+                          {summarizeDescription(suggestion.details) || "--"}
+                        </p>
+                      </td>
+                      <td className="px-6 py-3">
+                        <FeatureSuggestionStatus
+                          suggestionId={suggestion.id}
+                          defaultStatus={suggestion.status || "idea"}
+                          statusOptions={statusOptions}
+                          onUpdate={updateStatus}
+                        />
+                      </td>
+                      <td className="px-6 py-3 text-slate-700">
+                        {formatTypeLabel(suggestion.type || "new_feature")}
+                      </td>
+                      <td className="px-6 py-3">
+                        <form action={toggleVote} className="flex items-center justify-end gap-2">
+                          <input type="hidden" name="suggestion_id" value={suggestion.id} />
+                          <span className="min-w-8 text-right text-sm font-semibold text-slate-700">
+                            {scoreForSuggestion}
+                          </span>
                           <button
                             type="submit"
-                            className="w-fit rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                            name="vote"
+                            value="up"
+                            title="Upvote"
+                            aria-label={`Upvote ${suggestion.title}`}
+                            className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                              userVote === 1
+                                ? "bg-slate-900 text-white"
+                                : "border border-slate-300 text-slate-700 hover:border-slate-400"
+                            }`}
                           >
-                            Add comment
+                            👍
                           </button>
-                        </form>
-                      </div>
-                    </details>
-                    {isAdmin || suggestion.created_by === currentUser.id ? (
-                      <details className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-                        <summary className="cursor-pointer select-none text-xs font-semibold text-slate-700">
-                          Edit idea
-                        </summary>
-                        <form action={updateSuggestion} className="mt-3 grid gap-3">
-                          <input
-                            type="hidden"
-                            name="suggestion_id"
-                            value={suggestion.id}
-                          />
-                          <input
-                            name="title"
-                            defaultValue={suggestion.title}
-                            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            required
-                          />
-                          <textarea
-                            name="details"
-                            rows={4}
-                            defaultValue={suggestion.details || ""}
-                            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          />
                           <button
                             type="submit"
-                            className="w-fit rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                            name="vote"
+                            value="down"
+                            title="Downvote"
+                            aria-label={`Downvote ${suggestion.title}`}
+                            className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                              userVote === -1
+                                ? "bg-slate-900 text-white"
+                                : "border border-slate-300 text-slate-700 hover:border-slate-400"
+                            }`}
                           >
-                            Save changes
+                            👎
                           </button>
                         </form>
-                      </details>
-                    ) : null}
-                  </div>
-                  <form action={toggleVote} className="flex items-center gap-3">
-                    <input
-                      type="hidden"
-                      name="suggestion_id"
-                      value={suggestion.id}
-                    />
-                    <span className="text-sm text-slate-600">
-                      Score {scoreForSuggestion} (Up {upvotesForSuggestion}, Down {downvotesForSuggestion})
-                    </span>
-                    <button
-                      type="submit"
-                      name="vote"
-                      value="up"
-                      className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
-                        userVote === 1
-                          ? "bg-slate-900 text-white"
-                          : "border border-slate-300 text-slate-700 hover:border-slate-400"
-                      }`}
-                    >
-                      {userVote === 1 ? "Upvoted" : "Upvote"}
-                    </button>
-                    <button
-                      type="submit"
-                      name="vote"
-                      value="down"
-                      className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
-                        userVote === -1
-                          ? "bg-slate-900 text-white"
-                          : "border border-slate-300 text-slate-700 hover:border-slate-400"
-                      }`}
-                    >
-                      {userVote === -1 ? "Downvoted" : "Downvote"}
-                    </button>
-                  </form>
-                </div>
-              );
-            })
-          ) : (
-            <p className="px-6 py-6 text-sm text-slate-500">
-              No suggestions yet. Be the first to submit one.
-            </p>
-          )}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td className="px-6 py-6 text-sm text-slate-500" colSpan={5}>
+                    No suggestions yet. Be the first to submit one.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
         {selectedView === "gantt" ? (
           <div className="overflow-x-auto px-6 py-4">
