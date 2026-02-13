@@ -321,7 +321,7 @@ export default async function TasksPage(props: {
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
 
-  const [primaryAssignedRows, assignedRows, watcherRows] = await Promise.all([
+  const [primaryAssignedRows, assignedRows, watcherRows, createdByRows] = await Promise.all([
     supabase
       .from("tasks")
       .select("id")
@@ -331,6 +331,11 @@ export default async function TasksPage(props: {
     includeWatching
       ? supabase.from("task_watchers").select("task_id").in("user_id", assignmentUserIds)
       : Promise.resolve({ data: [] as Array<{ task_id: string | null }> }),
+    supabase
+      .from("tasks")
+      .select("id")
+      .in("created_by_user_id", assignmentUserIds)
+      .is("parent_task_id", null),
   ]);
 
   const allowedTaskIds = Array.from(
@@ -338,6 +343,7 @@ export default async function TasksPage(props: {
       ...(primaryAssignedRows.data || []).map((row) => row.id).filter(Boolean),
       ...(assignedRows.data || []).map((row) => row.task_id).filter(Boolean),
       ...(watcherRows.data || []).map((row) => row.task_id).filter(Boolean),
+      ...(createdByRows.data || []).map((row) => row.id).filter(Boolean),
     ])
   );
 
