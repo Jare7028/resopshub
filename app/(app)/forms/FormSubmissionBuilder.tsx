@@ -29,7 +29,7 @@ export default function FormSubmissionBuilder({
   const [values, setValues] = useState<ValueMap>({});
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="mx-auto w-full max-w-2xl space-y-4">
       {normalizedFields.map((field) => {
         if (!field.key) return null;
         const visible = shouldShowField(field, values);
@@ -46,7 +46,7 @@ export default function FormSubmissionBuilder({
           return (
             <label
               key={field.id}
-              className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600"
+              className="block text-xs font-semibold uppercase tracking-wide text-slate-600"
             >
               {field.label || field.key}
               <textarea
@@ -65,7 +65,7 @@ export default function FormSubmissionBuilder({
           return (
             <label
               key={field.id}
-              className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+              className="block text-xs font-semibold uppercase tracking-wide text-slate-600"
             >
               {field.label || field.key}
               <select
@@ -110,7 +110,7 @@ export default function FormSubmissionBuilder({
         return (
           <label
             key={field.id}
-            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+            className="block text-xs font-semibold uppercase tracking-wide text-slate-600"
           >
             {field.label || field.key}
             <input
