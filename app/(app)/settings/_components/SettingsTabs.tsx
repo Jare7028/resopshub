@@ -3,6 +3,7 @@ import Link from "next/link";
 const tabs = [
   { key: "profile", label: "Profile" },
   { key: "notifications", label: "Notifications" },
+  { key: "statuses", label: "Statuses" },
   { key: "templates", label: "Templates" },
 ] as const;
 

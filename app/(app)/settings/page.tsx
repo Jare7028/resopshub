@@ -964,7 +964,7 @@ export default async function SettingsPage(props: {
     const value = normalizeStatusValue(String(formData.get("value") || ""));
 
     if (!value) {
-      redirect("/settings?tab=templates&error=Status%20is%20required");
+      redirect("/settings?tab=statuses&error=Status%20is%20required");
     }
 
     const { data: last } = await supabase
@@ -986,13 +986,13 @@ export default async function SettingsPage(props: {
       const hint = isSupabaseMissingTableError(error)
         ? " Run sql/status_options.sql in Supabase SQL editor first."
         : "";
-      redirect(`/settings?tab=templates&error=${encodeURIComponent(`${error.message}${hint}`)}`);
+      redirect(`/settings?tab=statuses&error=${encodeURIComponent(`${error.message}${hint}`)}`);
     }
 
     revalidatePath("/settings");
     revalidatePath("/tasks");
     revalidatePath("/projects");
-    redirect("/settings?tab=templates&success=Status%20added");
+    redirect("/settings?tab=statuses&success=Status%20added");
   }
 
   async function deleteStatusOption(formData: FormData) {
@@ -1009,21 +1009,21 @@ export default async function SettingsPage(props: {
         : "task";
     const value = normalizeStatusValue(String(formData.get("value") || ""));
     if (!id) {
-      redirect("/settings?tab=templates&error=Missing%20status%20id");
+      redirect("/settings?tab=statuses&error=Missing%20status%20id");
     }
     if (isCoreStatus(entityType, value)) {
-      redirect("/settings?tab=templates&error=Core%20statuses%20cannot%20be%20deleted");
+      redirect("/settings?tab=statuses&error=Core%20statuses%20cannot%20be%20deleted");
     }
 
     const { error } = await supabase.from("status_options").delete().eq("id", id);
     if (error) {
-      redirect(`/settings?tab=templates&error=${encodeURIComponent(error.message)}`);
+      redirect(`/settings?tab=statuses&error=${encodeURIComponent(error.message)}`);
     }
 
     revalidatePath("/settings");
     revalidatePath("/tasks");
     revalidatePath("/projects");
-    redirect("/settings?tab=templates&success=Status%20deleted");
+    redirect("/settings?tab=statuses&success=Status%20deleted");
   }
 
 
@@ -1240,6 +1240,134 @@ export default async function SettingsPage(props: {
         </section>
       ) : null}
 
+      {activeTab === "statuses" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Status options</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Manage task and project statuses used across forms, templates, and filters.
+            </p>
+          </div>
+          <div className="p-6 space-y-6">
+            {statusOptionsError && isSupabaseMissingTableError(statusOptionsError) ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Status settings are not set up yet. Run `sql/status_options.sql` in
+                Supabase SQL editor, then refresh this page.
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-md border border-slate-200 bg-white p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Task statuses
+                </h4>
+                <form action={createStatusOption} className="mt-2 flex gap-2">
+                  <input type="hidden" name="entity_type" value="task" />
+                  <input
+                    name="value"
+                    placeholder="e.g. qa_review"
+                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Add
+                  </button>
+                </form>
+                <div className="mt-3 space-y-2">
+                  {taskStatusOptions.map((value) => (
+                    <div
+                      key={`task-${value}`}
+                      className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                    >
+                      <span className="text-slate-800">{value.replace(/_/g, " ")}</span>
+                      {isCoreStatus("task", value) ? (
+                        <span className="text-xs font-semibold text-slate-500">Core</span>
+                      ) : (
+                        <form action={deleteStatusOption}>
+                          <input type="hidden" name="entity_type" value="task" />
+                          <input type="hidden" name="value" value={value} />
+                          <input
+                            type="hidden"
+                            name="id"
+                            value={statusOptions.find(
+                              (option) =>
+                                option.entity_type === "task" &&
+                                normalizeStatusValue(option.value) === value
+                            )?.id || ""}
+                          />
+                          <button
+                            type="submit"
+                            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                          >
+                            Delete
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-md border border-slate-200 bg-white p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Project statuses
+                </h4>
+                <form action={createStatusOption} className="mt-2 flex gap-2">
+                  <input type="hidden" name="entity_type" value="project" />
+                  <input
+                    name="value"
+                    placeholder="e.g. pending_review"
+                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Add
+                  </button>
+                </form>
+                <div className="mt-3 space-y-2">
+                  {projectStatusOptions.map((value) => (
+                    <div
+                      key={`project-${value}`}
+                      className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                    >
+                      <span className="text-slate-800">{value.replace(/_/g, " ")}</span>
+                      {isCoreStatus("project", value) ? (
+                        <span className="text-xs font-semibold text-slate-500">Core</span>
+                      ) : (
+                        <form action={deleteStatusOption}>
+                          <input type="hidden" name="entity_type" value="project" />
+                          <input type="hidden" name="value" value={value} />
+                          <input
+                            type="hidden"
+                            name="id"
+                            value={statusOptions.find(
+                              (option) =>
+                                option.entity_type === "project" &&
+                                normalizeStatusValue(option.value) === value
+                            )?.id || ""}
+                          />
+                          <button
+                            type="submit"
+                            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                          >
+                            Delete
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {activeTab === "templates" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">
@@ -1265,128 +1393,6 @@ export default async function SettingsPage(props: {
                 Supabase SQL editor, then refresh this page.
               </div>
             ) : null}
-            {statusOptionsError && isSupabaseMissingTableError(statusOptionsError) ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Status settings are not set up yet. Run `sql/status_options.sql` in
-                Supabase SQL editor, then refresh this page.
-              </div>
-            ) : null}
-
-            <section className="rounded-md border border-slate-200 bg-slate-50 p-4">
-              <h3 className="text-sm font-semibold text-slate-900">Status options</h3>
-              <p className="mt-1 text-xs text-slate-600">
-                Add task and project statuses used across forms, templates, and filters.
-              </p>
-              <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Task statuses
-                  </h4>
-                  <form action={createStatusOption} className="mt-2 flex gap-2">
-                    <input type="hidden" name="entity_type" value="task" />
-                    <input
-                      name="value"
-                      placeholder="e.g. qa_review"
-                      className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      required
-                    />
-                    <button
-                      type="submit"
-                      className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                    >
-                      Add
-                    </button>
-                  </form>
-                  <div className="mt-3 space-y-2">
-                    {taskStatusOptions.map((value) => (
-                      <div
-                        key={`task-${value}`}
-                        className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
-                      >
-                        <span className="text-slate-800">{value.replace(/_/g, " ")}</span>
-                        {isCoreStatus("task", value) ? (
-                          <span className="text-xs font-semibold text-slate-500">Core</span>
-                        ) : (
-                          <form action={deleteStatusOption}>
-                            <input type="hidden" name="entity_type" value="task" />
-                            <input type="hidden" name="value" value={value} />
-                            <input
-                              type="hidden"
-                              name="id"
-                              value={statusOptions.find(
-                                (option) =>
-                                  option.entity_type === "task" &&
-                                  normalizeStatusValue(option.value) === value
-                              )?.id || ""}
-                            />
-                            <button
-                              type="submit"
-                              className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                            >
-                              Delete
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Project statuses
-                  </h4>
-                  <form action={createStatusOption} className="mt-2 flex gap-2">
-                    <input type="hidden" name="entity_type" value="project" />
-                    <input
-                      name="value"
-                      placeholder="e.g. pending_review"
-                      className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      required
-                    />
-                    <button
-                      type="submit"
-                      className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                    >
-                      Add
-                    </button>
-                  </form>
-                  <div className="mt-3 space-y-2">
-                    {projectStatusOptions.map((value) => (
-                      <div
-                        key={`project-${value}`}
-                        className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
-                      >
-                        <span className="text-slate-800">{value.replace(/_/g, " ")}</span>
-                        {isCoreStatus("project", value) ? (
-                          <span className="text-xs font-semibold text-slate-500">Core</span>
-                        ) : (
-                          <form action={deleteStatusOption}>
-                            <input type="hidden" name="entity_type" value="project" />
-                            <input type="hidden" name="value" value={value} />
-                            <input
-                              type="hidden"
-                              name="id"
-                              value={statusOptions.find(
-                                (option) =>
-                                  option.entity_type === "project" &&
-                                  normalizeStatusValue(option.value) === value
-                              )?.id || ""}
-                            />
-                            <button
-                              type="submit"
-                              className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                            >
-                              Delete
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
             <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
               <a
                 href="/settings?tab=templates&templates=tasks"
