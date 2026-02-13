@@ -137,6 +137,15 @@ create policy tasks_insert
             and (
               public.is_project_member(project_id)
               or public.is_project_creator(project_id)
+              or exists (
+                select 1
+                from public.projects p
+                where p.id = tasks.project_id
+                  and (
+                    (p.client_id is not null and public.can_access_client(p.client_id))
+                    or p.created_by_user_id in (public.current_app_user_id(), auth.uid())
+                  )
+              )
             )
           )
           or (project_id is null)
