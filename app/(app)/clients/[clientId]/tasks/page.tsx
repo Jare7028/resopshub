@@ -13,6 +13,10 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import {
+  buildStatusOptions,
+  type StatusOptionRow,
+} from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
   normalizeTaskSortDir,
@@ -30,7 +34,6 @@ import {
   type RecurrenceConfig,
 } from "@/lib/recurrence";
 
-const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -62,6 +65,17 @@ export default async function ClientTasksPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+  const { data: statusOptionsRaw } = await supabase
+    .from("status_options")
+    .select("entity_type,value,position")
+    .order("entity_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+  const statusOptions = buildStatusOptions(
+    "task",
+    (statusOptionsRaw || []) as StatusOptionRow[],
+    TASK_STATUS_OPTIONS
+  );
   const selectedStatusesRaw = parseCsvParam(searchParams?.status);
   const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
   const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
@@ -110,7 +124,9 @@ export default async function ClientTasksPage(props: {
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
 
-  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw);
+  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw).filter((status) =>
+    statusOptions.includes(status)
+  );
   const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );

@@ -12,6 +12,10 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import {
+  buildStatusOptions,
+  type StatusOptionRow,
+} from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import TasksView from "./TasksView";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
@@ -33,7 +37,6 @@ import {
 } from "@/lib/taskSorting";
 import { updateTaskInlineAction } from "./actions";
 
-const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -93,6 +96,17 @@ export default async function TasksPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: statusOptionsRaw } = await supabase
+    .from("status_options")
+    .select("entity_type,value,position")
+    .order("entity_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+  const statusOptions = buildStatusOptions(
+    "task",
+    (statusOptionsRaw || []) as StatusOptionRow[],
+    TASK_STATUS_OPTIONS
+  );
 
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
@@ -126,7 +140,9 @@ export default async function TasksPage(props: {
     selectedDue = "all";
   }
 
-  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw);
+  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw).filter((status) =>
+    statusOptions.includes(status)
+  );
   const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );

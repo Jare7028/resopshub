@@ -1,33 +1,25 @@
-export const TASK_STATUS_OPTIONS = [
-  "to_do",
-  "in_progress",
-  "blocked",
-  "completed",
-  "cancelled",
-] as const;
+import { DEFAULT_TASK_STATUS_OPTIONS, normalizeStatusValue } from "@/lib/statusOptions";
 
-export type TaskStatus = (typeof TASK_STATUS_OPTIONS)[number];
+export const TASK_STATUS_OPTIONS = DEFAULT_TASK_STATUS_OPTIONS;
+
+export type TaskStatus = string;
 
 const LEGACY_TASK_STATUS_ALIASES: Record<string, TaskStatus> = {
   backlog: "to_do",
 };
 
-function isTaskStatus(value: string): value is TaskStatus {
-  return (TASK_STATUS_OPTIONS as readonly string[]).includes(value);
-}
-
 export function normalizeTaskStatus(value: string | null | undefined): TaskStatus | null {
   if (!value) return null;
-  const trimmed = value.trim();
+  const trimmed = normalizeStatusValue(value);
   if (!trimmed) return null;
   const legacy = LEGACY_TASK_STATUS_ALIASES[trimmed];
   if (legacy) return legacy;
-  return isTaskStatus(trimmed) ? trimmed : null;
+  return trimmed;
 }
 
 export function normalizeTaskStatusOrDefault(
   value: string | null | undefined,
-  fallback: TaskStatus = "to_do"
+  fallback: TaskStatus = DEFAULT_TASK_STATUS_OPTIONS[0]
 ): TaskStatus {
   return normalizeTaskStatus(value) ?? fallback;
 }
@@ -64,4 +56,3 @@ export function formatTaskStatusLabel(status: string | null | undefined): string
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
-

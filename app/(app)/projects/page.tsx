@@ -6,10 +6,14 @@ import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import {
+  buildStatusOptions,
+  DEFAULT_PROJECT_STATUS_OPTIONS,
+  type StatusOptionRow,
+} from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ProjectsTable from "./ProjectsTable";
 
-const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const toProjectCode = (value: string) =>
   value
@@ -76,10 +80,22 @@ export default async function ProjectsPage(props: {
     .select("id,name")
     .order("name", { ascending: true });
 
+  const { data: statusOptionsRaw } = await supabase
+    .from("status_options")
+    .select("entity_type,value,position")
+    .order("entity_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+  const projectStatusOptions = buildStatusOptions(
+    "project",
+    (statusOptionsRaw || []) as StatusOptionRow[],
+    DEFAULT_PROJECT_STATUS_OPTIONS
+  );
+
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
   const selectedStatuses = selectedStatusesRaw.filter((value) =>
-    statusOptions.includes(value as (typeof statusOptions)[number])
+    projectStatusOptions.includes(value)
   );
 
   setCsvParam(returnParams, "client", selectedClientIds);
@@ -658,7 +674,7 @@ export default async function ProjectsPage(props: {
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
             defaultValue={selectedTemplate?.status || "planned"}
           >
-            {statusOptions.map((status) => (
+            {projectStatusOptions.map((status) => (
               <option key={status} value={status}>
                 {status.replace("_", " ")}
               </option>
@@ -700,7 +716,7 @@ export default async function ProjectsPage(props: {
         <ProjectsTable
           projects={projects || []}
           clients={clients || []}
-          statusOptions={statusOptions}
+          statusOptions={projectStatusOptions}
           initialFilters={{ client: selectedClientIds, status: selectedStatuses }}
           hideCompleted={hideCompleted}
           openTaskCountByProjectId={openTaskCountByProjectId}

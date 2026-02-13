@@ -15,10 +15,10 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
 import { statusSelectClasses } from "@/lib/taskIndicators";
 import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
 
-const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
@@ -50,6 +50,17 @@ export default async function TaskDetailPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: statusOptionsRaw } = await supabase
+    .from("status_options")
+    .select("entity_type,value,position")
+    .order("entity_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+  const statusOptions = buildStatusOptions(
+    "task",
+    (statusOptionsRaw || []) as StatusOptionRow[],
+    TASK_STATUS_OPTIONS
+  );
   const { data: task } = await supabase
     .from("tasks")
     .select(

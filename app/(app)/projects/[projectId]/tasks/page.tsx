@@ -17,9 +17,14 @@ import {
 } from "@/lib/recurrence";
 import {
   TASK_STATUS_OPTIONS,
+  coerceTaskStatusList,
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import {
+  buildStatusOptions,
+  type StatusOptionRow,
+} from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
   normalizeTaskSortDir,
@@ -28,7 +33,6 @@ import {
 } from "@/lib/taskSorting";
 import { updateTaskInlineAction } from "../../../tasks/actions";
 
-const statusOptions = TASK_STATUS_OPTIONS;
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -57,6 +61,17 @@ export default async function ProjectTasksPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: statusOptionsRaw } = await supabase
+    .from("status_options")
+    .select("entity_type,value,position")
+    .order("entity_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+  const statusOptions = buildStatusOptions(
+    "task",
+    (statusOptionsRaw || []) as StatusOptionRow[],
+    TASK_STATUS_OPTIONS
+  );
   const sortKey = normalizeTaskSortKey(searchParams?.sort);
   const sortDir = normalizeTaskSortDir(searchParams?.dir);
   const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
@@ -64,8 +79,8 @@ export default async function ProjectTasksPage(props: {
     viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
-  const selectedStatuses = parseCsvParam(searchParams?.status).filter((status) =>
-    statusOptions.includes(status as (typeof statusOptions)[number])
+  const selectedStatuses = coerceTaskStatusList(parseCsvParam(searchParams?.status)).filter(
+    (status) => statusOptions.includes(status)
   );
   const selectedPriorities = parseCsvParam(searchParams?.priority).filter((priority) =>
     priorityOptions.includes(priority as (typeof priorityOptions)[number])

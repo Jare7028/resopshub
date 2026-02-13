@@ -2,6 +2,15 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  buildStatusOptions,
+  DEFAULT_PROJECT_STATUS_OPTIONS,
+  DEFAULT_TASK_STATUS_OPTIONS,
+  isCoreStatus,
+  normalizeStatusValue,
+  type StatusEntityType,
+  type StatusOptionRow,
+} from "@/lib/statusOptions";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
@@ -125,6 +134,26 @@ export default async function SettingsPage(props: {
       defaultPrefs.feature_suggestion_status
     ),
   };
+
+  const { data: statusOptionsRaw, error: statusOptionsError } = await supabase
+    .from("status_options")
+    .select("id,entity_type,value,position")
+    .order("entity_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+  const statusOptions = (statusOptionsError ? [] : statusOptionsRaw || []) as Array<
+    StatusOptionRow & { id: string }
+  >;
+  const taskStatusOptions = buildStatusOptions(
+    "task",
+    statusOptions,
+    DEFAULT_TASK_STATUS_OPTIONS
+  );
+  const projectStatusOptions = buildStatusOptions(
+    "project",
+    statusOptions,
+    DEFAULT_PROJECT_STATUS_OPTIONS
+  );
 
   type TaskTemplateRow = {
     id: string;
@@ -921,6 +950,82 @@ export default async function SettingsPage(props: {
     );
   }
 
+  async function createStatusOption(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
+    const entityType: StatusEntityType =
+      entityTypeRaw === "task" || entityTypeRaw === "project"
+        ? entityTypeRaw
+        : "task";
+    const value = normalizeStatusValue(String(formData.get("value") || ""));
+
+    if (!value) {
+      redirect("/settings?tab=templates&error=Status%20is%20required");
+    }
+
+    const { data: last } = await supabase
+      .from("status_options")
+      .select("position")
+      .eq("entity_type", entityType)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextPosition = (Number(last?.position) || 0) + 1;
+
+    const { error } = await supabase.from("status_options").insert({
+      entity_type: entityType,
+      value,
+      position: nextPosition,
+    });
+
+    if (error) {
+      const hint = isSupabaseMissingTableError(error)
+        ? " Run sql/status_options.sql in Supabase SQL editor first."
+        : "";
+      redirect(`/settings?tab=templates&error=${encodeURIComponent(`${error.message}${hint}`)}`);
+    }
+
+    revalidatePath("/settings");
+    revalidatePath("/tasks");
+    revalidatePath("/projects");
+    redirect("/settings?tab=templates&success=Status%20added");
+  }
+
+  async function deleteStatusOption(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const id = String(formData.get("id") || "").trim();
+    const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
+    const entityType: StatusEntityType =
+      entityTypeRaw === "task" || entityTypeRaw === "project"
+        ? entityTypeRaw
+        : "task";
+    const value = normalizeStatusValue(String(formData.get("value") || ""));
+    if (!id) {
+      redirect("/settings?tab=templates&error=Missing%20status%20id");
+    }
+    if (isCoreStatus(entityType, value)) {
+      redirect("/settings?tab=templates&error=Core%20statuses%20cannot%20be%20deleted");
+    }
+
+    const { error } = await supabase.from("status_options").delete().eq("id", id);
+    if (error) {
+      redirect(`/settings?tab=templates&error=${encodeURIComponent(error.message)}`);
+    }
+
+    revalidatePath("/settings");
+    revalidatePath("/tasks");
+    revalidatePath("/projects");
+    redirect("/settings?tab=templates&success=Status%20deleted");
+  }
+
 
   const renderMessage = (value: string | undefined, kind: "error" | "success") => {
     if (!value) return null;
@@ -1160,6 +1265,127 @@ export default async function SettingsPage(props: {
                 Supabase SQL editor, then refresh this page.
               </div>
             ) : null}
+            {statusOptionsError && isSupabaseMissingTableError(statusOptionsError) ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Status settings are not set up yet. Run `sql/status_options.sql` in
+                Supabase SQL editor, then refresh this page.
+              </div>
+            ) : null}
+
+            <section className="rounded-md border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Status options</h3>
+              <p className="mt-1 text-xs text-slate-600">
+                Add task and project statuses used across forms, templates, and filters.
+              </p>
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                <div className="rounded-md border border-slate-200 bg-white p-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Task statuses
+                  </h4>
+                  <form action={createStatusOption} className="mt-2 flex gap-2">
+                    <input type="hidden" name="entity_type" value="task" />
+                    <input
+                      name="value"
+                      placeholder="e.g. qa_review"
+                      className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                    >
+                      Add
+                    </button>
+                  </form>
+                  <div className="mt-3 space-y-2">
+                    {taskStatusOptions.map((value) => (
+                      <div
+                        key={`task-${value}`}
+                        className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                      >
+                        <span className="text-slate-800">{value.replace(/_/g, " ")}</span>
+                        {isCoreStatus("task", value) ? (
+                          <span className="text-xs font-semibold text-slate-500">Core</span>
+                        ) : (
+                          <form action={deleteStatusOption}>
+                            <input type="hidden" name="entity_type" value="task" />
+                            <input type="hidden" name="value" value={value} />
+                            <input
+                              type="hidden"
+                              name="id"
+                              value={statusOptions.find(
+                                (option) =>
+                                  option.entity_type === "task" &&
+                                  normalizeStatusValue(option.value) === value
+                              )?.id || ""}
+                            />
+                            <button
+                              type="submit"
+                              className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                            >
+                              Delete
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white p-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Project statuses
+                  </h4>
+                  <form action={createStatusOption} className="mt-2 flex gap-2">
+                    <input type="hidden" name="entity_type" value="project" />
+                    <input
+                      name="value"
+                      placeholder="e.g. pending_review"
+                      className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                    >
+                      Add
+                    </button>
+                  </form>
+                  <div className="mt-3 space-y-2">
+                    {projectStatusOptions.map((value) => (
+                      <div
+                        key={`project-${value}`}
+                        className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                      >
+                        <span className="text-slate-800">{value.replace(/_/g, " ")}</span>
+                        {isCoreStatus("project", value) ? (
+                          <span className="text-xs font-semibold text-slate-500">Core</span>
+                        ) : (
+                          <form action={deleteStatusOption}>
+                            <input type="hidden" name="entity_type" value="project" />
+                            <input type="hidden" name="value" value={value} />
+                            <input
+                              type="hidden"
+                              name="id"
+                              value={statusOptions.find(
+                                (option) =>
+                                  option.entity_type === "project" &&
+                                  normalizeStatusValue(option.value) === value
+                              )?.id || ""}
+                            />
+                            <button
+                              type="submit"
+                              className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                            >
+                              Delete
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
               <a
@@ -1208,7 +1434,7 @@ export default async function SettingsPage(props: {
                       className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                       defaultValue="to_do"
                     >
-                      {["to_do","in_progress","blocked","completed","cancelled"].map((status) => (
+                      {taskStatusOptions.map((status) => (
                         <option key={status} value={status}>
                           {status.replace("_", " ")}
                         </option>
@@ -1360,7 +1586,7 @@ export default async function SettingsPage(props: {
                           className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                           defaultValue={selectedTaskTemplate.status || "to_do"}
                         >
-                          {["to_do", "in_progress", "blocked", "completed", "cancelled"].map(
+                          {taskStatusOptions.map(
                             (status) => (
                               <option key={status} value={status}>
                                 {status.replace("_", " ")}
@@ -1480,13 +1706,7 @@ export default async function SettingsPage(props: {
                                               disabled={Boolean(taskTemplateSubtasksError)}
                                               form={rowFormId}
                                             >
-                                              {[
-                                                "to_do",
-                                                "in_progress",
-                                                "blocked",
-                                                "completed",
-                                                "cancelled",
-                                              ].map((status) => (
+                                              {taskStatusOptions.map((status) => (
                                                 <option key={status} value={status}>
                                                   {status.replace("_", " ")}
                                                 </option>
@@ -1582,7 +1802,7 @@ export default async function SettingsPage(props: {
                             defaultValue="to_do"
                             disabled={Boolean(taskTemplateSubtasksError)}
                           >
-                            {["to_do", "in_progress", "blocked", "completed", "cancelled"].map(
+                            {taskStatusOptions.map(
                               (status) => (
                                 <option key={status} value={status}>
                                   {status.replace("_", " ")}
@@ -1646,7 +1866,7 @@ export default async function SettingsPage(props: {
                       className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
                       defaultValue="planned"
                     >
-                      {["planned","active","on_hold","completed","cancelled"].map((status) => (
+                      {projectStatusOptions.map((status) => (
                         <option key={status} value={status}>
                           {status.replace("_", " ")}
                         </option>
@@ -1751,7 +1971,7 @@ export default async function SettingsPage(props: {
                           className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
                           defaultValue={selectedProjectTemplate.status || "planned"}
                         >
-                          {["planned", "active", "on_hold", "completed", "cancelled"].map(
+                          {projectStatusOptions.map(
                             (status) => (
                               <option key={status} value={status}>
                                 {status.replace("_", " ")}
