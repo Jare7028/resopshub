@@ -107,6 +107,18 @@ function parseTaskTemplateIdsJson(raw: string): string[] {
   );
 }
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 type ManualTask = {
   id: string;
   title: string;
@@ -553,7 +565,9 @@ export default async function FormDetailPage(props: {
       if (insertedTaskError || !insertedTask?.id) {
         redirect(
           createSubmissionUrl({
-            error: insertedTaskError?.message || "Failed to create task",
+            error:
+              formatDbError("forms.createSubmission.manualTask.tasks.insert", insertedTaskError) ||
+              "Failed to create task",
           })
         );
       }
@@ -625,7 +639,11 @@ export default async function FormDetailPage(props: {
         if (createdTaskError || !createdTask?.id) {
           redirect(
             createSubmissionUrl({
-              error: createdTaskError?.message || "Failed to create task from template",
+              error:
+                formatDbError(
+                  "forms.createSubmission.templateTask.tasks.insert",
+                  createdTaskError
+                ) || "Failed to create task from template",
             })
           );
         }
@@ -713,7 +731,14 @@ export default async function FormDetailPage(props: {
             .insert(subtaskPlans.map((plan) => plan.payload))
             .select("id");
           if (createdSubtasksError) {
-            redirect(createSubmissionUrl({ error: createdSubtasksError.message }));
+            redirect(
+              createSubmissionUrl({
+                error: formatDbError(
+                  "forms.createSubmission.templateSubtasks.tasks.insert",
+                  createdSubtasksError
+                ),
+              })
+            );
           }
           const createdSubtasks = (createdSubtasksRaw || []).filter((row) => Boolean(row.id));
           const subtaskAssigneeInserts = createdSubtasks.flatMap((subtaskRow, index) => {

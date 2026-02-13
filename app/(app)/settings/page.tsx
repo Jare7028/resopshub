@@ -71,6 +71,18 @@ function isUuid(value: string) {
   );
 }
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 export default async function SettingsPage(props: {
   searchParams?: Promise<{
     tab?: string;
@@ -565,7 +577,7 @@ export default async function SettingsPage(props: {
       if (templateTaskError) {
         redirect(
           `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
-            templateTaskError.message
+            formatDbError("settings.createTaskTemplate.tasks.insert", templateTaskError)
           )}`
         );
       }
@@ -696,7 +708,9 @@ export default async function SettingsPage(props: {
       redirect(
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           id
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(templateTaskError.message)}`
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
+          formatDbError("settings.updateTaskTemplate.tasks.update", templateTaskError)
+        )}`
       );
     }
 
@@ -1255,7 +1269,9 @@ export default async function SettingsPage(props: {
         redirect(
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             taskTemplateId
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(createSubtaskTaskError.message)}`
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
+            formatDbError("settings.addTaskTemplateSubtask.tasks.insert", createSubtaskTaskError)
+          )}`
         );
       }
     }
@@ -1401,7 +1417,9 @@ export default async function SettingsPage(props: {
       redirect(
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           taskTemplateId
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(updateSubtaskTaskError.message)}`
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
+          formatDbError("settings.updateTaskTemplateSubtask.tasks.update", updateSubtaskTaskError)
+        )}`
       );
     }
 

@@ -70,6 +70,18 @@ function buildTaskUrl(
   return qs ? `/tasks/${taskId}?${qs}` : `/tasks/${taskId}`;
 }
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 export default async function TaskDetailPage(props: {
   params: Promise<{ taskId: string }>;
   searchParams?: Promise<{
@@ -715,7 +727,11 @@ export default async function TaskDetailPage(props: {
       .single();
 
     if (error) {
-      redirect(buildTaskUrl(taskId, "subtasks", { error: error.message }));
+      redirect(
+        buildTaskUrl(taskId, "subtasks", {
+          error: formatDbError("tasks.createSubtask.tasks.insert", error),
+        })
+      );
     }
 
     const subtaskId = created?.id;
