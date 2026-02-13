@@ -94,6 +94,31 @@ function parseTaskTemplateIdsJson(raw: string): string[] {
   );
 }
 
+type ManualTask = {
+  title: string;
+  description: string;
+};
+
+function parseManualTasksJson(raw: string): ManualTask[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const title = String(row.title || "").trim();
+      const description = String(row.description || "").trim();
+      if (!title) return null;
+      return { title, description };
+    })
+    .filter(Boolean) as ManualTask[];
+}
+
 export default async function FormsPage(props: {
   searchParams?: Promise<{
     error?: string;
@@ -255,6 +280,9 @@ export default async function FormsPage(props: {
     const selectedTaskTemplateIds = parseTaskTemplateIdsJson(
       String(formData.get("task_template_ids_json") || "[]")
     );
+    const manualTasks = parseManualTasksJson(
+      String(formData.get("manual_tasks_json") || "[]")
+    );
 
     if (!title) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Form%20title%20is%20required`);
@@ -313,6 +341,29 @@ export default async function FormsPage(props: {
         redirect(
           `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
             linkError.message
+          )}`
+        );
+      }
+    }
+
+    if (manualTasks.length) {
+      const { error: actionError } = await supabase.from("form_submission_actions").insert(
+        manualTasks.map((task, index) => ({
+          form_id: insertedForm.id,
+          label: task.title,
+          task_title_template: task.title,
+          task_description_template: task.description || null,
+          assignee_user_id: null,
+          priority: "medium",
+          enabled: true,
+          position: index,
+        }))
+      );
+
+      if (actionError) {
+        redirect(
+          `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+            actionError.message
           )}`
         );
       }
@@ -398,7 +449,11 @@ export default async function FormsPage(props: {
               />
             </label>
             <FormFieldsBuilder initialFields={[]} />
-            <FormTaskTemplatesBuilder initialTemplateIds={[]} taskTemplates={taskTemplates} />
+            <FormTaskTemplatesBuilder
+              initialTemplateIds={[]}
+              initialManualTasks={[]}
+              taskTemplates={taskTemplates}
+            />
             {isSupabaseMissingTableError(taskTemplatesError) ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
                 Task templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor.

@@ -13,8 +13,10 @@ import {
   buildFieldKey,
   formStatusOptions,
   formatFormLabel,
+  normalizeFormActionPriority,
   normalizeFormFieldType,
   normalizeFormStatus,
+  renderTemplate,
   type FormField,
 } from "../types";
 
@@ -105,6 +107,12 @@ function parseTaskTemplateIdsJson(raw: string): string[] {
   );
 }
 
+type ManualTask = {
+  id: string;
+  title: string;
+  description: string;
+};
+
 function fieldShouldBeIncluded(field: FormField, values: Record<string, string>) {
   if (!field.condition?.fieldKey) return true;
   const expected = String(field.condition.equals || "").trim().toLowerCase();
@@ -163,7 +171,7 @@ export default async function FormDetailPage(props: {
 
   const formFields = parseFields(form.fields);
 
-  const [{ data: templateLinksRaw, error: templateLinksError }, { data: submissionsRaw }, { data: users }, { data: taskTemplatesRaw, error: taskTemplatesError }] = await Promise.all([
+  const [{ data: templateLinksRaw, error: templateLinksError }, { data: submissionsRaw }, { data: users }, { data: taskTemplatesRaw, error: taskTemplatesError }, { data: manualActionsRaw, error: manualActionsError }] = await Promise.all([
     supabase
       .from("form_submission_task_templates")
       .select("id,task_template_id,enabled,position")
@@ -177,6 +185,13 @@ export default async function FormDetailPage(props: {
       .order("created_at", { ascending: false }),
     supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
     supabase.from("task_templates").select("id,name,title").order("name", { ascending: true }),
+    supabase
+      .from("form_submission_actions")
+      .select("id,task_title_template,task_description_template,enabled,position")
+      .eq("form_id", formId)
+      .eq("enabled", true)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true }),
   ]);
 
   const taskTemplateLinks = (templateLinksError
@@ -196,6 +211,13 @@ export default async function FormDetailPage(props: {
     name: string;
     title: string;
   }>;
+  const manualTasks = (manualActionsError ? [] : manualActionsRaw || []).map((row, index) => ({
+    id: String((row as { id?: string }).id || `manual_${index + 1}`),
+    title: String((row as { task_title_template?: string }).task_title_template || "").trim(),
+    description: String(
+      (row as { task_description_template?: string | null }).task_description_template || ""
+    ).trim(),
+  })).filter((row) => row.title) as ManualTask[];
 
   const submissions = (submissionsRaw || []) as Array<{
     id: string;
@@ -275,6 +297,25 @@ export default async function FormDetailPage(props: {
     const selectedTaskTemplateIds = parseTaskTemplateIdsJson(
       String(formData.get("task_template_ids_json") || "[]")
     );
+    const manualTasks = (() => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(String(formData.get("manual_tasks_json") || "[]"));
+      } catch {
+        return [] as Array<{ title: string; description: string }>;
+      }
+      if (!Array.isArray(parsed)) return [] as Array<{ title: string; description: string }>;
+      return parsed
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const row = item as Record<string, unknown>;
+          const title = String(row.title || "").trim();
+          const description = String(row.description || "").trim();
+          if (!title) return null;
+          return { title, description };
+        })
+        .filter(Boolean) as Array<{ title: string; description: string }>;
+    })();
     const configureUrl = (extra?: { error?: string; success?: string }) => {
       const sp = new URLSearchParams();
       sp.set("return_to", returnTo);
@@ -327,6 +368,34 @@ export default async function FormDetailPage(props: {
 
       if (actionError) {
         redirect(configureUrl({ error: actionError.message }));
+      }
+    }
+
+    const { error: deleteActionsError } = await supabase
+      .from("form_submission_actions")
+      .delete()
+      .eq("form_id", formId);
+    if (deleteActionsError) {
+      redirect(configureUrl({ error: deleteActionsError.message }));
+    }
+
+    if (manualTasks.length) {
+      const { error: manualTaskError } = await supabase
+        .from("form_submission_actions")
+        .insert(
+          manualTasks.map((task, index) => ({
+            form_id: formId,
+            label: task.title,
+            task_title_template: task.title,
+            task_description_template: task.description || null,
+            assignee_user_id: null,
+            priority: "medium",
+            enabled: true,
+            position: index,
+          }))
+        );
+      if (manualTaskError) {
+        redirect(configureUrl({ error: manualTaskError.message }));
       }
     }
 
@@ -443,6 +512,59 @@ export default async function FormDetailPage(props: {
     );
 
     const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
+
+    const { data: manualActionsRaw, error: manualActionsError } = await supabase
+      .from("form_submission_actions")
+      .select("id,task_title_template,task_description_template,assignee_user_id,priority")
+      .eq("form_id", formId)
+      .eq("enabled", true)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (manualActionsError && !isSupabaseMissingTableError(manualActionsError)) {
+      redirect(createSubmissionUrl({ error: manualActionsError.message }));
+    }
+
+    for (const action of (manualActionsError ? [] : manualActionsRaw || []) as Array<{
+      id: string;
+      task_title_template: string;
+      task_description_template: string | null;
+      assignee_user_id: string | null;
+      priority: string | null;
+    }>) {
+      const taskTitle = renderTemplate(action.task_title_template || "", values).trim();
+      if (!taskTitle) continue;
+      const taskDescription = renderTemplate(action.task_description_template || "", values).trim();
+      const { data: insertedTask, error: insertedTaskError } = await supabase
+        .from("tasks")
+        .insert({
+          title: taskTitle,
+          description: taskDescription || null,
+          status: "to_do",
+          priority: normalizeFormActionPriority(action.priority),
+          assignee_user_id: action.assignee_user_id,
+          created_by_user_id: currentUser.id,
+          content: DEFAULT_EDITOR_CONTENT,
+          content_text: defaultContentText,
+        })
+        .select("id")
+        .single();
+      if (insertedTaskError || !insertedTask?.id) {
+        redirect(
+          createSubmissionUrl({
+            error: insertedTaskError?.message || "Failed to create task",
+          })
+        );
+      }
+      const { error: actionTaskError } = await supabase.from("form_submission_action_tasks").insert({
+        submission_id: insertedSubmission.id,
+        action_id: action.id,
+        task_id: insertedTask.id,
+      });
+      if (actionTaskError && !isSupabaseMissingTableError(actionTaskError)) {
+        redirect(createSubmissionUrl({ error: actionTaskError.message }));
+      }
+    }
+
     if (templateIds.length) {
       const { data: templateTasksRaw, error: templateTasksError } = await supabase
         .from("task_templates")
@@ -746,6 +868,7 @@ export default async function FormDetailPage(props: {
             <FormFieldsBuilder initialFields={formFields} />
             <FormTaskTemplatesBuilder
               initialTemplateIds={selectedTaskTemplateIds}
+              initialManualTasks={manualTasks}
               taskTemplates={taskTemplates}
             />
             {(isSupabaseMissingTableError(templateLinksError) ||

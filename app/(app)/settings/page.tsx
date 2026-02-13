@@ -538,6 +538,7 @@ export default async function SettingsPage(props: {
           priority,
           due_time: dueTime || null,
           assignee_user_id: assigneeIds[0] || null,
+          created_by_user_id: authData.user.id,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         });
@@ -555,6 +556,7 @@ export default async function SettingsPage(props: {
           priority,
           due_time: dueTime || null,
           assignee_user_id: assigneeIds[0] || null,
+          created_by_user_id: authData.user.id,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         });
@@ -1245,6 +1247,7 @@ export default async function SettingsPage(props: {
           status,
           priority,
           assignee_user_id: assigneeIds[0] || null,
+          created_by_user_id: authData.user.id,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         });
