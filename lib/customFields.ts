@@ -1,4 +1,10 @@
-export const CUSTOM_FIELD_ENTITY_TYPES = ["client", "project", "task"] as const;
+export const CUSTOM_FIELD_ENTITY_TYPES = [
+  "client",
+  "project",
+  "task",
+  "task_template",
+  "project_template",
+] as const;
 export type CustomFieldEntityType = (typeof CUSTOM_FIELD_ENTITY_TYPES)[number];
 
 export const CUSTOM_FIELD_KINDS = ["text", "dropdown"] as const;

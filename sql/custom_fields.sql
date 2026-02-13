@@ -3,7 +3,7 @@
 
 create table if not exists public.custom_fields (
   id uuid primary key default gen_random_uuid(),
-  entity_type text not null check (entity_type in ('client', 'project', 'task')),
+  entity_type text not null check (entity_type in ('client', 'project', 'task', 'task_template', 'project_template')),
   entity_id uuid,
   key text not null,
   label text not null,
@@ -20,6 +20,11 @@ alter table public.custom_fields
 
 alter table public.custom_fields
   drop constraint if exists custom_fields_entity_key_unique;
+alter table public.custom_fields
+  drop constraint if exists custom_fields_entity_type_check;
+alter table public.custom_fields
+  add constraint custom_fields_entity_type_check
+  check (entity_type in ('client', 'project', 'task', 'task_template', 'project_template'));
 
 create unique index if not exists custom_fields_entity_key_uidx
   on public.custom_fields (entity_type, entity_id, key);
@@ -44,7 +49,7 @@ create index if not exists custom_field_options_field_position_idx
   on public.custom_field_options (field_id, position, value);
 
 create table if not exists public.custom_field_values (
-  entity_type text not null check (entity_type in ('client', 'project', 'task')),
+  entity_type text not null check (entity_type in ('client', 'project', 'task', 'task_template', 'project_template')),
   entity_id uuid not null,
   field_id uuid not null references public.custom_fields(id) on delete cascade,
   text_value text,
@@ -58,6 +63,12 @@ create table if not exists public.custom_field_values (
       or (text_value is null and option_value is not null)
     )
 );
+
+alter table public.custom_field_values
+  drop constraint if exists custom_field_values_entity_type_check;
+alter table public.custom_field_values
+  add constraint custom_field_values_entity_type_check
+  check (entity_type in ('client', 'project', 'task', 'task_template', 'project_template'));
 
 create index if not exists custom_field_values_entity_idx
   on public.custom_field_values (entity_type, entity_id);
@@ -138,6 +149,8 @@ as $$
     when entity_kind = 'client' then public.can_access_client(entity_uuid)
     when entity_kind = 'task' then public.can_access_task(entity_uuid)
     when entity_kind = 'project' then public.can_access_project_base(entity_uuid)
+    when entity_kind = 'task_template' then auth.uid() is not null
+    when entity_kind = 'project_template' then auth.uid() is not null
     else false
   end
 $$;
