@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
+import { extractPlainText } from "@/lib/tiptapText";
 import PersonalPageTabs, {
   normalizePersonalPageTabKey,
 } from "./_components/PersonalPageTabs";
@@ -128,6 +129,16 @@ async function syncSectionShareMode(supabase: SupabaseServerClient, sectionId: s
   }
 }
 
+function isMissingColumnError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const anyError = error as { code?: unknown; message?: unknown };
+  const code = typeof anyError.code === "string" ? anyError.code : "";
+  const message = typeof anyError.message === "string" ? anyError.message : "";
+  return code === "42703" || message.includes("does not exist");
+}
+
 export default async function PersonalPage(props: {
   params: Promise<{ pageId: string }>;
   searchParams?: Promise<{ tab?: string; error?: string; success?: string }>;
@@ -155,6 +166,7 @@ export default async function PersonalPage(props: {
   }
 
   const pageId = page.id;
+  const pageTitle = page.title || "Personal page";
   const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
   const sectionId = page.section_id;
   const pageOwnerId = page.owner_id;
@@ -171,6 +183,10 @@ export default async function PersonalPage(props: {
     .from("users")
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
+  const { data: clients } = await supabase
+    .from("clients")
+    .select("id,name")
+    .order("name", { ascending: true });
 
   const lastEditedAtLabel = page.last_edited_at
     ? new Date(page.last_edited_at).toLocaleString("en-US")
@@ -534,6 +550,110 @@ export default async function PersonalPage(props: {
     }
   }
 
+  async function linkPageToClientNote(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const user = authData.user;
+
+    if (!user) {
+      redirect("/login");
+    }
+
+    const clientId = String(formData.get("client_id") || "").trim();
+    const visibility = String(formData.get("visibility") || "internal").trim() || "internal";
+    const titlePrefix = pageTitle.trim() ? `Personal: ${pageTitle}` : "Personal page";
+    const sourceUrl = `/personal/${pageId}`;
+    const linkDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Linked personal page: " },
+            {
+              type: "text",
+              text: titlePrefix,
+              marks: [{ type: "link", attrs: { href: sourceUrl } }],
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: sourceUrl }],
+        },
+        { type: "paragraph" },
+      ],
+    };
+    const contentText = extractPlainText(linkDoc);
+    const now = new Date().toISOString();
+
+    if (!clientId) {
+      const sp = new URLSearchParams();
+      sp.set("tab", "notes");
+      sp.set("error", "Select a client");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    const noteInsert = {
+      client_id: clientId,
+      project_id: null,
+      title: titlePrefix,
+      visibility,
+      content: contentText,
+      content_json: linkDoc,
+      user_id: user.id,
+      last_edited_at: now,
+      last_edited_by_user_id: user.id,
+    };
+
+    const { data: note, error } = await supabase
+      .from("notes")
+      .insert(noteInsert)
+      .select("id")
+      .single();
+
+    if (error && isMissingColumnError(error)) {
+      const { error: fallbackError } = await supabase.from("notes").insert({
+        client_id: clientId,
+        project_id: null,
+        content: `Linked personal page: ${titlePrefix}\n${sourceUrl}`,
+        visibility,
+        user_id: user.id,
+      });
+
+      if (fallbackError) {
+        const sp = new URLSearchParams();
+        sp.set("tab", "notes");
+        sp.set("error", fallbackError.message);
+        redirect(`/personal/${pageId}?${sp.toString()}`);
+      }
+
+      revalidatePath(`/clients/${clientId}/notes`);
+      revalidatePath(`/clients/${clientId}`);
+      revalidatePath(`/personal/${pageId}`);
+      {
+        const sp = new URLSearchParams();
+        sp.set("tab", "notes");
+        sp.set("success", "Linked to client note");
+        redirect(`/personal/${pageId}?${sp.toString()}`);
+      }
+    }
+
+    if (error || !note) {
+      const sp = new URLSearchParams();
+      sp.set("tab", "notes");
+      sp.set("error", error?.message || "Unable to create client note");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    revalidatePath(`/clients/${clientId}/notes`);
+    revalidatePath(`/clients/${clientId}/notes/${note.id}`);
+    revalidatePath(`/clients/${clientId}`);
+    revalidatePath(`/personal/${pageId}`);
+    redirect(`/clients/${clientId}/notes/${note.id}`);
+  }
+
   return (
     <div className="space-y-8">
       <section className="flex flex-wrap items-start justify-between gap-4">
@@ -767,12 +887,51 @@ export default async function PersonalPage(props: {
       ) : null}
 
       {activeTab === "notes" ? (
-        <PersonalPageEditorClient
-          pageId={page.id}
-          initialContent={page.content ?? null}
-          lastEditedAtLabel={lastEditedAtLabel}
-          lastEditedByLabel={lastEditedByLabel}
-        />
+        <div className="space-y-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-900">Link To Client Note</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Create a client note that links back to this personal page.
+            </p>
+            <form action={linkPageToClientNote} className="mt-3 flex flex-wrap items-end gap-2">
+              <select
+                name="client_id"
+                className="min-w-[240px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+                defaultValue=""
+                required
+              >
+                <option value="" disabled>
+                  Select client
+                </option>
+                {(clients || []).map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                name="visibility"
+                defaultValue="internal"
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="internal">internal</option>
+                <option value="client_shared">client shared</option>
+              </select>
+              <button
+                type="submit"
+                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+              >
+                Link note
+              </button>
+            </form>
+          </section>
+          <PersonalPageEditorClient
+            pageId={page.id}
+            initialContent={page.content ?? null}
+            lastEditedAtLabel={lastEditedAtLabel}
+            lastEditedByLabel={lastEditedByLabel}
+          />
+        </div>
       ) : null}
     </div>
   );
