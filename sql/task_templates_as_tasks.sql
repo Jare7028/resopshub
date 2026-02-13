@@ -44,7 +44,11 @@ select
   tt.title,
   tt.description,
   'template',
-  tt.priority,
+  case
+    when lower(coalesce(tt.priority, '')) in ('low', 'medium', 'high', 'critical')
+      then lower(tt.priority)::public.task_priority
+    else 'medium'::public.task_priority
+  end,
   tt.due_time,
   tt.recurrence_frequency,
   coalesce(tt.recurrence_lead_days, 7),
@@ -71,8 +75,24 @@ select
   ts.task_template_id,
   ts.title,
   ts.description,
-  ts.status,
-  ts.priority,
+  case
+    when lower(coalesce(ts.status, '')) in (
+      'to_do',
+      'in_progress',
+      'completed',
+      'cancelled',
+      'backlog',
+      'blocked',
+      'template'
+    )
+      then lower(ts.status)::public.task_status
+    else 'to_do'::public.task_status
+  end,
+  case
+    when lower(coalesce(ts.priority, '')) in ('low', 'medium', 'high', 'critical')
+      then lower(ts.priority)::public.task_priority
+    else 'medium'::public.task_priority
+  end,
   '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
   '',
   ts.created_at
@@ -95,7 +115,7 @@ on conflict (task_id, user_id) do nothing;
 update public.tasks t
 set assignee_user_id = src.user_id
 from (
-  select task_template_id as task_id, min(user_id) as user_id
+  select task_template_id as task_id, min(user_id::text)::uuid as user_id
   from public.task_template_assignees
   group by task_template_id
 ) src
@@ -105,7 +125,7 @@ where t.id = src.task_id
 update public.tasks t
 set assignee_user_id = src.user_id
 from (
-  select task_template_subtask_id as task_id, min(user_id) as user_id
+  select task_template_subtask_id as task_id, min(user_id::text)::uuid as user_id
   from public.task_template_subtask_assignees
   group by task_template_subtask_id
 ) src
