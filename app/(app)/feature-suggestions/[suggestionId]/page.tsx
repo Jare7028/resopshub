@@ -437,7 +437,7 @@ export default async function FeatureSuggestionDetailPage(props: {
                   : "border border-slate-300 text-slate-700 hover:border-slate-400"
               }`}
             >
-              👍
+              {"\u{1F44D}"}
             </button>
             <button
               type="submit"
@@ -449,7 +449,7 @@ export default async function FeatureSuggestionDetailPage(props: {
                   : "border border-slate-300 text-slate-700 hover:border-slate-400"
               }`}
             >
-              👎
+              {"\u{1F44E}"}
             </button>
           </form>
         </div>

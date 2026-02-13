@@ -349,7 +349,7 @@ export default function FeatureSuggestionsTable({
                             : "border border-slate-300 text-slate-700 hover:border-slate-400"
                         }`}
                       >
-                        ??
+                        {"\u{1F44D}"}
                       </button>
                       <button
                         type="submit"
@@ -363,7 +363,7 @@ export default function FeatureSuggestionsTable({
                             : "border border-slate-300 text-slate-700 hover:border-slate-400"
                         }`}
                       >
-                        ??
+                        {"\u{1F44E}"}
                       </button>
                       <span className="ml-2 text-xs text-slate-500">
                         {suggestion.commentCount} comments
