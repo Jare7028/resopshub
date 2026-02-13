@@ -11,6 +11,12 @@ import {
   type StatusEntityType,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
+import {
+  normalizeCustomFieldKind,
+  toCustomFieldKey,
+  type CustomFieldOptionRow,
+  type CustomFieldRow,
+} from "@/lib/customFields";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
@@ -68,6 +74,8 @@ export default async function SettingsPage(props: {
     templates?: string;
     task_template_id?: string;
     project_template_id?: string;
+    task_template_panel?: string;
+    project_template_panel?: string;
     success?: string;
     error?: string;
   }>;
@@ -81,6 +89,28 @@ export default async function SettingsPage(props: {
     templatesTabRaw === "projects" ? "projects" : "tasks";
   const selectedTaskTemplateId = String(searchParams?.task_template_id || "").trim();
   const selectedProjectTemplateId = String(searchParams?.project_template_id || "").trim();
+  const taskTemplatePanelRaw = String(searchParams?.task_template_panel || "")
+    .trim()
+    .toLowerCase();
+  const taskTemplatePanel: "details" | "custom-fields" | "subtasks" =
+    taskTemplatePanelRaw === "custom-fields"
+      ? "custom-fields"
+      : taskTemplatePanelRaw === "subtasks"
+      ? "subtasks"
+      : "details";
+  const projectTemplatePanelRaw = String(searchParams?.project_template_panel || "")
+    .trim()
+    .toLowerCase();
+  const projectTemplatePanel: "details" | "custom-fields" | "tasks" =
+    projectTemplatePanelRaw === "custom-fields"
+      ? "custom-fields"
+      : projectTemplatePanelRaw === "tasks"
+      ? "tasks"
+      : "details";
+  const taskTemplatePanelQuery = `&task_template_panel=${encodeURIComponent(taskTemplatePanel)}`;
+  const projectTemplatePanelQuery = `&project_template_panel=${encodeURIComponent(
+    projectTemplatePanel
+  )}`;
 
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -196,6 +226,79 @@ export default async function SettingsPage(props: {
     selectedProjectTemplateId && templatesTab === "projects"
       ? projectTemplates.find((tpl) => tpl.id === selectedProjectTemplateId) || null
       : null;
+  const templateCustomFieldEntityFilters: Array<[string, string]> = [];
+  if (selectedTaskTemplate?.id) {
+    templateCustomFieldEntityFilters.push(["task_template", selectedTaskTemplate.id]);
+  }
+  if (selectedProjectTemplate?.id) {
+    templateCustomFieldEntityFilters.push(["project_template", selectedProjectTemplate.id]);
+  }
+  let templateCustomFields: CustomFieldRow[] = [];
+  let templateCustomFieldOptionsByFieldId: Record<string, CustomFieldOptionRow[]> = {};
+  let templateCustomFieldValueByFieldId = new Map<string, string>();
+  if (templateCustomFieldEntityFilters.length) {
+    const filterExpr = templateCustomFieldEntityFilters
+      .map(
+        ([entityType, entityId]) =>
+          `and(entity_type.eq.${entityType},entity_id.eq.${entityId})`
+      )
+      .join(",");
+    const { data: templateFieldsRaw } = await supabase
+      .from("custom_fields")
+      .select("id,entity_type,entity_id,key,label,field_kind,position")
+      .or(filterExpr)
+      .order("position", { ascending: true })
+      .order("label", { ascending: true });
+    templateCustomFields = (templateFieldsRaw || []) as CustomFieldRow[];
+    const fieldIds = templateCustomFields.map((field) => field.id);
+    if (fieldIds.length) {
+      const { data: templateOptionsRaw } = await supabase
+        .from("custom_field_options")
+        .select("id,field_id,value,position")
+        .in("field_id", fieldIds)
+        .order("position", { ascending: true })
+        .order("value", { ascending: true });
+      templateCustomFieldOptionsByFieldId = ((templateOptionsRaw || []) as CustomFieldOptionRow[]).reduce<
+        Record<string, CustomFieldOptionRow[]>
+      >((acc, option) => {
+        acc[option.field_id] ||= [];
+        acc[option.field_id].push(option);
+        return acc;
+      }, {});
+      const templateValueExpr = templateCustomFieldEntityFilters
+        .map(
+          ([entityType, entityId]) =>
+            `and(entity_type.eq.${entityType},entity_id.eq.${entityId})`
+        )
+        .join(",");
+      const { data: templateValuesRaw } = await supabase
+        .from("custom_field_values")
+        .select("field_id,text_value,option_value,entity_type,entity_id")
+        .or(templateValueExpr)
+        .in("field_id", fieldIds);
+      templateCustomFieldValueByFieldId = new Map<string, string>(
+        ((templateValuesRaw || []) as Array<{
+          field_id: string;
+          text_value: string | null;
+          option_value: string | null;
+        }>).map((row) => [row.field_id, row.option_value || row.text_value || ""])
+      );
+    }
+  }
+  const selectedTaskTemplateCustomFields = selectedTaskTemplate
+    ? templateCustomFields.filter(
+        (field) =>
+          field.entity_type === "task_template" &&
+          field.entity_id === selectedTaskTemplate.id
+      )
+    : [];
+  const selectedProjectTemplateCustomFields = selectedProjectTemplate
+    ? templateCustomFields.filter(
+        (field) =>
+          field.entity_type === "project_template" &&
+          field.entity_id === selectedProjectTemplate.id
+      )
+    : [];
 
   type TaskTemplateSubtaskRow = {
     id: string;
@@ -486,7 +589,7 @@ export default async function SettingsPage(props: {
       redirect(
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           id
-        )}&error=${encodeURIComponent(error.message)}`
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(error.message)}`
       );
     }
 
@@ -501,7 +604,7 @@ export default async function SettingsPage(props: {
       redirect(
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           id
-        )}&error=${encodeURIComponent(message)}`
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
       );
     }
 
@@ -522,7 +625,7 @@ export default async function SettingsPage(props: {
         redirect(
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             id
-          )}&error=${encodeURIComponent(message)}`
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
         );
       }
     }
@@ -531,7 +634,7 @@ export default async function SettingsPage(props: {
     redirect(
       `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
         id
-      )}&success=Task%20template%20updated`
+      )}${taskTemplatePanelQuery}&success=Task%20template%20updated`
     );
   }
 
@@ -623,7 +726,7 @@ export default async function SettingsPage(props: {
       redirect(
         `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
           id
-        )}&error=${encodeURIComponent(error.message)}`
+        )}${projectTemplatePanelQuery}&error=${encodeURIComponent(error.message)}`
       );
     }
 
@@ -631,7 +734,7 @@ export default async function SettingsPage(props: {
     redirect(
       `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
         id
-      )}&success=Project%20template%20updated`
+      )}${projectTemplatePanelQuery}&success=Project%20template%20updated`
     );
   }
 
@@ -656,6 +759,265 @@ export default async function SettingsPage(props: {
 
     revalidatePath("/settings");
     redirect("/settings?tab=templates&templates=projects&success=Project%20template%20deleted");
+  }
+
+  async function createTemplateCustomField(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const entityType = String(formData.get("entity_type") || "").trim();
+    const entityId = String(formData.get("entity_id") || "").trim();
+    const label = String(formData.get("label") || "").trim();
+    const fieldKind = normalizeCustomFieldKind(
+      String(formData.get("field_kind") || "").trim().toLowerCase()
+    );
+    const optionsCsv = String(formData.get("options_csv") || "").trim();
+
+    if (
+      !entityId ||
+      (entityType !== "task_template" && entityType !== "project_template")
+    ) {
+      redirect("/settings?tab=templates&error=Invalid%20template%20custom%20field%20request");
+    }
+    if (!label) {
+      redirect("/settings?tab=templates&error=Custom%20field%20label%20is%20required");
+    }
+
+    const siblingFields = templateCustomFields.filter(
+      (field) => field.entity_type === entityType && field.entity_id === entityId
+    );
+    const existingKeys = new Set(siblingFields.map((field) => field.key));
+    const keyBase = toCustomFieldKey(label);
+    let key = keyBase;
+    let suffix = 2;
+    while (existingKeys.has(key)) {
+      key = `${keyBase}_${suffix}`;
+      suffix += 1;
+    }
+    const nextPosition =
+      (siblingFields.reduce(
+        (max, field) => (field.position > max ? field.position : max),
+        0
+      ) || 0) + 1;
+
+    const { data: createdField, error } = await supabase
+      .from("custom_fields")
+      .insert({
+        entity_type: entityType,
+        entity_id: entityId,
+        key,
+        label,
+        field_kind: fieldKind,
+        position: nextPosition,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      const tabPart =
+        entityType === "task_template" ? "tasks" : "projects";
+      const idPart =
+        entityType === "task_template"
+          ? `&task_template_id=${encodeURIComponent(entityId)}`
+          : `&project_template_id=${encodeURIComponent(entityId)}`;
+      const panelPart =
+        entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+      redirect(
+        `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(error.message)}`
+      );
+    }
+
+    if (fieldKind === "dropdown" && createdField?.id) {
+      const options = Array.from(
+        new Set(
+          optionsCsv
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
+      if (options.length) {
+        const { error: optionsError } = await supabase.from("custom_field_options").insert(
+          options.map((value, index) => ({
+            field_id: createdField.id,
+            value,
+            position: index + 1,
+          }))
+        );
+        if (optionsError) {
+          const tabPart =
+            entityType === "task_template" ? "tasks" : "projects";
+          const idPart =
+            entityType === "task_template"
+              ? `&task_template_id=${encodeURIComponent(entityId)}`
+              : `&project_template_id=${encodeURIComponent(entityId)}`;
+          const panelPart =
+            entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+          redirect(
+            `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(optionsError.message)}`
+          );
+        }
+      }
+    }
+
+    revalidatePath("/settings");
+    const tabPart = entityType === "task_template" ? "tasks" : "projects";
+    const idPart =
+      entityType === "task_template"
+        ? `&task_template_id=${encodeURIComponent(entityId)}`
+        : `&project_template_id=${encodeURIComponent(entityId)}`;
+    const panelPart =
+      entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+    redirect(
+      `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&success=Custom%20field%20added`
+    );
+  }
+
+  async function deleteTemplateCustomField(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const id = String(formData.get("id") || "").trim();
+    const entityType = String(formData.get("entity_type") || "").trim();
+    const entityId = String(formData.get("entity_id") || "").trim();
+    if (!id || !entityId) {
+      redirect("/settings?tab=templates&error=Missing%20custom%20field%20id");
+    }
+
+    const { error } = await supabase
+      .from("custom_fields")
+      .delete()
+      .eq("id", id)
+      .eq("entity_type", entityType)
+      .eq("entity_id", entityId);
+    if (error) {
+      redirect(`/settings?tab=templates&error=${encodeURIComponent(error.message)}`);
+    }
+
+    revalidatePath("/settings");
+    const tabPart = entityType === "task_template" ? "tasks" : "projects";
+    const idPart =
+      entityType === "task_template"
+        ? `&task_template_id=${encodeURIComponent(entityId)}`
+        : `&project_template_id=${encodeURIComponent(entityId)}`;
+    const panelPart =
+      entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+    redirect(
+      `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&success=Custom%20field%20deleted`
+    );
+  }
+
+  async function saveTemplateCustomFieldValues(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const entityType = String(formData.get("entity_type") || "").trim();
+    const entityId = String(formData.get("entity_id") || "").trim();
+    if (
+      !entityId ||
+      (entityType !== "task_template" && entityType !== "project_template")
+    ) {
+      redirect("/settings?tab=templates&error=Invalid%20template%20custom%20field%20save");
+    }
+
+    const fields = templateCustomFields.filter(
+      (field) => field.entity_type === entityType && field.entity_id === entityId
+    );
+    const clears: string[] = [];
+    const upserts: Array<{
+      entity_type: string;
+      entity_id: string;
+      field_id: string;
+      text_value: string | null;
+      option_value: string | null;
+    }> = [];
+
+    for (const field of fields) {
+      const value = String(formData.get(`cf_${field.id}`) || "").trim();
+      if (!value) {
+        clears.push(field.id);
+        continue;
+      }
+      if (field.field_kind === "dropdown") {
+        const allowed = (templateCustomFieldOptionsByFieldId[field.id] || []).some(
+          (option) => option.value === value
+        );
+        if (!allowed) {
+          const tabPart = entityType === "task_template" ? "tasks" : "projects";
+          const idPart =
+            entityType === "task_template"
+              ? `&task_template_id=${encodeURIComponent(entityId)}`
+              : `&project_template_id=${encodeURIComponent(entityId)}`;
+          const panelPart =
+            entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+          redirect(
+            `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(
+              `Invalid value for ${field.label}`
+            )}`
+          );
+        }
+      }
+      upserts.push({
+        entity_type: entityType,
+        entity_id: entityId,
+        field_id: field.id,
+        text_value: field.field_kind === "text" ? value : null,
+        option_value: field.field_kind === "dropdown" ? value : null,
+      });
+    }
+
+    if (clears.length) {
+      const { error: clearError } = await supabase
+        .from("custom_field_values")
+        .delete()
+        .eq("entity_type", entityType)
+        .eq("entity_id", entityId)
+        .in("field_id", clears);
+      if (clearError) {
+        const tabPart = entityType === "task_template" ? "tasks" : "projects";
+        const idPart =
+          entityType === "task_template"
+            ? `&task_template_id=${encodeURIComponent(entityId)}`
+            : `&project_template_id=${encodeURIComponent(entityId)}`;
+        const panelPart =
+          entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+        redirect(
+          `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(
+            clearError.message
+          )}`
+        );
+      }
+    }
+
+    if (upserts.length) {
+      const { error: upsertError } = await supabase.from("custom_field_values").upsert(
+        upserts,
+        { onConflict: "entity_type,entity_id,field_id" }
+      );
+      if (upsertError) {
+        const tabPart = entityType === "task_template" ? "tasks" : "projects";
+        const idPart =
+          entityType === "task_template"
+            ? `&task_template_id=${encodeURIComponent(entityId)}`
+            : `&project_template_id=${encodeURIComponent(entityId)}`;
+        const panelPart =
+          entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+        redirect(
+          `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(
+            upsertError.message
+          )}`
+        );
+      }
+    }
+
+    revalidatePath("/settings");
+    const tabPart = entityType === "task_template" ? "tasks" : "projects";
+    const idPart =
+      entityType === "task_template"
+        ? `&task_template_id=${encodeURIComponent(entityId)}`
+        : `&project_template_id=${encodeURIComponent(entityId)}`;
+    const panelPart =
+      entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
+    redirect(
+      `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&success=Template%20custom%20fields%20saved`
+    );
   }
 
   async function createTaskTemplateSubtask(formData: FormData) {
@@ -712,7 +1074,9 @@ export default async function SettingsPage(props: {
         ? " Run `sql/templates.sql` in Supabase SQL editor, then refresh."
         : "";
       redirect(
-        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          taskTemplateId
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
           `${error.message}${hint}`
         )}`
       );
@@ -733,7 +1097,7 @@ export default async function SettingsPage(props: {
         redirect(
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             taskTemplateId
-          )}&error=${encodeURIComponent(message)}`
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
         );
       }
     }
@@ -742,7 +1106,7 @@ export default async function SettingsPage(props: {
     redirect(
       `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
         taskTemplateId
-      )}&success=Subtask%20added`
+      )}${taskTemplatePanelQuery}&success=Subtask%20added`
     );
   }
 
@@ -770,7 +1134,9 @@ export default async function SettingsPage(props: {
     const nextId = taskTemplateId
       ? `&task_template_id=${encodeURIComponent(taskTemplateId)}`
       : "";
-    redirect(`/settings?tab=templates&templates=tasks${nextId}&success=Subtask%20deleted`);
+    redirect(
+      `/settings?tab=templates&templates=tasks${nextId}${taskTemplatePanelQuery}&success=Subtask%20deleted`
+    );
   }
 
   async function updateTaskTemplateSubtask(formData: FormData) {
@@ -815,7 +1181,7 @@ export default async function SettingsPage(props: {
       redirect(
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           taskTemplateId
-        )}&error=${encodeURIComponent(error.message)}`
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(error.message)}`
       );
     }
 
@@ -828,7 +1194,7 @@ export default async function SettingsPage(props: {
       redirect(
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           taskTemplateId
-        )}&error=${encodeURIComponent(clearAssigneesError.message)}`
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(clearAssigneesError.message)}`
       );
     }
 
@@ -837,7 +1203,7 @@ export default async function SettingsPage(props: {
         redirect(
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             taskTemplateId
-          )}&error=${encodeURIComponent(
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
             "Run sql/templates.sql to enable subtask template assignees."
           )}`
         );
@@ -858,7 +1224,7 @@ export default async function SettingsPage(props: {
         redirect(
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             taskTemplateId
-          )}&error=${encodeURIComponent(message)}`
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
         );
       }
     }
@@ -867,7 +1233,7 @@ export default async function SettingsPage(props: {
     redirect(
       `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
         taskTemplateId
-      )}&success=Subtask%20updated`
+      )}${taskTemplatePanelQuery}&success=Subtask%20updated`
     );
   }
 
@@ -907,7 +1273,9 @@ export default async function SettingsPage(props: {
         ? " Run `sql/templates.sql` in Supabase SQL editor, then refresh."
         : "";
       redirect(
-        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(
+        `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+          projectTemplateId
+        )}${projectTemplatePanelQuery}&error=${encodeURIComponent(
           `${error.message}${hint}`
         )}`
       );
@@ -917,7 +1285,7 @@ export default async function SettingsPage(props: {
     redirect(
       `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
         projectTemplateId
-      )}&success=Task%20added%20to%20project%20template`
+      )}${projectTemplatePanelQuery}&success=Task%20added%20to%20project%20template`
     );
   }
 
@@ -946,7 +1314,7 @@ export default async function SettingsPage(props: {
       ? `&project_template_id=${encodeURIComponent(projectTemplateId)}`
       : "";
     redirect(
-      `/settings?tab=templates&templates=projects${nextId}&success=Task%20removed%20from%20project%20template`
+      `/settings?tab=templates&templates=projects${nextId}${projectTemplatePanelQuery}&success=Task%20removed%20from%20project%20template`
     );
   }
 
@@ -1457,9 +1825,10 @@ export default async function SettingsPage(props: {
                       ))}
                     </select>
 
-                    <input
+                    <textarea
                       name="description"
-                      placeholder="Description (optional)"
+                      placeholder="Template notes (optional)"
+                      rows={3}
                       className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
                     />
                     <input
@@ -1543,7 +1912,13 @@ export default async function SettingsPage(props: {
                   )}
 
                   {selectedTaskTemplate ? (
-                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <>
+                    <a
+                      href="/settings?tab=templates&templates=tasks"
+                      aria-label="Close task template editor"
+                      className="fixed inset-0 z-40 bg-slate-900/30"
+                    />
+                    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-4xl overflow-y-auto border-l border-slate-200 bg-white p-4 shadow-2xl">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -1561,17 +1936,65 @@ export default async function SettingsPage(props: {
                               : "None"}
                           </p>
                         </div>
-                        <form action={deleteTaskTemplate} className="shrink-0">
-                          <input type="hidden" name="id" value={selectedTaskTemplate.id} />
-                          <ConfirmSubmitButton
-                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                            confirmText={`Delete template: ${selectedTaskTemplate.name}?`}
+                        <div className="flex items-center gap-2">
+                          <a
+                            href="/settings?tab=templates&templates=tasks"
+                            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                           >
-                            Delete
-                          </ConfirmSubmitButton>
-                        </form>
+                            Close
+                          </a>
+                          <form action={deleteTaskTemplate} className="shrink-0">
+                            <input type="hidden" name="id" value={selectedTaskTemplate.id} />
+                            <ConfirmSubmitButton
+                              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                              confirmText={`Delete template: ${selectedTaskTemplate.name}?`}
+                            >
+                              Delete
+                            </ConfirmSubmitButton>
+                          </form>
+                        </div>
                       </div>
 
+                      <nav className="mt-4 flex flex-wrap gap-2 border-b border-slate-200 pb-3 text-sm">
+                        <a
+                          href={`/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+                            selectedTaskTemplate.id
+                          )}&task_template_panel=details`}
+                          className={`rounded-md px-3 py-1.5 font-medium ${
+                            taskTemplatePanel === "details"
+                              ? "tab-active"
+                              : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          Details
+                        </a>
+                        <a
+                          href={`/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+                            selectedTaskTemplate.id
+                          )}&task_template_panel=custom-fields`}
+                          className={`rounded-md px-3 py-1.5 font-medium ${
+                            taskTemplatePanel === "custom-fields"
+                              ? "tab-active"
+                              : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          Custom fields
+                        </a>
+                        <a
+                          href={`/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+                            selectedTaskTemplate.id
+                          )}&task_template_panel=subtasks`}
+                          className={`rounded-md px-3 py-1.5 font-medium ${
+                            taskTemplatePanel === "subtasks"
+                              ? "tab-active"
+                              : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          Subtasks
+                        </a>
+                      </nav>
+
+                      {taskTemplatePanel === "details" ? (
                       <form action={updateTaskTemplate} className="mt-4 grid gap-3 md:grid-cols-6">
                         <input type="hidden" name="id" value={selectedTaskTemplate.id} />
                         <input
@@ -1610,11 +2033,17 @@ export default async function SettingsPage(props: {
                             </option>
                           ))}
                         </select>
-                        <input
-                          name="description"
-                          defaultValue={selectedTaskTemplate.description || ""}
-                          className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                        />
+                        <div className="md:col-span-4 grid gap-1">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Template notes
+                          </label>
+                          <textarea
+                            name="description"
+                            defaultValue={selectedTaskTemplate.description || ""}
+                            rows={4}
+                            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          />
+                        </div>
                         <input
                           type="time"
                           name="due_time"
@@ -1638,7 +2067,112 @@ export default async function SettingsPage(props: {
                           </button>
                         </div>
                       </form>
+                      ) : null}
 
+                      {taskTemplatePanel === "custom-fields" ? (
+                      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-sm font-semibold text-slate-900">Template custom fields</p>
+                        <form action={createTemplateCustomField} className="mt-2 grid gap-2 md:grid-cols-12">
+                          <input type="hidden" name="entity_type" value="task_template" />
+                          <input type="hidden" name="entity_id" value={selectedTaskTemplate.id} />
+                          <input
+                            name="label"
+                            placeholder="Field label"
+                            className="md:col-span-5 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                            required
+                          />
+                          <select
+                            name="field_kind"
+                            defaultValue="text"
+                            className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          >
+                            <option value="text">Text</option>
+                            <option value="dropdown">Dropdown</option>
+                          </select>
+                          <input
+                            name="options_csv"
+                            placeholder="Dropdown options (comma-separated)"
+                            className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          />
+                          <button
+                            type="submit"
+                            className="md:col-span-12 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            Add custom field
+                          </button>
+                        </form>
+                        <form action={saveTemplateCustomFieldValues} className="mt-3 space-y-2">
+                          <input type="hidden" name="entity_type" value="task_template" />
+                          <input type="hidden" name="entity_id" value={selectedTaskTemplate.id} />
+                          {selectedTaskTemplateCustomFields.length ? (
+                            selectedTaskTemplateCustomFields.map((field) => (
+                              <div
+                                key={field.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <div>
+                                  <p className="font-semibold text-slate-900">{field.label}</p>
+                                  <p className="text-xs text-slate-500">
+                                    {field.field_kind === "dropdown" ? "Dropdown" : "Text"}
+                                    {field.field_kind === "dropdown" &&
+                                    (templateCustomFieldOptionsByFieldId[field.id] || []).length
+                                      ? ` - ${(
+                                          templateCustomFieldOptionsByFieldId[field.id] || []
+                                        )
+                                          .map((option) => option.value)
+                                          .join(", ")}`
+                                      : ""}
+                                  </p>
+                                  {field.field_kind === "dropdown" ? (
+                                    <select
+                                      name={`cf_${field.id}`}
+                                      defaultValue={templateCustomFieldValueByFieldId.get(field.id) || ""}
+                                      className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                    >
+                                      <option value="">Select...</option>
+                                      {(templateCustomFieldOptionsByFieldId[field.id] || []).map((option) => (
+                                        <option key={option.id} value={option.value}>
+                                          {option.value}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      name={`cf_${field.id}`}
+                                      defaultValue={templateCustomFieldValueByFieldId.get(field.id) || ""}
+                                      className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                    />
+                                  )}
+                                </div>
+                                <button
+                                  type="submit"
+                                  formAction={deleteTemplateCustomField}
+                                  name="id"
+                                  value={field.id}
+                                  className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-slate-600">No custom fields yet.</p>
+                          )}
+                          {selectedTaskTemplateCustomFields.length ? (
+                            <div className="flex items-center justify-end">
+                              <button
+                                type="submit"
+                                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                              >
+                                Save custom field values
+                              </button>
+                            </div>
+                          ) : null}
+                        </form>
+                      </div>
+                      ) : null}
+
+                      {taskTemplatePanel === "subtasks" ? (
                       <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3">
                         <p className="text-sm font-semibold text-slate-900">Subtask templates</p>
 
@@ -1845,7 +2379,9 @@ export default async function SettingsPage(props: {
                           </button>
                         </form>
                       </div>
+                      ) : null}
                     </div>
+                    </>
                   ) : (
                     <p className="text-sm text-slate-600">Click a task template in the table to view it.</p>
                   )}
@@ -1877,9 +2413,10 @@ export default async function SettingsPage(props: {
                         </option>
                       ))}
                     </select>
-                    <input
+                    <textarea
                       name="description"
-                      placeholder="Description (optional)"
+                      placeholder="Template notes (optional)"
+                      rows={3}
                       className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
                     />
                     <button
@@ -1942,7 +2479,13 @@ export default async function SettingsPage(props: {
                   )}
 
                   {selectedProjectTemplate ? (
-                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <>
+                    <a
+                      href="/settings?tab=templates&templates=projects"
+                      aria-label="Close project template editor"
+                      className="fixed inset-0 z-40 bg-slate-900/30"
+                    />
+                    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-4xl overflow-y-auto border-l border-slate-200 bg-white p-4 shadow-2xl">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -1952,17 +2495,65 @@ export default async function SettingsPage(props: {
                             {selectedProjectTemplate.name}
                           </h4>
                         </div>
-                        <form action={deleteProjectTemplate} className="shrink-0">
-                          <input type="hidden" name="id" value={selectedProjectTemplate.id} />
-                          <ConfirmSubmitButton
-                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                            confirmText={`Delete template: ${selectedProjectTemplate.name}?`}
+                        <div className="flex items-center gap-2">
+                          <a
+                            href="/settings?tab=templates&templates=projects"
+                            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                           >
-                            Delete
-                          </ConfirmSubmitButton>
-                        </form>
+                            Close
+                          </a>
+                          <form action={deleteProjectTemplate} className="shrink-0">
+                            <input type="hidden" name="id" value={selectedProjectTemplate.id} />
+                            <ConfirmSubmitButton
+                              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                              confirmText={`Delete template: ${selectedProjectTemplate.name}?`}
+                            >
+                              Delete
+                            </ConfirmSubmitButton>
+                          </form>
+                        </div>
                       </div>
 
+                      <nav className="mt-4 flex flex-wrap gap-2 border-b border-slate-200 pb-3 text-sm">
+                        <a
+                          href={`/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+                            selectedProjectTemplate.id
+                          )}&project_template_panel=details`}
+                          className={`rounded-md px-3 py-1.5 font-medium ${
+                            projectTemplatePanel === "details"
+                              ? "tab-active"
+                              : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          Details
+                        </a>
+                        <a
+                          href={`/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+                            selectedProjectTemplate.id
+                          )}&project_template_panel=custom-fields`}
+                          className={`rounded-md px-3 py-1.5 font-medium ${
+                            projectTemplatePanel === "custom-fields"
+                              ? "tab-active"
+                              : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          Custom fields
+                        </a>
+                        <a
+                          href={`/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
+                            selectedProjectTemplate.id
+                          )}&project_template_panel=tasks`}
+                          className={`rounded-md px-3 py-1.5 font-medium ${
+                            projectTemplatePanel === "tasks"
+                              ? "tab-active"
+                              : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          Template tasks
+                        </a>
+                      </nav>
+
+                      {projectTemplatePanel === "details" ? (
                       <form action={updateProjectTemplate} className="mt-4 grid gap-3 md:grid-cols-6">
                         <input type="hidden" name="id" value={selectedProjectTemplate.id} />
                         <input
@@ -1984,11 +2575,17 @@ export default async function SettingsPage(props: {
                             )
                           )}
                         </select>
-                        <input
-                          name="description"
-                          defaultValue={selectedProjectTemplate.description || ""}
-                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                        />
+                        <div className="md:col-span-2 grid gap-1">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Template notes
+                          </label>
+                          <textarea
+                            name="description"
+                            defaultValue={selectedProjectTemplate.description || ""}
+                            rows={4}
+                            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          />
+                        </div>
                         <div className="md:col-span-6 flex items-center justify-end">
                           <button
                             type="submit"
@@ -1998,7 +2595,112 @@ export default async function SettingsPage(props: {
                           </button>
                         </div>
                       </form>
+                      ) : null}
 
+                      {projectTemplatePanel === "custom-fields" ? (
+                      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-sm font-semibold text-slate-900">Template custom fields</p>
+                        <form action={createTemplateCustomField} className="mt-2 grid gap-2 md:grid-cols-12">
+                          <input type="hidden" name="entity_type" value="project_template" />
+                          <input type="hidden" name="entity_id" value={selectedProjectTemplate.id} />
+                          <input
+                            name="label"
+                            placeholder="Field label"
+                            className="md:col-span-5 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                            required
+                          />
+                          <select
+                            name="field_kind"
+                            defaultValue="text"
+                            className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          >
+                            <option value="text">Text</option>
+                            <option value="dropdown">Dropdown</option>
+                          </select>
+                          <input
+                            name="options_csv"
+                            placeholder="Dropdown options (comma-separated)"
+                            className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          />
+                          <button
+                            type="submit"
+                            className="md:col-span-12 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            Add custom field
+                          </button>
+                        </form>
+                        <form action={saveTemplateCustomFieldValues} className="mt-3 space-y-2">
+                          <input type="hidden" name="entity_type" value="project_template" />
+                          <input type="hidden" name="entity_id" value={selectedProjectTemplate.id} />
+                          {selectedProjectTemplateCustomFields.length ? (
+                            selectedProjectTemplateCustomFields.map((field) => (
+                              <div
+                                key={field.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <div>
+                                  <p className="font-semibold text-slate-900">{field.label}</p>
+                                  <p className="text-xs text-slate-500">
+                                    {field.field_kind === "dropdown" ? "Dropdown" : "Text"}
+                                    {field.field_kind === "dropdown" &&
+                                    (templateCustomFieldOptionsByFieldId[field.id] || []).length
+                                      ? ` - ${(
+                                          templateCustomFieldOptionsByFieldId[field.id] || []
+                                        )
+                                          .map((option) => option.value)
+                                          .join(", ")}`
+                                      : ""}
+                                  </p>
+                                  {field.field_kind === "dropdown" ? (
+                                    <select
+                                      name={`cf_${field.id}`}
+                                      defaultValue={templateCustomFieldValueByFieldId.get(field.id) || ""}
+                                      className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                    >
+                                      <option value="">Select...</option>
+                                      {(templateCustomFieldOptionsByFieldId[field.id] || []).map((option) => (
+                                        <option key={option.id} value={option.value}>
+                                          {option.value}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      name={`cf_${field.id}`}
+                                      defaultValue={templateCustomFieldValueByFieldId.get(field.id) || ""}
+                                      className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                    />
+                                  )}
+                                </div>
+                                <button
+                                  type="submit"
+                                  formAction={deleteTemplateCustomField}
+                                  name="id"
+                                  value={field.id}
+                                  className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-slate-600">No custom fields yet.</p>
+                          )}
+                          {selectedProjectTemplateCustomFields.length ? (
+                            <div className="flex items-center justify-end">
+                              <button
+                                type="submit"
+                                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                              >
+                                Save custom field values
+                              </button>
+                            </div>
+                          ) : null}
+                        </form>
+                      </div>
+                      ) : null}
+
+                      {projectTemplatePanel === "tasks" ? (
                       <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3">
                         <p className="text-sm font-semibold text-slate-900">Template tasks</p>
 
@@ -2087,7 +2789,9 @@ export default async function SettingsPage(props: {
                           </button>
                         </form>
                       </div>
+                      ) : null}
                     </div>
+                    </>
                   ) : (
                     <p className="text-sm text-slate-600">Click a project template in the table to view it.</p>
                   )}
@@ -2100,4 +2804,5 @@ export default async function SettingsPage(props: {
     </div>
   );
 }
+
 
