@@ -726,6 +726,8 @@ export default async function ProjectTasksPage(props: {
           onUpdate={updateTaskInline}
           hideCompleted={hideCompleted}
           toggleUrl={toggleUrl}
+          includeWatching={false}
+          watchToggleUrl={toggleUrl}
           sortKey={sortKey}
           sortDir={sortDir}
           initialView={selectedView}

@@ -88,6 +88,7 @@ export default async function TasksPage(props: {
     client?: string | string[];
     project?: string | string[];
     hide?: string;
+    watch?: string;
     sort?: string;
     dir?: string;
     error?: string;
@@ -96,6 +97,11 @@ export default async function TasksPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const currentUserId = authData.user?.id;
+  if (!currentUserId) {
+    redirect("/login");
+  }
   const { data: statusOptionsRaw } = await supabase
     .from("status_options")
     .select("entity_type,value,position")
@@ -131,6 +137,7 @@ export default async function TasksPage(props: {
   const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
   let selectedDue = (searchParams?.due || "all").trim();
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const includeWatching = (searchParams?.watch ?? "0").trim() === "1";
   const activeTab = normalizeTasksTabKey(searchParams?.tab);
 
   const allowedDueValues = new Set<string>(
@@ -220,11 +227,21 @@ export default async function TasksPage(props: {
   if (selectedView !== "table") {
     returnParams.set("view", selectedView);
   }
+  if (includeWatching) {
+    returnParams.set("watch", "1");
+  }
 
   const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
   const toggleParams = new URLSearchParams(returnParams);
   toggleParams.set("hide", hideCompleted ? "0" : "1");
   const toggleUrl = toggleParams.toString() ? `/tasks?${toggleParams}` : "/tasks";
+  const watchToggleParams = new URLSearchParams(returnParams);
+  if (includeWatching) {
+    watchToggleParams.delete("watch");
+  } else {
+    watchToggleParams.set("watch", "1");
+  }
+  const watchToggleUrl = watchToggleParams.toString() ? `/tasks?${watchToggleParams}` : "/tasks";
 
   const buildTasksUrl = (
     tab: TasksTabKey,
@@ -258,6 +275,32 @@ export default async function TasksPage(props: {
     )
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
+
+  const [primaryAssignedRows, assignedRows, watcherRows] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select("id")
+      .eq("assignee_user_id", currentUserId)
+      .is("parent_task_id", null),
+    supabase.from("task_assignees").select("task_id").eq("user_id", currentUserId),
+    includeWatching
+      ? supabase.from("task_watchers").select("task_id").eq("user_id", currentUserId)
+      : Promise.resolve({ data: [] as Array<{ task_id: string | null }> }),
+  ]);
+
+  const allowedTaskIds = Array.from(
+    new Set([
+      ...(primaryAssignedRows.data || []).map((row) => row.id).filter(Boolean),
+      ...(assignedRows.data || []).map((row) => row.task_id).filter(Boolean),
+      ...(watcherRows.data || []).map((row) => row.task_id).filter(Boolean),
+    ])
+  );
+
+  if (allowedTaskIds.length) {
+    request = request.in("id", allowedTaskIds);
+  } else {
+    request = request.eq("id", "00000000-0000-0000-0000-000000000000");
+  }
 
   if (selectedStatuses.length) {
     request = request.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
@@ -918,6 +961,8 @@ export default async function TasksPage(props: {
             onUpdate={updateTaskInlineAction}
             hideCompleted={hideCompleted}
             toggleUrl={toggleUrl}
+            includeWatching={includeWatching}
+            watchToggleUrl={watchToggleUrl}
             sortKey={sortKey}
             sortDir={sortDir}
             initialView={selectedView}

@@ -732,6 +732,8 @@ export default async function ClientTasksPage(props: {
           onUpdate={updateTaskInline}
           hideCompleted={hideCompleted}
           toggleUrl={toggleUrl}
+          includeWatching={false}
+          watchToggleUrl={toggleUrl}
           sortKey={sortKey}
           sortDir={sortDir}
           basePath={`/clients/${clientId}/tasks`}

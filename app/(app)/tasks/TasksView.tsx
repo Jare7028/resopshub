@@ -71,6 +71,8 @@ type TasksViewProps = {
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   hideCompleted: boolean;
   toggleUrl: string;
+  includeWatching: boolean;
+  watchToggleUrl: string;
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
   basePath?: string;
@@ -127,6 +129,8 @@ export default function TasksView({
   onUpdate,
   hideCompleted,
   toggleUrl,
+  includeWatching,
+  watchToggleUrl,
   sortKey,
   sortDir,
   basePath = "/tasks",
@@ -193,6 +197,9 @@ export default function TasksView({
     setCsvParam(params, "project", next.project);
     if (next.due && next.due !== "all") params.set("due", next.due);
     params.set("hide", nextHideCompleted ? "1" : "0");
+    if (includeWatching) {
+      params.set("watch", "1");
+    }
     params.set("sort", nextSortKey);
     params.set("dir", nextSortDir);
     if (nextView !== "table") {
@@ -353,6 +360,36 @@ export default function TasksView({
             className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
           >
             {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
+          </a>
+          <a
+            href={watchToggleUrl}
+            onClick={(event) => {
+              event.preventDefault();
+              const query = buildQuery(
+                filters,
+                sortKey,
+                sortDir,
+                view,
+                hideCompleted
+              );
+              const params = new URLSearchParams(query);
+              if (includeWatching) {
+                params.delete("watch");
+              } else {
+                params.set("watch", "1");
+              }
+              const nextQuery = params.toString();
+              startTransition(() => {
+                router.replace(nextQuery ? `${basePath}?${nextQuery}` : basePath, { scroll: false });
+              });
+            }}
+            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+              includeWatching
+                ? "border-blue-300 bg-blue-50 text-blue-700 hover:border-blue-400 hover:text-blue-800"
+                : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            }`}
+          >
+            {includeWatching ? "Hide Tickets I'm watching" : "Show Tickets I'm watching"}
           </a>
         </div>
         <div className="flex items-center gap-2 text-sm">
