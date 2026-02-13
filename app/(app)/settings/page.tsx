@@ -1912,46 +1912,41 @@ export default async function SettingsPage(props: {
                   )}
 
                   {selectedTaskTemplate ? (
-                    <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
-                      <div className="space-y-2">
+                    <section className="space-y-8">
+                      <section className="space-y-2">
                         <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                          Task template
+                          Task
                         </p>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
                             <h4 className="truncate text-3xl font-semibold text-slate-900">
-                              {selectedTaskTemplate.name}
+                              {selectedTaskTemplate.title}
                             </h4>
-                            <p className="mt-1 text-sm text-slate-600">
-                              Preset assignees:{" "}
-                              {selectedTaskTemplateAssigneeIds.length
-                                ? selectedTaskTemplateAssigneeIds
-                                    .map((userId) => userNameById[userId] || "Unknown user")
-                                    .join(", ")
-                                : "None"}
-                            </p>
+                            <div className="text-sm text-slate-600">
+                              <p>Template: {selectedTaskTemplate.name}</p>
+                              <p>
+                                Preset assignees:{" "}
+                                {selectedTaskTemplateAssigneeIds.length
+                                  ? selectedTaskTemplateAssigneeIds
+                                      .map((userId) => userNameById[userId] || "Unknown user")
+                                      .join(", ")
+                                  : "--"}
+                              </p>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <a
-                              href="/settings?tab=templates&templates=tasks"
-                              className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          <form action={deleteTaskTemplate} className="shrink-0">
+                            <input type="hidden" name="id" value={selectedTaskTemplate.id} />
+                            <ConfirmSubmitButton
+                              className="text-sm font-semibold text-red-600 hover:text-red-700"
+                              confirmText={`Delete template: ${selectedTaskTemplate.name}?`}
                             >
-                              Back to templates
-                            </a>
-                            <form action={deleteTaskTemplate} className="shrink-0">
-                              <input type="hidden" name="id" value={selectedTaskTemplate.id} />
-                              <ConfirmSubmitButton
-                                className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                                confirmText={`Delete template: ${selectedTaskTemplate.name}?`}
-                              >
-                                Delete
-                              </ConfirmSubmitButton>
-                            </form>
-                          </div>
+                              Delete task
+                            </ConfirmSubmitButton>
+                          </form>
                         </div>
-                      </div>
+                      </section>
 
-                      <nav className="mt-4 flex flex-wrap gap-2 border-b border-slate-200 pb-3 text-sm">
+                      <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
                         <a
                           href={`/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
                             selectedTaskTemplate.id
@@ -1991,78 +1986,114 @@ export default async function SettingsPage(props: {
                       </nav>
 
                       {taskTemplatePanel === "details" ? (
-                      <form action={updateTaskTemplate} className="mt-4 grid gap-3 md:grid-cols-6">
-                        <input type="hidden" name="id" value={selectedTaskTemplate.id} />
-                        <input
-                          name="name"
-                          defaultValue={selectedTaskTemplate.name}
-                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          required
-                        />
-                        <input
-                          name="title"
-                          defaultValue={selectedTaskTemplate.title}
-                          className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          required
-                        />
-                        <select
-                          name="status"
-                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          defaultValue={selectedTaskTemplate.status || "to_do"}
-                        >
-                          {taskStatusOptions.map(
-                            (status) => (
-                              <option key={status} value={status}>
-                                {status.replace("_", " ")}
-                              </option>
-                            )
-                          )}
-                        </select>
-                        <select
-                          name="priority"
-                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          defaultValue={selectedTaskTemplate.priority || "medium"}
-                        >
-                          {["low", "medium", "high", "critical"].map((priority) => (
-                            <option key={priority} value={priority}>
-                              {priority}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="md:col-span-4 grid gap-1">
-                          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Template notes
-                          </label>
-                          <textarea
-                            name="description"
-                            defaultValue={selectedTaskTemplate.description || ""}
-                            rows={4}
-                            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <input
-                          type="time"
-                          name="due_time"
-                          defaultValue={selectedTaskTemplate.due_time || ""}
-                          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                        />
-                        <div className="md:col-span-6 relative">
-                          <AssigneeMultiSelect
-                            users={users}
-                            name="assignee_user_ids"
-                            defaultSelected={selectedTaskTemplateAssigneeIds}
-                          />
-                        </div>
-                        <div className="md:col-span-6 flex items-center justify-end">
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                            disabled={Boolean(taskTemplateAssigneesError)}
+                      <section className="rounded-lg border border-slate-200 bg-white">
+                        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
+                          <h2 className="text-lg font-semibold text-slate-900">Task details</h2>
+                          <a
+                            href={`/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+                              selectedTaskTemplate.id
+                            )}&task_template_panel=custom-fields`}
+                            className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                           >
-                            Save
-                          </button>
+                            Add field
+                          </a>
                         </div>
-                      </form>
+                        <div className="px-6 pb-6">
+                          <form action={updateTaskTemplate} className="mt-4 grid gap-4 md:grid-cols-4">
+                            <input type="hidden" name="id" value={selectedTaskTemplate.id} />
+                            <input
+                              name="title"
+                              defaultValue={selectedTaskTemplate.title}
+                              className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                              required
+                            />
+                            <div className="grid gap-1">
+                              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Status
+                              </label>
+                              <select
+                                name="status"
+                                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                defaultValue={selectedTaskTemplate.status || "to_do"}
+                              >
+                                {taskStatusOptions.map((status) => (
+                                  <option key={status} value={status}>
+                                    {status.replace("_", " ")}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="grid gap-1">
+                              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Priority
+                              </label>
+                              <select
+                                name="priority"
+                                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                defaultValue={selectedTaskTemplate.priority || "medium"}
+                              >
+                                {["low", "medium", "high", "critical"].map((priority) => (
+                                  <option key={priority} value={priority}>
+                                    {priority}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="grid gap-1 md:col-span-2">
+                              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Assignees
+                              </label>
+                              <div className="relative">
+                                <AssigneeMultiSelect
+                                  users={users}
+                                  name="assignee_user_ids"
+                                  defaultSelected={selectedTaskTemplateAssigneeIds}
+                                />
+                              </div>
+                            </div>
+                            <div className="grid gap-1">
+                              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Due time
+                              </label>
+                              <input
+                                type="time"
+                                name="due_time"
+                                defaultValue={selectedTaskTemplate.due_time || ""}
+                                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </div>
+                            <div className="grid gap-1 md:col-span-3">
+                              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Template name
+                              </label>
+                              <input
+                                name="name"
+                                defaultValue={selectedTaskTemplate.name}
+                                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                required
+                              />
+                            </div>
+                            <div className="grid gap-1 md:col-span-4">
+                              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Template notes
+                              </label>
+                              <textarea
+                                name="description"
+                                defaultValue={selectedTaskTemplate.description || ""}
+                                rows={4}
+                                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </div>
+                            <button
+                              type="submit"
+                              className="md:col-span-4 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                              disabled={Boolean(taskTemplateAssigneesError)}
+                            >
+                              Save task
+                            </button>
+                          </form>
+                        </div>
+                      </section>
                       ) : null}
 
                       {taskTemplatePanel === "custom-fields" ? (
