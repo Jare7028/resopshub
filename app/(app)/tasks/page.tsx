@@ -179,16 +179,64 @@ export default async function TasksPage(props: {
     due_time: string | null;
     recurrence_frequency: string | null;
     recurrence_lead_days: number | null;
+    source: "task" | "legacy";
   };
 
-  const { data: taskTemplatesRaw, error: taskTemplatesError } = await supabase
+  const { data: taskTemplatesFromTasksRaw, error: taskTemplatesFromTasksError } = await supabase
+    .from("tasks")
+    .select(
+      "id,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
+    )
+    .eq("status", "template")
+    .is("parent_task_id", null)
+    .order("title", { ascending: true });
+
+  const { data: taskTemplatesLegacyRaw, error: taskTemplatesLegacyError } = await supabase
     .from("task_templates")
     .select(
       "id,name,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
     )
     .order("name", { ascending: true });
 
-  const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as TaskTemplateRow[];
+  const taskTemplateIdsFromTasks = new Set(
+    ((taskTemplatesFromTasksRaw || []) as Array<{ id: string }>).map((row) => row.id)
+  );
+  const taskTemplatesFromTasks = ((taskTemplatesFromTasksRaw || []) as Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+    priority: string;
+    due_time: string | null;
+    recurrence_frequency: string | null;
+    recurrence_lead_days: number | null;
+  }>).map((row) => ({
+    ...row,
+    name: row.title,
+    status: "to_do",
+    source: "task" as const,
+  }));
+  const taskTemplatesFromLegacy = ((taskTemplatesLegacyRaw || []) as Array<{
+    id: string;
+    name: string;
+    title: string;
+    description: string | null;
+    status: string;
+    priority: string;
+    due_time: string | null;
+    recurrence_frequency: string | null;
+    recurrence_lead_days: number | null;
+  }>)
+    .filter((row) => !taskTemplateIdsFromTasks.has(row.id))
+    .map((row) => ({
+      ...row,
+      source: "legacy" as const,
+    }));
+
+  const taskTemplatesError =
+    taskTemplatesFromTasksError ||
+    (taskTemplatesFromTasks.length ? null : taskTemplatesLegacyError);
+  const taskTemplates = [...taskTemplatesFromTasks, ...taskTemplatesFromLegacy] as TaskTemplateRow[];
   const selectedTemplate =
     createMode === "template" && templateTaskId
       ? taskTemplates.find((tpl) => tpl.id === templateTaskId) || null
@@ -333,6 +381,10 @@ export default async function TasksPage(props: {
 
   const wantsCompletedStatuses =
     selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+  const wantsTemplateStatus = selectedStatuses.includes("template");
+  if (!wantsTemplateStatus) {
+    request = request.neq("status", "template");
+  }
   if (hideCompleted && !wantsCompletedStatuses) {
     request = request.not("status", "in", "(completed,cancelled)");
   }
@@ -501,22 +553,64 @@ export default async function TasksPage(props: {
       new Set(assigneeIds.filter((value) => value !== "unassigned"))
     );
     let templateAssigneeIds: string[] = [];
+    const selectedTemplateSource =
+      taskTemplates.find((tpl) => tpl.id === templateTaskIdFromForm)?.source || "legacy";
     if (templateTaskIdFromForm) {
-      const { data: templateAssigneeRows, error: templateAssigneesError } = await supabase
-        .from("task_template_assignees")
-        .select("user_id")
-        .eq("task_template_id", templateTaskIdFromForm);
-      if (templateAssigneesError && !isSupabaseMissingTableError(templateAssigneesError)) {
-        redirect(
-          buildTasksRedirectUrl(returnTo, {
-            tab: "add",
-            error: templateAssigneesError.message,
-          })
-        );
+      if (selectedTemplateSource === "task") {
+        const [templateTaskResponse, templateAssigneesResponse] = await Promise.all([
+          supabase
+            .from("tasks")
+            .select("assignee_user_id")
+            .eq("id", templateTaskIdFromForm)
+            .maybeSingle(),
+          supabase
+            .from("task_assignees")
+            .select("user_id")
+            .eq("task_id", templateTaskIdFromForm),
+        ]);
+
+        if (templateTaskResponse.error) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: templateTaskResponse.error.message,
+            })
+          );
+        }
+        if (templateAssigneesResponse.error) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: templateAssigneesResponse.error.message,
+            })
+          );
+        }
+
+        templateAssigneeIds = Array.from(
+          new Set(
+            [
+              templateTaskResponse.data?.assignee_user_id || null,
+              ...(templateAssigneesResponse.data || []).map((row) => row.user_id),
+            ].filter(Boolean)
+          )
+        ) as string[];
+      } else {
+        const { data: templateAssigneeRows, error: templateAssigneesError } = await supabase
+          .from("task_template_assignees")
+          .select("user_id")
+          .eq("task_template_id", templateTaskIdFromForm);
+        if (templateAssigneesError && !isSupabaseMissingTableError(templateAssigneesError)) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: templateAssigneesError.message,
+            })
+          );
+        }
+        templateAssigneeIds = (templateAssigneeRows || [])
+          .map((row) => row.user_id)
+          .filter(Boolean);
       }
-      templateAssigneeIds = (templateAssigneeRows || [])
-        .map((row) => row.user_id)
-        .filter(Boolean);
     }
     const uniqueAssigneeIds = Array.from(
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
@@ -595,6 +689,169 @@ export default async function TasksPage(props: {
     }
 
     const taskId = created?.id;
+    if (taskId && templateTaskIdFromForm) {
+      const templateEntityType = selectedTemplateSource === "task" ? "task" : "task_template";
+      const { data: templateCustomFieldsRaw, error: templateCustomFieldsError } = await supabase
+        .from("custom_fields")
+        .select("id,key,label,field_kind,position")
+        .eq("entity_type", templateEntityType)
+        .eq("entity_id", templateTaskIdFromForm);
+      if (templateCustomFieldsError && !isSupabaseMissingTableError(templateCustomFieldsError)) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: templateCustomFieldsError.message,
+          })
+        );
+      }
+
+      const templateCustomFields = (templateCustomFieldsError
+        ? []
+        : templateCustomFieldsRaw || []) as Array<{
+        id: string;
+        key: string;
+        label: string;
+        field_kind: "text" | "dropdown";
+        position: number;
+      }>;
+      const templateCustomFieldIds = templateCustomFields.map((field) => field.id);
+      if (templateCustomFieldIds.length) {
+        const { data: templateCustomOptionsRaw, error: templateCustomOptionsError } = await supabase
+          .from("custom_field_options")
+          .select("field_id,value,position")
+          .in("field_id", templateCustomFieldIds)
+          .order("position", { ascending: true });
+        if (templateCustomOptionsError && !isSupabaseMissingTableError(templateCustomOptionsError)) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: templateCustomOptionsError.message,
+            })
+          );
+        }
+
+        const { data: templateCustomValuesRaw, error: templateCustomValuesError } = await supabase
+          .from("custom_field_values")
+          .select("field_id,text_value,option_value")
+          .eq("entity_type", templateEntityType)
+          .eq("entity_id", templateTaskIdFromForm)
+          .in("field_id", templateCustomFieldIds);
+        if (templateCustomValuesError && !isSupabaseMissingTableError(templateCustomValuesError)) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: templateCustomValuesError.message,
+            })
+          );
+        }
+
+        const templateCustomValues = (templateCustomValuesError
+          ? []
+          : templateCustomValuesRaw || []) as Array<{
+          field_id: string;
+          text_value: string | null;
+          option_value: string | null;
+        }>;
+        const templateCustomOptions = (templateCustomOptionsError
+          ? []
+          : templateCustomOptionsRaw || []) as Array<{
+          field_id: string;
+          value: string;
+          position: number;
+        }>;
+
+        const { data: createdFields, error: createFieldsError } = await supabase
+          .from("custom_fields")
+          .insert(
+            templateCustomFields.map((field) => ({
+              entity_type: "task",
+              entity_id: taskId,
+              key: field.key,
+              label: field.label,
+              field_kind: field.field_kind,
+              position: field.position,
+            }))
+          )
+          .select("id,key");
+        if (createFieldsError && !isSupabaseMissingTableError(createFieldsError)) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: createFieldsError.message,
+            })
+          );
+        }
+
+        const fieldIdByTemplateId = new Map<string, string>();
+        for (const templateField of templateCustomFields) {
+          const match = (createdFields || []).find((field) => field.key === templateField.key);
+          if (match?.id) {
+            fieldIdByTemplateId.set(templateField.id, match.id);
+          }
+        }
+
+        const optionInserts = templateCustomOptions
+          .map((option) => {
+            const clonedFieldId = fieldIdByTemplateId.get(option.field_id);
+            if (!clonedFieldId) return null;
+            return {
+              field_id: clonedFieldId,
+              value: option.value,
+              position: option.position,
+            };
+          })
+          .filter(Boolean) as Array<{ field_id: string; value: string; position: number }>;
+        if (optionInserts.length) {
+          const { error: optionsCopyError } = await supabase
+            .from("custom_field_options")
+            .insert(optionInserts);
+          if (optionsCopyError && !isSupabaseMissingTableError(optionsCopyError)) {
+            redirect(
+              buildTasksRedirectUrl(returnTo, {
+                tab: "add",
+                error: optionsCopyError.message,
+              })
+            );
+          }
+        }
+
+        const valueInserts = templateCustomValues
+          .map((row) => {
+            const clonedFieldId = fieldIdByTemplateId.get(row.field_id);
+            if (!clonedFieldId) return null;
+            const fieldKind =
+              templateCustomFields.find((field) => field.id === row.field_id)?.field_kind ||
+              "text";
+            return {
+              entity_type: "task",
+              entity_id: taskId,
+              field_id: clonedFieldId,
+              text_value: fieldKind === "text" ? row.text_value : null,
+              option_value: fieldKind === "dropdown" ? row.option_value : null,
+            };
+          })
+          .filter(Boolean) as Array<{
+          entity_type: "task";
+          entity_id: string;
+          field_id: string;
+          text_value: string | null;
+          option_value: string | null;
+        }>;
+        if (valueInserts.length) {
+          const { error: customValuesError } = await supabase
+            .from("custom_field_values")
+            .upsert(valueInserts, { onConflict: "entity_type,entity_id,field_id" });
+          if (customValuesError && !isSupabaseMissingTableError(customValuesError)) {
+            redirect(
+              buildTasksRedirectUrl(returnTo, {
+                tab: "add",
+                error: customValuesError.message,
+              })
+            );
+          }
+        }
+      }
+    }
     if (taskId && uniqueAssigneeIds.length) {
         const inserts = uniqueAssigneeIds.map((userId) => ({
           task_id: taskId,
@@ -614,33 +871,87 @@ export default async function TasksPage(props: {
     }
 
     if (taskId && templateTaskIdFromForm) {
-      const { data: subtaskTemplatesRaw, error: subtaskTemplatesError } = await supabase
-        .from("task_template_subtasks")
-        .select("id,title,description,status,priority,position")
-        .eq("task_template_id", templateTaskIdFromForm)
-        .order("position", { ascending: true });
-
-      const subtaskTemplates = (subtaskTemplatesError
-        ? []
-        : subtaskTemplatesRaw || []) as Array<{
+      let subtaskTemplates: Array<{
         id: string;
         title: string;
         description: string | null;
         status: string;
         priority: string;
-        position: number;
-      }>;
+        assignee_user_id?: string | null;
+      }> = [];
+      const assigneeIdsBySubtaskTemplateId: Record<string, string[]> = {};
 
-      if (subtaskTemplatesError && !isSupabaseMissingTableError(subtaskTemplatesError)) {
-        redirect(
-          buildTasksRedirectUrl(returnTo, {
-            tab: "add",
-            error: subtaskTemplatesError.message,
-          })
-        );
-      }
+      if (selectedTemplateSource === "task") {
+        const { data: subtaskTemplatesRaw, error: subtaskTemplatesError } = await supabase
+          .from("tasks")
+          .select("id,title,description,status,priority,assignee_user_id")
+          .eq("parent_task_id", templateTaskIdFromForm)
+          .order("created_at", { ascending: true });
+        if (subtaskTemplatesError) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: subtaskTemplatesError.message,
+            })
+          );
+        }
+        subtaskTemplates = (subtaskTemplatesRaw || []) as Array<{
+          id: string;
+          title: string;
+          description: string | null;
+          status: string;
+          priority: string;
+          assignee_user_id?: string | null;
+        }>;
 
-      if (subtaskTemplates.length) {
+        const subtaskTemplateIds = subtaskTemplates.map((tpl) => tpl.id).filter(Boolean);
+        if (subtaskTemplateIds.length) {
+          const { data: taskAssigneesRaw, error: taskAssigneesError } = await supabase
+            .from("task_assignees")
+            .select("task_id,user_id")
+            .in("task_id", subtaskTemplateIds);
+          if (taskAssigneesError) {
+            redirect(
+              buildTasksRedirectUrl(returnTo, {
+                tab: "add",
+                error: taskAssigneesError.message,
+              })
+            );
+          }
+          (taskAssigneesRaw || []).forEach((row) => {
+            assigneeIdsBySubtaskTemplateId[row.task_id] ||= [];
+            assigneeIdsBySubtaskTemplateId[row.task_id].push(row.user_id);
+          });
+        }
+        subtaskTemplates.forEach((tpl) => {
+          if (!tpl.assignee_user_id) return;
+          assigneeIdsBySubtaskTemplateId[tpl.id] ||= [];
+          assigneeIdsBySubtaskTemplateId[tpl.id].push(tpl.assignee_user_id);
+        });
+      } else {
+        const { data: subtaskTemplatesRaw, error: subtaskTemplatesError } = await supabase
+          .from("task_template_subtasks")
+          .select("id,title,description,status,priority,position")
+          .eq("task_template_id", templateTaskIdFromForm)
+          .order("position", { ascending: true });
+        if (subtaskTemplatesError && !isSupabaseMissingTableError(subtaskTemplatesError)) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: subtaskTemplatesError.message,
+            })
+          );
+        }
+        subtaskTemplates = ((subtaskTemplatesError
+          ? []
+          : subtaskTemplatesRaw || []) as Array<{
+          id: string;
+          title: string;
+          description: string | null;
+          status: string;
+          priority: string;
+        }>);
+
         const subtaskTemplateIds = subtaskTemplates.map((tpl) => tpl.id).filter(Boolean);
         const { data: subtaskTemplateAssigneesRaw, error: subtaskTemplateAssigneesError } =
           subtaskTemplateIds.length
@@ -648,8 +959,10 @@ export default async function TasksPage(props: {
                 .from("task_template_subtask_assignees")
                 .select("task_template_subtask_id,user_id")
                 .in("task_template_subtask_id", subtaskTemplateIds)
-            : { data: [] as Array<{ task_template_subtask_id: string; user_id: string }>, error: null };
-
+            : {
+                data: [] as Array<{ task_template_subtask_id: string; user_id: string }>,
+                error: null,
+              };
         if (
           subtaskTemplateAssigneesError &&
           !isSupabaseMissingTableError(subtaskTemplateAssigneesError)
@@ -661,18 +974,16 @@ export default async function TasksPage(props: {
             })
           );
         }
+        ((subtaskTemplateAssigneesError ? [] : subtaskTemplateAssigneesRaw || []) as Array<{
+          task_template_subtask_id: string;
+          user_id: string;
+        }>).forEach((row) => {
+          assigneeIdsBySubtaskTemplateId[row.task_template_subtask_id] ||= [];
+          assigneeIdsBySubtaskTemplateId[row.task_template_subtask_id].push(row.user_id);
+        });
+      }
 
-        const assigneeIdsBySubtaskTemplateId = (
-          (subtaskTemplateAssigneesError ? [] : subtaskTemplateAssigneesRaw || []) as Array<{
-            task_template_subtask_id: string;
-            user_id: string;
-          }>
-        ).reduce<Record<string, string[]>>((acc, row) => {
-          acc[row.task_template_subtask_id] ||= [];
-          acc[row.task_template_subtask_id].push(row.user_id);
-          return acc;
-        }, {});
-
+      if (subtaskTemplates.length) {
         const primaryAssigneeForSubtasks = primaryAssignee || null;
         const subtaskPlans = subtaskTemplates.map((tpl) => {
           const subtaskAssigneeIds = Array.from(

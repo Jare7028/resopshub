@@ -17,6 +17,8 @@ import {
   type CustomFieldOptionRow,
   type CustomFieldRow,
 } from "@/lib/customFields";
+import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
+import { extractPlainText } from "@/lib/tiptapText";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
@@ -53,6 +55,7 @@ const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
   feature_suggestion_comment: true,
   feature_suggestion_status: true,
 };
+const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 function checkbox(formData: FormData, key: string) {
   return String(formData.get(key) || "") === "on";
@@ -516,6 +519,48 @@ export default async function SettingsPage(props: {
       );
     }
 
+    if (created?.id) {
+      let { error: templateTaskError } = await supabase
+        .from("tasks")
+        .insert({
+          id: created.id,
+          title,
+          description: description || null,
+          status: "template",
+          priority,
+          due_time: dueTime || null,
+          assignee_user_id: assigneeIds[0] || null,
+          content: DEFAULT_EDITOR_CONTENT,
+          content_text: defaultContentText,
+        });
+      if (
+        templateTaskError &&
+        String(templateTaskError.message || "")
+          .toLowerCase()
+          .includes("invalid input value for enum task_status")
+      ) {
+        const retry = await supabase.from("tasks").insert({
+          id: created.id,
+          title,
+          description: description || null,
+          status,
+          priority,
+          due_time: dueTime || null,
+          assignee_user_id: assigneeIds[0] || null,
+          content: DEFAULT_EDITOR_CONTENT,
+          content_text: defaultContentText,
+        });
+        templateTaskError = retry.error;
+      }
+      if (templateTaskError) {
+        redirect(
+          `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+            templateTaskError.message
+          )}`
+        );
+      }
+    }
+
     if (created?.id && assigneeIds.length) {
       const { error: assigneeError } = await supabase
         .from("task_template_assignees")
@@ -534,6 +579,20 @@ export default async function SettingsPage(props: {
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             created.id
           )}&error=${encodeURIComponent(message)}`
+        );
+      }
+
+      const { error: taskAssigneeError } = await supabase.from("task_assignees").insert(
+        assigneeIds.map((userId) => ({
+          task_id: created.id,
+          user_id: userId,
+        }))
+      );
+      if (taskAssigneeError) {
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            created.id
+          )}&error=${encodeURIComponent(taskAssigneeError.message)}`
         );
       }
     }
@@ -593,6 +652,44 @@ export default async function SettingsPage(props: {
       );
     }
 
+    let { error: templateTaskError } = await supabase
+      .from("tasks")
+      .update({
+        title,
+        description: description || null,
+        status: "template",
+        priority,
+        due_time: dueTime || null,
+        assignee_user_id: assigneeIds[0] || null,
+      })
+      .eq("id", id);
+    if (
+      templateTaskError &&
+      String(templateTaskError.message || "")
+        .toLowerCase()
+        .includes("invalid input value for enum task_status")
+    ) {
+      const retry = await supabase
+        .from("tasks")
+        .update({
+          title,
+          description: description || null,
+          status,
+          priority,
+          due_time: dueTime || null,
+          assignee_user_id: assigneeIds[0] || null,
+        })
+        .eq("id", id);
+      templateTaskError = retry.error;
+    }
+    if (templateTaskError) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          id
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(templateTaskError.message)}`
+      );
+    }
+
     const { error: clearAssigneesError } = await supabase
       .from("task_template_assignees")
       .delete()
@@ -605,6 +702,18 @@ export default async function SettingsPage(props: {
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           id
         )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
+      );
+    }
+
+    const { error: clearTaskAssigneesError } = await supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", id);
+    if (clearTaskAssigneesError) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          id
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(clearTaskAssigneesError.message)}`
       );
     }
 
@@ -628,6 +737,20 @@ export default async function SettingsPage(props: {
           )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
         );
       }
+
+      const { error: taskAssigneeError } = await supabase.from("task_assignees").insert(
+        assigneeIds.map((userId) => ({
+          task_id: id,
+          user_id: userId,
+        }))
+      );
+      if (taskAssigneeError) {
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            id
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(taskAssigneeError.message)}`
+        );
+      }
     }
 
     revalidatePath("/settings");
@@ -647,6 +770,27 @@ export default async function SettingsPage(props: {
     const id = String(formData.get("id") || "").trim();
     if (!id) {
       redirect("/settings?tab=templates&templates=tasks&error=Missing%20template%20id");
+    }
+
+    const { error: deleteSubtasksError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("parent_task_id", id);
+    if (deleteSubtasksError) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          deleteSubtasksError.message
+        )}`
+      );
+    }
+
+    const { error: deleteTemplateTaskError } = await supabase.from("tasks").delete().eq("id", id);
+    if (deleteTemplateTaskError) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          deleteTemplateTaskError.message
+        )}`
+      );
     }
 
     const { error } = await supabase.from("task_templates").delete().eq("id", id);
@@ -1081,6 +1225,30 @@ export default async function SettingsPage(props: {
         )}`
       );
     }
+
+    if (createdSubtask?.id) {
+      const { error: createSubtaskTaskError } = await supabase
+        .from("tasks")
+        .insert({
+          id: createdSubtask.id,
+          parent_task_id: taskTemplateId,
+          title,
+          description: description || null,
+          status,
+          priority,
+          assignee_user_id: assigneeIds[0] || null,
+          content: DEFAULT_EDITOR_CONTENT,
+          content_text: defaultContentText,
+        });
+      if (createSubtaskTaskError) {
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            taskTemplateId
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(createSubtaskTaskError.message)}`
+        );
+      }
+    }
+
     if (createdSubtask?.id && assigneeIds.length) {
       const { error: assigneeError } = await supabase
         .from("task_template_subtask_assignees")
@@ -1098,6 +1266,20 @@ export default async function SettingsPage(props: {
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             taskTemplateId
           )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
+        );
+      }
+
+      const { error: taskAssigneeError } = await supabase.from("task_assignees").insert(
+        assigneeIds.map((userId) => ({
+          task_id: createdSubtask.id,
+          user_id: userId,
+        }))
+      );
+      if (taskAssigneeError) {
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            taskTemplateId
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(taskAssigneeError.message)}`
         );
       }
     }
@@ -1127,6 +1309,15 @@ export default async function SettingsPage(props: {
     if (error) {
       redirect(
         `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(error.message)}`
+      );
+    }
+
+    const { error: deleteSubtaskTaskError } = await supabase.from("tasks").delete().eq("id", id);
+    if (deleteSubtaskTaskError) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          deleteSubtaskTaskError.message
+        )}`
       );
     }
 
@@ -1185,6 +1376,24 @@ export default async function SettingsPage(props: {
       );
     }
 
+    const { error: updateSubtaskTaskError } = await supabase
+      .from("tasks")
+      .update({
+        title,
+        description: description || null,
+        status,
+        priority,
+        assignee_user_id: assigneeIds[0] || null,
+      })
+      .eq("id", id);
+    if (updateSubtaskTaskError) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          taskTemplateId
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(updateSubtaskTaskError.message)}`
+      );
+    }
+
     const { error: clearAssigneesError } = await supabase
       .from("task_template_subtask_assignees")
       .delete()
@@ -1195,6 +1404,18 @@ export default async function SettingsPage(props: {
         `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
           taskTemplateId
         )}${taskTemplatePanelQuery}&error=${encodeURIComponent(clearAssigneesError.message)}`
+      );
+    }
+
+    const { error: clearTaskAssigneesError } = await supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", id);
+    if (clearTaskAssigneesError) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          taskTemplateId
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(clearTaskAssigneesError.message)}`
       );
     }
 
@@ -1225,6 +1446,20 @@ export default async function SettingsPage(props: {
           `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
             taskTemplateId
           )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
+        );
+      }
+
+      const { error: taskAssigneeError } = await supabase.from("task_assignees").insert(
+        assigneeIds.map((userId) => ({
+          task_id: id,
+          user_id: userId,
+        }))
+      );
+      if (taskAssigneeError) {
+        redirect(
+          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+            taskTemplateId
+          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(taskAssigneeError.message)}`
         );
       }
     }
@@ -1886,9 +2121,7 @@ export default async function SettingsPage(props: {
                                   <td className="px-6 py-3 font-semibold text-slate-900">
                                     <a
                                       className="underline-offset-2 hover:underline"
-                                      href={`/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-                                        tpl.id
-                                      )}`}
+                                      href={`/tasks/${encodeURIComponent(tpl.id)}`}
                                     >
                                       {tpl.name}
                                     </a>

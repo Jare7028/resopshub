@@ -20,6 +20,7 @@ as $$
       and auth.uid() is not null
       and (
         public.is_admin()
+        or t.status::text = 'template'
         or t.assignee_user_id = (select app_uid from me)
         or t.assignee_user_id = (select auth_uid from me)
         or ta.user_id is not null
@@ -46,6 +47,7 @@ as $$
       and auth.uid() is not null
       and (
         public.is_admin()
+        or t.status::text = 'template'
         or t.assignee_user_id = (select app_uid from me)
         or t.assignee_user_id = (select auth_uid from me)
         or ta.user_id is not null
@@ -86,4 +88,3 @@ create policy tasks_delete
     auth.uid() is not null
     and public.can_access_task(id)
   );
-
