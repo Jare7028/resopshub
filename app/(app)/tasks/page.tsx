@@ -47,10 +47,29 @@ const dueDateFilters = [
 ] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
+type UserTaskTablePreferencesRow = {
+  status: string[] | null;
+  priority: string[] | null;
+  assignee: string[] | null;
+  due: string | null;
+  client: string[] | null;
+  project: string[] | null;
+  hide_completed: boolean | null;
+  include_watching: boolean | null;
+  sort_key: string | null;
+  sort_dir: string | null;
+  view_mode: string | null;
+};
+
 function isTemplateStatusEnumError(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const message = String((error as { message?: unknown }).message || "").toLowerCase();
   return message.includes("invalid input value for enum") && message.includes("template");
+}
+
+function normalizePreferenceValues(value: string[] | null | undefined) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 function formatDbError(
@@ -130,6 +149,26 @@ export default async function TasksPage(props: {
   const assignmentUserIds = Array.from(
     new Set([authUserId, currentAppUserId].filter(Boolean))
   ) as string[];
+  let taskTablePreferences: UserTaskTablePreferencesRow | null = null;
+  let taskPreferencesAvailable = true;
+  if (currentAppUserId) {
+    const { data, error } = await supabase
+      .from("user_task_table_preferences")
+      .select(
+        "status,priority,assignee,due,client,project,hide_completed,include_watching,sort_key,sort_dir,view_mode"
+      )
+      .eq("user_id", currentAppUserId)
+      .maybeSingle();
+    if (error) {
+      if (isSupabaseMissingTableError(error)) {
+        taskPreferencesAvailable = false;
+      } else {
+        console.error("[tasks.preferences.select]", error.message);
+      }
+    } else {
+      taskTablePreferences = (data || null) as UserTaskTablePreferencesRow | null;
+    }
+  }
   const { data: statusOptionsRaw } = await supabase
     .from("status_options")
     .select("entity_type,value,position")
@@ -149,23 +188,60 @@ export default async function TasksPage(props: {
     createModeRaw === "template" ? "template" : "new";
   const templateTaskId = String(searchParams?.template_task_id || "").trim();
 
-  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const viewSource =
+    typeof searchParams?.view !== "undefined"
+      ? searchParams?.view
+      : taskTablePreferences?.view_mode;
+  const viewRaw = String(viewSource || "").trim().toLowerCase();
   const selectedView: "table" | "gantt" | "board" =
     viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
 
-  const sortKey = normalizeTaskSortKey(searchParams?.sort as string | undefined);
-  const sortDir = normalizeTaskSortDir(searchParams?.dir as string | undefined);
+  const sortSource =
+    typeof searchParams?.sort !== "undefined"
+      ? searchParams?.sort
+      : taskTablePreferences?.sort_key;
+  const dirSource =
+    typeof searchParams?.dir !== "undefined"
+      ? searchParams?.dir
+      : taskTablePreferences?.sort_dir;
+  const sortKey = normalizeTaskSortKey(sortSource as string | undefined);
+  const sortDir = normalizeTaskSortDir(dirSource as string | undefined);
 
-  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
-  const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
-  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
-  const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
-  const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
-  let selectedDue = (searchParams?.due || "all").trim();
-  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
-  const includeWatching = (searchParams?.watch ?? "0").trim() === "1";
+  const selectedStatusesRaw =
+    typeof searchParams?.status !== "undefined"
+      ? parseCsvParam(searchParams?.status)
+      : normalizePreferenceValues(taskTablePreferences?.status);
+  const selectedPrioritiesRaw =
+    typeof searchParams?.priority !== "undefined"
+      ? parseCsvParam(searchParams?.priority)
+      : normalizePreferenceValues(taskTablePreferences?.priority);
+  const selectedAssigneesRaw =
+    typeof searchParams?.assignee !== "undefined"
+      ? parseCsvParam(searchParams?.assignee)
+      : normalizePreferenceValues(taskTablePreferences?.assignee);
+  const selectedClientIdsRaw =
+    typeof searchParams?.client !== "undefined"
+      ? parseCsvParam(searchParams?.client)
+      : normalizePreferenceValues(taskTablePreferences?.client);
+  const selectedProjectIdsRaw =
+    typeof searchParams?.project !== "undefined"
+      ? parseCsvParam(searchParams?.project)
+      : normalizePreferenceValues(taskTablePreferences?.project);
+  const dueSource =
+    typeof searchParams?.due !== "undefined"
+      ? searchParams?.due
+      : taskTablePreferences?.due;
+  let selectedDue = String(dueSource || "all").trim();
+  const hideCompleted =
+    typeof searchParams?.hide !== "undefined"
+      ? (searchParams?.hide ?? "1").trim() !== "0"
+      : taskTablePreferences?.hide_completed ?? true;
+  const includeWatching =
+    typeof searchParams?.watch !== "undefined"
+      ? (searchParams?.watch ?? "0").trim() === "1"
+      : taskTablePreferences?.include_watching ?? false;
   const activeTab = normalizeTasksTabKey(searchParams?.tab);
 
   const allowedDueValues = new Set<string>(
@@ -256,6 +332,31 @@ export default async function TasksPage(props: {
 
   const projectIdSet = new Set((projects || []).map((project) => project.id));
   const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
+
+  if (currentAppUserId && taskPreferencesAvailable) {
+    const { error: savePreferencesError } = await supabase
+      .from("user_task_table_preferences")
+      .upsert(
+        {
+          user_id: currentAppUserId,
+          status: selectedStatuses,
+          priority: selectedPriorities,
+          assignee: selectedAssignees,
+          due: selectedDue,
+          client: selectedClientIds,
+          project: selectedProjectIds,
+          hide_completed: hideCompleted,
+          include_watching: includeWatching,
+          sort_key: sortKey,
+          sort_dir: sortDir,
+          view_mode: selectedView,
+        },
+        { onConflict: "user_id" }
+      );
+    if (savePreferencesError && !isSupabaseMissingTableError(savePreferencesError)) {
+      console.error("[tasks.preferences.save]", savePreferencesError.message);
+    }
+  }
 
   const returnParams = new URLSearchParams();
   setCsvParam(returnParams, "status", selectedStatuses);
