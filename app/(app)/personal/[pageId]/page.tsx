@@ -167,6 +167,7 @@ export default async function PersonalPage(props: {
 
   const pageId = page.id;
   const pageTitle = page.title || "Personal page";
+  const pageContent = page.content ?? null;
   const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
   const sectionId = page.section_id;
   const pageOwnerId = page.owner_id;
@@ -562,30 +563,12 @@ export default async function PersonalPage(props: {
 
     const clientId = String(formData.get("client_id") || "").trim();
     const visibility = String(formData.get("visibility") || "internal").trim() || "internal";
-    const titlePrefix = pageTitle.trim() ? `Personal: ${pageTitle}` : "Personal page";
-    const sourceUrl = `/personal/${pageId}`;
-    const linkDoc = {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [
-            { type: "text", text: "Linked personal page: " },
-            {
-              type: "text",
-              text: titlePrefix,
-              marks: [{ type: "link", attrs: { href: sourceUrl } }],
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          content: [{ type: "text", text: sourceUrl }],
-        },
-        { type: "paragraph" },
-      ],
-    };
-    const contentText = extractPlainText(linkDoc);
+    const titlePrefix = pageTitle.trim() || "Personal page";
+    const sourceContent =
+      pageContent && typeof pageContent === "object" ? pageContent : null;
+    const contentText = sourceContent
+      ? extractPlainText(sourceContent)
+      : String(pageContent || "").trim();
     const now = new Date().toISOString();
 
     if (!clientId) {
@@ -601,7 +584,7 @@ export default async function PersonalPage(props: {
       title: titlePrefix,
       visibility,
       content: contentText,
-      content_json: linkDoc,
+      content_json: sourceContent,
       user_id: user.id,
       last_edited_at: now,
       last_edited_by_user_id: user.id,
@@ -617,7 +600,7 @@ export default async function PersonalPage(props: {
       const { error: fallbackError } = await supabase.from("notes").insert({
         client_id: clientId,
         project_id: null,
-        content: `Linked personal page: ${titlePrefix}\n${sourceUrl}`,
+        content: contentText,
         visibility,
         user_id: user.id,
       });
