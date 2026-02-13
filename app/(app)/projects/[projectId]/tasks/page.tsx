@@ -462,6 +462,7 @@ export default async function ProjectTasksPage(props: {
       due_time: dueTime || null,
       assignee_user_id: primaryAssignee || null,
       parent_task_id: parentTaskId || null,
+      created_by_user_id: authData.user.id,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };
@@ -573,6 +574,7 @@ export default async function ProjectTasksPage(props: {
               due_date: null,
               due_time: null,
               assignee_user_id: subtaskAssigneeIds[0] || primaryAssignee || null,
+              created_by_user_id: authData.user.id,
               content: DEFAULT_EDITOR_CONTENT,
               content_text: defaultContentText,
             },

@@ -699,6 +699,7 @@ export default async function TaskDetailPage(props: {
       due_date: dueDate || null,
       due_time: dueTime || null,
       assignee_user_id: primaryAssignee || null,
+      created_by_user_id: authData.user.id,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };

@@ -481,6 +481,7 @@ export default async function ClientProjectsPage(props: {
               status: normalizeTaskStatusOrDefault(String(tpl.status || "to_do")),
               priority: String(tpl.priority || "medium"),
               assignee_user_id: primaryAssignee,
+              created_by_user_id: creatorId,
               content: DEFAULT_EDITOR_CONTENT,
               content_text: defaultContentText,
             })
@@ -584,6 +585,7 @@ export default async function ClientProjectsPage(props: {
                   due_date: null,
                   due_time: null,
                   assignee_user_id: subtaskAssigneeIds[0] || primaryAssignee,
+                  created_by_user_id: creatorId,
                   content: DEFAULT_EDITOR_CONTENT,
                   content_text: defaultContentText,
                 },

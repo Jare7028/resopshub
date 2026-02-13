@@ -112,6 +112,11 @@ create policy tasks_insert
             and (
               public.is_admin()
               or parent.status::text = 'template'
+              or exists (
+                select 1
+                from public.task_templates tt
+                where tt.id = parent.id
+              )
               or parent.created_by_user_id in (public.current_app_user_id(), auth.uid())
               or parent.assignee_user_id in (public.current_app_user_id(), auth.uid())
               or pta.user_id is not null

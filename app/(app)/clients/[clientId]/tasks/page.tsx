@@ -428,6 +428,7 @@ export default async function ClientTasksPage(props: {
       due_date: dueDate || null,
       due_time: dueTime || null,
       assignee_user_id: primaryAssignee || null,
+      created_by_user_id: authData.user.id,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };
@@ -539,6 +540,7 @@ export default async function ClientTasksPage(props: {
               due_date: null,
               due_time: null,
               assignee_user_id: subtaskAssigneeIds[0] || primaryAssignee || null,
+              created_by_user_id: authData.user.id,
               content: DEFAULT_EDITOR_CONTENT,
               content_text: defaultContentText,
             },
