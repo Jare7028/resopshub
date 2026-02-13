@@ -279,6 +279,137 @@ export default async function ProjectsPage(props: {
     const endDate = String(formData.get("end_date") || "");
     const templateProjectIdFromForm = String(formData.get("template_project_id") || "").trim();
 
+    const cloneTemplateCustomFields = async (
+      templateEntityType: "task_template" | "project_template",
+      templateEntityId: string,
+      targetEntityType: "task" | "project",
+      targetEntityId: string
+    ) => {
+      const { data: templateFieldsRaw, error: templateFieldsError } = await supabase
+        .from("custom_fields")
+        .select("id,key,label,field_kind,position")
+        .eq("entity_type", templateEntityType)
+        .eq("entity_id", templateEntityId);
+      if (templateFieldsError && !isSupabaseMissingTableError(templateFieldsError)) {
+        throw new Error(templateFieldsError.message);
+      }
+      const templateFields = (templateFieldsError ? [] : templateFieldsRaw || []) as Array<{
+        id: string;
+        key: string;
+        label: string;
+        field_kind: "text" | "dropdown";
+        position: number;
+      }>;
+      if (!templateFields.length) {
+        return;
+      }
+      const fieldIds = templateFields.map((field) => field.id);
+      const { data: templateOptionsRaw, error: templateOptionsError } = await supabase
+        .from("custom_field_options")
+        .select("field_id,value,position")
+        .in("field_id", fieldIds)
+        .order("position", { ascending: true });
+      if (templateOptionsError && !isSupabaseMissingTableError(templateOptionsError)) {
+        throw new Error(templateOptionsError.message);
+      }
+      const { data: templateValuesRaw, error: templateValuesError } = await supabase
+        .from("custom_field_values")
+        .select("field_id,text_value,option_value")
+        .eq("entity_type", templateEntityType)
+        .eq("entity_id", templateEntityId)
+        .in("field_id", fieldIds);
+      if (templateValuesError && !isSupabaseMissingTableError(templateValuesError)) {
+        throw new Error(templateValuesError.message);
+      }
+
+      const templateOptions = (templateOptionsError ? [] : templateOptionsRaw || []) as Array<{
+        field_id: string;
+        value: string;
+        position: number;
+      }>;
+      const templateValues = (templateValuesError ? [] : templateValuesRaw || []) as Array<{
+        field_id: string;
+        text_value: string | null;
+        option_value: string | null;
+      }>;
+
+      const { data: createdFields, error: createFieldsError } = await supabase
+        .from("custom_fields")
+        .insert(
+          templateFields.map((field) => ({
+            entity_type: targetEntityType,
+            entity_id: targetEntityId,
+            key: field.key,
+            label: field.label,
+            field_kind: field.field_kind,
+            position: field.position,
+          }))
+        )
+        .select("id,key");
+      if (createFieldsError && !isSupabaseMissingTableError(createFieldsError)) {
+        throw new Error(createFieldsError.message);
+      }
+
+      const fieldIdByTemplateId = new Map<string, string>();
+      for (const templateField of templateFields) {
+        const match = (createdFields || []).find((field) => field.key === templateField.key);
+        if (match?.id) {
+          fieldIdByTemplateId.set(templateField.id, match.id);
+        }
+      }
+
+      const optionInserts = templateOptions
+        .map((option) => {
+          const clonedFieldId = fieldIdByTemplateId.get(option.field_id);
+          if (!clonedFieldId) return null;
+          return {
+            field_id: clonedFieldId,
+            value: option.value,
+            position: option.position,
+          };
+        })
+        .filter(Boolean) as Array<{ field_id: string; value: string; position: number }>;
+      if (optionInserts.length) {
+        const { error: copyOptionsError } = await supabase
+          .from("custom_field_options")
+          .insert(optionInserts);
+        if (copyOptionsError && !isSupabaseMissingTableError(copyOptionsError)) {
+          throw new Error(copyOptionsError.message);
+        }
+      }
+
+      const valueInserts = templateValues
+        .map((valueRow) => {
+          const clonedFieldId = fieldIdByTemplateId.get(valueRow.field_id);
+          if (!clonedFieldId) return null;
+          const fieldKind =
+            templateFields.find((field) => field.id === valueRow.field_id)?.field_kind ||
+            "text";
+          return {
+            entity_type: targetEntityType,
+            entity_id: targetEntityId,
+            field_id: clonedFieldId,
+            text_value: fieldKind === "text" ? valueRow.text_value : null,
+            option_value: fieldKind === "dropdown" ? valueRow.option_value : null,
+          };
+        })
+        .filter(Boolean) as Array<{
+        entity_type: "task" | "project";
+        entity_id: string;
+        field_id: string;
+        text_value: string | null;
+        option_value: string | null;
+      }>;
+      if (valueInserts.length) {
+        const { error: copyValuesError } = await supabase
+          .from("custom_field_values")
+          .upsert(valueInserts, { onConflict: "entity_type,entity_id,field_id" });
+        if (copyValuesError && !isSupabaseMissingTableError(copyValuesError)) {
+          throw new Error(copyValuesError.message);
+        }
+      }
+    };
+
     if (!name) {
       redirect(`/projects?error=Name%20is%20required`);
     }
@@ -308,6 +439,19 @@ export default async function ProjectsPage(props: {
         project_id: created.id,
         user_id: currentUserId,
       });
+    }
+
+    if (created?.id && templateProjectIdFromForm) {
+      try {
+        await cloneTemplateCustomFields(
+          "project_template",
+          templateProjectIdFromForm,
+          "project",
+          created.id
+        );
+      } catch (error) {
+        redirect(`/projects?error=${encodeURIComponent(String((error as Error).message || error))}`);
+      }
     }
 
     if (created?.id && templateProjectIdFromForm) {
@@ -399,6 +543,11 @@ export default async function ProjectsPage(props: {
 
           const parentTaskId = createdTask?.id;
           if (!parentTaskId) continue;
+          try {
+            await cloneTemplateCustomFields("task_template", tpl.id, "task", parentTaskId);
+          } catch (error) {
+            redirect(`/projects?error=${encodeURIComponent(String((error as Error).message || error))}`);
+          }
           if (assigneeIds.length) {
             const { error: parentAssigneesError } = await supabase
               .from("task_assignees")

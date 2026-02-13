@@ -213,6 +213,11 @@ export default async function SettingsPage(props: {
       "id,name,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
     )
     .order("name", { ascending: true });
+  const { data: mirroredTaskTemplateRows } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("status", "template")
+    .is("parent_task_id", null);
 
   const { data: projectTemplatesRaw, error: projectTemplatesError } = await supabase
     .from("project_templates")
@@ -220,6 +225,9 @@ export default async function SettingsPage(props: {
     .order("name", { ascending: true });
 
   const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as TaskTemplateRow[];
+  const mirroredTaskTemplateIds = new Set(
+    ((mirroredTaskTemplateRows || []) as Array<{ id: string }>).map((row) => row.id)
+  );
   const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
   const selectedTaskTemplate =
     selectedTaskTemplateId && templatesTab === "tasks"
@@ -2121,7 +2129,13 @@ export default async function SettingsPage(props: {
                                   <td className="px-6 py-3 font-semibold text-slate-900">
                                     <a
                                       className="underline-offset-2 hover:underline"
-                                      href={`/tasks/${encodeURIComponent(tpl.id)}`}
+                                      href={
+                                        mirroredTaskTemplateIds.has(tpl.id)
+                                          ? `/tasks/${encodeURIComponent(tpl.id)}`
+                                          : `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+                                              tpl.id
+                                            )}&task_template_panel=details`
+                                      }
                                     >
                                       {tpl.name}
                                     </a>

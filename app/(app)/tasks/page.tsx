@@ -98,10 +98,19 @@ export default async function TasksPage(props: {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
-  const currentUserId = authData.user?.id;
-  if (!currentUserId) {
+  const authUserId = authData.user?.id;
+  if (!authUserId) {
     redirect("/login");
   }
+  const { data: currentUserProfile } = await supabase
+    .from("users")
+    .select("id")
+    .eq("email", authData.user?.email || "")
+    .maybeSingle();
+  const currentAppUserId = currentUserProfile?.id || null;
+  const assignmentUserIds = Array.from(
+    new Set([authUserId, currentAppUserId].filter(Boolean))
+  ) as string[];
   const { data: statusOptionsRaw } = await supabase
     .from("status_options")
     .select("entity_type,value,position")
@@ -328,11 +337,11 @@ export default async function TasksPage(props: {
     supabase
       .from("tasks")
       .select("id")
-      .eq("assignee_user_id", currentUserId)
+      .in("assignee_user_id", assignmentUserIds)
       .is("parent_task_id", null),
-    supabase.from("task_assignees").select("task_id").eq("user_id", currentUserId),
+    supabase.from("task_assignees").select("task_id").in("user_id", assignmentUserIds),
     includeWatching
-      ? supabase.from("task_watchers").select("task_id").eq("user_id", currentUserId)
+      ? supabase.from("task_watchers").select("task_id").in("user_id", assignmentUserIds)
       : Promise.resolve({ data: [] as Array<{ task_id: string | null }> }),
   ]);
 

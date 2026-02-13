@@ -742,15 +742,15 @@ export default async function ClientOverviewPage(props: {
                     <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
                       {field.label}
                     </label>
-                    <form action={deleteClientCustomField}>
-                      <input type="hidden" name="id" value={field.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
-                      >
-                        Delete
-                      </button>
-                    </form>
+                    <button
+                      type="submit"
+                      formAction={deleteClientCustomField}
+                      name="id"
+                      value={field.id}
+                      className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      Delete
+                    </button>
                   </div>
                   <select
                     id={inputId}
@@ -774,15 +774,15 @@ export default async function ClientOverviewPage(props: {
                   <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
                     {field.label}
                   </label>
-                  <form action={deleteClientCustomField}>
-                    <input type="hidden" name="id" value={field.id} />
-                    <button
-                      type="submit"
-                      className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
-                    >
-                      Delete
-                    </button>
-                  </form>
+                  <button
+                    type="submit"
+                    formAction={deleteClientCustomField}
+                    name="id"
+                    value={field.id}
+                    className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                  >
+                    Delete
+                  </button>
                 </div>
                 <input
                   id={inputId}
