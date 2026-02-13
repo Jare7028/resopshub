@@ -1,9 +1,21 @@
 -- Employee payroll teardown.
 -- Apply in Supabase SQL editor to remove the payroll feature schema.
 
-revoke execute on function if exists public.can_access_employee_payroll() from anon, authenticated;
-revoke execute on function if exists public.can_view_employee_payroll_row(uuid) from anon, authenticated;
-revoke execute on function if exists public.can_edit_employee_payroll_row(uuid) from anon, authenticated;
+do $$
+begin
+  if to_regprocedure('public.can_access_employee_payroll()') is not null then
+    revoke execute on function public.can_access_employee_payroll() from anon, authenticated;
+  end if;
+
+  if to_regprocedure('public.can_view_employee_payroll_row(uuid)') is not null then
+    revoke execute on function public.can_view_employee_payroll_row(uuid) from anon, authenticated;
+  end if;
+
+  if to_regprocedure('public.can_edit_employee_payroll_row(uuid)') is not null then
+    revoke execute on function public.can_edit_employee_payroll_row(uuid) from anon, authenticated;
+  end if;
+end
+$$;
 
 drop function if exists public.can_edit_employee_payroll_row(uuid);
 drop function if exists public.can_view_employee_payroll_row(uuid);
