@@ -21,6 +21,8 @@ as $$
       and (
         public.is_admin()
         or t.status::text = 'template'
+        or t.created_by_user_id = (select app_uid from me)
+        or t.created_by_user_id = (select auth_uid from me)
         or t.assignee_user_id = (select app_uid from me)
         or t.assignee_user_id = (select auth_uid from me)
         or ta.user_id is not null
@@ -48,6 +50,8 @@ as $$
       and (
         public.is_admin()
         or t.status::text = 'template'
+        or t.created_by_user_id = (select app_uid from me)
+        or t.created_by_user_id = (select auth_uid from me)
         or t.assignee_user_id = (select app_uid from me)
         or t.assignee_user_id = (select auth_uid from me)
         or ta.user_id is not null
@@ -128,7 +132,13 @@ create policy tasks_insert
       or (
         parent_task_id is null
         and (
-          (project_id is not null and public.is_project_member(project_id))
+          (
+            project_id is not null
+            and (
+              public.is_project_member(project_id)
+              or public.is_project_creator(project_id)
+            )
+          )
           or (project_id is null)
         )
         and (client_id is null or public.can_access_client(client_id))

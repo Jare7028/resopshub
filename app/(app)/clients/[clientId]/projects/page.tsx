@@ -39,6 +39,18 @@ const ensureUniqueProjectCode = async (base: string) => {
   return `${safeBase}-${Date.now()}`;
 };
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 export default async function ClientProjectsPage(props: {
   params: Promise<{ clientId: string }>;
   searchParams?: Promise<{
@@ -489,7 +501,11 @@ export default async function ClientProjectsPage(props: {
             .single();
 
           if (taskError) {
-            redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(taskError.message)}`);
+            redirect(
+              `/clients/${clientId}/projects?error=${encodeURIComponent(
+                formatDbError("clients.projects.createProject.templateTask.tasks.insert", taskError)
+              )}`
+            );
           }
 
           const parentTaskId = createdTask?.id;
@@ -597,7 +613,14 @@ export default async function ClientProjectsPage(props: {
               .insert(subtaskPlans.map((plan) => plan.payload))
               .select("id");
             if (subtaskInsertError) {
-              redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(subtaskInsertError.message)}`);
+              redirect(
+                `/clients/${clientId}/projects?error=${encodeURIComponent(
+                  formatDbError(
+                    "clients.projects.createProject.templateSubtasks.tasks.insert",
+                    subtaskInsertError
+                  )
+                )}`
+              );
             }
             const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
             const subtaskAssigneeInserts = createdSubtaskRows.flatMap((row, index) => {

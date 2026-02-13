@@ -38,6 +38,18 @@ const ensureUniqueProjectCode = async (base: string) => {
   return `${safeBase}-${Date.now()}`;
 };
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 export default async function ProjectsPage(props: {
   searchParams?: Promise<{
     client?: string | string[];
@@ -539,7 +551,11 @@ export default async function ProjectsPage(props: {
             .single();
 
           if (taskError) {
-            redirect(`/projects?error=${encodeURIComponent(taskError.message)}`);
+            redirect(
+              `/projects?error=${encodeURIComponent(
+                formatDbError("projects.createProject.templateTask.tasks.insert", taskError)
+              )}`
+            );
           }
 
           const parentTaskId = createdTask?.id;
@@ -641,7 +657,14 @@ export default async function ProjectsPage(props: {
               .insert(subtaskPlans.map((plan) => plan.payload))
               .select("id");
             if (subtaskInsertError) {
-              redirect(`/projects?error=${encodeURIComponent(subtaskInsertError.message)}`);
+              redirect(
+                `/projects?error=${encodeURIComponent(
+                  formatDbError(
+                    "projects.createProject.templateSubtasks.tasks.insert",
+                    subtaskInsertError
+                  )
+                )}`
+              );
             }
             const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
             const subtaskAssigneeInserts = createdSubtaskRows.flatMap((row, index) => {
