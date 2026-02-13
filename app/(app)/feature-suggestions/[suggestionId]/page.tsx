@@ -146,22 +146,7 @@ export default async function FeatureSuggestionDetailPage(props: {
     votes.find((vote) => vote.user_id === currentUser.id)?.value === -1 ? -1 :
     votes.find((vote) => vote.user_id === currentUser.id)?.value === 1 ? 1 : 0;
 
-  const buildDetailUrl = (params?: { error?: string; success?: string }) => {
-    const url = new URLSearchParams();
-    if (returnTo) {
-      url.set("return_to", returnTo);
-    }
-    if (params?.error) {
-      url.set("error", params.error);
-    }
-    if (params?.success) {
-      url.set("success", params.success);
-    }
-    const query = url.toString();
-    return query
-      ? `/feature-suggestions/${suggestionId}?${query}`
-      : `/feature-suggestions/${suggestionId}`;
-  };
+  const detailPath = `/feature-suggestions/${suggestionId}`;
 
   async function updateSuggestion(formData: FormData) {
     "use server";
@@ -171,15 +156,20 @@ export default async function FeatureSuggestionDetailPage(props: {
     const details = String(formData.get("details") || "").trim();
     const status = String(formData.get("status") || "").trim();
     const type = String(formData.get("type") || "").trim();
+    const detailParams = new URLSearchParams();
+    detailParams.set("return_to", returnTo);
 
     if (!title) {
-      redirect(buildDetailUrl({ error: "Title is required" }));
+      detailParams.set("error", "Title is required");
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
     if (!statusOptions.includes(status as (typeof statusOptions)[number])) {
-      redirect(buildDetailUrl({ error: "Invalid status" }));
+      detailParams.set("error", "Invalid status");
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
     if (!typeOptions.includes(type as (typeof typeOptions)[number])) {
-      redirect(buildDetailUrl({ error: "Invalid type" }));
+      detailParams.set("error", "Invalid type");
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
     const shouldClose = status === "completed" || status === "rejected";
@@ -208,21 +198,26 @@ export default async function FeatureSuggestionDetailPage(props: {
     }
 
     if (error) {
-      redirect(buildDetailUrl({ error: error.message }));
+      detailParams.set("error", error.message);
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
     revalidatePath("/feature-suggestions");
     revalidatePath(`/feature-suggestions/${suggestionId}`);
-    redirect(buildDetailUrl({ success: "Idea updated" }));
+    detailParams.set("success", "Idea updated");
+    redirect(`${detailPath}?${detailParams.toString()}`);
   }
 
   async function addComment(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
     const body = String(formData.get("body") || "").trim();
+    const detailParams = new URLSearchParams();
+    detailParams.set("return_to", returnTo);
 
     if (!body) {
-      redirect(buildDetailUrl({ error: "Comment cannot be empty" }));
+      detailParams.set("error", "Comment cannot be empty");
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -239,7 +234,8 @@ export default async function FeatureSuggestionDetailPage(props: {
       .maybeSingle();
 
     if (!user?.id) {
-      redirect(buildDetailUrl({ error: "Missing user profile" }));
+      detailParams.set("error", "Missing user profile");
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
     const { error } = await supabase.from("feature_suggestion_comments").insert({
@@ -249,12 +245,14 @@ export default async function FeatureSuggestionDetailPage(props: {
     });
 
     if (error) {
-      redirect(buildDetailUrl({ error: error.message }));
+      detailParams.set("error", error.message);
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
     revalidatePath(`/feature-suggestions/${suggestionId}`);
     revalidatePath("/feature-suggestions");
-    redirect(buildDetailUrl({ success: "Comment added" }));
+    detailParams.set("success", "Comment added");
+    redirect(`${detailPath}?${detailParams.toString()}`);
   }
 
   async function toggleVote(formData: FormData) {
@@ -262,6 +260,8 @@ export default async function FeatureSuggestionDetailPage(props: {
     const supabase = createSupabaseServerClient();
     const direction = String(formData.get("vote") || "up").trim().toLowerCase();
     const desiredValue = direction === "down" ? -1 : 1;
+    const detailParams = new URLSearchParams();
+    detailParams.set("return_to", returnTo);
 
     const { data: authData } = await supabase.auth.getUser();
     const authEmail = authData.user?.email;
@@ -277,7 +277,8 @@ export default async function FeatureSuggestionDetailPage(props: {
       .maybeSingle();
 
     if (!user?.id) {
-      redirect(buildDetailUrl({ error: "Missing user profile" }));
+      detailParams.set("error", "Missing user profile");
+      redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
     const { data: existing } = await supabase
@@ -296,7 +297,8 @@ export default async function FeatureSuggestionDetailPage(props: {
         .eq("suggestion_id", suggestionId)
         .eq("user_id", user.id);
       if (error) {
-        redirect(buildDetailUrl({ error: error.message }));
+        detailParams.set("error", error.message);
+        redirect(`${detailPath}?${detailParams.toString()}`);
       }
     } else if (existingValue !== null) {
       const { error } = await supabase
@@ -305,7 +307,8 @@ export default async function FeatureSuggestionDetailPage(props: {
         .eq("suggestion_id", suggestionId)
         .eq("user_id", user.id);
       if (error) {
-        redirect(buildDetailUrl({ error: error.message }));
+        detailParams.set("error", error.message);
+        redirect(`${detailPath}?${detailParams.toString()}`);
       }
     } else {
       const { error } = await supabase.from("feature_suggestion_votes").insert({
@@ -314,12 +317,14 @@ export default async function FeatureSuggestionDetailPage(props: {
         value: desiredValue,
       });
       if (error) {
-        redirect(buildDetailUrl({ error: error.message }));
+        detailParams.set("error", error.message);
+        redirect(`${detailPath}?${detailParams.toString()}`);
       }
     }
 
     revalidatePath(`/feature-suggestions/${suggestionId}`);
     revalidatePath("/feature-suggestions");
+    redirect(`${detailPath}?${detailParams.toString()}`);
   }
 
   return (
