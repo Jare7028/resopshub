@@ -5,6 +5,16 @@ import { randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
+function isMissingColumnError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const anyError = error as { code?: unknown; message?: unknown };
+  const code = typeof anyError.code === "string" ? anyError.code : "";
+  const message = typeof anyError.message === "string" ? anyError.message : "";
+  return code === "42703" || message.includes("does not exist");
+}
+
 export async function updatePersonalPageContent(pageId: string, content: unknown) {
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -21,6 +31,20 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
       last_edited_by_user_id: editorId,
     })
     .eq("id", pageId);
+
+  const { error: linkedNotesSyncError } = await supabase
+    .from("notes")
+    .update({
+      content_json: content,
+      content: contentText,
+      last_edited_at: now,
+      last_edited_by_user_id: editorId,
+    })
+    .eq("source_personal_page_id", pageId);
+
+  if (linkedNotesSyncError && !isMissingColumnError(linkedNotesSyncError)) {
+    console.error("[personal.updatePersonalPageContent.notes.sync]", linkedNotesSyncError.message);
+  }
 
   revalidatePath(`/personal/${pageId}`);
 }

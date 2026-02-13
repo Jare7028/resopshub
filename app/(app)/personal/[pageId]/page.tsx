@@ -229,8 +229,11 @@ export default async function PersonalPage(props: {
   async function updatePageDetails(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const editorId = authData.user?.id ?? null;
     const title = String(formData.get("title") || "").trim();
     const sectionId = String(formData.get("section_id") || "").trim();
+    const now = new Date().toISOString();
 
     if (!title) {
       const sp = new URLSearchParams();
@@ -244,7 +247,7 @@ export default async function PersonalPage(props: {
       .update({
         title,
         section_id: sectionId || null,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .eq("id", pageId);
 
@@ -253,6 +256,19 @@ export default async function PersonalPage(props: {
       if (activeTab !== "notes") sp.set("tab", activeTab);
       sp.set("error", error.message);
       redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    const { error: linkedTitleSyncError } = await supabase
+      .from("notes")
+      .update({
+        title,
+        last_edited_at: now,
+        last_edited_by_user_id: editorId,
+      })
+      .eq("source_personal_page_id", pageId);
+
+    if (linkedTitleSyncError && !isMissingColumnError(linkedTitleSyncError)) {
+      console.error("[personal.updatePageDetails.notes.syncTitle]", linkedTitleSyncError.message);
     }
 
     revalidatePath(`/personal/${pageId}`);
@@ -585,6 +601,7 @@ export default async function PersonalPage(props: {
       visibility,
       content: contentText,
       content_json: sourceContent,
+      source_personal_page_id: pageId,
       user_id: user.id,
       last_edited_at: now,
       last_edited_by_user_id: user.id,
