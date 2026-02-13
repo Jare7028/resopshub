@@ -15,9 +15,15 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
 import { statusSelectClasses } from "@/lib/taskIndicators";
 import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
+import {
+  type CustomFieldOptionRow,
+  type CustomFieldRow,
+  type CustomFieldValueRow,
+} from "@/lib/customFields";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
@@ -72,6 +78,47 @@ export default async function TaskDetailPage(props: {
   if (!task) {
     notFound();
   }
+
+  const { data: customFieldsRaw, error: customFieldsError } = await supabase
+    .from("custom_fields")
+    .select("id,entity_type,key,label,field_kind,position")
+    .eq("entity_type", "task")
+    .order("position", { ascending: true })
+    .order("label", { ascending: true });
+  const customFields = (
+    customFieldsError && isSupabaseMissingTableError(customFieldsError)
+      ? []
+      : customFieldsRaw || []
+  ) as CustomFieldRow[];
+  const customFieldIds = customFields.map((field) => field.id);
+  const { data: customFieldOptionsRaw } = customFieldIds.length
+    ? await supabase
+        .from("custom_field_options")
+        .select("id,field_id,value,position")
+        .in("field_id", customFieldIds)
+        .order("position", { ascending: true })
+        .order("value", { ascending: true })
+    : { data: [] as CustomFieldOptionRow[] };
+  const { data: customFieldValuesRaw } = customFieldIds.length
+    ? await supabase
+        .from("custom_field_values")
+        .select("field_id,text_value,option_value")
+        .eq("entity_type", "task")
+        .eq("entity_id", task.id)
+    : { data: [] as CustomFieldValueRow[] };
+  const customFieldOptionsByFieldId = ((customFieldOptionsRaw || []) as CustomFieldOptionRow[]).reduce<
+    Record<string, CustomFieldOptionRow[]>
+  >((acc, option) => {
+    acc[option.field_id] ||= [];
+    acc[option.field_id].push(option);
+    return acc;
+  }, {});
+  const customFieldValueByFieldId = new Map<string, string>(
+    ((customFieldValuesRaw || []) as CustomFieldValueRow[]).map((row) => [
+      row.field_id,
+      row.option_value || row.text_value || "",
+    ])
+  );
 
   const taskId = task.id;
   const activeTab = normalizeTaskTabKey(searchParams?.tab);
@@ -184,6 +231,66 @@ export default async function TaskDetailPage(props: {
 
     if (error) {
       redirect(buildTaskUrl(taskId, "details", { error: error.message }));
+    }
+
+    const clears: string[] = [];
+    const upserts: Array<{
+      entity_type: "task";
+      entity_id: string;
+      field_id: string;
+      text_value: string | null;
+      option_value: string | null;
+    }> = [];
+
+    for (const field of customFields) {
+      const value = String(formData.get(`cf_${field.id}`) || "").trim();
+      if (!value) {
+        clears.push(field.id);
+        continue;
+      }
+
+      if (field.field_kind === "dropdown") {
+        const allowed = (customFieldOptionsByFieldId[field.id] || []).some(
+          (option) => option.value === value
+        );
+        if (!allowed) {
+          redirect(
+            buildTaskUrl(taskId, "details", {
+              error: `Invalid value for ${field.label}`,
+            })
+          );
+        }
+      }
+
+      upserts.push({
+        entity_type: "task",
+        entity_id: taskId,
+        field_id: field.id,
+        text_value: field.field_kind === "text" ? value : null,
+        option_value: field.field_kind === "dropdown" ? value : null,
+      });
+    }
+
+    if (clears.length) {
+      const { error: clearError } = await supabase
+        .from("custom_field_values")
+        .delete()
+        .eq("entity_type", "task")
+        .eq("entity_id", taskId)
+        .in("field_id", clears);
+      if (clearError && !isSupabaseMissingTableError(clearError)) {
+        redirect(buildTaskUrl(taskId, "details", { error: clearError.message }));
+      }
+    }
+
+    if (upserts.length) {
+      const { error: upsertError } = await supabase.from("custom_field_values").upsert(
+        upserts,
+        { onConflict: "entity_type,entity_id,field_id" }
+      );
+      if (upsertError && !isSupabaseMissingTableError(upsertError)) {
+        redirect(buildTaskUrl(taskId, "details", { error: upsertError.message }));
+      }
     }
 
     revalidatePath(`/tasks/${taskId}`);
@@ -533,6 +640,51 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
+            {customFields.map((field) => {
+              const value = customFieldValueByFieldId.get(field.id) || "";
+              const inputId = `custom-field-${field.id}`;
+              if (field.field_kind === "dropdown") {
+                return (
+                  <div key={field.id} className="grid gap-1">
+                    <label
+                      htmlFor={inputId}
+                      className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    >
+                      {field.label}
+                    </label>
+                    <select
+                      id={inputId}
+                      name={`cf_${field.id}`}
+                      defaultValue={value}
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    >
+                      <option value="">Select...</option>
+                      {(customFieldOptionsByFieldId[field.id] || []).map((option) => (
+                        <option key={option.id} value={option.value}>
+                          {option.value}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              }
+              return (
+                <div key={field.id} className="grid gap-1">
+                  <label
+                    htmlFor={inputId}
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  >
+                    {field.label}
+                  </label>
+                  <input
+                    id={inputId}
+                    name={`cf_${field.id}`}
+                    defaultValue={value}
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              );
+            })}
             <button
               type="submit"
               className="md:col-span-4 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "

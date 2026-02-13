@@ -2,6 +2,12 @@
 import { revalidatePath } from "next/cache";
 import ProjectTabs from "./_components/ProjectTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  type CustomFieldOptionRow,
+  type CustomFieldRow,
+  type CustomFieldValueRow,
+} from "@/lib/customFields";
 
 const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
 
@@ -35,6 +41,47 @@ export default async function ProjectOverviewPage(props: {
   if (!project) {
     notFound();
   }
+
+  const { data: customFieldsRaw, error: customFieldsError } = await supabase
+    .from("custom_fields")
+    .select("id,entity_type,key,label,field_kind,position")
+    .eq("entity_type", "project")
+    .order("position", { ascending: true })
+    .order("label", { ascending: true });
+  const customFields = (
+    customFieldsError && isSupabaseMissingTableError(customFieldsError)
+      ? []
+      : customFieldsRaw || []
+  ) as CustomFieldRow[];
+  const customFieldIds = customFields.map((field) => field.id);
+  const { data: customFieldOptionsRaw } = customFieldIds.length
+    ? await supabase
+        .from("custom_field_options")
+        .select("id,field_id,value,position")
+        .in("field_id", customFieldIds)
+        .order("position", { ascending: true })
+        .order("value", { ascending: true })
+    : { data: [] as CustomFieldOptionRow[] };
+  const { data: customFieldValuesRaw } = customFieldIds.length
+    ? await supabase
+        .from("custom_field_values")
+        .select("field_id,text_value,option_value")
+        .eq("entity_type", "project")
+        .eq("entity_id", project.id)
+    : { data: [] as CustomFieldValueRow[] };
+  const customFieldOptionsByFieldId = ((customFieldOptionsRaw || []) as CustomFieldOptionRow[]).reduce<
+    Record<string, CustomFieldOptionRow[]>
+  >((acc, option) => {
+    acc[option.field_id] ||= [];
+    acc[option.field_id].push(option);
+    return acc;
+  }, {});
+  const customFieldValueByFieldId = new Map<string, string>(
+    ((customFieldValuesRaw || []) as CustomFieldValueRow[]).map((row) => [
+      row.field_id,
+      row.option_value || row.text_value || "",
+    ])
+  );
 
   const projectId = project.id;
   const projectCode = project.code || "";
@@ -105,6 +152,62 @@ export default async function ProjectOverviewPage(props: {
 
     if (error) {
       redirect(`/projects/${projectId}?error=${encodeURIComponent(error.message)}`);
+    }
+
+    const clears: string[] = [];
+    const upserts: Array<{
+      entity_type: "project";
+      entity_id: string;
+      field_id: string;
+      text_value: string | null;
+      option_value: string | null;
+    }> = [];
+
+    for (const field of customFields) {
+      const value = String(formData.get(`cf_${field.id}`) || "").trim();
+      if (!value) {
+        clears.push(field.id);
+        continue;
+      }
+
+      if (field.field_kind === "dropdown") {
+        const allowed = (customFieldOptionsByFieldId[field.id] || []).some(
+          (option) => option.value === value
+        );
+        if (!allowed) {
+          redirect(`/projects/${projectId}?error=${encodeURIComponent(`Invalid value for ${field.label}`)}`);
+        }
+      }
+
+      upserts.push({
+        entity_type: "project",
+        entity_id: projectId,
+        field_id: field.id,
+        text_value: field.field_kind === "text" ? value : null,
+        option_value: field.field_kind === "dropdown" ? value : null,
+      });
+    }
+
+    if (clears.length) {
+      const { error: clearError } = await supabase
+        .from("custom_field_values")
+        .delete()
+        .eq("entity_type", "project")
+        .eq("entity_id", projectId)
+        .in("field_id", clears);
+      if (clearError && !isSupabaseMissingTableError(clearError)) {
+        redirect(`/projects/${projectId}?error=${encodeURIComponent(clearError.message)}`);
+      }
+    }
+
+    if (upserts.length) {
+      const { error: upsertError } = await supabase.from("custom_field_values").upsert(
+        upserts,
+        { onConflict: "entity_type,entity_id,field_id" }
+      );
+      if (upsertError && !isSupabaseMissingTableError(upsertError)) {
+        redirect(`/projects/${projectId}?error=${encodeURIComponent(upsertError.message)}`);
+      }
     }
 
     revalidatePath(`/projects/${projectId}`);
@@ -205,6 +308,45 @@ export default async function ProjectOverviewPage(props: {
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
+          {customFields.map((field) => {
+            const value = customFieldValueByFieldId.get(field.id) || "";
+            const inputId = `custom-field-${field.id}`;
+            if (field.field_kind === "dropdown") {
+              return (
+                <div key={field.id} className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
+                    {field.label}
+                  </label>
+                  <select
+                    id={inputId}
+                    name={`cf_${field.id}`}
+                    defaultValue={value}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">Select...</option>
+                    {(customFieldOptionsByFieldId[field.id] || []).map((option) => (
+                      <option key={option.id} value={option.value}>
+                        {option.value}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            }
+            return (
+              <div key={field.id} className="space-y-2">
+                <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
+                  {field.label}
+                </label>
+                <input
+                  id={inputId}
+                  name={`cf_${field.id}`}
+                  defaultValue={value}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+            );
+          })}
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-medium text-slate-700" htmlFor="description">
               Description

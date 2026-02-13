@@ -4,6 +4,7 @@ const tabs = [
   { key: "profile", label: "Profile" },
   { key: "notifications", label: "Notifications" },
   { key: "statuses", label: "Statuses" },
+  { key: "custom-fields", label: "Custom fields" },
   { key: "templates", label: "Templates" },
 ] as const;
 
