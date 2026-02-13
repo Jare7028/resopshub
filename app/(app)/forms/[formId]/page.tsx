@@ -542,7 +542,7 @@ export default async function FormDetailPage(props: {
           status: "to_do",
           priority: normalizeFormActionPriority(action.priority),
           assignee_user_id: action.assignee_user_id,
-          created_by_user_id: currentUser.id,
+          created_by_user_id: authData.user.id,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         })
@@ -614,7 +614,7 @@ export default async function FormDetailPage(props: {
             status: normalizeTaskStatusOrDefault(template.status),
             priority: String(template.priority || "medium"),
             assignee_user_id: primaryAssignee,
-            created_by_user_id: currentUser.id,
+            created_by_user_id: authData.user.id,
             content: DEFAULT_EDITOR_CONTENT,
             content_text: defaultContentText,
           })
@@ -699,7 +699,7 @@ export default async function FormDetailPage(props: {
                 status: normalizeTaskStatusOrDefault(subtask.status),
                 priority: String(subtask.priority || "medium"),
                 assignee_user_id: subtaskAssigneeIds[0] || primaryAssignee,
-                created_by_user_id: currentUser.id,
+                created_by_user_id: authData.user.id,
                 content: DEFAULT_EDITOR_CONTENT,
                 content_text: defaultContentText,
               },
