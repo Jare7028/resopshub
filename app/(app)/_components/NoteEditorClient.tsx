@@ -11,6 +11,7 @@ import Underline from "@tiptap/extension-underline";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
+import Link from "@tiptap/extension-link";
 import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
 import Placeholder from "@tiptap/extension-placeholder";
 import { selectedRect } from "prosemirror-tables";
@@ -238,6 +239,10 @@ function filterSlashCommands(commands: SlashCommand[], query: string) {
 
 function normalizeInlineText(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function isPersonalPathLink(value: string) {
+  return /^\/personal\/[a-f0-9-]+(?:[?#][^\s]*)?$/i.test(value.trim());
 }
 
 function getSelectedText(editor: Editor) {
@@ -474,6 +479,21 @@ export default function NoteEditorClient({
       return false;
     }
 
+    const pastedText = clipboard.getData("text/plain").trim();
+    if (pastedText && isPersonalPathLink(pastedText)) {
+      event.preventDefault();
+      editorRef.current
+        ?.chain()
+        .focus()
+        .insertContent({
+          type: "text",
+          text: pastedText,
+          marks: [{ type: "link", attrs: { href: pastedText } }],
+        })
+        .run();
+      return true;
+    }
+
     const imageItems = Array.from(clipboard.items || []).filter((item) =>
       item.type.startsWith("image/")
     );
@@ -540,6 +560,16 @@ export default function NoteEditorClient({
                 attributes.colType ? { "data-col-type": attributes.colType } : {},
             },
           };
+        },
+      }),
+      Link.configure({
+        autolink: true,
+        linkOnPaste: true,
+        openOnClick: true,
+        defaultProtocol: "https",
+        HTMLAttributes: {
+          rel: null,
+          target: null,
         },
       }),
       Placeholder.configure({
