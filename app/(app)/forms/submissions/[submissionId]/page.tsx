@@ -46,7 +46,7 @@ export default async function FormSubmissionDetailPage(props: {
     notFound();
   }
 
-  const [{ data: form }, { data: comments }, { data: actionTasks }, { data: users }] =
+  const [{ data: form }, { data: comments }, { data: templateTasks }, { data: users }] =
     await Promise.all([
       supabase.from("forms").select("id,title").eq("id", submission.form_id).maybeSingle(),
       supabase
@@ -55,8 +55,8 @@ export default async function FormSubmissionDetailPage(props: {
         .eq("submission_id", submissionId)
         .order("created_at", { ascending: true }),
       supabase
-        .from("form_submission_action_tasks")
-        .select("task_id,action_id,created_at")
+        .from("form_submission_template_tasks")
+        .select("task_id,task_template_id,created_at")
         .eq("submission_id", submissionId)
         .order("created_at", { ascending: true }),
       supabase.from("users").select("id,full_name,email"),
@@ -67,7 +67,7 @@ export default async function FormSubmissionDetailPage(props: {
     userMap.set(user.id, user.full_name || user.email || "Unknown user");
   });
 
-  const taskIds = ((actionTasks || []) as Array<{ task_id: string | null }>)
+  const taskIds = ((templateTasks || []) as Array<{ task_id: string | null }>)
     .map((row) => row.task_id)
     .filter(Boolean) as string[];
 
@@ -227,12 +227,12 @@ export default async function FormSubmissionDetailPage(props: {
           <h2 className="text-lg font-semibold text-slate-900">Triggered tasks</h2>
         </div>
         <div className="px-6 py-4">
-          {(actionTasks || []).length ? (
+          {(templateTasks || []).length ? (
             <div className="space-y-2">
-              {(actionTasks || []).map((row) => {
+              {(templateTasks || []).map((row) => {
                 const task = taskMap.get(row.task_id || "");
                 return (
-                  <p key={`${row.action_id}-${row.task_id}`} className="text-sm text-slate-700">
+                  <p key={`${row.task_template_id}-${row.task_id}`} className="text-sm text-slate-700">
                     <Link href={`/tasks/${row.task_id}`} className="font-semibold hover:underline">
                       {task?.title || row.task_id}
                     </Link>{" "}

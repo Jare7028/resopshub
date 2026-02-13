@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import FormFieldsBuilder from "./FormFieldsBuilder";
-import FormActionsBuilder from "./FormActionsBuilder";
+import FormTaskTemplatesBuilder from "./FormTaskTemplatesBuilder";
 import FormsTable from "./FormsTable";
 import FormsTabs, {
   normalizeFormsTabKey,
@@ -13,10 +13,8 @@ import FormsTabs, {
 import {
   buildFieldKey,
   formStatusOptions,
-  normalizeFormActionPriority,
   normalizeFormFieldType,
   normalizeFormStatus,
-  type FormAction,
   type FormField,
   type FormStatus,
 } from "./types";
@@ -83,7 +81,7 @@ function parseFieldsJson(raw: string): FormField[] {
     .filter(Boolean) as FormField[];
 }
 
-function parseActionsJson(raw: string): FormAction[] {
+function parseTaskTemplateIdsJson(raw: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -91,26 +89,9 @@ function parseActionsJson(raw: string): FormAction[] {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-
-  return parsed
-    .map((item, index) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const label = String(row.label || "").trim();
-      const taskTitleTemplate = String(row.taskTitleTemplate || "").trim();
-      if (!label || !taskTitleTemplate) return null;
-      const assigneeUserId = String(row.assigneeUserId || "").trim() || null;
-      return {
-        id: String(row.id || `action_${index + 1}`),
-        label,
-        taskTitleTemplate,
-        taskDescriptionTemplate: String(row.taskDescriptionTemplate || "").trim(),
-        assigneeUserId,
-        priority: normalizeFormActionPriority(String(row.priority || "medium")),
-        enabled: row.enabled !== false,
-      } satisfies FormAction;
-    })
-    .filter(Boolean) as FormAction[];
+  return Array.from(
+    new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean))
+  );
 }
 
 export default async function FormsPage(props: {
@@ -254,10 +235,15 @@ export default async function FormsPage(props: {
       return sortDir === "asc" ? result : -result;
     });
 
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
+  const { data: taskTemplatesRaw, error: taskTemplatesError } = await supabase
+    .from("task_templates")
+    .select("id,name,title")
+    .order("name", { ascending: true });
+  const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as Array<{
+    id: string;
+    name: string;
+    title: string;
+  }>;
 
   async function createForm(formData: FormData) {
     "use server";
@@ -266,7 +252,9 @@ export default async function FormsPage(props: {
     const description = String(formData.get("description") || "").trim();
     const status = normalizeFormStatus(String(formData.get("status") || "draft"));
     const fields = parseFieldsJson(String(formData.get("fields_json") || "[]"));
-    const actions = parseActionsJson(String(formData.get("actions_json") || "[]"));
+    const selectedTaskTemplateIds = parseTaskTemplateIdsJson(
+      String(formData.get("task_template_ids_json") || "[]")
+    );
 
     if (!title) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Form%20title%20is%20required`);
@@ -311,24 +299,20 @@ export default async function FormsPage(props: {
       );
     }
 
-    if (actions.length) {
-      const { error: actionError } = await supabase.from("form_submission_actions").insert(
-        actions.map((action, index) => ({
+    if (selectedTaskTemplateIds.length) {
+      const { error: linkError } = await supabase.from("form_submission_task_templates").insert(
+        selectedTaskTemplateIds.map((taskTemplateId, index) => ({
           form_id: insertedForm.id,
-          label: action.label,
-          task_title_template: action.taskTitleTemplate,
-          task_description_template: action.taskDescriptionTemplate || null,
-          assignee_user_id: action.assigneeUserId,
-          priority: action.priority,
-          enabled: action.enabled,
+          task_template_id: taskTemplateId,
+          enabled: true,
           position: index,
         }))
       );
 
-      if (actionError) {
+      if (linkError) {
         redirect(
           `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-            actionError.message
+            linkError.message
           )}`
         );
       }
@@ -414,7 +398,12 @@ export default async function FormsPage(props: {
               />
             </label>
             <FormFieldsBuilder initialFields={[]} />
-            <FormActionsBuilder initialActions={[]} users={users || []} />
+            <FormTaskTemplatesBuilder initialTemplateIds={[]} taskTemplates={taskTemplates} />
+            {isSupabaseMissingTableError(taskTemplatesError) ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                Task templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor.
+              </p>
+            ) : null}
             <button
               type="submit"
               className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"

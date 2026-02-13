@@ -4,18 +4,17 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import FormFieldsBuilder from "../FormFieldsBuilder";
-import FormActionsBuilder from "../FormActionsBuilder";
+import FormTaskTemplatesBuilder from "../FormTaskTemplatesBuilder";
 import FormSubmissionBuilder from "../FormSubmissionBuilder";
 import {
   buildFieldKey,
   formStatusOptions,
   formatFormLabel,
-  normalizeFormActionPriority,
   normalizeFormFieldType,
   normalizeFormStatus,
-  renderTemplate,
-  type FormAction,
   type FormField,
 } from "../types";
 
@@ -93,7 +92,7 @@ function parseFieldsJson(raw: string): FormField[] {
   }
 }
 
-function parseActionsJson(raw: string): FormAction[] {
+function parseTaskTemplateIdsJson(raw: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -101,24 +100,9 @@ function parseActionsJson(raw: string): FormAction[] {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed
-    .map((item, index) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const label = String(row.label || "").trim();
-      const taskTitleTemplate = String(row.taskTitleTemplate || "").trim();
-      if (!label || !taskTitleTemplate) return null;
-      return {
-        id: String(row.id || `action_${index + 1}`),
-        label,
-        taskTitleTemplate,
-        taskDescriptionTemplate: String(row.taskDescriptionTemplate || "").trim(),
-        assigneeUserId: String(row.assigneeUserId || "").trim() || null,
-        priority: normalizeFormActionPriority(String(row.priority || "medium")),
-        enabled: row.enabled !== false,
-      } satisfies FormAction;
-    })
-    .filter(Boolean) as FormAction[];
+  return Array.from(
+    new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean))
+  );
 }
 
 function fieldShouldBeIncluded(field: FormField, values: Record<string, string>) {
@@ -179,12 +163,10 @@ export default async function FormDetailPage(props: {
 
   const formFields = parseFields(form.fields);
 
-  const [{ data: actionsRaw }, { data: submissionsRaw }, { data: users }] = await Promise.all([
+  const [{ data: templateLinksRaw, error: templateLinksError }, { data: submissionsRaw }, { data: users }, { data: taskTemplatesRaw, error: taskTemplatesError }] = await Promise.all([
     supabase
-      .from("form_submission_actions")
-      .select(
-        "id,label,task_title_template,task_description_template,assignee_user_id,priority,enabled,position"
-      )
+      .from("form_submission_task_templates")
+      .select("id,task_template_id,enabled,position")
       .eq("form_id", formId)
       .order("position", { ascending: true })
       .order("created_at", { ascending: true }),
@@ -194,26 +176,26 @@ export default async function FormDetailPage(props: {
       .eq("form_id", formId)
       .order("created_at", { ascending: false }),
     supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+    supabase.from("task_templates").select("id,name,title").order("name", { ascending: true }),
   ]);
 
-  const actions = ((actionsRaw || []) as Array<{
+  const taskTemplateLinks = (templateLinksError
+    ? []
+    : templateLinksRaw || []) as Array<{
     id: string;
-    label: string;
-    task_title_template: string;
-    task_description_template: string | null;
-    assignee_user_id: string | null;
-    priority: string | null;
+    task_template_id: string;
     enabled: boolean | null;
     position: number | null;
-  }>).map((row) => ({
-    id: row.id,
-    label: row.label,
-    taskTitleTemplate: row.task_title_template,
-    taskDescriptionTemplate: row.task_description_template || "",
-    assigneeUserId: row.assignee_user_id,
-    priority: normalizeFormActionPriority(row.priority),
-    enabled: row.enabled !== false,
-  })) as FormAction[];
+  }>;
+  const selectedTaskTemplateIds = taskTemplateLinks
+    .filter((row) => row.enabled !== false)
+    .map((row) => row.task_template_id)
+    .filter(Boolean);
+  const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as Array<{
+    id: string;
+    name: string;
+    title: string;
+  }>;
 
   const submissions = (submissionsRaw || []) as Array<{
     id: string;
@@ -290,7 +272,9 @@ export default async function FormDetailPage(props: {
     const description = String(formData.get("description") || "").trim();
     const status = normalizeFormStatus(String(formData.get("status") || "draft"));
     const fields = parseFieldsJson(String(formData.get("fields_json") || "[]"));
-    const actions = parseActionsJson(String(formData.get("actions_json") || "[]"));
+    const selectedTaskTemplateIds = parseTaskTemplateIdsJson(
+      String(formData.get("task_template_ids_json") || "[]")
+    );
     const configureUrl = (extra?: { error?: string; success?: string }) => {
       const sp = new URLSearchParams();
       sp.set("return_to", returnTo);
@@ -321,7 +305,7 @@ export default async function FormDetailPage(props: {
     }
 
     const { error: deleteError } = await supabase
-      .from("form_submission_actions")
+      .from("form_submission_task_templates")
       .delete()
       .eq("form_id", formId);
 
@@ -329,18 +313,14 @@ export default async function FormDetailPage(props: {
       redirect(configureUrl({ error: deleteError.message }));
     }
 
-    if (actions.length) {
+    if (selectedTaskTemplateIds.length) {
       const { error: actionError } = await supabase
-        .from("form_submission_actions")
+        .from("form_submission_task_templates")
         .insert(
-          actions.map((action, index) => ({
+          selectedTaskTemplateIds.map((taskTemplateId, index) => ({
             form_id: formId,
-            label: action.label,
-            task_title_template: action.taskTitleTemplate,
-            task_description_template: action.taskDescriptionTemplate || null,
-            assignee_user_id: action.assigneeUserId,
-            priority: action.priority,
-            enabled: action.enabled,
+            task_template_id: taskTemplateId,
+            enabled: true,
             position: index,
           }))
         );
@@ -443,64 +423,204 @@ export default async function FormDetailPage(props: {
       redirect(createSubmissionUrl({ error: submissionInsertError?.message || "Failed to create submission" }));
     }
 
-    const { data: actions } = await supabase
-      .from("form_submission_actions")
-      .select(
-        "id,label,task_title_template,task_description_template,assignee_user_id,priority,enabled"
-      )
+    const { data: templateLinksRaw, error: templateLinksError } = await supabase
+      .from("form_submission_task_templates")
+      .select("task_template_id")
       .eq("form_id", formId)
       .eq("enabled", true)
       .order("position", { ascending: true })
       .order("created_at", { ascending: true });
+    if (templateLinksError && !isSupabaseMissingTableError(templateLinksError)) {
+      redirect(createSubmissionUrl({ error: templateLinksError.message }));
+    }
+
+    const templateIds = Array.from(
+      new Set(
+        ((templateLinksError ? [] : templateLinksRaw || []) as Array<{ task_template_id: string }>)
+          .map((row) => row.task_template_id)
+          .filter(Boolean)
+      )
+    );
 
     const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
-    for (const action of (actions || []) as Array<{
-      id: string;
-      task_title_template: string;
-      task_description_template: string | null;
-      assignee_user_id: string | null;
-      priority: string | null;
-    }>) {
-      const taskTitle = renderTemplate(action.task_title_template || "", values).trim();
-      if (!taskTitle) continue;
-      const taskDescription = renderTemplate(
-        action.task_description_template || "",
-        values
-      ).trim();
-
-      const { data: insertedTask, error: taskError } = await supabase
-        .from("tasks")
-        .insert({
-          title: taskTitle,
-          description: taskDescription || null,
-          status: "to_do",
-          priority: normalizeFormActionPriority(action.priority),
-          assignee_user_id: action.assignee_user_id,
-          content: DEFAULT_EDITOR_CONTENT,
-          content_text: defaultContentText,
-        })
-        .select("id")
-        .single();
-
-      if (taskError || !insertedTask?.id) {
-        continue;
+    if (templateIds.length) {
+      const { data: templateTasksRaw, error: templateTasksError } = await supabase
+        .from("task_templates")
+        .select("id,title,description,status,priority")
+        .in("id", templateIds);
+      if (templateTasksError) {
+        redirect(createSubmissionUrl({ error: templateTasksError.message }));
       }
+      const templateTasks = (templateTasksRaw || []) as Array<{
+        id: string;
+        title: string;
+        description: string | null;
+        status: string;
+        priority: string;
+      }>;
+      const templateById = new Map(templateTasks.map((template) => [template.id, template]));
 
-      if (action.assignee_user_id) {
-        await supabase.from("task_assignees").upsert(
-          {
-            task_id: insertedTask.id,
-            user_id: action.assignee_user_id,
-          },
-          { onConflict: "task_id,user_id" }
-        );
+      const { data: templateAssigneesRaw, error: templateAssigneesError } = await supabase
+        .from("task_template_assignees")
+        .select("task_template_id,user_id")
+        .in("task_template_id", templateIds);
+      if (templateAssigneesError && !isSupabaseMissingTableError(templateAssigneesError)) {
+        redirect(createSubmissionUrl({ error: templateAssigneesError.message }));
       }
+      const assigneeIdsByTemplateId = (
+        (templateAssigneesError ? [] : templateAssigneesRaw || []) as Array<{
+          task_template_id: string;
+          user_id: string;
+        }>
+      ).reduce<Record<string, string[]>>((acc, row) => {
+        acc[row.task_template_id] ||= [];
+        acc[row.task_template_id].push(row.user_id);
+        return acc;
+      }, {});
 
-      await supabase.from("form_submission_action_tasks").insert({
-        submission_id: insertedSubmission.id,
-        action_id: action.id,
-        task_id: insertedTask.id,
-      });
+      for (const templateId of templateIds) {
+        const template = templateById.get(templateId);
+        if (!template) continue;
+
+        const assigneeIds = Array.from(new Set(assigneeIdsByTemplateId[templateId] || []));
+        const primaryAssignee = assigneeIds[0] || null;
+        const { data: createdTask, error: createdTaskError } = await supabase
+          .from("tasks")
+          .insert({
+            title: template.title,
+            description: template.description || null,
+            status: normalizeTaskStatusOrDefault(template.status),
+            priority: String(template.priority || "medium"),
+            assignee_user_id: primaryAssignee,
+            created_by_user_id: currentUser.id,
+            content: DEFAULT_EDITOR_CONTENT,
+            content_text: defaultContentText,
+          })
+          .select("id")
+          .single();
+        if (createdTaskError || !createdTask?.id) {
+          redirect(
+            createSubmissionUrl({
+              error: createdTaskError?.message || "Failed to create task from template",
+            })
+          );
+        }
+
+        if (assigneeIds.length) {
+          const { error: parentAssigneesError } = await supabase.from("task_assignees").insert(
+            assigneeIds.map((userId) => ({
+              task_id: createdTask.id,
+              user_id: userId,
+            }))
+          );
+          if (parentAssigneesError) {
+            redirect(createSubmissionUrl({ error: parentAssigneesError.message }));
+          }
+        }
+
+        const { data: subtaskTemplatesRaw, error: subtaskTemplatesError } = await supabase
+          .from("task_template_subtasks")
+          .select("id,title,description,status,priority,position")
+          .eq("task_template_id", templateId)
+          .order("position", { ascending: true });
+        if (subtaskTemplatesError && !isSupabaseMissingTableError(subtaskTemplatesError)) {
+          redirect(createSubmissionUrl({ error: subtaskTemplatesError.message }));
+        }
+
+        const subtaskTemplates = (subtaskTemplatesError
+          ? []
+          : subtaskTemplatesRaw || []) as Array<{
+          id: string;
+          title: string;
+          description: string | null;
+          status: string;
+          priority: string;
+          position: number;
+        }>;
+
+        if (subtaskTemplates.length) {
+          const subtaskTemplateIds = subtaskTemplates.map((subtask) => subtask.id);
+          const { data: subtaskAssigneesRaw, error: subtaskAssigneesError } =
+            subtaskTemplateIds.length
+              ? await supabase
+                  .from("task_template_subtask_assignees")
+                  .select("task_template_subtask_id,user_id")
+                  .in("task_template_subtask_id", subtaskTemplateIds)
+              : {
+                  data: [] as Array<{ task_template_subtask_id: string; user_id: string }>,
+                  error: null,
+                };
+          if (subtaskAssigneesError && !isSupabaseMissingTableError(subtaskAssigneesError)) {
+            redirect(createSubmissionUrl({ error: subtaskAssigneesError.message }));
+          }
+          const assigneeIdsBySubtaskTemplateId = (
+            (subtaskAssigneesError ? [] : subtaskAssigneesRaw || []) as Array<{
+              task_template_subtask_id: string;
+              user_id: string;
+            }>
+          ).reduce<Record<string, string[]>>((acc, row) => {
+            acc[row.task_template_subtask_id] ||= [];
+            acc[row.task_template_subtask_id].push(row.user_id);
+            return acc;
+          }, {});
+
+          const subtaskPlans = subtaskTemplates.map((subtask) => {
+            const subtaskAssigneeIds = Array.from(
+              new Set(assigneeIdsBySubtaskTemplateId[subtask.id] || [])
+            );
+            return {
+              assigneeIds: subtaskAssigneeIds,
+              payload: {
+                parent_task_id: createdTask.id,
+                title: subtask.title,
+                description: subtask.description || null,
+                status: normalizeTaskStatusOrDefault(subtask.status),
+                priority: String(subtask.priority || "medium"),
+                assignee_user_id: subtaskAssigneeIds[0] || primaryAssignee,
+                created_by_user_id: currentUser.id,
+                content: DEFAULT_EDITOR_CONTENT,
+                content_text: defaultContentText,
+              },
+            };
+          });
+
+          const { data: createdSubtasksRaw, error: createdSubtasksError } = await supabase
+            .from("tasks")
+            .insert(subtaskPlans.map((plan) => plan.payload))
+            .select("id");
+          if (createdSubtasksError) {
+            redirect(createSubmissionUrl({ error: createdSubtasksError.message }));
+          }
+          const createdSubtasks = (createdSubtasksRaw || []).filter((row) => Boolean(row.id));
+          const subtaskAssigneeInserts = createdSubtasks.flatMap((subtaskRow, index) => {
+            const explicitIds = subtaskPlans[index]?.assigneeIds || [];
+            const effectiveIds = explicitIds.length ? explicitIds : assigneeIds;
+            return effectiveIds.map((userId) => ({
+              task_id: subtaskRow.id,
+              user_id: userId,
+            }));
+          });
+          if (subtaskAssigneeInserts.length) {
+            const { error: subtaskAssigneesInsertError } = await supabase
+              .from("task_assignees")
+              .insert(subtaskAssigneeInserts);
+            if (subtaskAssigneesInsertError) {
+              redirect(createSubmissionUrl({ error: subtaskAssigneesInsertError.message }));
+            }
+          }
+        }
+
+        const { error: taskLinkError } = await supabase
+          .from("form_submission_template_tasks")
+          .insert({
+            submission_id: insertedSubmission.id,
+            task_template_id: templateId,
+            task_id: createdTask.id,
+          });
+        if (taskLinkError && !isSupabaseMissingTableError(taskLinkError)) {
+          redirect(createSubmissionUrl({ error: taskLinkError.message }));
+        }
+      }
     }
 
     revalidatePath("/forms");
@@ -624,7 +744,17 @@ export default async function FormDetailPage(props: {
               />
             </label>
             <FormFieldsBuilder initialFields={formFields} />
-            <FormActionsBuilder initialActions={actions} users={users || []} />
+            <FormTaskTemplatesBuilder
+              initialTemplateIds={selectedTaskTemplateIds}
+              taskTemplates={taskTemplates}
+            />
+            {(isSupabaseMissingTableError(templateLinksError) ||
+              isSupabaseMissingTableError(taskTemplatesError)) ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                Task templates are not set up yet. Run `sql/templates.sql` (and the latest forms
+                SQL migration) in Supabase SQL editor.
+              </p>
+            ) : null}
             <button
               type="submit"
               className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
