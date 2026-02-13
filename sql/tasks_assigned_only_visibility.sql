@@ -102,7 +102,20 @@ create policy tasks_insert
       public.is_admin()
       or (
         parent_task_id is not null
-        and public.can_access_task(parent_task_id)
+        and exists (
+          select 1
+          from public.tasks parent
+          left join public.task_assignees pta
+            on pta.task_id = parent.id
+           and pta.user_id in (public.current_app_user_id(), auth.uid())
+          where parent.id = parent_task_id
+            and (
+              public.is_admin()
+              or parent.status::text = 'template'
+              or parent.assignee_user_id in (public.current_app_user_id(), auth.uid())
+              or pta.user_id is not null
+            )
+        )
       )
       or (
         parent_task_id is null
