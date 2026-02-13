@@ -1,0 +1,397 @@
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import FormFieldsBuilder from "./FormFieldsBuilder";
+import FormActionsBuilder from "./FormActionsBuilder";
+import FormsTable from "./FormsTable";
+import {
+  buildFieldKey,
+  formStatusOptions,
+  normalizeFormActionPriority,
+  normalizeFormFieldType,
+  normalizeFormStatus,
+  type FormAction,
+  type FormField,
+  type FormStatus,
+} from "./types";
+
+type SortKey = "title" | "status" | "open_submissions" | "updated_at";
+type SortDir = "asc" | "desc";
+
+function normalizeSortKey(value: string | undefined): SortKey {
+  if (value === "title" || value === "status" || value === "open_submissions") {
+    return value;
+  }
+  return "updated_at";
+}
+
+function normalizeSortDir(value: string | undefined, sortKey: SortKey): SortDir {
+  if (value === "asc" || value === "desc") {
+    return value;
+  }
+  return sortKey === "title" || sortKey === "status" ? "asc" : "desc";
+}
+
+function sanitizeSearch(value: string) {
+  return value
+    .replace(/[^a-zA-Z0-9\s\-_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseFieldsJson(raw: string): FormField[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const label = String(row.label || "").trim();
+      const key = buildFieldKey(String(row.key || ""), `field_${index + 1}`);
+      if (!label && !key) return null;
+      const options = Array.isArray(row.options)
+        ? row.options.map((v) => String(v || "").trim()).filter(Boolean)
+        : [];
+      const condition = row.condition && typeof row.condition === "object"
+        ? {
+            fieldKey: String((row.condition as Record<string, unknown>).fieldKey || "").trim(),
+            equals: String((row.condition as Record<string, unknown>).equals || "").trim(),
+          }
+        : null;
+      return {
+        id: String(row.id || `field_${index + 1}`),
+        key,
+        label: label || key,
+        type: normalizeFormFieldType(String(row.type || "text")),
+        required: Boolean(row.required),
+        options,
+        condition: condition?.fieldKey ? condition : null,
+      } satisfies FormField;
+    })
+    .filter(Boolean) as FormField[];
+}
+
+function parseActionsJson(raw: string): FormAction[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const label = String(row.label || "").trim();
+      const taskTitleTemplate = String(row.taskTitleTemplate || "").trim();
+      if (!label || !taskTitleTemplate) return null;
+      const assigneeUserId = String(row.assigneeUserId || "").trim() || null;
+      return {
+        id: String(row.id || `action_${index + 1}`),
+        label,
+        taskTitleTemplate,
+        taskDescriptionTemplate: String(row.taskDescriptionTemplate || "").trim(),
+        assigneeUserId,
+        priority: normalizeFormActionPriority(String(row.priority || "medium")),
+        enabled: row.enabled !== false,
+      } satisfies FormAction;
+    })
+    .filter(Boolean) as FormAction[];
+}
+
+export default async function FormsPage(props: {
+  searchParams?: Promise<{
+    error?: string;
+    success?: string;
+    q?: string;
+    status?: string | string[];
+    sort?: string;
+    dir?: string;
+  }>;
+}) {
+  const searchParams = await props.searchParams;
+  const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authEmail = authData.user?.email;
+  if (!authEmail) {
+    redirect("/login");
+  }
+
+  const { data: currentUser } = await supabase
+    .from("users")
+    .select("id")
+    .eq("email", authEmail)
+    .maybeSingle();
+
+  if (!currentUser?.id) {
+    redirect("/tasks?error=Missing%20user%20profile");
+  }
+
+  const sortKey = normalizeSortKey((searchParams?.sort || "").trim());
+  const sortDir = normalizeSortDir((searchParams?.dir || "").trim(), sortKey);
+  const selectedStatuses = parseCsvParam(searchParams?.status).filter((status) =>
+    formStatusOptions.includes(status as FormStatus)
+  );
+  const query = sanitizeSearch((searchParams?.q || "").trim());
+
+  const params = new URLSearchParams();
+  setCsvParam(params, "status", selectedStatuses);
+  if (query) params.set("q", query);
+  params.set("sort", sortKey);
+  params.set("dir", sortDir);
+  const returnTo = params.toString() ? `/forms?${params}` : "/forms";
+
+  let formsQuery = supabase
+    .from("forms")
+    .select("id,title,description,status,created_at,updated_at")
+    .order("updated_at", { ascending: false });
+
+  if (selectedStatuses.length) {
+    formsQuery = formsQuery.in("status", selectedStatuses);
+  }
+  if (query) {
+    formsQuery = formsQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
+  }
+
+  const formsResult = await formsQuery;
+  const formsError =
+    formsResult.error && isSupabaseMissingTableError(formsResult.error)
+      ? null
+      : formsResult.error;
+  const forms =
+    formsResult.error && isSupabaseMissingTableError(formsResult.error)
+      ? []
+      : ((formsResult.data || []) as Array<{
+          id: string;
+          title: string;
+          description: string | null;
+          status: string | null;
+          created_at: string;
+          updated_at: string;
+        }>);
+
+  const formIds = forms.map((form) => form.id);
+  const submissionCounts = new Map<string, number>();
+  if (formIds.length) {
+    const { data: submissions } = await supabase
+      .from("form_submissions")
+      .select("form_id,status")
+      .in("form_id", formIds)
+      .not("status", "in", "(completed,rejected)");
+    (submissions || []).forEach((row) => {
+      if (!row.form_id) return;
+      submissionCounts.set(row.form_id, (submissionCounts.get(row.form_id) || 0) + 1);
+    });
+  }
+
+  const tableRows = forms
+    .map((form) => ({
+      id: form.id,
+      title: form.title,
+      description: form.description,
+      status: normalizeFormStatus(form.status),
+      created_at: form.created_at,
+      updated_at: form.updated_at,
+      openSubmissions: submissionCounts.get(form.id) || 0,
+    }))
+    .sort((a, b) => {
+      let result = 0;
+      if (sortKey === "title") {
+        result = a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+      } else if (sortKey === "status") {
+        result = a.status.localeCompare(b.status);
+      } else if (sortKey === "open_submissions") {
+        result = a.openSubmissions - b.openSubmissions;
+      } else {
+        result = a.updated_at.localeCompare(b.updated_at);
+      }
+      return sortDir === "asc" ? result : -result;
+    });
+
+  const { data: users } = await supabase
+    .from("users")
+    .select("id,full_name,email")
+    .order("full_name", { ascending: true });
+
+  async function createForm(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const title = String(formData.get("title") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const status = normalizeFormStatus(String(formData.get("status") || "draft"));
+    const fields = parseFieldsJson(String(formData.get("fields_json") || "[]"));
+    const actions = parseActionsJson(String(formData.get("actions_json") || "[]"));
+
+    if (!title) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Form%20title%20is%20required`);
+    }
+
+    if (!fields.length) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Add%20at%20least%20one%20field`);
+    }
+
+    const { data: authData } = await supabase.auth.getUser();
+    const authEmail = authData.user?.email;
+    if (!authEmail) {
+      redirect("/login");
+    }
+
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", authEmail)
+      .maybeSingle();
+    if (!currentUser?.id) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20user%20profile`);
+    }
+
+    const { data: insertedForm, error: formInsertError } = await supabase
+      .from("forms")
+      .insert({
+        title,
+        description: description || null,
+        status,
+        fields,
+        created_by: currentUser.id,
+      })
+      .select("id")
+      .single();
+
+    if (formInsertError || !insertedForm?.id) {
+      redirect(
+        `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+          formInsertError?.message || "Failed to create form"
+        )}`
+      );
+    }
+
+    if (actions.length) {
+      const { error: actionError } = await supabase.from("form_submission_actions").insert(
+        actions.map((action, index) => ({
+          form_id: insertedForm.id,
+          label: action.label,
+          task_title_template: action.taskTitleTemplate,
+          task_description_template: action.taskDescriptionTemplate || null,
+          assignee_user_id: action.assigneeUserId,
+          priority: action.priority,
+          enabled: action.enabled,
+          position: index,
+        }))
+      );
+
+      if (actionError) {
+        redirect(
+          `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+            actionError.message
+          )}`
+        );
+      }
+    }
+
+    revalidatePath("/forms");
+    redirect(`/forms/${insertedForm.id}?return_to=${encodeURIComponent(returnTo)}&success=Form%20created`);
+  }
+
+  return (
+    <div className="space-y-8">
+      <section className="space-y-2">
+        <h1 className="text-2xl font-semibold text-slate-900">Forms</h1>
+        <p className="text-sm text-slate-600">
+          Build reusable forms with conditional fields and automatic follow-up task creation.
+        </p>
+      </section>
+
+      {(searchParams?.error || searchParams?.success || formsError) && (
+        <div className="space-y-2">
+          {formsError ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+              {formsError.message}
+            </p>
+          ) : null}
+          {searchParams?.error ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+              {searchParams.error}
+            </p>
+          ) : null}
+          {searchParams?.success ? (
+            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+              {searchParams.success}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      {isSupabaseMissingTableError(formsResult.error) ? (
+        <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Forms are not set up yet. Run `sql/forms.sql` in Supabase SQL Editor, then refresh.
+        </section>
+      ) : null}
+
+      <section className="rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Create form</h2>
+        <form action={createForm} className="mt-4 space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Form title
+              <input
+                name="title"
+                required
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                placeholder="New employee onboarding"
+              />
+            </label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Status
+              <select
+                name="status"
+                defaultValue="draft"
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+              >
+                {formStatusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
+            Description
+            <textarea
+              name="description"
+              rows={3}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+              placeholder="Capture details and trigger onboarding tasks."
+            />
+          </label>
+          <FormFieldsBuilder initialFields={[]} />
+          <FormActionsBuilder initialActions={[]} users={users || []} />
+          <button
+            type="submit"
+            className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+          >
+            Create form
+          </button>
+        </form>
+      </section>
+
+      <FormsTable
+        rows={tableRows}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        initialFilters={{ q: query, status: selectedStatuses }}
+        statusOptions={formStatusOptions}
+      />
+    </div>
+  );
+}

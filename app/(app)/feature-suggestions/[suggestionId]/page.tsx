@@ -437,7 +437,14 @@ export default async function FeatureSuggestionDetailPage(props: {
                   : "border border-slate-300 text-slate-700 hover:border-slate-400"
               }`}
             >
-              {"\u{1F44D}"}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4"
+              >
+                <path d="M8.3 3.3c.5-1.2 2.2-.8 2.2.5v2.8h4.2c1.1 0 1.9 1 1.7 2l-1.1 6.5a2 2 0 0 1-2 1.7H8a2 2 0 0 1-2-2V9.5l2.3-6.2ZM3.5 9.5a1 1 0 0 1 1-1H5v8H4.5a1 1 0 0 1-1-1v-6Z" />
+              </svg>
             </button>
             <button
               type="submit"
@@ -449,7 +456,14 @@ export default async function FeatureSuggestionDetailPage(props: {
                   : "border border-slate-300 text-slate-700 hover:border-slate-400"
               }`}
             >
-              {"\u{1F44E}"}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4"
+              >
+                <path d="M11.7 16.7c-.5 1.2-2.2.8-2.2-.5v-2.8H5.3c-1.1 0-1.9-1-1.7-2l1.1-6.5a2 2 0 0 1 2-1.7H12a2 2 0 0 1 2 2v5.3l-2.3 6.2ZM16.5 10.5a1 1 0 0 1-1 1H15v-8h.5a1 1 0 0 1 1 1v6Z" />
+              </svg>
             </button>
           </form>
         </div>
