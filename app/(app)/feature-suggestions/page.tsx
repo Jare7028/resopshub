@@ -61,6 +61,7 @@ export default async function FeatureSuggestionsPage(props: {
   searchParams?: Promise<{
     error?: string;
     success?: string;
+    view?: string;
     hide?: string;
     sort?: string;
     dir?: string;
@@ -89,6 +90,11 @@ export default async function FeatureSuggestionsPage(props: {
   }
 
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const selectedView: "table" | "gantt" | "board" =
+    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
+      ? (viewRaw as "table" | "gantt" | "board")
+      : "table";
   const sortKey = normalizeSortKey((searchParams?.sort || "").trim());
   const sortDir = normalizeSortDir((searchParams?.dir || "").trim(), sortKey);
 
@@ -110,6 +116,9 @@ export default async function FeatureSuggestionsPage(props: {
     params.set("hide", hideCompleted ? "1" : "0");
     params.set("sort", sortKey);
     params.set("dir", sortDir);
+    if (selectedView !== "table") {
+      params.set("view", selectedView);
+    }
     return params.toString();
   };
 
@@ -367,6 +376,32 @@ export default async function FeatureSuggestionsPage(props: {
     revalidatePath("/feature-suggestions");
   }
 
+  async function updateType(formData: FormData): Promise<void> {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const suggestionId = String(formData.get("suggestion_id") || "").trim();
+    const type = String(formData.get("type") || "").trim();
+
+    if (!suggestionId || !type) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20type%20update`);
+    }
+
+    if (!typeOptions.includes(type as (typeof typeOptions)[number])) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Invalid%20type`);
+    }
+
+    const { error } = await supabase
+      .from("feature_suggestions")
+      .update({ type })
+      .eq("id", suggestionId);
+
+    if (error) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(error.message)}`);
+    }
+
+    revalidatePath("/feature-suggestions");
+  }
+
   const tableRows = suggestionRows.map((suggestion) => ({
     id: suggestion.id,
     title: suggestion.title,
@@ -374,6 +409,7 @@ export default async function FeatureSuggestionsPage(props: {
     status: suggestion.status || "idea",
     type: suggestion.type || "new_feature",
     created_at: suggestion.created_at,
+    closed_at: suggestion.closed_at,
     score: voteScores.get(suggestion.id) || 0,
     userVote: userVotes.get(suggestion.id) || 0,
     commentCount: commentCounts.get(suggestion.id) || 0,
@@ -444,6 +480,7 @@ export default async function FeatureSuggestionsPage(props: {
         hideCompleted={hideCompleted}
         sortKey={sortKey}
         sortDir={sortDir}
+        initialView={selectedView}
         initialFilters={{
           status: selectedStatuses,
           type: selectedTypes,
@@ -453,6 +490,7 @@ export default async function FeatureSuggestionsPage(props: {
         typeOptions={typeOptions}
         onVote={toggleVote}
         onUpdateStatus={updateStatus}
+        onUpdateType={updateType}
       />
     </div>
   );

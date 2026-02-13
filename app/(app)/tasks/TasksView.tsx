@@ -73,6 +73,7 @@ type TasksViewProps = {
   toggleUrl: string;
   includeWatching: boolean;
   watchToggleUrl: string;
+  showWatchToggle?: boolean;
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
   basePath?: string;
@@ -131,6 +132,7 @@ export default function TasksView({
   toggleUrl,
   includeWatching,
   watchToggleUrl,
+  showWatchToggle = true,
   sortKey,
   sortDir,
   basePath = "/tasks",
@@ -361,36 +363,38 @@ export default function TasksView({
           >
             {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
           </a>
-          <a
-            href={watchToggleUrl}
-            onClick={(event) => {
-              event.preventDefault();
-              const query = buildQuery(
-                filters,
-                sortKey,
-                sortDir,
-                view,
-                hideCompleted
-              );
-              const params = new URLSearchParams(query);
-              if (includeWatching) {
-                params.delete("watch");
-              } else {
-                params.set("watch", "1");
-              }
-              const nextQuery = params.toString();
-              startTransition(() => {
-                router.replace(nextQuery ? `${basePath}?${nextQuery}` : basePath, { scroll: false });
-              });
-            }}
-            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
-              includeWatching
-                ? "border-blue-300 bg-blue-50 text-blue-700 hover:border-blue-400 hover:text-blue-800"
-                : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
-            }`}
-          >
-            {includeWatching ? "Hide Tickets I'm watching" : "Show Tickets I'm watching"}
-          </a>
+          {showWatchToggle ? (
+            <a
+              href={watchToggleUrl}
+              onClick={(event) => {
+                event.preventDefault();
+                const query = buildQuery(
+                  filters,
+                  sortKey,
+                  sortDir,
+                  view,
+                  hideCompleted
+                );
+                const params = new URLSearchParams(query);
+                if (includeWatching) {
+                  params.delete("watch");
+                } else {
+                  params.set("watch", "1");
+                }
+                const nextQuery = params.toString();
+                startTransition(() => {
+                  router.replace(nextQuery ? `${basePath}?${nextQuery}` : basePath, { scroll: false });
+                });
+              }}
+              className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+                includeWatching
+                  ? "border-blue-300 bg-blue-50 text-blue-700 hover:border-blue-400 hover:text-blue-800"
+                  : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+              }`}
+            >
+              {includeWatching ? "Hide Tickets I'm watching" : "Show Tickets I'm watching"}
+            </a>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 text-sm">
           <button

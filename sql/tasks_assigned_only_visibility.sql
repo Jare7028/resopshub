@@ -88,3 +88,29 @@ create policy tasks_delete
     auth.uid() is not null
     and public.can_access_task(id)
   );
+
+drop policy if exists tasks_insert on public.tasks;
+drop policy if exists tasks_insert_assigned on public.tasks;
+create policy tasks_insert
+  on public.tasks
+  for insert
+  to authenticated
+  with check (
+    auth.uid() is not null
+    and coalesce(created_by_user_id, auth.uid()) = auth.uid()
+    and (
+      public.is_admin()
+      or (
+        parent_task_id is not null
+        and public.can_access_task(parent_task_id)
+      )
+      or (
+        parent_task_id is null
+        and (
+          (project_id is not null and public.is_project_member(project_id))
+          or (project_id is null)
+        )
+        and (client_id is null or public.can_access_client(client_id))
+      )
+    )
+  );

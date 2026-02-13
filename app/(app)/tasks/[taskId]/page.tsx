@@ -12,13 +12,23 @@ import TaskTabs, {
 import ConfirmDelete from "../../_components/ConfirmDelete";
 import {
   TASK_STATUS_OPTIONS,
+  coerceTaskStatusList,
+  expandTaskStatusFilterForQuery,
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
 import { statusSelectClasses } from "@/lib/taskIndicators";
 import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
+import TasksView from "../TasksView";
+import { updateTaskInlineAction } from "../actions";
+import {
+  normalizeTaskSortDir,
+  normalizeTaskSortKey,
+  sortTasksForDisplay,
+} from "@/lib/taskSorting";
 import {
   normalizeCustomFieldKind,
   toCustomFieldKey,
@@ -28,6 +38,12 @@ import {
 } from "@/lib/customFields";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
+const dueDateFilters = [
+  { value: "all", label: "All" },
+  { value: "overdue", label: "Overdue" },
+  { value: "next_7", label: "Next 7 days" },
+  { value: "none", label: "No due date" },
+] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
 function buildTaskUrl(
@@ -56,7 +72,22 @@ function buildTaskUrl(
 
 export default async function TaskDetailPage(props: {
   params: Promise<{ taskId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string; tab?: string; add_field?: string }>;
+  searchParams?: Promise<{
+    error?: string;
+    success?: string;
+    tab?: string;
+    add_field?: string;
+    view?: string;
+    status?: string | string[];
+    priority?: string | string[];
+    assignee?: string | string[];
+    due?: string;
+    client?: string | string[];
+    project?: string | string[];
+    hide?: string;
+    sort?: string;
+    dir?: string;
+  }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
@@ -134,6 +165,20 @@ export default async function TaskDetailPage(props: {
   const taskClientId = task.client_id;
   const taskProjectId = task.project_id;
   const taskAssigneeUserId = task.assignee_user_id;
+  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const selectedSubtaskView: "table" | "gantt" | "board" =
+    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
+      ? (viewRaw as "table" | "gantt" | "board")
+      : "table";
+  const subtaskSortKey = normalizeTaskSortKey(searchParams?.sort);
+  const subtaskSortDir = normalizeTaskSortDir(searchParams?.dir);
+  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
+  const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
+  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
+  const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
+  const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
+  let selectedDue = (searchParams?.due || "all").trim();
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
 
   const getRelationName = (
     relation:
@@ -149,21 +194,6 @@ export default async function TaskDetailPage(props: {
     return relation?.name ?? fallback;
   };
 
-  const formatDueTime = (value: string | null | undefined) => {
-    if (!value) {
-      return "";
-    }
-    const time = value.slice(0, 5);
-    const parsed = new Date(`1970-01-01T${time}:00`);
-    if (Number.isNaN(parsed.getTime())) {
-      return "";
-    }
-    return parsed.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  };
-
   const { data: users } = await supabase
     .from("users")
     .select("id,full_name,email")
@@ -172,6 +202,52 @@ export default async function TaskDetailPage(props: {
     .from("clients")
     .select("id,name")
     .order("name", { ascending: true });
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id,name,client_id,clients(name)")
+    .order("name", { ascending: true });
+
+  const allowedDueValues = new Set<string>(
+    dueDateFilters.map((filter) => filter.value)
+  );
+  if (!allowedDueValues.has(selectedDue)) {
+    selectedDue = "all";
+  }
+  const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw).filter((status) =>
+    statusOptions.includes(status)
+  );
+  const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
+    priorityOptions.includes(priority as (typeof priorityOptions)[number])
+  );
+  const userIdSet = new Set((users || []).map((user) => user.id));
+  const selectedAssignees = selectedAssigneesRaw.filter(
+    (value) => value === "unassigned" || userIdSet.has(value)
+  );
+  const clientIdSet = new Set((clients || []).map((client) => client.id));
+  const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
+  const projectIdSet = new Set((projects || []).map((project) => project.id));
+  const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
+
+  const subtasksReturnParams = new URLSearchParams();
+  subtasksReturnParams.set("tab", "subtasks");
+  setCsvParam(subtasksReturnParams, "status", selectedStatuses);
+  setCsvParam(subtasksReturnParams, "priority", selectedPriorities);
+  setCsvParam(subtasksReturnParams, "assignee", selectedAssignees);
+  if (selectedDue !== "all") {
+    subtasksReturnParams.set("due", selectedDue);
+  }
+  setCsvParam(subtasksReturnParams, "client", selectedClientIds);
+  setCsvParam(subtasksReturnParams, "project", selectedProjectIds);
+  subtasksReturnParams.set("hide", hideCompleted ? "1" : "0");
+  subtasksReturnParams.set("sort", subtaskSortKey);
+  subtasksReturnParams.set("dir", subtaskSortDir);
+  if (selectedSubtaskView !== "table") {
+    subtasksReturnParams.set("view", selectedSubtaskView);
+  }
+  const subtasksReturnTo = `/tasks/${taskId}?${subtasksReturnParams.toString()}`;
+  const subtasksToggleParams = new URLSearchParams(subtasksReturnParams);
+  subtasksToggleParams.set("hide", hideCompleted ? "0" : "1");
+  const subtasksToggleUrl = `/tasks/${taskId}?${subtasksToggleParams.toString()}`;
 
   const { data: taskAssignees } = await supabase
     .from("task_assignees")
@@ -202,11 +278,105 @@ export default async function TaskDetailPage(props: {
     ? assigneeMap.get(task.last_edited_by_user_id) || "Unknown user"
     : null;
 
-  const { data: subtasks } = await supabase
+  let subtasksQuery = supabase
     .from("tasks")
-    .select("id,title,status,priority,start_date,due_date,due_time,assignee_user_id")
+    .select(
+      "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
+    )
     .eq("parent_task_id", task.id)
     .order("created_at", { ascending: false });
+
+  if (selectedStatuses.length) {
+    subtasksQuery = subtasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
+  }
+  if (selectedPriorities.length) {
+    subtasksQuery = subtasksQuery.in("priority", selectedPriorities);
+  }
+  const wantsUnassigned = selectedAssignees.includes("unassigned");
+  const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
+  if (wantsUnassigned && selectedAssigneeIds.length) {
+    subtasksQuery = subtasksQuery.or(
+      `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
+    );
+  } else if (wantsUnassigned) {
+    subtasksQuery = subtasksQuery.is("assignee_user_id", null);
+  } else if (selectedAssigneeIds.length) {
+    subtasksQuery = subtasksQuery.in("assignee_user_id", selectedAssigneeIds);
+  }
+  if (selectedClientIds.length) {
+    subtasksQuery = subtasksQuery.in("client_id", selectedClientIds);
+  }
+  if (selectedProjectIds.length) {
+    subtasksQuery = subtasksQuery.in("project_id", selectedProjectIds);
+  }
+  const wantsCompletedStatuses =
+    selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+  if (hideCompleted && !wantsCompletedStatuses) {
+    subtasksQuery = subtasksQuery.not("status", "in", "(completed,cancelled)");
+  }
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  if (selectedDue === "overdue") {
+    subtasksQuery = subtasksQuery.lt("due_date", todayIso);
+  } else if (selectedDue === "next_7") {
+    const next = new Date(today);
+    next.setDate(next.getDate() + 7);
+    const nextIso = next.toISOString().slice(0, 10);
+    subtasksQuery = subtasksQuery.gte("due_date", todayIso).lte("due_date", nextIso);
+  } else if (selectedDue === "none") {
+    subtasksQuery = subtasksQuery.is("due_date", null);
+  }
+
+  const { data: subtasksRaw } = await subtasksQuery;
+  const subtasksById: Record<string, string[]> = {};
+  const subtaskIds = (subtasksRaw || []).map((subtask) => subtask.id).filter(Boolean);
+  if (subtaskIds.length) {
+    const { data: subtaskAssignees } = await supabase
+      .from("task_assignees")
+      .select("task_id,user_id")
+      .in("task_id", subtaskIds);
+    (subtaskAssignees || []).forEach((row) => {
+      if (!subtasksById[row.task_id]) {
+        subtasksById[row.task_id] = [];
+      }
+      subtasksById[row.task_id].push(row.user_id);
+    });
+  }
+  (subtasksRaw || []).forEach((subtask) => {
+    if (!subtasksById[subtask.id]) {
+      subtasksById[subtask.id] = [];
+    }
+    if (
+      subtask.assignee_user_id &&
+      !subtasksById[subtask.id].includes(subtask.assignee_user_id)
+    ) {
+      subtasksById[subtask.id].push(subtask.assignee_user_id);
+    }
+  });
+  const subtasks = sortTasksForDisplay({
+    tasks: subtasksRaw || [],
+    sortKey: subtaskSortKey,
+    sortDir: subtaskSortDir,
+    users: users || [],
+    assigneesByTask: subtasksById,
+    statusOrder: statusOptions,
+  });
+  const openSubtaskCountByTaskId: Record<string, number> = {};
+  if (subtaskIds.length) {
+    const { data: subsubtasksRaw, error: subsubtasksError } = await supabase
+      .from("tasks")
+      .select("parent_task_id,status")
+      .in("parent_task_id", subtaskIds);
+    if (!subsubtasksError) {
+      (subsubtasksRaw || []).forEach((row) => {
+        const parentId = row.parent_task_id;
+        const status = row.status || "";
+        if (!parentId) return;
+        if (status === "completed" || status === "cancelled") return;
+        openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
+      });
+    }
+  }
 
   async function createTaskCustomField(formData: FormData) {
     "use server";
@@ -286,10 +456,10 @@ export default async function TaskDetailPage(props: {
     redirect(buildTaskUrl(taskId, "details", { success: "Custom field added" }));
   }
 
-  async function deleteTaskCustomField(formData: FormData) {
+  async function deleteTaskCustomField(customFieldId: string) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const id = String(formData.get("id") || "").trim();
+    const id = String(customFieldId || "").trim();
     if (!id) {
       redirect(buildTaskUrl(taskId, "details", { error: "Missing custom field id" }));
     }
@@ -792,9 +962,7 @@ export default async function TaskDetailPage(props: {
                       </label>
                       <button
                         type="submit"
-                        formAction={deleteTaskCustomField}
-                        name="id"
-                        value={field.id}
+                        formAction={deleteTaskCustomField.bind(null, field.id)}
                         className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
                       >
                         Delete
@@ -828,9 +996,7 @@ export default async function TaskDetailPage(props: {
                       </label>
                       <button
                         type="submit"
-                        formAction={deleteTaskCustomField}
-                        name="id"
-                        value={field.id}
+                        formAction={deleteTaskCustomField.bind(null, field.id)}
                         className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
                       >
                         Delete
@@ -858,9 +1024,7 @@ export default async function TaskDetailPage(props: {
                       </label>
                       <button
                         type="submit"
-                        formAction={deleteTaskCustomField}
-                        name="id"
-                        value={field.id}
+                        formAction={deleteTaskCustomField.bind(null, field.id)}
                         className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
                       >
                         Delete
@@ -893,9 +1057,7 @@ export default async function TaskDetailPage(props: {
                     </label>
                     <button
                       type="submit"
-                      formAction={deleteTaskCustomField}
-                      name="id"
-                      value={field.id}
+                      formAction={deleteTaskCustomField.bind(null, field.id)}
                       className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
                     >
                       Delete
@@ -1181,64 +1343,38 @@ export default async function TaskDetailPage(props: {
 
       {activeTab === "subtasks" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Subtasks</h2>
-          </div>
-          <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Subtask</th>
-                <th className="px-6 py-3">Assignee</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Priority</th>
-                <th className="px-6 py-3">Start</th>
-                <th className="px-6 py-3">Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subtasks?.length ? (
-                subtasks.map((subtask) => (
-                  <tr key={subtask.id} className="border-t border-slate-200">
-                    <td className="px-6 py-3 font-medium text-slate-900">
-                      <Link href={`/tasks/${subtask.id}`} className="hover:underline">
-                        {subtask.title}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {subtask.assignee_user_id
-                        ? assigneeMap.get(subtask.assignee_user_id) || "Unknown"
-                        : "Unassigned"}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {formatTaskStatusLabel(subtask.status)}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">{subtask.priority}</td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {subtask.start_date
-                        ? new Date(subtask.start_date).toLocaleDateString("en-US")
-                        : "--"}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {subtask.due_date
-                        ? `${new Date(subtask.due_date).toLocaleDateString("en-US")}${
-                            subtask.due_time ? ` ${formatDueTime(subtask.due_time)}` : ""
-                          }`
-                        : "--"}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={6}>
-                    No subtasks yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+          <TasksView
+            tasks={subtasks || []}
+            users={users || []}
+            clients={clients || []}
+            projects={projects || []}
+            assigneesByTask={subtasksById}
+            openSubtaskCountByTaskId={openSubtaskCountByTaskId}
+            statusOptions={statusOptions}
+            priorityOptions={priorityOptions}
+            dueOptions={dueDateFilters}
+            initialView={selectedSubtaskView}
+            returnTo={subtasksReturnTo}
+            initialFilters={{
+              status: selectedStatuses,
+              priority: selectedPriorities,
+              assignee: selectedAssignees,
+              due: selectedDue,
+              client: selectedClientIds,
+              project: selectedProjectIds,
+            }}
+            onUpdate={updateTaskInlineAction}
+            hideCompleted={hideCompleted}
+            toggleUrl={subtasksToggleUrl}
+            includeWatching={false}
+            watchToggleUrl={subtasksReturnTo}
+            showWatchToggle={false}
+            sortKey={subtaskSortKey}
+            sortDir={subtaskSortDir}
+            basePath={`/tasks/${taskId}`}
+            fixedParams={{ tab: "subtasks" }}
+          />
+        </section>
       ) : null}
       {activeTab === "notes" ? (
         <TaskNotesEditorClient
