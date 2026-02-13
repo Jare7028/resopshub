@@ -52,6 +52,18 @@ function isTemplateStatusEnumError(error: unknown) {
   return message.includes("invalid input value for enum") && message.includes("template");
 }
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 function buildTasksRedirectUrl(
   baseUrl: string,
   params: { tab?: "list" | "add"; error?: string; success?: string }
@@ -648,7 +660,7 @@ export default async function TasksPage(props: {
       redirect(
         buildTasksRedirectUrl(returnTo, {
           tab: "add",
-          error: error.message,
+          error: formatDbError("tasks.createTask.tasks.insert", error),
         })
       );
     }
@@ -928,7 +940,10 @@ export default async function TasksPage(props: {
           redirect(
             buildTasksRedirectUrl(returnTo, {
               tab: "add",
-              error: subtaskInsertError.message,
+              error: formatDbError(
+                "tasks.createTask.templateSubtasks.tasks.insert",
+                subtaskInsertError
+              ),
             })
           );
         }

@@ -47,6 +47,18 @@ function isTemplateStatusEnumError(error: unknown) {
   return message.includes("invalid input value for enum") && message.includes("template");
 }
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 export default async function ProjectTasksPage(props: {
   params: Promise<{ projectId: string }>;
   searchParams?: Promise<{
@@ -492,7 +504,11 @@ export default async function ProjectTasksPage(props: {
       .single();
 
     if (error) {
-      redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(error.message)}`);
+      redirect(
+        `/projects/${projectId}/tasks?error=${encodeURIComponent(
+          formatDbError("projects.tasks.createTask.tasks.insert", error)
+        )}`
+      );
     }
 
     const taskId = created?.id;
@@ -587,7 +603,14 @@ export default async function ProjectTasksPage(props: {
           .select("id");
 
         if (subtaskInsertError) {
-          redirect(`/projects/${projectId}/tasks?error=${encodeURIComponent(subtaskInsertError.message)}`);
+          redirect(
+            `/projects/${projectId}/tasks?error=${encodeURIComponent(
+              formatDbError(
+                "projects.tasks.createTask.templateSubtasks.tasks.insert",
+                subtaskInsertError
+              )
+            )}`
+          );
         }
 
         const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));

@@ -48,6 +48,18 @@ function isTemplateStatusEnumError(error: unknown) {
   return message.includes("invalid input value for enum") && message.includes("template");
 }
 
+function formatDbError(
+  context: string,
+  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
+) {
+  if (!error) return context;
+  const parts = [`[${context}]`, error.message];
+  if (error.code) parts.push(`code=${error.code}`);
+  if (error.details) parts.push(`details=${error.details}`);
+  if (error.hint) parts.push(`hint=${error.hint}`);
+  return parts.join(" | ");
+}
+
 export default async function ClientTasksPage(props: {
   params: Promise<{ clientId: string }>;
   searchParams?: Promise<{
@@ -458,7 +470,11 @@ export default async function ClientTasksPage(props: {
       .single();
 
     if (error) {
-      redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
+      redirect(
+        `${returnTo}?error=${encodeURIComponent(
+          formatDbError("clients.tasks.createTask.tasks.insert", error)
+        )}`
+      );
     }
 
     const taskId = created?.id;
@@ -553,7 +569,14 @@ export default async function ClientTasksPage(props: {
           .select("id");
 
         if (subtaskInsertError) {
-          redirect(`${returnTo}?error=${encodeURIComponent(subtaskInsertError.message)}`);
+          redirect(
+            `${returnTo}?error=${encodeURIComponent(
+              formatDbError(
+                "clients.tasks.createTask.templateSubtasks.tasks.insert",
+                subtaskInsertError
+              )
+            )}`
+          );
         }
 
         const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
