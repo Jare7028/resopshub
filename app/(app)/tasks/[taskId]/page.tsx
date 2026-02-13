@@ -33,7 +33,7 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 function buildTaskUrl(
   taskId: string,
   tab: TaskTabKey,
-  params?: { error?: string; success?: string }
+  params?: { error?: string; success?: string; addField?: "1" | "0" }
 ) {
   const sp = new URLSearchParams();
 
@@ -46,6 +46,9 @@ function buildTaskUrl(
   if (params?.success) {
     sp.set("success", params.success);
   }
+  if (params?.addField === "1") {
+    sp.set("add_field", "1");
+  }
 
   const qs = sp.toString();
   return qs ? `/tasks/${taskId}?${qs}` : `/tasks/${taskId}`;
@@ -53,7 +56,7 @@ function buildTaskUrl(
 
 export default async function TaskDetailPage(props: {
   params: Promise<{ taskId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string; tab?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; tab?: string; add_field?: string }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
@@ -125,6 +128,7 @@ export default async function TaskDetailPage(props: {
 
   const taskId = task.id;
   const activeTab = normalizeTaskTabKey(searchParams?.tab);
+  const showAddFieldModal = searchParams?.add_field === "1";
   const taskStatus = task.status;
   const taskPriority = task.priority;
   const taskClientId = task.client_id;
@@ -626,8 +630,14 @@ export default async function TaskDetailPage(props: {
 
       {activeTab === "details" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-slate-900">Task details</h2>
+            <Link
+              href={buildTaskUrl(taskId, "details", { addField: "1" })}
+              className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              Add field
+            </Link>
           </div>
           <div className="px-6 pb-6">
           <form action={updateTask} className="mt-4 grid gap-4 md:grid-cols-4">
@@ -741,38 +751,6 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
-            <div className="md:col-span-4 rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Add field to this task
-              </p>
-              <form action={createTaskCustomField} className="mt-2 grid gap-2 md:grid-cols-12">
-                <input
-                  name="label"
-                  placeholder="Field label"
-                  className="md:col-span-5 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  required
-                />
-                <select
-                  name="field_kind"
-                  defaultValue="text"
-                  className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="text">Text</option>
-                  <option value="dropdown">Dropdown</option>
-                </select>
-                <input
-                  name="options_csv"
-                  placeholder="Dropdown options (comma-separated)"
-                  className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-                <button
-                  type="submit"
-                  className="md:col-span-12 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                >
-                  Add custom field
-                </button>
-              </form>
-            </div>
             {customFields.map((field) => {
               const value = customFieldValueByFieldId.get(field.id) || "";
               const inputId = `custom-field-${field.id}`;
@@ -847,6 +825,56 @@ export default async function TaskDetailPage(props: {
               Save task
             </button>
           </form>
+          {showAddFieldModal ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+              <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h3 className="text-base font-semibold text-slate-900">Add field to task</h3>
+                  <Link
+                    href={buildTaskUrl(taskId, "details")}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Close
+                  </Link>
+                </div>
+                <form action={createTaskCustomField} className="grid gap-3">
+                  <input
+                    name="label"
+                    placeholder="Field label"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    required
+                  />
+                  <select
+                    name="field_kind"
+                    defaultValue="text"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="text">Text</option>
+                    <option value="dropdown">Dropdown</option>
+                  </select>
+                  <input
+                    name="options_csv"
+                    placeholder="Dropdown options (comma-separated)"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <Link
+                      href={buildTaskUrl(taskId, "details")}
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </Link>
+                    <button
+                      type="submit"
+                      className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                    >
+                      Add field
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
     ) : null}
