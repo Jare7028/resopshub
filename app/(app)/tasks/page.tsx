@@ -46,6 +46,12 @@ const dueDateFilters = [
 ] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
+function isTemplateStatusEnumError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const message = String((error as { message?: unknown }).message || "").toLowerCase();
+  return message.includes("invalid input value for enum") && message.includes("template");
+}
+
 function buildTasksRedirectUrl(
   baseUrl: string,
   params: { tab?: "list" | "add"; error?: string; success?: string }
@@ -191,7 +197,7 @@ export default async function TasksPage(props: {
     source: "task" | "legacy";
   };
 
-  const { data: taskTemplatesFromTasksRaw, error: taskTemplatesFromTasksError } = await supabase
+  const taskTemplatesFromTasksResponse = await supabase
     .from("tasks")
     .select(
       "id,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
@@ -199,6 +205,28 @@ export default async function TasksPage(props: {
     .eq("status", "template")
     .is("parent_task_id", null)
     .order("title", { ascending: true });
+  const taskTemplatesFromTasksError = isTemplateStatusEnumError(
+    taskTemplatesFromTasksResponse.error
+  )
+    ? null
+    : taskTemplatesFromTasksResponse.error;
+  const taskTemplatesFromTasksRaw = (isTemplateStatusEnumError(
+    taskTemplatesFromTasksResponse.error
+  )
+    ? []
+    : taskTemplatesFromTasksResponse.data || []) as Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+    priority: string;
+    due_time: string | null;
+    recurrence_frequency: string | null;
+    recurrence_lead_days: number | null;
+  }>;
+  const templateStatusSupported = !isTemplateStatusEnumError(
+    taskTemplatesFromTasksResponse.error
+  );
 
   const { data: taskTemplatesLegacyRaw, error: taskTemplatesLegacyError } = await supabase
     .from("task_templates")
@@ -208,18 +236,9 @@ export default async function TasksPage(props: {
     .order("name", { ascending: true });
 
   const taskTemplateIdsFromTasks = new Set(
-    ((taskTemplatesFromTasksRaw || []) as Array<{ id: string }>).map((row) => row.id)
+    taskTemplatesFromTasksRaw.map((row) => row.id)
   );
-  const taskTemplatesFromTasks = ((taskTemplatesFromTasksRaw || []) as Array<{
-    id: string;
-    title: string;
-    description: string | null;
-    status: string;
-    priority: string;
-    due_time: string | null;
-    recurrence_frequency: string | null;
-    recurrence_lead_days: number | null;
-  }>).map((row) => ({
+  const taskTemplatesFromTasks = taskTemplatesFromTasksRaw.map((row) => ({
     ...row,
     name: row.title,
     status: "to_do",
@@ -391,7 +410,7 @@ export default async function TasksPage(props: {
   const wantsCompletedStatuses =
     selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
   const wantsTemplateStatus = selectedStatuses.includes("template");
-  if (!wantsTemplateStatus) {
+  if (templateStatusSupported && !wantsTemplateStatus) {
     request = request.neq("status", "template");
   }
   if (hideCompleted && !wantsCompletedStatuses) {
