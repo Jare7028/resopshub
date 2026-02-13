@@ -226,6 +226,7 @@ export default function FormFieldsBuilder({
 
   const [fields, setFields] = useState<FormField[]>(normalizedInitialFields);
   const [isAddFieldModalOpen, setIsAddFieldModalOpen] = useState(false);
+  const [openAdvancedByFieldId, setOpenAdvancedByFieldId] = useState<Record<string, boolean>>({});
   const modalRef = useRef<HTMLDivElement | null>(null);
 
   const serialized = useMemo(() => JSON.stringify(fields), [fields]);
@@ -233,6 +234,12 @@ export default function FormFieldsBuilder({
   const addField = (type: FormField["type"]) => {
     setFields((current) => [...current, createField(current.length + 1, type)]);
     setIsAddFieldModalOpen(false);
+  };
+
+  const updateField = (index: number, updater: (field: FormField) => FormField) => {
+    setFields((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? updater(item) : item))
+    );
   };
 
   useEffect(() => {
@@ -357,70 +364,35 @@ export default function FormFieldsBuilder({
       ) : null}
       <div className="space-y-3">
         {fields.map((field, index) => (
-          <div key={field.id} className="rounded-md border border-slate-200 p-4">
-            <div className="grid gap-3 md:grid-cols-6">
-              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+          <div key={field.id} className="rounded-lg border border-slate-200 p-4">
+            <div className="grid gap-3 md:grid-cols-12">
+              <label className="md:col-span-5 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Label
                 <input
                   value={field.label}
                   onChange={(event) =>
-                    setFields((current) =>
-                      current.map((item, itemIndex) =>
-                        itemIndex === index
-                          ? {
-                              ...item,
-                              label: event.target.value,
-                              key:
-                                item.key.startsWith("field_") || !item.key
-                                  ? buildFieldKey(event.target.value, `field_${index + 1}`)
-                                  : item.key,
-                            }
-                          : item
-                      )
-                    )
+                    updateField(index, (item) => ({
+                      ...item,
+                      label: event.target.value,
+                      key:
+                        item.key.startsWith("field_") || !item.key
+                          ? buildFieldKey(event.target.value, `field_${index + 1}`)
+                          : item.key,
+                    }))
                   }
                   className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
                   placeholder="Field label"
                 />
               </label>
-              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Key
-                <input
-                  value={field.key}
-                  onChange={(event) =>
-                    setFields((current) =>
-                      current.map((item, itemIndex) =>
-                        itemIndex === index
-                          ? {
-                              ...item,
-                              key: event.target.value
-                                .toLowerCase()
-                                .replace(/[^a-z0-9_]/g, "_")
-                                .replace(/^_+|_+$/g, ""),
-                            }
-                          : item
-                      )
-                    )
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                  placeholder="field_key"
-                />
-              </label>
-              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <label className="md:col-span-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Type
                 <select
                   value={field.type}
                   onChange={(event) =>
-                    setFields((current) =>
-                      current.map((item, itemIndex) =>
-                        itemIndex === index
-                          ? {
-                              ...item,
-                              type: normalizeFormFieldType(event.target.value),
-                            }
-                          : item
-                      )
-                    )
+                    updateField(index, (item) => ({
+                      ...item,
+                      type: normalizeFormFieldType(event.target.value),
+                    }))
                   }
                   className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
                 >
@@ -431,102 +403,32 @@ export default function FormFieldsBuilder({
                   ))}
                 </select>
               </label>
-              <label className="md:col-span-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Show only when field equals (optional)
-                <div className="mt-1 grid gap-2 md:grid-cols-2">
-                  <input
-                    value={field.condition?.fieldKey || ""}
-                    onChange={(event) =>
-                      setFields((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? {
-                                ...item,
-                                condition: event.target.value
-                                  ? {
-                                      fieldKey: event.target.value,
-                                      equals: item.condition?.equals || "",
-                                    }
-                                  : null,
-                              }
-                            : item
-                        )
-                      )
-                    }
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                    placeholder="other_field_key"
-                  />
-                  <input
-                    value={field.condition?.equals || ""}
-                    onChange={(event) =>
-                      setFields((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? {
-                                ...item,
-                                condition: item.condition
-                                  ? {
-                                      fieldKey: item.condition.fieldKey,
-                                      equals: event.target.value,
-                                    }
-                                  : null,
-                              }
-                            : item
-                        )
-                      )
-                    }
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                    placeholder="expected value"
-                    disabled={!field.condition}
-                  />
-                </div>
-              </label>
-              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Select options (comma separated)
-                <input
-                  value={(field.options || []).join(", ")}
-                  onChange={(event) =>
-                    setFields((current) =>
-                      current.map((item, itemIndex) =>
-                        itemIndex === index
-                          ? {
-                              ...item,
-                              options: event.target.value
-                                .split(",")
-                                .map((value) => value.trim())
-                                .filter(Boolean),
-                            }
-                          : item
-                      )
-                    )
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                  placeholder="Option A, Option B"
-                  disabled={field.type !== "select"}
-                />
-              </label>
-              <div className="md:col-span-1 flex items-end">
+              <div className="md:col-span-4 flex items-end justify-end gap-2">
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
                     checked={field.required}
                     onChange={(event) =>
-                      setFields((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? {
-                                ...item,
-                                required: event.target.checked,
-                              }
-                            : item
-                        )
-                      )
+                      updateField(index, (item) => ({
+                        ...item,
+                        required: event.target.checked,
+                      }))
                     }
                   />
                   Required
                 </label>
-              </div>
-              <div className="md:col-span-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenAdvancedByFieldId((current) => ({
+                      ...current,
+                      [field.id]: !current[field.id],
+                    }))
+                  }
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                >
+                  {openAdvancedByFieldId[field.id] ? "Hide advanced" : "Advanced"}
+                </button>
                 <button
                   type="button"
                   onClick={() =>
@@ -539,9 +441,89 @@ export default function FormFieldsBuilder({
                   className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:border-red-300 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={fields.length === 1}
                 >
-                  Remove field
+                  Remove
                 </button>
               </div>
+
+              {openAdvancedByFieldId[field.id] ? (
+                <>
+                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Key
+                    <input
+                      value={field.key}
+                      onChange={(event) =>
+                        updateField(index, (item) => ({
+                          ...item,
+                          key: event.target.value
+                            .toLowerCase()
+                            .replace(/[^a-z0-9_]/g, "_")
+                            .replace(/^_+|_+$/g, ""),
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                      placeholder="field_key"
+                    />
+                  </label>
+                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Show only when field equals
+                    <input
+                      value={field.condition?.fieldKey || ""}
+                      onChange={(event) =>
+                        updateField(index, (item) => ({
+                          ...item,
+                          condition: event.target.value
+                            ? {
+                                fieldKey: event.target.value,
+                                equals: item.condition?.equals || "",
+                              }
+                            : null,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                      placeholder="other_field_key"
+                    />
+                  </label>
+                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Expected value
+                    <input
+                      value={field.condition?.equals || ""}
+                      onChange={(event) =>
+                        updateField(index, (item) => ({
+                          ...item,
+                          condition: item.condition
+                            ? {
+                                fieldKey: item.condition.fieldKey,
+                                equals: event.target.value,
+                              }
+                            : null,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                      placeholder="expected value"
+                      disabled={!field.condition}
+                    />
+                  </label>
+                  {field.type === "select" ? (
+                    <label className="md:col-span-12 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Select options (comma separated)
+                      <input
+                        value={(field.options || []).join(", ")}
+                        onChange={(event) =>
+                          updateField(index, (item) => ({
+                            ...item,
+                            options: event.target.value
+                              .split(",")
+                              .map((value) => value.trim())
+                              .filter(Boolean),
+                          }))
+                        }
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                        placeholder="Option A, Option B"
+                      />
+                    </label>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           </div>
         ))}

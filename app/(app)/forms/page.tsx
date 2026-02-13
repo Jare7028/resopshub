@@ -6,6 +6,10 @@ import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import FormFieldsBuilder from "./FormFieldsBuilder";
 import FormActionsBuilder from "./FormActionsBuilder";
 import FormsTable from "./FormsTable";
+import FormsTabs, {
+  normalizeFormsTabKey,
+  type FormsTabKey,
+} from "./_components/FormsTabs";
 import {
   buildFieldKey,
   formStatusOptions,
@@ -113,6 +117,7 @@ export default async function FormsPage(props: {
   searchParams?: Promise<{
     error?: string;
     success?: string;
+    tab?: string;
     q?: string;
     status?: string | string[];
     sort?: string;
@@ -139,6 +144,7 @@ export default async function FormsPage(props: {
 
   const sortKey = normalizeSortKey((searchParams?.sort || "").trim());
   const sortDir = normalizeSortDir((searchParams?.dir || "").trim(), sortKey);
+  const activeTab = normalizeFormsTabKey(searchParams?.tab);
   const selectedStatuses = parseCsvParam(searchParams?.status).filter((status) =>
     formStatusOptions.includes(status as FormStatus)
   );
@@ -149,7 +155,37 @@ export default async function FormsPage(props: {
   if (query) params.set("q", query);
   params.set("sort", sortKey);
   params.set("dir", sortDir);
+  if (activeTab !== "list") {
+    params.set("tab", activeTab);
+  }
   const returnTo = params.toString() ? `/forms?${params}` : "/forms";
+  const buildFormsUrl = (
+    tab: FormsTabKey,
+    extra?: { error?: string; success?: string }
+  ) => {
+    const sp = new URLSearchParams(params);
+    if (tab !== "list") {
+      sp.set("tab", tab);
+    } else {
+      sp.delete("tab");
+    }
+    if (extra?.error) {
+      sp.set("error", extra.error);
+    } else {
+      sp.delete("error");
+    }
+    if (extra?.success) {
+      sp.set("success", extra.success);
+    } else {
+      sp.delete("success");
+    }
+    const qs = sp.toString();
+    return qs ? `/forms?${qs}` : "/forms";
+  };
+  const formsTabUrls: Record<FormsTabKey, string> = {
+    list: buildFormsUrl("list"),
+    create: buildFormsUrl("create"),
+  };
 
   let formsQuery = supabase
     .from("forms")
@@ -337,61 +373,68 @@ export default async function FormsPage(props: {
         </section>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Create form</h2>
-        <form action={createForm} className="mt-4 space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Form title
-              <input
-                name="title"
-                required
+      <FormsTabs active={activeTab} urls={formsTabUrls} />
+
+      {activeTab === "create" ? (
+        <section className="rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Create form</h2>
+          <form action={createForm} className="mt-4 space-y-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Form title
+                <input
+                  name="title"
+                  required
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                  placeholder="New employee onboarding"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Status
+                <select
+                  name="status"
+                  defaultValue="draft"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                >
+                  {formStatusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Description
+              <textarea
+                name="description"
+                rows={3}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                placeholder="New employee onboarding"
+                placeholder="Capture details and trigger onboarding tasks."
               />
             </label>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Status
-              <select
-                name="status"
-                defaultValue="draft"
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-              >
-                {formStatusOptions.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Description
-            <textarea
-              name="description"
-              rows={3}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-              placeholder="Capture details and trigger onboarding tasks."
-            />
-          </label>
-          <FormFieldsBuilder initialFields={[]} />
-          <FormActionsBuilder initialActions={[]} users={users || []} />
-          <button
-            type="submit"
-            className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-          >
-            Create form
-          </button>
-        </form>
-      </section>
+            <FormFieldsBuilder initialFields={[]} />
+            <FormActionsBuilder initialActions={[]} users={users || []} />
+            <button
+              type="submit"
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              Create form
+            </button>
+          </form>
+        </section>
+      ) : null}
 
-      <FormsTable
-        rows={tableRows}
-        sortKey={sortKey}
-        sortDir={sortDir}
-        initialFilters={{ q: query, status: selectedStatuses }}
-        statusOptions={formStatusOptions}
-      />
+      {activeTab === "list" ? (
+        <FormsTable
+          rows={tableRows}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          initialFilters={{ q: query, status: selectedStatuses }}
+          statusOptions={formStatusOptions}
+          fixedParams={{ tab: "list" }}
+        />
+      ) : null}
     </div>
   );
 }

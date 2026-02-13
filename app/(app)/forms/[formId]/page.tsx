@@ -19,6 +19,43 @@ import {
   type FormField,
 } from "../types";
 
+type FormDetailTabKey = "submissions" | "configure" | "create_submission";
+type SubmissionScope = "completed" | "open" | "all";
+type SubmissionSortKey = "created_at" | "status" | "submitted_by";
+type SubmissionSortDir = "asc" | "desc";
+
+function normalizeFormDetailTabKey(value: string | null | undefined): FormDetailTabKey {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "configure" || normalized === "create_submission") return normalized;
+  return "submissions";
+}
+
+function normalizeSubmissionScope(value: string | null | undefined): SubmissionScope {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "all" || normalized === "open") return normalized;
+  return "completed";
+}
+
+function normalizeSubmissionSortKey(value: string | null | undefined): SubmissionSortKey {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "status" || normalized === "submitted_by") return normalized;
+  return "created_at";
+}
+
+function normalizeSubmissionSortDir(value: string | null | undefined): SubmissionSortDir {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "asc") return "asc";
+  return "desc";
+}
+
 function parseFields(value: unknown): FormField[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -93,12 +130,24 @@ function fieldShouldBeIncluded(field: FormField, values: Record<string, string>)
 
 export default async function FormDetailPage(props: {
   params: Promise<{ formId: string }>;
-  searchParams?: Promise<{ return_to?: string; error?: string; success?: string }>;
+  searchParams?: Promise<{
+    return_to?: string;
+    error?: string;
+    success?: string;
+    tab?: string;
+    scope?: string;
+    sort?: string;
+    dir?: string;
+  }>;
 }) {
   const { formId } = await props.params;
   const searchParams = await props.searchParams;
   const returnToRaw = String(searchParams?.return_to || "").trim();
   const returnTo = returnToRaw.startsWith("/forms") ? returnToRaw : "/forms";
+  const activeTab = normalizeFormDetailTabKey(searchParams?.tab);
+  const submissionScope = normalizeSubmissionScope(searchParams?.scope);
+  const submissionSortKey = normalizeSubmissionSortKey(searchParams?.sort);
+  const submissionSortDir = normalizeSubmissionSortDir(searchParams?.dir);
 
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -181,6 +230,58 @@ export default async function FormDetailPage(props: {
   });
 
   const detailPath = `/forms/${formId}`;
+  const buildDetailUrl = (
+    tab: FormDetailTabKey,
+    scope = submissionScope,
+    sortKey = submissionSortKey,
+    sortDir = submissionSortDir,
+    extra?: { error?: string; success?: string }
+  ) => {
+    const sp = new URLSearchParams();
+    sp.set("return_to", returnTo);
+    sp.set("tab", tab);
+    if (tab === "submissions") {
+      sp.set("scope", scope);
+      sp.set("sort", sortKey);
+      sp.set("dir", sortDir);
+    }
+    if (extra?.error) {
+      sp.set("error", extra.error);
+    }
+    if (extra?.success) {
+      sp.set("success", extra.success);
+    }
+    return `${detailPath}?${sp.toString()}`;
+  };
+  const tabUrls: Record<FormDetailTabKey, string> = {
+    submissions: buildDetailUrl("submissions"),
+    configure: buildDetailUrl("configure"),
+    create_submission: buildDetailUrl("create_submission"),
+  };
+
+  const filteredSubmissions = submissions.filter((submission) => {
+    const status = String(submission.status || "open");
+    if (submissionScope === "all") return true;
+    if (submissionScope === "open") {
+      return status !== "completed" && status !== "rejected";
+    }
+    return status === "completed";
+  });
+
+  const sortedSubmissions = [...filteredSubmissions].sort((a, b) => {
+    if (submissionSortKey === "status") {
+      const result = String(a.status || "open").localeCompare(String(b.status || "open"));
+      return submissionSortDir === "asc" ? result : -result;
+    }
+    if (submissionSortKey === "submitted_by") {
+      const aLabel = (userMap.get(a.submitted_by || "") || "").toLowerCase();
+      const bLabel = (userMap.get(b.submitted_by || "") || "").toLowerCase();
+      const result = aLabel.localeCompare(bLabel);
+      return submissionSortDir === "asc" ? result : -result;
+    }
+    const result = a.created_at.localeCompare(b.created_at);
+    return submissionSortDir === "asc" ? result : -result;
+  });
 
   async function saveForm(formData: FormData) {
     "use server";
@@ -190,16 +291,11 @@ export default async function FormDetailPage(props: {
     const status = normalizeFormStatus(String(formData.get("status") || "draft"));
     const fields = parseFieldsJson(String(formData.get("fields_json") || "[]"));
     const actions = parseActionsJson(String(formData.get("actions_json") || "[]"));
-    const detailParams = new URLSearchParams();
-    detailParams.set("return_to", returnTo);
-
     if (!title) {
-      detailParams.set("error", "Form title is required");
-      redirect(`${detailPath}?${detailParams.toString()}`);
+      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: "Form title is required" }));
     }
     if (!fields.length) {
-      detailParams.set("error", "Add at least one field");
-      redirect(`${detailPath}?${detailParams.toString()}`);
+      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: "Add at least one field" }));
     }
 
     const { error: updateError } = await supabase
@@ -213,8 +309,7 @@ export default async function FormDetailPage(props: {
       .eq("id", formId);
 
     if (updateError) {
-      detailParams.set("error", updateError.message);
-      redirect(`${detailPath}?${detailParams.toString()}`);
+      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: updateError.message }));
     }
 
     const { error: deleteError } = await supabase
@@ -223,8 +318,7 @@ export default async function FormDetailPage(props: {
       .eq("form_id", formId);
 
     if (deleteError) {
-      detailParams.set("error", deleteError.message);
-      redirect(`${detailPath}?${detailParams.toString()}`);
+      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: deleteError.message }));
     }
 
     if (actions.length) {
@@ -244,22 +338,18 @@ export default async function FormDetailPage(props: {
         );
 
       if (actionError) {
-        detailParams.set("error", actionError.message);
-        redirect(`${detailPath}?${detailParams.toString()}`);
+        redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: actionError.message }));
       }
     }
 
     revalidatePath("/forms");
     revalidatePath(detailPath);
-    detailParams.set("success", "Form updated");
-    redirect(`${detailPath}?${detailParams.toString()}`);
+    redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { success: "Form updated" }));
   }
 
   async function createSubmission(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const detailParams = new URLSearchParams();
-    detailParams.set("return_to", returnTo);
 
     const { data: authData } = await supabase.auth.getUser();
     const authEmail = authData.user?.email;
@@ -273,8 +363,7 @@ export default async function FormDetailPage(props: {
       .eq("email", authEmail)
       .maybeSingle();
     if (!currentUser?.id) {
-      detailParams.set("error", "Missing user profile");
-      redirect(`${detailPath}?${detailParams.toString()}`);
+      redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: "Missing user profile" }));
     }
 
     const { data: form, error: formError } = await supabase
@@ -283,8 +372,7 @@ export default async function FormDetailPage(props: {
       .eq("id", formId)
       .single();
     if (formError || !form) {
-      detailParams.set("error", formError?.message || "Form not found");
-      redirect(`${detailPath}?${detailParams.toString()}`);
+      redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: formError?.message || "Form not found" }));
     }
 
     const fields = parseFields(form.fields);
@@ -303,8 +391,7 @@ export default async function FormDetailPage(props: {
     for (const field of visibleFields) {
       const value = rawValues[field.key] || "";
       if (field.required && !value) {
-        detailParams.set("error", `Required field missing: ${field.label}`);
-        redirect(`${detailPath}?${detailParams.toString()}`);
+        redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: `Required field missing: ${field.label}` }));
       }
       values[field.key] = value;
     }
@@ -321,8 +408,7 @@ export default async function FormDetailPage(props: {
       .single();
 
     if (submissionInsertError || !insertedSubmission?.id) {
-      detailParams.set("error", submissionInsertError?.message || "Failed to create submission");
-      redirect(`${detailPath}?${detailParams.toString()}`);
+      redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: submissionInsertError?.message || "Failed to create submission" }));
     }
 
     const { data: actions } = await supabase
@@ -388,13 +474,11 @@ export default async function FormDetailPage(props: {
     revalidatePath("/forms");
     revalidatePath(detailPath);
     revalidatePath("/tasks");
-    redirect(
-      `${detailPath}?return_to=${encodeURIComponent(returnTo)}&success=Submission%20created`
-    );
+    redirect(buildDetailUrl("submissions", "open", submissionSortKey, submissionSortDir, { success: "Submission created" }));
   }
 
   const submissionDetailBaseQuery = `return_to=${encodeURIComponent(
-    `${detailPath}?return_to=${encodeURIComponent(returnTo)}`
+    buildDetailUrl("submissions", submissionScope, submissionSortKey, submissionSortDir)
   )}`;
 
   return (
@@ -419,6 +503,39 @@ export default async function FormDetailPage(props: {
         </Link>
       </div>
 
+      <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
+        <Link
+          href={tabUrls.submissions}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            activeTab === "submissions"
+              ? "tab-active"
+              : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          Submissions
+        </Link>
+        <Link
+          href={tabUrls.configure}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            activeTab === "configure"
+              ? "tab-active"
+              : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          Configure form
+        </Link>
+        <Link
+          href={tabUrls.create_submission}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            activeTab === "create_submission"
+              ? "tab-active"
+              : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          Create submission
+        </Link>
+      </nav>
+
       {(searchParams?.error || searchParams?.success) && (
         <div className="space-y-2">
           {searchParams?.error ? (
@@ -434,88 +551,156 @@ export default async function FormDetailPage(props: {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Form configuration</h2>
-        </div>
-        <form action={saveForm} className="space-y-4 px-6 py-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Form title
-              <input
-                name="title"
-                required
-                defaultValue={form.title}
+      {activeTab === "configure" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Form configuration</h2>
+          </div>
+          <form action={saveForm} className="space-y-4 px-6 py-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Form title
+                <input
+                  name="title"
+                  required
+                  defaultValue={form.title}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Status
+                <select
+                  name="status"
+                  defaultValue={normalizeFormStatus(form.status)}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                >
+                  {formStatusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {formatFormLabel(status)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Description
+              <textarea
+                name="description"
+                rows={3}
+                defaultValue={form.description || ""}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
               />
             </label>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Status
-              <select
-                name="status"
-                defaultValue={normalizeFormStatus(form.status)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-              >
-                {formStatusOptions.map((status) => (
-                  <option key={status} value={status}>
-                    {formatFormLabel(status)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <FormFieldsBuilder initialFields={formFields} />
+            <FormActionsBuilder initialActions={actions} users={users || []} />
+            <button
+              type="submit"
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              Save form
+            </button>
+          </form>
+        </section>
+      ) : null}
+
+      {activeTab === "create_submission" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Create submission</h2>
           </div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Description
-            <textarea
-              name="description"
-              rows={3}
-              defaultValue={form.description || ""}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-            />
-          </label>
-          <FormFieldsBuilder initialFields={formFields} />
-          <FormActionsBuilder initialActions={actions} users={users || []} />
-          <button
-            type="submit"
-            className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-          >
-            Save form
-          </button>
-        </form>
-      </section>
+          <form action={createSubmission} className="space-y-4 px-6 py-4">
+            <FormSubmissionBuilder fields={formFields} />
+            <button
+              type="submit"
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              Submit form
+            </button>
+          </form>
+        </section>
+      ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
+      {activeTab === "submissions" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Create submission</h2>
-        </div>
-        <form action={createSubmission} className="space-y-4 px-6 py-4">
-          <FormSubmissionBuilder fields={formFields} />
-          <button
-            type="submit"
-            className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-          >
-            Submit form
-          </button>
-        </form>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Submissions</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Submissions</h2>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {(["completed", "open", "all"] as const).map((scope) => (
+                <Link
+                  key={scope}
+                  href={buildDetailUrl("submissions", scope, submissionSortKey, submissionSortDir)}
+                  className={`rounded-md px-2.5 py-1.5 font-semibold ${
+                    submissionScope === scope
+                      ? "tab-active"
+                      : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  {scope === "completed"
+                    ? "Completed"
+                    : scope === "open"
+                      ? "Open"
+                      : "All"}
+                </Link>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-6 py-3">Submission</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Submitted by</th>
-                <th className="px-6 py-3">Created</th>
+                <th className="px-6 py-3">
+                  <Link
+                    href={buildDetailUrl(
+                      "submissions",
+                      submissionScope,
+                      "status",
+                      submissionSortKey === "status" && submissionSortDir === "asc"
+                        ? "desc"
+                        : "asc"
+                    )}
+                    className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900"
+                  >
+                    Status
+                  </Link>
+                </th>
+                <th className="px-6 py-3">
+                  <Link
+                    href={buildDetailUrl(
+                      "submissions",
+                      submissionScope,
+                      "submitted_by",
+                      submissionSortKey === "submitted_by" && submissionSortDir === "asc"
+                        ? "desc"
+                        : "asc"
+                    )}
+                    className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900"
+                  >
+                    Submitted by
+                  </Link>
+                </th>
+                <th className="px-6 py-3">
+                  <Link
+                    href={buildDetailUrl(
+                      "submissions",
+                      submissionScope,
+                      "created_at",
+                      submissionSortKey === "created_at" && submissionSortDir === "asc"
+                        ? "desc"
+                        : "asc"
+                    )}
+                    className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900"
+                  >
+                    Created
+                  </Link>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {submissions.length ? (
-                submissions.map((submission) => (
+              {sortedSubmissions.length ? (
+                sortedSubmissions.map((submission) => (
                   <tr key={submission.id}>
                     <td className="px-6 py-3 font-semibold text-slate-900">
                       <Link
@@ -539,7 +724,7 @@ export default async function FormDetailPage(props: {
               ) : (
                 <tr>
                   <td className="px-6 py-6 text-sm text-slate-500" colSpan={4}>
-                    No submissions yet.
+                    No submissions found.
                   </td>
                 </tr>
               )}
@@ -547,6 +732,7 @@ export default async function FormDetailPage(props: {
           </table>
         </div>
       </section>
+      ) : null}
     </div>
   );
 }

@@ -97,7 +97,7 @@ create policy tasks_insert
   to authenticated
   with check (
     auth.uid() is not null
-    and coalesce(created_by_user_id, auth.uid()) = auth.uid()
+    and coalesce(created_by_user_id, auth.uid()) in (auth.uid(), public.current_app_user_id())
     and (
       public.is_admin()
       or (

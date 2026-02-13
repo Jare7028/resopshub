@@ -49,12 +49,14 @@ export default function FormsTable({
   sortDir,
   initialFilters,
   statusOptions,
+  fixedParams = {},
 }: {
   rows: FormRow[];
   sortKey: SortKey;
   sortDir: SortDir;
   initialFilters: FilterState;
   statusOptions: readonly FormStatus[];
+  fixedParams?: Record<string, string | null | undefined>;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -89,6 +91,12 @@ export default function FormsTable({
 
   const buildQuery = (nextFilters: FilterState, nextSortKey: SortKey, nextSortDir: SortDir) => {
     const params = new URLSearchParams();
+    Object.entries(fixedParams).forEach(([key, value]) => {
+      const normalized = String(value || "").trim();
+      if (normalized) {
+        params.set(key, normalized);
+      }
+    });
     if (nextFilters.q.trim()) {
       params.set("q", nextFilters.q.trim());
     }
@@ -220,7 +228,12 @@ export default function FormsTable({
               rows.map((row) => (
                 <tr key={row.id}>
                   <td className="px-6 py-3 font-semibold text-slate-900">
-                    <Link href={`/forms/${row.id}${detailQuery}`} className="hover:underline">
+                    <Link
+                      href={`/forms/${row.id}?tab=submissions&scope=completed${
+                        detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
+                      }`}
+                      className="hover:underline"
+                    >
                       {row.title}
                     </Link>
                   </td>
