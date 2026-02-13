@@ -36,6 +36,7 @@ import {
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
 import { updateTaskInlineAction } from "./actions";
+import { randomUUID } from "node:crypto";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -618,7 +619,9 @@ export default async function TasksPage(props: {
       }
     }
 
+    const taskId = randomUUID();
     const payload: Record<string, unknown> = {
+      id: taskId,
       client_id: clientId,
       project_id: projectId,
       title,
@@ -650,11 +653,7 @@ export default async function TasksPage(props: {
       payload.start_date = startDate;
     }
 
-    const { data: created, error } = await supabase
-      .from("tasks")
-      .insert(payload)
-      .select("id")
-      .single();
+    const { error } = await supabase.from("tasks").insert(payload);
 
     if (error) {
       redirect(
@@ -665,7 +664,6 @@ export default async function TasksPage(props: {
       );
     }
 
-    const taskId = created?.id;
     if (taskId && templateTaskIdFromForm) {
       const { data: templateCustomFieldsRaw, error: templateCustomFieldsError } = await supabase
         .from("custom_fields")
@@ -931,10 +929,14 @@ export default async function TasksPage(props: {
           };
         });
 
-        const { data: createdSubtasks, error: subtaskInsertError } = await supabase
+        const subtaskRows = subtaskPlans.map((plan) => ({
+          id: randomUUID(),
+          ...plan.payload,
+        }));
+
+        const { error: subtaskInsertError } = await supabase
           .from("tasks")
-          .insert(subtaskPlans.map((plan) => plan.payload))
-          .select("id");
+          .insert(subtaskRows);
 
         if (subtaskInsertError) {
           redirect(
@@ -948,11 +950,10 @@ export default async function TasksPage(props: {
           );
         }
 
-        const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
-        const inserts = createdSubtaskRows.flatMap((row, index) => {
+        const inserts = subtaskRows.flatMap((row, index) => {
           const explicitIds = subtaskPlans[index]?.assigneeIds || [];
           const effectiveIds = explicitIds.length ? explicitIds : uniqueAssigneeIds;
-          return effectiveIds.map((userId) => ({ task_id: row.id, user_id: userId }));
+          return effectiveIds.map((userId) => ({ task_id: row.id as string, user_id: userId }));
         });
         if (inserts.length) {
           const { error: subtaskAssigneesError } = await supabase
