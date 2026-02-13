@@ -102,25 +102,27 @@ create policy tasks_insert
       public.is_admin()
       or (
         parent_task_id is not null
-        and exists (
-          select 1
-          from public.tasks parent
-          left join public.task_assignees pta
-            on pta.task_id = parent.id
-           and pta.user_id in (public.current_app_user_id(), auth.uid())
-          where parent.id = parent_task_id
-            and (
-              public.is_admin()
-              or parent.status::text = 'template'
-              or exists (
-                select 1
-                from public.task_templates tt
-                where tt.id = parent.id
+        and (
+          exists (
+            select 1
+            from public.tasks parent
+            left join public.task_assignees pta
+              on pta.task_id = parent.id
+             and pta.user_id in (public.current_app_user_id(), auth.uid())
+            where parent.id = parent_task_id
+              and (
+                public.is_admin()
+                or parent.status::text = 'template'
+                or parent.created_by_user_id in (public.current_app_user_id(), auth.uid())
+                or parent.assignee_user_id in (public.current_app_user_id(), auth.uid())
+                or pta.user_id is not null
               )
-              or parent.created_by_user_id in (public.current_app_user_id(), auth.uid())
-              or parent.assignee_user_id in (public.current_app_user_id(), auth.uid())
-              or pta.user_id is not null
-            )
+          )
+          or exists (
+            select 1
+            from public.task_templates tt
+            where tt.id = parent_task_id
+          )
         )
       )
       or (
