@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
@@ -31,6 +32,21 @@ export async function createTaskFromPersonalPage(input: {
   dueTime: string | null;
   assignToMe: boolean;
 }) {
+  const formatDbError = (
+    context: string,
+    error:
+      | { message: string; code?: string; details?: string | null; hint?: string | null }
+      | null
+      | undefined
+  ) => {
+    if (!error) return context;
+    const parts = [`[${context}]`, error.message];
+    if (error.code) parts.push(`code=${error.code}`);
+    if (error.details) parts.push(`details=${error.details}`);
+    if (error.hint) parts.push(`hint=${error.hint}`);
+    return parts.join(" | ");
+  };
+
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const authUser = authData.user;
@@ -114,24 +130,25 @@ export async function createTaskFromPersonalPage(input: {
 
   const contentText = extractPlainText(taskContent);
 
-  const { data: created, error } = await supabase
+  const taskId = randomUUID();
+  const { error } = await supabase
     .from("tasks")
     .insert({
+      id: taskId,
       title,
       status: "to_do",
       priority: "medium",
       due_date: dueDate,
       due_time: dueTime,
       assignee_user_id: assigneeUserId,
+      created_by_user_id: authUser.id,
       content: taskContent,
       content_text: contentText,
-    })
-    .select("id")
-    .single();
+    });
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(formatDbError("personal.createTaskFromPersonalPage.tasks.insert", error));
   }
 
-  return { taskId: created.id };
+  return { taskId };
 }
