@@ -433,10 +433,12 @@ export default async function FormDetailPage(props: {
     };
 
     const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
-    if (!authEmail) {
+    const authUser = authData.user;
+    if (!authUser?.id || !authUser.email) {
       redirect("/login");
     }
+    const authUserId = authUser.id;
+    const authEmail = authUser.email;
 
     const { data: currentUser } = await supabase
       .from("users")
@@ -542,7 +544,7 @@ export default async function FormDetailPage(props: {
           status: "to_do",
           priority: normalizeFormActionPriority(action.priority),
           assignee_user_id: action.assignee_user_id,
-          created_by_user_id: authData.user.id,
+          created_by_user_id: authUserId,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         })
@@ -614,7 +616,7 @@ export default async function FormDetailPage(props: {
             status: normalizeTaskStatusOrDefault(template.status),
             priority: String(template.priority || "medium"),
             assignee_user_id: primaryAssignee,
-            created_by_user_id: authData.user.id,
+            created_by_user_id: authUserId,
             content: DEFAULT_EDITOR_CONTENT,
             content_text: defaultContentText,
           })
@@ -699,7 +701,7 @@ export default async function FormDetailPage(props: {
                 status: normalizeTaskStatusOrDefault(subtask.status),
                 priority: String(subtask.priority || "medium"),
                 assignee_user_id: subtaskAssigneeIds[0] || primaryAssignee,
-                created_by_user_id: authData.user.id,
+                created_by_user_id: authUserId,
                 content: DEFAULT_EDITOR_CONTENT,
                 content_text: defaultContentText,
               },
