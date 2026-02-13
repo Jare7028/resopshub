@@ -291,11 +291,19 @@ export default async function FormDetailPage(props: {
     const status = normalizeFormStatus(String(formData.get("status") || "draft"));
     const fields = parseFieldsJson(String(formData.get("fields_json") || "[]"));
     const actions = parseActionsJson(String(formData.get("actions_json") || "[]"));
+    const configureUrl = (extra?: { error?: string; success?: string }) => {
+      const sp = new URLSearchParams();
+      sp.set("return_to", returnTo);
+      sp.set("tab", "configure");
+      if (extra?.error) sp.set("error", extra.error);
+      if (extra?.success) sp.set("success", extra.success);
+      return `${detailPath}?${sp.toString()}`;
+    };
     if (!title) {
-      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: "Form title is required" }));
+      redirect(configureUrl({ error: "Form title is required" }));
     }
     if (!fields.length) {
-      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: "Add at least one field" }));
+      redirect(configureUrl({ error: "Add at least one field" }));
     }
 
     const { error: updateError } = await supabase
@@ -309,7 +317,7 @@ export default async function FormDetailPage(props: {
       .eq("id", formId);
 
     if (updateError) {
-      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: updateError.message }));
+      redirect(configureUrl({ error: updateError.message }));
     }
 
     const { error: deleteError } = await supabase
@@ -318,7 +326,7 @@ export default async function FormDetailPage(props: {
       .eq("form_id", formId);
 
     if (deleteError) {
-      redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: deleteError.message }));
+      redirect(configureUrl({ error: deleteError.message }));
     }
 
     if (actions.length) {
@@ -338,18 +346,42 @@ export default async function FormDetailPage(props: {
         );
 
       if (actionError) {
-        redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { error: actionError.message }));
+        redirect(configureUrl({ error: actionError.message }));
       }
     }
 
     revalidatePath("/forms");
     revalidatePath(detailPath);
-    redirect(buildDetailUrl("configure", submissionScope, submissionSortKey, submissionSortDir, { success: "Form updated" }));
+    redirect(configureUrl({ success: "Form updated" }));
   }
 
   async function createSubmission(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const createSubmissionUrl = (extra?: { error?: string; success?: string }) => {
+      const sp = new URLSearchParams();
+      sp.set("return_to", returnTo);
+      sp.set("tab", "create_submission");
+      if (extra?.error) sp.set("error", extra.error);
+      if (extra?.success) sp.set("success", extra.success);
+      return `${detailPath}?${sp.toString()}`;
+    };
+    const submissionsUrl = (
+      scope: SubmissionScope,
+      sortKey: SubmissionSortKey,
+      sortDir: SubmissionSortDir,
+      extra?: { error?: string; success?: string }
+    ) => {
+      const sp = new URLSearchParams();
+      sp.set("return_to", returnTo);
+      sp.set("tab", "submissions");
+      sp.set("scope", scope);
+      sp.set("sort", sortKey);
+      sp.set("dir", sortDir);
+      if (extra?.error) sp.set("error", extra.error);
+      if (extra?.success) sp.set("success", extra.success);
+      return `${detailPath}?${sp.toString()}`;
+    };
 
     const { data: authData } = await supabase.auth.getUser();
     const authEmail = authData.user?.email;
@@ -363,7 +395,7 @@ export default async function FormDetailPage(props: {
       .eq("email", authEmail)
       .maybeSingle();
     if (!currentUser?.id) {
-      redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: "Missing user profile" }));
+      redirect(createSubmissionUrl({ error: "Missing user profile" }));
     }
 
     const { data: form, error: formError } = await supabase
@@ -372,7 +404,7 @@ export default async function FormDetailPage(props: {
       .eq("id", formId)
       .single();
     if (formError || !form) {
-      redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: formError?.message || "Form not found" }));
+      redirect(createSubmissionUrl({ error: formError?.message || "Form not found" }));
     }
 
     const fields = parseFields(form.fields);
@@ -391,7 +423,7 @@ export default async function FormDetailPage(props: {
     for (const field of visibleFields) {
       const value = rawValues[field.key] || "";
       if (field.required && !value) {
-        redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: `Required field missing: ${field.label}` }));
+        redirect(createSubmissionUrl({ error: `Required field missing: ${field.label}` }));
       }
       values[field.key] = value;
     }
@@ -408,7 +440,7 @@ export default async function FormDetailPage(props: {
       .single();
 
     if (submissionInsertError || !insertedSubmission?.id) {
-      redirect(buildDetailUrl("create_submission", submissionScope, submissionSortKey, submissionSortDir, { error: submissionInsertError?.message || "Failed to create submission" }));
+      redirect(createSubmissionUrl({ error: submissionInsertError?.message || "Failed to create submission" }));
     }
 
     const { data: actions } = await supabase
@@ -474,7 +506,7 @@ export default async function FormDetailPage(props: {
     revalidatePath("/forms");
     revalidatePath(detailPath);
     revalidatePath("/tasks");
-    redirect(buildDetailUrl("submissions", "open", submissionSortKey, submissionSortDir, { success: "Submission created" }));
+    redirect(submissionsUrl("open", submissionSortKey, submissionSortDir, { success: "Submission created" }));
   }
 
   const submissionDetailBaseQuery = `return_to=${encodeURIComponent(
