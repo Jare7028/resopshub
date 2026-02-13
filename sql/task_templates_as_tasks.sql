@@ -1,20 +1,19 @@
 -- Mirror task templates into real tasks so template editing can use /tasks/:id.
--- Run after sql/templates.sql.
+-- Run after sql/templates.sql and sql/task_status_add_template.sql.
 
 do $$
 begin
-  if exists (
+  if not exists (
     select 1
-    from pg_type t
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
     join pg_namespace n on n.oid = t.typnamespace
-    where t.typname = 'task_status'
-      and n.nspname = 'public'
+    where n.nspname = 'public'
+      and t.typname = 'task_status'
+      and e.enumlabel = 'template'
   ) then
-    begin
-      execute 'alter type public.task_status add value if not exists ''template''';
-    exception
-      when duplicate_object then null;
-    end;
+    raise exception
+      'task_status enum is missing "template". Run sql/task_status_add_template.sql first.';
   end if;
 end $$;
 
