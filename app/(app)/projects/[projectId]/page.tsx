@@ -4,6 +4,8 @@ import ProjectTabs from "./_components/ProjectTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
+  normalizeCustomFieldKind,
+  toCustomFieldKey,
   type CustomFieldOptionRow,
   type CustomFieldRow,
   type CustomFieldValueRow,
@@ -44,8 +46,9 @@ export default async function ProjectOverviewPage(props: {
 
   const { data: customFieldsRaw, error: customFieldsError } = await supabase
     .from("custom_fields")
-    .select("id,entity_type,key,label,field_kind,position")
+    .select("id,entity_type,entity_id,key,label,field_kind,position")
     .eq("entity_type", "project")
+    .eq("entity_id", project.id)
     .order("position", { ascending: true })
     .order("label", { ascending: true });
   const customFields = (
@@ -214,6 +217,104 @@ export default async function ProjectOverviewPage(props: {
     redirect(`/projects/${projectId}?success=Saved`);
   }
 
+  async function createProjectCustomField(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const label = String(formData.get("label") || "").trim();
+    const fieldKind = normalizeCustomFieldKind(
+      String(formData.get("field_kind") || "").trim().toLowerCase()
+    );
+    const optionsCsv = String(formData.get("options_csv") || "").trim();
+
+    if (!label) {
+      redirect(`/projects/${projectId}?error=Custom%20field%20label%20is%20required`);
+    }
+
+    const existingKeys = new Set(customFields.map((field) => field.key));
+    const keyBase = toCustomFieldKey(label);
+    let key = keyBase;
+    let suffix = 2;
+    while (existingKeys.has(key)) {
+      key = `${keyBase}_${suffix}`;
+      suffix += 1;
+    }
+
+    const { data: lastField } = await supabase
+      .from("custom_fields")
+      .select("position")
+      .eq("entity_type", "project")
+      .eq("entity_id", projectId)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextPosition = (lastField?.position || 0) + 1;
+
+    const { data: createdField, error } = await supabase
+      .from("custom_fields")
+      .insert({
+        entity_type: "project",
+        entity_id: projectId,
+        key,
+        label,
+        field_kind: fieldKind,
+        position: nextPosition,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      const hint = isSupabaseMissingTableError(error)
+        ? " Run sql/custom_fields.sql in Supabase SQL editor first."
+        : "";
+      redirect(`/projects/${projectId}?error=${encodeURIComponent(`${error.message}${hint}`)}`);
+    }
+
+    if (fieldKind === "dropdown" && createdField?.id) {
+      const options = Array.from(
+        new Set(
+          optionsCsv
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
+      if (options.length) {
+        const { error: optionsError } = await supabase.from("custom_field_options").insert(
+          options.map((value, index) => ({
+            field_id: createdField.id,
+            value,
+            position: index + 1,
+          }))
+        );
+        if (optionsError) {
+          redirect(`/projects/${projectId}?error=${encodeURIComponent(optionsError.message)}`);
+        }
+      }
+    }
+
+    revalidatePath(`/projects/${projectId}`);
+    redirect(`/projects/${projectId}?success=Custom%20field%20added`);
+  }
+
+  async function deleteProjectCustomField(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const id = String(formData.get("id") || "").trim();
+    if (!id) {
+      redirect(`/projects/${projectId}?error=Missing%20custom%20field%20id`);
+    }
+    const { error } = await supabase
+      .from("custom_fields")
+      .delete()
+      .eq("id", id)
+      .eq("entity_type", "project")
+      .eq("entity_id", projectId);
+    if (error) {
+      redirect(`/projects/${projectId}?error=${encodeURIComponent(error.message)}`);
+    }
+    revalidatePath(`/projects/${projectId}`);
+    redirect(`/projects/${projectId}?success=Custom%20field%20deleted`);
+  }
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -308,15 +409,58 @@ export default async function ProjectOverviewPage(props: {
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
+          <div className="space-y-2 md:col-span-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Add field to this project
+            </p>
+            <form action={createProjectCustomField} className="grid gap-2 md:grid-cols-12">
+              <input
+                name="label"
+                placeholder="Field label"
+                className="md:col-span-5 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                required
+              />
+              <select
+                name="field_kind"
+                defaultValue="text"
+                className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="text">Text</option>
+                <option value="dropdown">Dropdown</option>
+              </select>
+              <input
+                name="options_csv"
+                placeholder="Dropdown options (comma-separated)"
+                className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                className="md:col-span-12 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Add custom field
+              </button>
+            </form>
+          </div>
           {customFields.map((field) => {
             const value = customFieldValueByFieldId.get(field.id) || "";
             const inputId = `custom-field-${field.id}`;
             if (field.field_kind === "dropdown") {
               return (
                 <div key={field.id} className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
-                    {field.label}
-                  </label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
+                      {field.label}
+                    </label>
+                    <form action={deleteProjectCustomField}>
+                      <input type="hidden" name="id" value={field.id} />
+                      <button
+                        type="submit"
+                        className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                      >
+                        Delete
+                      </button>
+                    </form>
+                  </div>
                   <select
                     id={inputId}
                     name={`cf_${field.id}`}
@@ -335,9 +479,20 @@ export default async function ProjectOverviewPage(props: {
             }
             return (
               <div key={field.id} className="space-y-2">
-                <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
-                  {field.label}
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-sm font-medium text-slate-700" htmlFor={inputId}>
+                    {field.label}
+                  </label>
+                  <form action={deleteProjectCustomField}>
+                    <input type="hidden" name="id" value={field.id} />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </div>
                 <input
                   id={inputId}
                   name={`cf_${field.id}`}

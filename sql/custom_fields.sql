@@ -1,9 +1,10 @@
--- Configurable custom fields for client/project/task details.
+-- Configurable custom fields scoped to individual client/project/task records.
 -- Apply in Supabase SQL editor.
 
 create table if not exists public.custom_fields (
   id uuid primary key default gen_random_uuid(),
   entity_type text not null check (entity_type in ('client', 'project', 'task')),
+  entity_id uuid,
   key text not null,
   label text not null,
   field_kind text not null check (field_kind in ('text', 'dropdown')),
@@ -11,12 +12,20 @@ create table if not exists public.custom_fields (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint custom_fields_label_not_blank check (length(trim(label)) > 0),
-  constraint custom_fields_key_not_blank check (length(trim(key)) > 0),
-  constraint custom_fields_entity_key_unique unique (entity_type, key)
+  constraint custom_fields_key_not_blank check (length(trim(key)) > 0)
 );
 
-create index if not exists custom_fields_entity_position_idx
-  on public.custom_fields (entity_type, position, label);
+alter table public.custom_fields
+  add column if not exists entity_id uuid;
+
+alter table public.custom_fields
+  drop constraint if exists custom_fields_entity_key_unique;
+
+create unique index if not exists custom_fields_entity_key_uidx
+  on public.custom_fields (entity_type, entity_id, key);
+
+create index if not exists custom_fields_entity_scope_position_idx
+  on public.custom_fields (entity_type, entity_id, position, label);
 
 create table if not exists public.custom_field_options (
   id uuid primary key default gen_random_uuid(),
@@ -60,11 +69,12 @@ set search_path = 'public'
 as $$
 declare
   field_entity text;
+  field_entity_id uuid;
   field_kind text;
   option_exists boolean;
 begin
-  select f.entity_type, f.field_kind
-  into field_entity, field_kind
+  select f.entity_type, f.entity_id, f.field_kind
+  into field_entity, field_entity_id, field_kind
   from public.custom_fields f
   where f.id = new.field_id;
 
@@ -74,6 +84,10 @@ begin
 
   if new.entity_type <> field_entity then
     raise exception 'entity type does not match custom field type';
+  end if;
+
+  if field_entity_id is not null and new.entity_id <> field_entity_id then
+    raise exception 'entity id does not match custom field scope';
   end if;
 
   if field_kind = 'text' then
@@ -110,24 +124,6 @@ create trigger custom_field_values_validate
 before insert or update on public.custom_field_values
 for each row execute function public.validate_custom_field_value();
 
-create or replace function public.can_manage_status_and_custom_settings()
-returns boolean
-language sql
-stable
-security definer
-set search_path = 'public'
-as $$
-  select auth.uid() is not null and exists (
-    select 1
-    from public.users u
-    where u.id = auth.uid()
-      and coalesce(u.status, 'active') <> 'disabled'
-      and u.role in ('admin', 'ops', 'manager')
-  );
-$$;
-
-grant execute on function public.can_manage_status_and_custom_settings() to anon, authenticated;
-
 create or replace function public.can_access_custom_field_entity(
   entity_kind text,
   entity_uuid uuid
@@ -157,58 +153,103 @@ create policy custom_fields_select
   on public.custom_fields
   for select
   to authenticated
-  using (auth.uid() is not null);
+  using (
+    public.can_access_custom_field_entity(entity_type, entity_id)
+  );
 
 drop policy if exists custom_fields_insert on public.custom_fields;
 create policy custom_fields_insert
   on public.custom_fields
   for insert
   to authenticated
-  with check (public.can_manage_status_and_custom_settings());
+  with check (
+    public.can_access_custom_field_entity(entity_type, entity_id)
+  );
 
 drop policy if exists custom_fields_update on public.custom_fields;
 create policy custom_fields_update
   on public.custom_fields
   for update
   to authenticated
-  using (public.can_manage_status_and_custom_settings())
-  with check (public.can_manage_status_and_custom_settings());
+  using (
+    public.can_access_custom_field_entity(entity_type, entity_id)
+  )
+  with check (
+    public.can_access_custom_field_entity(entity_type, entity_id)
+  );
 
 drop policy if exists custom_fields_delete on public.custom_fields;
 create policy custom_fields_delete
   on public.custom_fields
   for delete
   to authenticated
-  using (public.can_manage_status_and_custom_settings());
+  using (
+    public.can_access_custom_field_entity(entity_type, entity_id)
+  );
 
 drop policy if exists custom_field_options_select on public.custom_field_options;
 create policy custom_field_options_select
   on public.custom_field_options
   for select
   to authenticated
-  using (auth.uid() is not null);
+  using (
+    exists (
+      select 1
+      from public.custom_fields f
+      where f.id = custom_field_options.field_id
+        and public.can_access_custom_field_entity(f.entity_type, f.entity_id)
+    )
+  );
 
 drop policy if exists custom_field_options_insert on public.custom_field_options;
 create policy custom_field_options_insert
   on public.custom_field_options
   for insert
   to authenticated
-  with check (public.can_manage_status_and_custom_settings());
+  with check (
+    exists (
+      select 1
+      from public.custom_fields f
+      where f.id = custom_field_options.field_id
+        and public.can_access_custom_field_entity(f.entity_type, f.entity_id)
+    )
+  );
 
 drop policy if exists custom_field_options_update on public.custom_field_options;
 create policy custom_field_options_update
   on public.custom_field_options
   for update
   to authenticated
-  using (public.can_manage_status_and_custom_settings())
-  with check (public.can_manage_status_and_custom_settings());
+  using (
+    exists (
+      select 1
+      from public.custom_fields f
+      where f.id = custom_field_options.field_id
+        and public.can_access_custom_field_entity(f.entity_type, f.entity_id)
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.custom_fields f
+      where f.id = custom_field_options.field_id
+        and public.can_access_custom_field_entity(f.entity_type, f.entity_id)
+    )
+  );
 
 drop policy if exists custom_field_options_delete on public.custom_field_options;
 create policy custom_field_options_delete
   on public.custom_field_options
   for delete
   to authenticated
-  using (public.can_manage_status_and_custom_settings());
+  using (
+    exists (
+      select 1
+      from public.custom_fields f
+      where f.id = custom_field_options.field_id
+        and public.can_access_custom_field_entity(f.entity_type, f.entity_id)
+    )
+  );
 
 drop policy if exists custom_field_values_select on public.custom_field_values;
 create policy custom_field_values_select

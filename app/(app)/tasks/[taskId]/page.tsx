@@ -20,6 +20,8 @@ import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
 import { statusSelectClasses } from "@/lib/taskIndicators";
 import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
 import {
+  normalizeCustomFieldKind,
+  toCustomFieldKey,
   type CustomFieldOptionRow,
   type CustomFieldRow,
   type CustomFieldValueRow,
@@ -81,8 +83,9 @@ export default async function TaskDetailPage(props: {
 
   const { data: customFieldsRaw, error: customFieldsError } = await supabase
     .from("custom_fields")
-    .select("id,entity_type,key,label,field_kind,position")
+    .select("id,entity_type,entity_id,key,label,field_kind,position")
     .eq("entity_type", "task")
+    .eq("entity_id", task.id)
     .order("position", { ascending: true })
     .order("label", { ascending: true });
   const customFields = (
@@ -196,6 +199,104 @@ export default async function TaskDetailPage(props: {
     .select("id,title,status,priority,start_date,due_date,due_time,assignee_user_id")
     .eq("parent_task_id", task.id)
     .order("created_at", { ascending: false });
+
+  async function createTaskCustomField(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const label = String(formData.get("label") || "").trim();
+    const fieldKind = normalizeCustomFieldKind(
+      String(formData.get("field_kind") || "").trim().toLowerCase()
+    );
+    const optionsCsv = String(formData.get("options_csv") || "").trim();
+
+    if (!label) {
+      redirect(buildTaskUrl(taskId, "details", { error: "Custom field label is required" }));
+    }
+
+    const existingKeys = new Set(customFields.map((field) => field.key));
+    const keyBase = toCustomFieldKey(label);
+    let key = keyBase;
+    let suffix = 2;
+    while (existingKeys.has(key)) {
+      key = `${keyBase}_${suffix}`;
+      suffix += 1;
+    }
+
+    const { data: lastField } = await supabase
+      .from("custom_fields")
+      .select("position")
+      .eq("entity_type", "task")
+      .eq("entity_id", taskId)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextPosition = (lastField?.position || 0) + 1;
+
+    const { data: createdField, error } = await supabase
+      .from("custom_fields")
+      .insert({
+        entity_type: "task",
+        entity_id: taskId,
+        key,
+        label,
+        field_kind: fieldKind,
+        position: nextPosition,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      const hint = isSupabaseMissingTableError(error)
+        ? " Run sql/custom_fields.sql in Supabase SQL editor first."
+        : "";
+      redirect(buildTaskUrl(taskId, "details", { error: `${error.message}${hint}` }));
+    }
+
+    if (fieldKind === "dropdown" && createdField?.id) {
+      const options = Array.from(
+        new Set(
+          optionsCsv
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
+      if (options.length) {
+        const { error: optionsError } = await supabase.from("custom_field_options").insert(
+          options.map((value, index) => ({
+            field_id: createdField.id,
+            value,
+            position: index + 1,
+          }))
+        );
+        if (optionsError) {
+          redirect(buildTaskUrl(taskId, "details", { error: optionsError.message }));
+        }
+      }
+    }
+
+    revalidatePath(`/tasks/${taskId}`);
+    redirect(buildTaskUrl(taskId, "details", { success: "Custom field added" }));
+  }
+
+  async function deleteTaskCustomField(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const id = String(formData.get("id") || "").trim();
+    if (!id) {
+      redirect(buildTaskUrl(taskId, "details", { error: "Missing custom field id" }));
+    }
+    const { error } = await supabase
+      .from("custom_fields")
+      .delete()
+      .eq("id", id)
+      .eq("entity_type", "task")
+      .eq("entity_id", taskId);
+    if (error) {
+      redirect(buildTaskUrl(taskId, "details", { error: error.message }));
+    }
+    revalidatePath(`/tasks/${taskId}`);
+    redirect(buildTaskUrl(taskId, "details", { success: "Custom field deleted" }));
+  }
 
   async function updateTask(formData: FormData) {
     "use server";
@@ -640,18 +741,61 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
+            <div className="md:col-span-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Add field to this task
+              </p>
+              <form action={createTaskCustomField} className="mt-2 grid gap-2 md:grid-cols-12">
+                <input
+                  name="label"
+                  placeholder="Field label"
+                  className="md:col-span-5 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  required
+                />
+                <select
+                  name="field_kind"
+                  defaultValue="text"
+                  className="md:col-span-3 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="text">Text</option>
+                  <option value="dropdown">Dropdown</option>
+                </select>
+                <input
+                  name="options_csv"
+                  placeholder="Dropdown options (comma-separated)"
+                  className="md:col-span-4 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="submit"
+                  className="md:col-span-12 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Add custom field
+                </button>
+              </form>
+            </div>
             {customFields.map((field) => {
               const value = customFieldValueByFieldId.get(field.id) || "";
               const inputId = `custom-field-${field.id}`;
               if (field.field_kind === "dropdown") {
                 return (
                   <div key={field.id} className="grid gap-1">
-                    <label
-                      htmlFor={inputId}
-                      className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                    >
-                      {field.label}
-                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor={inputId}
+                        className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        {field.label}
+                      </label>
+                      <form action={deleteTaskCustomField}>
+                        <input type="hidden" name="id" value={field.id} />
+                        <button
+                          type="submit"
+                          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          Delete
+                        </button>
+                      </form>
+                    </div>
                     <select
                       id={inputId}
                       name={`cf_${field.id}`}
@@ -670,12 +814,23 @@ export default async function TaskDetailPage(props: {
               }
               return (
                 <div key={field.id} className="grid gap-1">
-                  <label
-                    htmlFor={inputId}
-                    className="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                  >
-                    {field.label}
-                  </label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor={inputId}
+                      className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    >
+                      {field.label}
+                    </label>
+                    <form action={deleteTaskCustomField}>
+                      <input type="hidden" name="id" value={field.id} />
+                      <button
+                        type="submit"
+                        className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                      >
+                        Delete
+                      </button>
+                    </form>
+                  </div>
                   <input
                     id={inputId}
                     name={`cf_${field.id}`}

@@ -7,6 +7,7 @@ export type CustomFieldKind = (typeof CUSTOM_FIELD_KINDS)[number];
 export type CustomFieldRow = {
   id: string;
   entity_type: CustomFieldEntityType;
+  entity_id: string | null;
   key: string;
   label: string;
   field_kind: CustomFieldKind;
