@@ -47,6 +47,8 @@ type TaskRow = {
 type TaskInlineRowProps = {
   task: TaskRow;
   openSubtaskCount: number;
+  isSubtasksExpanded: boolean;
+  onToggleSubtasks: (taskId: string) => void;
   assigneeUserIds: string[];
   users: UserOption[];
   clients: ClientOption[];
@@ -60,6 +62,8 @@ type TaskInlineRowProps = {
 export default function TaskInlineRow({
   task,
   openSubtaskCount,
+  isSubtasksExpanded,
+  onToggleSubtasks,
   assigneeUserIds,
   users,
   clients,
@@ -174,7 +178,22 @@ export default function TaskInlineRow({
         </Link>
       </td>
       <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
-        {openSubtaskCount}
+        {openSubtaskCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => onToggleSubtasks(task.id)}
+            className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900"
+            aria-expanded={isSubtasksExpanded}
+            aria-label={`${isSubtasksExpanded ? "Hide" : "Show"} subtasks for ${task.title}`}
+          >
+            <span>{openSubtaskCount}</span>
+            <span aria-hidden="true" className="text-[10px]">
+              {isSubtasksExpanded ? "v" : ">"}
+            </span>
+          </button>
+        ) : (
+          0
+        )}
       </td>
       <td className="px-6 py-3 text-slate-600">
         <form>

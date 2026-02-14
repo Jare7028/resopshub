@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
 import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
@@ -53,6 +53,17 @@ type TaskRow = {
   clients?: { name: string | null } | { name: string | null }[] | null;
 };
 
+type OpenSubtaskRow = {
+  id: string;
+  parent_task_id: string | null;
+  title: string;
+  status: string | null;
+  priority: string | null;
+  due_date: string | null;
+  due_time?: string | null;
+  assignee_user_ids: string[];
+};
+
 type TasksViewProps = {
   tasks: TaskRow[];
   users: UserOption[];
@@ -60,6 +71,7 @@ type TasksViewProps = {
   projects: ProjectOption[];
   assigneesByTask: Record<string, string[]>;
   openSubtaskCountByTaskId: Record<string, number>;
+  openSubtasksByParentId?: Record<string, OpenSubtaskRow[]>;
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   dueOptions: readonly { value: string; label: string }[];
@@ -128,6 +140,7 @@ export default function TasksView({
   projects,
   assigneesByTask,
   openSubtaskCountByTaskId,
+  openSubtasksByParentId = {},
   statusOptions,
   priorityOptions,
   dueOptions,
@@ -155,6 +168,29 @@ export default function TasksView({
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+
+  const usersById = useMemo(
+    () =>
+      users.reduce<Record<string, string>>((acc, user) => {
+        acc[user.id] = user.full_name || user.email || "Unknown user";
+        return acc;
+      }, {}),
+    [users]
+  );
+
+  useEffect(() => {
+    const validIds = new Set(tasks.map((task) => task.id));
+    setExpandedTaskIds((current) => {
+      const next = new Set<string>();
+      current.forEach((taskId) => {
+        if (validIds.has(taskId)) {
+          next.add(taskId);
+        }
+      });
+      return next.size === current.size ? current : next;
+    });
+  }, [tasks]);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -366,6 +402,28 @@ export default function TasksView({
     startTransition(() => {
       void onUpdate(formData);
     });
+  };
+
+  const toggleSubtasks = (taskId: string) => {
+    setExpandedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  const getAssigneeLabel = (userIds: string[]) => {
+    if (!userIds.length) {
+      return "Unassigned";
+    }
+    if (userIds.length > 1) {
+      return `${usersById[userIds[0]] || "Assigned"} +${userIds.length - 1}`;
+    }
+    return usersById[userIds[0]] || "Assigned";
   };
 
   return (
@@ -729,21 +787,68 @@ export default function TasksView({
             </thead>
             <tbody>
               {tasks.length ? (
-                tasks.map((task) => (
-                  <TaskInlineRow
-                    key={task.id}
-                    task={task}
-                    openSubtaskCount={openSubtaskCountByTaskId[task.id] ?? 0}
-                    assigneeUserIds={assigneesByTask[task.id] || []}
-                    users={users}
-                    clients={clients}
-                    projects={projects}
-                    statusOptions={statusOptions}
-                    priorityOptions={priorityOptions}
-                    onUpdate={onUpdate}
-                    returnTo={returnTo}
-                  />
-                ))
+                tasks.map((task) => {
+                  const isExpanded = expandedTaskIds.has(task.id);
+                  const openSubtasks = openSubtasksByParentId[task.id] || [];
+                  return (
+                    <Fragment key={task.id}>
+                      <TaskInlineRow
+                        task={task}
+                        openSubtaskCount={openSubtaskCountByTaskId[task.id] ?? 0}
+                        isSubtasksExpanded={isExpanded}
+                        onToggleSubtasks={toggleSubtasks}
+                        assigneeUserIds={assigneesByTask[task.id] || []}
+                        users={users}
+                        clients={clients}
+                        projects={projects}
+                        statusOptions={statusOptions}
+                        priorityOptions={priorityOptions}
+                        onUpdate={onUpdate}
+                        returnTo={returnTo}
+                      />
+                      {isExpanded
+                        ? openSubtasks.map((subtask) => (
+                            <tr
+                              key={subtask.id}
+                              className="border-t border-slate-100 bg-slate-50/60"
+                            >
+                              <td className="px-6 py-2 text-slate-700">
+                                <div className="flex items-center gap-2 pl-6">
+                                  <span aria-hidden="true" className="text-slate-400">
+                                    {"->"}
+                                  </span>
+                                  <Link
+                                    href={`/tasks/${subtask.id}`}
+                                    className="hover:underline"
+                                  >
+                                    {subtask.title}
+                                  </Link>
+                                </div>
+                              </td>
+                              <td className="px-6 py-2 text-right text-slate-400">-</td>
+                              <td className="px-6 py-2 text-slate-400">-</td>
+                              <td className="px-6 py-2 text-slate-400">-</td>
+                              <td className="px-6 py-2 text-slate-600">
+                                {formatTaskStatusLabel(
+                                  normalizeTaskStatusOrDefault(subtask.status)
+                                )}
+                              </td>
+                              <td className="px-6 py-2 text-slate-600">
+                                {subtask.priority || "medium"}
+                              </td>
+                              <td className="px-6 py-2 text-slate-600">
+                                {getAssigneeLabel(subtask.assignee_user_ids)}
+                              </td>
+                              <td className="px-6 py-2 text-slate-400">-</td>
+                              <td className="px-6 py-2 text-slate-600">
+                                {subtask.due_date || "-"}
+                              </td>
+                            </tr>
+                          ))
+                        : null}
+                    </Fragment>
+                  );
+                })
               ) : (
                 <tr>
                   <td className="px-6 py-6 text-slate-500" colSpan={9}>

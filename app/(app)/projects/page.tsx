@@ -445,25 +445,74 @@ export default async function ProjectsPage(props: {
   }
 
   const openTaskCountByProjectId: Record<string, number> = {};
+  const openTasksByProjectId: Record<
+    string,
+    Array<{
+      id: string;
+      project_id: string | null;
+      title: string;
+      status: string | null;
+      priority: string | null;
+      due_date: string | null;
+      assignee_user_ids: string[];
+    }>
+  > = {};
   const projectIdsForCounts = projects.map((p) => p.id).filter(Boolean) as string[];
   if (projectIdsForCounts.length) {
     const { data: tasksForCountsRaw, error: tasksForCountsError } = await supabase
       .from("tasks")
-      .select("project_id,status,parent_task_id")
+      .select("id,project_id,title,status,priority,due_date,parent_task_id,assignee_user_id")
       .in("project_id", projectIdsForCounts)
       .is("parent_task_id", null);
 
     if (!tasksForCountsError) {
       const tasksForCounts = (tasksForCountsRaw || []) as Array<{
+        id: string;
         project_id: string | null;
+        title: string;
         status: string | null;
+        priority: string | null;
+        due_date: string | null;
+        assignee_user_id: string | null;
       }>;
+      const taskIds = tasksForCounts.map((row) => row.id).filter(Boolean);
+      const assigneeIdsByTaskId: Record<string, string[]> = {};
+      if (taskIds.length) {
+        const { data: taskAssigneeRows } = await supabase
+          .from("task_assignees")
+          .select("task_id,user_id")
+          .in("task_id", taskIds);
+        (taskAssigneeRows || []).forEach((row) => {
+          if (!assigneeIdsByTaskId[row.task_id]) {
+            assigneeIdsByTaskId[row.task_id] = [];
+          }
+          assigneeIdsByTaskId[row.task_id].push(row.user_id);
+        });
+      }
       for (const row of tasksForCounts) {
         const projectId = row.project_id;
         const status = row.status || "";
         if (!projectId) continue;
         if (status === "completed" || status === "cancelled") continue;
         openTaskCountByProjectId[projectId] = (openTaskCountByProjectId[projectId] || 0) + 1;
+        if (!openTasksByProjectId[projectId]) {
+          openTasksByProjectId[projectId] = [];
+        }
+        const assigneeIds = Array.from(
+          new Set([
+            ...(assigneeIdsByTaskId[row.id] || []),
+            ...(row.assignee_user_id ? [row.assignee_user_id] : []),
+          ])
+        );
+        openTasksByProjectId[projectId].push({
+          id: row.id,
+          project_id: row.project_id,
+          title: row.title,
+          status: row.status,
+          priority: row.priority,
+          due_date: row.due_date,
+          assignee_user_ids: assigneeIds,
+        });
       }
     }
   }
@@ -1258,6 +1307,7 @@ export default async function ProjectsPage(props: {
           clients={clients || []}
           assigneesByProject={assigneesByProject}
           openTaskCountByProjectId={openTaskCountByProjectId}
+          openTasksByProjectId={openTasksByProjectId}
           statusOptions={projectStatusOptions}
           initialView={selectedView}
           initialFilters={{

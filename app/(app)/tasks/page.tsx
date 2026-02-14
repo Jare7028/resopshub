@@ -580,6 +580,19 @@ export default async function TasksPage(props: {
   });
 
   const openSubtaskCountByTaskId: Record<string, number> = {};
+  const openSubtasksByParentId: Record<
+    string,
+    Array<{
+      id: string;
+      parent_task_id: string | null;
+      title: string;
+      status: string | null;
+      priority: string | null;
+      due_date: string | null;
+      due_time: string | null;
+      assignee_user_ids: string[];
+    }>
+  > = {};
   const taskIdsForSubtaskCounts = (sortedTasks || []).map((t) => t.id).filter(Boolean) as string[];
   if (taskIdsForSubtaskCounts.length) {
     const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await supabase
@@ -599,6 +612,64 @@ export default async function TasksPage(props: {
         if (status === "completed" || status === "cancelled") continue;
         openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
       }
+    }
+
+    const { data: openSubtasksRaw, error: openSubtasksError } = await supabase
+      .from("tasks")
+      .select("id,parent_task_id,title,status,priority,due_date,due_time,assignee_user_id")
+      .in("parent_task_id", taskIdsForSubtaskCounts)
+      .not("status", "in", "(completed,cancelled)")
+      .order("created_at", { ascending: true });
+
+    if (!openSubtasksError) {
+      const openSubtasks = (openSubtasksRaw || []) as Array<{
+        id: string;
+        parent_task_id: string | null;
+        title: string;
+        status: string | null;
+        priority: string | null;
+        due_date: string | null;
+        due_time: string | null;
+        assignee_user_id: string | null;
+      }>;
+
+      const subtaskIds = openSubtasks.map((subtask) => subtask.id).filter(Boolean);
+      const assigneeIdsBySubtaskId: Record<string, string[]> = {};
+      if (subtaskIds.length) {
+        const { data: subtaskAssigneeRows } = await supabase
+          .from("task_assignees")
+          .select("task_id,user_id")
+          .in("task_id", subtaskIds);
+        (subtaskAssigneeRows || []).forEach((row) => {
+          if (!assigneeIdsBySubtaskId[row.task_id]) {
+            assigneeIdsBySubtaskId[row.task_id] = [];
+          }
+          assigneeIdsBySubtaskId[row.task_id].push(row.user_id);
+        });
+      }
+
+      openSubtasks.forEach((subtask) => {
+        if (!subtask.parent_task_id) return;
+        if (!openSubtasksByParentId[subtask.parent_task_id]) {
+          openSubtasksByParentId[subtask.parent_task_id] = [];
+        }
+        const assigneeIds = Array.from(
+          new Set([
+            ...(assigneeIdsBySubtaskId[subtask.id] || []),
+            ...(subtask.assignee_user_id ? [subtask.assignee_user_id] : []),
+          ])
+        );
+        openSubtasksByParentId[subtask.parent_task_id].push({
+          id: subtask.id,
+          parent_task_id: subtask.parent_task_id,
+          title: subtask.title,
+          status: subtask.status,
+          priority: subtask.priority,
+          due_date: subtask.due_date,
+          due_time: subtask.due_time,
+          assignee_user_ids: assigneeIds,
+        });
+      });
     }
   }
 
@@ -1313,6 +1384,7 @@ export default async function TasksPage(props: {
           projects={projects || []}
           assigneesByTask={assigneesByTask}
           openSubtaskCountByTaskId={openSubtaskCountByTaskId}
+          openSubtasksByParentId={openSubtasksByParentId}
           statusOptions={statusOptions}
           priorityOptions={priorityOptions}
           dueOptions={dueDateFilters}

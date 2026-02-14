@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Fragment,
   type ChangeEvent,
   useEffect,
   useMemo,
@@ -41,6 +42,16 @@ type ProjectRow = {
   clients?: { name?: string | null } | { name?: string | null }[] | null;
 };
 
+type OpenProjectTaskRow = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  status: string | null;
+  priority: string | null;
+  due_date: string | null;
+  assignee_user_ids: string[];
+};
+
 export type ProjectSortKey =
   | "name"
   | "client"
@@ -59,6 +70,7 @@ type ProjectsViewProps = {
   clients: ClientOption[];
   assigneesByProject: Record<string, string[]>;
   openTaskCountByProjectId: Record<string, number>;
+  openTasksByProjectId?: Record<string, OpenProjectTaskRow[]>;
   statusOptions: readonly string[];
   initialView?: "table" | "gantt" | "board";
   initialFilters: {
@@ -128,6 +140,7 @@ export default function ProjectsView({
   clients,
   assigneesByProject,
   openTaskCountByProjectId,
+  openTasksByProjectId = {},
   statusOptions,
   initialView = "table",
   initialFilters,
@@ -149,12 +162,26 @@ export default function ProjectsView({
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    const validIds = new Set(projects.map((project) => project.id));
+    setExpandedProjectIds((current) => {
+      const next = new Set<string>();
+      current.forEach((projectId) => {
+        if (validIds.has(projectId)) {
+          next.add(projectId);
+        }
+      });
+      return next.size === current.size ? current : next;
+    });
+  }, [projects]);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -385,6 +412,28 @@ export default function ProjectsView({
     startTransition(() => {
       void onUpdate(formData);
     });
+  };
+
+  const toggleProjectTasks = (projectId: string) => {
+    setExpandedProjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  };
+
+  const getAssigneeLabel = (userIds: string[]) => {
+    if (!userIds.length) {
+      return "Unassigned";
+    }
+    if (userIds.length > 1) {
+      return `${usersById[userIds[0]] || "Assigned"} +${userIds.length - 1}`;
+    }
+    return usersById[userIds[0]] || "Assigned";
   };
 
   return (
@@ -635,94 +684,144 @@ export default function ProjectsView({
                   const assigneeIds = assigneesByProject[project.id] || [];
 
                   return (
-                    <tr key={project.id} className="border-t border-slate-200">
-                      <td className="px-6 py-3 font-medium text-slate-900">
-                        <Link href={`/projects/${project.id}`} className="hover:underline">
-                          {project.name}
-                        </Link>
-                      </td>
-                      <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
-                        {openTaskCountByProjectId[project.id] ?? 0}
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        <form>
-                          <input type="hidden" name="project_id" value={project.id} />
-                          <select
-                            name="client_id"
-                            aria-label="Client"
-                            defaultValue={project.client_id || ""}
-                            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                            onChange={handleInlineChange}
-                          >
-                            <option value="">No client</option>
-                            {clients.map((client) => (
-                              <option key={client.id} value={client.id}>
-                                {client.name}
-                              </option>
-                            ))}
-                          </select>
-                        </form>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        <form>
-                          <input type="hidden" name="project_id" value={project.id} />
-                          <select
-                            name="status"
-                            aria-label="Status"
-                            defaultValue={project.status ?? "planned"}
-                            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                            onChange={handleInlineChange}
-                          >
-                            {statusOptions.map((status) => (
-                              <option key={status} value={status}>
-                                {formatProjectStatusLabel(status)}
-                              </option>
-                            ))}
-                          </select>
-                        </form>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        <form id={`project-${project.id}-assignees`}>
-                          <input type="hidden" name="project_id" value={project.id} />
-                          <AssigneeMultiSelect
-                            users={users}
-                            name="assignee_user_ids"
-                            defaultSelected={assigneeIds}
-                            className="w-full"
-                            form={`project-${project.id}-assignees`}
-                            onSelectionChange={(selectedIds) =>
-                              handleAssigneesChange(project.id, selectedIds)
-                            }
-                          />
-                        </form>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        <form>
-                          <input type="hidden" name="project_id" value={project.id} />
-                          <input
-                            type="date"
-                            name="start_date"
-                            aria-label="Start date"
-                            defaultValue={project.start_date || ""}
-                            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                            onChange={handleInlineChange}
-                          />
-                        </form>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        <form>
-                          <input type="hidden" name="project_id" value={project.id} />
-                          <input
-                            type="date"
-                            name="end_date"
-                            aria-label="End date"
-                            defaultValue={project.end_date || ""}
-                            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                            onChange={handleInlineChange}
-                          />
-                        </form>
-                      </td>
-                    </tr>
+                    <Fragment key={project.id}>
+                      <tr className="border-t border-slate-200">
+                        <td className="px-6 py-3 font-medium text-slate-900">
+                          <Link href={`/projects/${project.id}`} className="hover:underline">
+                            {project.name}
+                          </Link>
+                        </td>
+                        <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
+                          {(openTaskCountByProjectId[project.id] ?? 0) > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleProjectTasks(project.id)}
+                              className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900"
+                              aria-expanded={expandedProjectIds.has(project.id)}
+                              aria-label={`${
+                                expandedProjectIds.has(project.id) ? "Hide" : "Show"
+                              } open tasks for ${project.name}`}
+                            >
+                              <span>{openTaskCountByProjectId[project.id] ?? 0}</span>
+                              <span aria-hidden="true" className="text-[10px]">
+                                {expandedProjectIds.has(project.id) ? "v" : ">"}
+                              </span>
+                            </button>
+                          ) : (
+                            0
+                          )}
+                        </td>
+                        <td className="px-6 py-3 text-slate-600">
+                          <form>
+                            <input type="hidden" name="project_id" value={project.id} />
+                            <select
+                              name="client_id"
+                              aria-label="Client"
+                              defaultValue={project.client_id || ""}
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                              onChange={handleInlineChange}
+                            >
+                              <option value="">No client</option>
+                              {clients.map((client) => (
+                                <option key={client.id} value={client.id}>
+                                  {client.name}
+                                </option>
+                              ))}
+                            </select>
+                          </form>
+                        </td>
+                        <td className="px-6 py-3 text-slate-600">
+                          <form>
+                            <input type="hidden" name="project_id" value={project.id} />
+                            <select
+                              name="status"
+                              aria-label="Status"
+                              defaultValue={project.status ?? "planned"}
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                              onChange={handleInlineChange}
+                            >
+                              {statusOptions.map((status) => (
+                                <option key={status} value={status}>
+                                  {formatProjectStatusLabel(status)}
+                                </option>
+                              ))}
+                            </select>
+                          </form>
+                        </td>
+                        <td className="px-6 py-3 text-slate-600">
+                          <form id={`project-${project.id}-assignees`}>
+                            <input type="hidden" name="project_id" value={project.id} />
+                            <AssigneeMultiSelect
+                              users={users}
+                              name="assignee_user_ids"
+                              defaultSelected={assigneeIds}
+                              className="w-full"
+                              form={`project-${project.id}-assignees`}
+                              onSelectionChange={(selectedIds) =>
+                                handleAssigneesChange(project.id, selectedIds)
+                              }
+                            />
+                          </form>
+                        </td>
+                        <td className="px-6 py-3 text-slate-600">
+                          <form>
+                            <input type="hidden" name="project_id" value={project.id} />
+                            <input
+                              type="date"
+                              name="start_date"
+                              aria-label="Start date"
+                              defaultValue={project.start_date || ""}
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                              onChange={handleInlineChange}
+                            />
+                          </form>
+                        </td>
+                        <td className="px-6 py-3 text-slate-600">
+                          <form>
+                            <input type="hidden" name="project_id" value={project.id} />
+                            <input
+                              type="date"
+                              name="end_date"
+                              aria-label="End date"
+                              defaultValue={project.end_date || ""}
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                              onChange={handleInlineChange}
+                            />
+                          </form>
+                        </td>
+                      </tr>
+                      {expandedProjectIds.has(project.id)
+                        ? (openTasksByProjectId[project.id] || []).map((task) => (
+                            <tr
+                              key={task.id}
+                              className="border-t border-slate-100 bg-slate-50/60"
+                            >
+                              <td className="px-6 py-2 text-slate-700">
+                                <div className="flex items-center gap-2 pl-6">
+                                  <span aria-hidden="true" className="text-slate-400">
+                                    {"->"}
+                                  </span>
+                                  <Link href={`/tasks/${task.id}`} className="hover:underline">
+                                    {task.title}
+                                  </Link>
+                                </div>
+                              </td>
+                              <td className="px-6 py-2 text-right text-slate-400">-</td>
+                              <td className="px-6 py-2 text-slate-400">-</td>
+                              <td className="px-6 py-2 text-slate-600">
+                                {formatProjectStatusLabel(task.status)}
+                              </td>
+                              <td className="px-6 py-2 text-slate-600">
+                                {getAssigneeLabel(task.assignee_user_ids)}
+                              </td>
+                              <td className="px-6 py-2 text-slate-400">-</td>
+                              <td className="px-6 py-2 text-slate-600">
+                                {task.due_date || "-"}
+                              </td>
+                            </tr>
+                          ))
+                        : null}
+                    </Fragment>
                   );
                 })
               ) : (
