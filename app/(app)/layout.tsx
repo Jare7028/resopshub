@@ -6,10 +6,10 @@ import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
+import GlobalSearchBar from "./_components/GlobalSearchBar";
 
 type NavIconName =
   | "dashboard"
-  | "search"
   | "clients"
   | "projects"
   | "tasks"
@@ -36,13 +36,6 @@ function SidebarIcon({ name }: { name: NavIconName }) {
           <path d="M13 21h8v-6h-8v6Z" />
           <path d="M13 3h8v8h-8V3Z" />
           <path d="M3 21h8v-4H3v4Z" />
-        </svg>
-      );
-    case "search":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
         </svg>
       );
     case "clients":
@@ -116,7 +109,6 @@ function SidebarIcon({ name }: { name: NavIconName }) {
 
 const baseNavLinks: NavLink[] = [
   { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-  { href: "/search", label: "Search", icon: "search" },
   { href: "/clients", label: "Clients", icon: "clients" },
   { href: "/projects", label: "Projects", icon: "projects" },
   { href: "/tasks", label: "Tasks", icon: "tasks" },
@@ -325,21 +317,26 @@ export default async function AppLayout({
         </aside>
 
         <div className="flex min-h-screen min-w-0 flex-1 flex-col overflow-x-hidden">
-          <header className="flex items-center justify-between border-b app-border app-header px-6 py-4">
-            <div>
-              <p className="text-sm text-slate-500">Signed in as</p>
-              <p className="text-sm font-semibold text-slate-900">{email}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <NotificationBell userId={user.id} />
-              <form action={signOut}>
-                <button
-                  type="submit"
-                  className="text-sm font-semibold text-slate-700 hover:text-slate-900"
-                >
-                  Sign out
-                </button>
-              </form>
+          <header className="border-b app-border app-header px-6 py-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="min-w-[12rem]">
+                <p className="text-sm text-slate-500">Signed in as</p>
+                <p className="text-sm font-semibold text-slate-900">{email}</p>
+              </div>
+              <div className="order-3 w-full md:order-2 md:flex-1">
+                <GlobalSearchBar />
+              </div>
+              <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
+                <NotificationBell userId={user.id} />
+                <form action={signOut}>
+                  <button
+                    type="submit"
+                    className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                  >
+                    Sign out
+                  </button>
+                </form>
+              </div>
             </div>
           </header>
           <main className="flex-1 min-w-0 overflow-x-hidden px-6 py-8">{children}</main>
