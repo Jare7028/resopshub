@@ -714,29 +714,30 @@ export default async function PersonalPage(props: {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+    <div className="space-y-5">
+      <section className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-0.5">
           <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Personal page
           </p>
-          <h1 className="text-2xl font-semibold text-slate-900">{page.title}</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{page.title}</h1>
           <p className="text-sm text-slate-600">
             {sectionTitle || "General"} -{" "}
             {shareModeLabels[page.share_mode] || "Private"}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <form action={updatePageDetails} className="flex flex-wrap items-end gap-2">
+        <div className="flex flex-col items-end gap-1.5">
+          <form action={updatePageDetails} className="flex flex-wrap items-center gap-2">
             <input
               name="title"
               defaultValue={page.title}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
             />
             <select
               name="section_id"
               defaultValue={page.section_id || ""}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
             >
               <option value="">General</option>
               {sections?.map((section) => (
@@ -747,23 +748,23 @@ export default async function PersonalPage(props: {
             </select>
             <button
               type="submit"
-              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+              className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
             >
               Update
             </button>
           </form>
 
           {isOwner ? (
-            <details className="w-full max-w-[420px] rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <details className="w-full max-w-[420px] rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               <summary className="cursor-pointer select-none font-semibold">
                 Delete page
               </summary>
-              <div className="mt-2 space-y-2">
+              <div className="mt-1.5 space-y-1.5">
                 <p>This will permanently delete the page and its content.</p>
                 <form action={deletePersonalPage}>
                   <button
                     type="submit"
-                    className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
                   >
                     Confirm delete
                   </button>
@@ -771,6 +772,7 @@ export default async function PersonalPage(props: {
               </div>
             </details>
           ) : null}
+        </div>
         </div>
       </section>
 
@@ -996,16 +998,18 @@ export default async function PersonalPage(props: {
       ) : null}
 
       {activeTab === "notes" ? (
-        <div className="space-y-4">
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-900">Link To Client Note</h2>
+        <div className="space-y-3">
+          <details className="rounded-lg border border-slate-200 bg-white p-3">
+            <summary className="cursor-pointer select-none text-sm font-semibold text-slate-800">
+              Link to client note
+            </summary>
             <p className="mt-1 text-xs text-slate-500">
               Create a client note that links back to this personal page.
             </p>
-            <form action={linkPageToClientNote} className="mt-3 flex flex-wrap items-end gap-2">
+            <form action={linkPageToClientNote} className="mt-2 flex flex-wrap items-end gap-2">
               <select
                 name="client_id"
-                className="min-w-[240px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="min-w-[220px] rounded-md border border-slate-300 px-3 py-1.5 text-sm"
                 defaultValue=""
                 required
               >
@@ -1021,19 +1025,19 @@ export default async function PersonalPage(props: {
               <select
                 name="visibility"
                 defaultValue="internal"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
               >
                 <option value="internal">internal</option>
                 <option value="client_shared">client shared</option>
               </select>
               <button
                 type="submit"
-                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
               >
                 Link note
               </button>
             </form>
-          </section>
+          </details>
           <PersonalPageEditorClient
             pageId={page.id}
             initialContent={page.content ?? null}

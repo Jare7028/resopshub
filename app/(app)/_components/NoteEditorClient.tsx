@@ -218,11 +218,11 @@ type RibbonIconButtonProps = {
 
 function RibbonGroup({ title, children }: RibbonGroupProps) {
   return (
-    <div className="flex min-h-[100px] min-w-[170px] flex-col justify-between rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
-      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
-      <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        {title}
-      </p>
+    <div
+      className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1.5"
+      aria-label={title}
+    >
+      <div className="flex flex-wrap items-center gap-1">{children}</div>
     </div>
   );
 }
@@ -237,11 +237,11 @@ function RibbonIconButton({
   icon,
 }: RibbonIconButtonProps) {
   const baseClass =
-    "inline-flex h-8 items-center gap-1.5 rounded-md border text-xs font-semibold transition";
+    "inline-flex h-7 items-center gap-1 rounded-md border text-[11px] font-semibold transition";
   const stateClass = active
     ? "border-slate-900 bg-slate-900 text-white"
     : "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-900";
-  const sizeClass = iconOnly ? "w-8 justify-center px-0" : "px-2";
+  const sizeClass = iconOnly ? "w-7 justify-center px-0" : "px-2";
 
   return (
     <button
@@ -1407,7 +1407,7 @@ export default function NoteEditorClient({
   const activeSlashItem = slashMenu.items[slashMenu.index];
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-6" aria-label={title}>
+    <section className="rounded-lg border border-slate-200 bg-white p-4" aria-label={title}>
 
       {taskToast ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
@@ -1435,20 +1435,18 @@ export default function NoteEditorClient({
       ) : null}
 
       {showTopToolbar ? (
-        <div className={`sticky top-0 z-20 rounded-lg border border-slate-200 bg-white p-3 ${taskToast ? "mt-3" : ""}`}>
-          <div className="mb-2 flex items-center gap-2 border-b border-slate-200 pb-2">
-            <span className="rounded-md bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white">
-              Home
-            </span>
-            <span className="text-[11px] text-slate-500">
-              Word-style toolbar
-            </span>
-            <span className="ml-auto text-[11px] text-slate-400">
+        <div
+          className={`sticky top-0 z-20 rounded-lg border border-slate-200 bg-white p-2 ${
+            taskToast ? "mt-3" : ""
+          }`}
+        >
+          <div className="mb-1.5 flex items-center justify-end">
+            <span className="text-[11px] text-slate-400">
               {isPending ? "Saving..." : "Saved"}
             </span>
           </div>
-          <div className="-mx-1 overflow-x-auto px-1 pb-1">
-            <div className="flex min-w-max items-stretch gap-2">
+          <div className="-mx-1 overflow-x-auto px-1">
+            <div className="flex min-w-max items-start gap-1.5">
               <RibbonGroup title="Clipboard">
                 <RibbonIconButton
                   label="Copy style"
@@ -1476,7 +1474,7 @@ export default function NoteEditorClient({
                 <select
                   value={currentBlockStyle}
                   onChange={(event) => applyBlockStyle(event.target.value as WordBlockStyle)}
-                  className="h-8 w-[9.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                  className="h-7 w-[8rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
                   title="Text style"
                 >
                   <option value="paragraph">Paragraph</option>
@@ -1488,7 +1486,7 @@ export default function NoteEditorClient({
                 <select
                   value={currentFontFamily}
                   onChange={(event) => setFontFamilyValue(event.target.value)}
-                  className="h-8 w-[8.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                  className="h-7 w-[7.2rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
                   title="Font family"
                 >
                   {WORD_FONT_OPTIONS.map((font) => (
@@ -1500,7 +1498,7 @@ export default function NoteEditorClient({
                 <select
                   value={currentFontSize}
                   onChange={(event) => setFontSizeValue(event.target.value)}
-                  className="h-8 w-[4.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                  className="h-7 w-[3.8rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
                   title="Font size"
                 >
                   {WORD_FONT_SIZE_OPTIONS.map((size) => (
@@ -1662,7 +1660,7 @@ export default function NoteEditorClient({
                       onChange={(event) =>
                         setSelectedTableColumnsType(event.target.value as TableColumnType)
                       }
-                      className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                      className="h-7 w-full rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
                     >
                       {TABLE_COLUMN_TYPES.map((type) => (
                         <option key={type.id} value={type.id}>
