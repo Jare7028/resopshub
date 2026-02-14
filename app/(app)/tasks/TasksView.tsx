@@ -18,6 +18,7 @@ import {
   FilterMenuMulti,
   FilterMenuSingle,
 } from "../_components/TableHeaderFilters";
+import MultiSelect from "../_components/MultiSelect";
 
 type UserOption = {
   id: string;
@@ -450,7 +451,7 @@ export default function TasksView({
                 router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
               });
             }}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
           >
             {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
           </a>
@@ -477,7 +478,7 @@ export default function TasksView({
                   router.replace(nextQuery ? `${basePath}?${nextQuery}` : basePath, { scroll: false });
                 });
               }}
-              className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+              className={`inline-flex min-h-11 items-center rounded-md border px-3 py-1.5 text-xs font-semibold ${
                 includeWatching
                   ? "border-blue-300 bg-blue-50 text-blue-700 hover:border-blue-400 hover:text-blue-800"
                   : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
@@ -491,7 +492,7 @@ export default function TasksView({
           <button
             type="button"
             onClick={() => applyView("table")}
-            className={`rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
               view === "table"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -502,7 +503,7 @@ export default function TasksView({
           <button
             type="button"
             onClick={() => applyView("gantt")}
-            className={`rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
               view === "gantt"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -513,7 +514,7 @@ export default function TasksView({
           <button
             type="button"
             onClick={() => applyView("board")}
-            className={`rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
               view === "board"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -524,7 +525,7 @@ export default function TasksView({
           <button
             type="button"
             onClick={saveDefaultView}
-            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+            className={`min-h-11 rounded-md border px-3 py-1.5 text-xs font-semibold ${
               defaultView === view
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
@@ -536,7 +537,73 @@ export default function TasksView({
       </div>
 
       {view === "table" ? (
-        <div className="overflow-x-auto">
+        <>
+        <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MultiSelect
+              options={statusOptions.map((status) => ({
+                value: status,
+                label: formatTaskStatusLabel(status),
+              }))}
+              selectedValues={filters.status}
+              placeholder="All statuses"
+              onChange={(next) => applyFilters({ ...filters, status: next })}
+            />
+            <MultiSelect
+              options={priorityOptions.map((priority) => ({
+                value: priority,
+                label: priority,
+              }))}
+              selectedValues={filters.priority}
+              placeholder="All priorities"
+              onChange={(next) => applyFilters({ ...filters, priority: next })}
+            />
+            <MultiSelect
+              options={[
+                { value: "unassigned", label: "Unassigned" },
+                ...users.map((user) => ({
+                  value: user.id,
+                  label: user.full_name || user.email || "Unnamed user",
+                })),
+              ]}
+              selectedValues={filters.assignee}
+              placeholder="All assignees"
+              onChange={(next) => applyFilters({ ...filters, assignee: next })}
+            />
+            <select
+              value={filters.due}
+              onChange={(event) => applyFilters({ ...filters, due: event.target.value })}
+              className="h-11 rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+            >
+              {dueOptions.map((filter) => (
+                <option key={filter.value} value={filter.value}>
+                  {filter.label}
+                </option>
+              ))}
+            </select>
+            <MultiSelect
+              options={clients.map((client) => ({ value: client.id, label: client.name }))}
+              selectedValues={filters.client}
+              placeholder="All clients"
+              onChange={(next) => applyFilters({ ...filters, client: next })}
+            />
+            <MultiSelect
+              options={projects.map((project) => {
+                const clientName = Array.isArray(project.clients)
+                  ? project.clients[0]?.name
+                  : project.clients?.name;
+                return {
+                  value: project.id,
+                  label: clientName ? `${project.name} - ${clientName}` : project.name,
+                };
+              })}
+              selectedValues={filters.project}
+              placeholder="All projects"
+              onChange={(next) => applyFilters({ ...filters, project: next })}
+            />
+          </div>
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -863,6 +930,85 @@ export default function TasksView({
             </tbody>
           </table>
         </div>
+        <div className="space-y-3 p-4 md:hidden">
+          {tasks.length ? (
+            tasks.map((task) => {
+              const assigneeIds = assigneesByTask[task.id] || [];
+              const clientName = Array.isArray(task.clients)
+                ? task.clients[0]?.name
+                : task.clients?.name;
+              const projectName = Array.isArray(task.projects)
+                ? task.projects[0]?.name
+                : task.projects?.name;
+              const dueLabel = task.due_date
+                ? new Date(task.due_date).toLocaleDateString("en-US")
+                : "No due date";
+              const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
+              return (
+                <article
+                  key={`mobile-${task.id}`}
+                  className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Link
+                      href={`/tasks/${task.id}`}
+                      className="text-base font-semibold text-slate-900 hover:underline"
+                    >
+                      {task.title}
+                    </Link>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                      {formatTaskStatusLabel(normalizeTaskStatusOrDefault(task.status))}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${priorityPillClasses(
+                        task.priority
+                      )}`}
+                    >
+                      {(task.priority || "medium").toLowerCase()}
+                    </span>
+                    <span
+                      className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${duePillClasses(
+                        dueUrgency
+                      )}`}
+                    >
+                      {dueLabel}
+                    </span>
+                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                      {openSubtaskCountByTaskId[task.id] ?? 0} open subtasks
+                    </span>
+                  </div>
+                  <div className="grid gap-1 text-sm text-slate-600">
+                    <p>
+                      <span className="font-semibold text-slate-700">Client:</span>{" "}
+                      {clientName || "-"}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-700">Project:</span>{" "}
+                      {projectName || "-"}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-700">Assignees:</span>{" "}
+                      {getAssigneeLabel(assigneeIds)}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/tasks/${task.id}`}
+                    className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Open task
+                  </Link>
+                </article>
+              );
+            })
+          ) : (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              No tasks found.
+            </p>
+          )}
+        </div>
+        </>
       ) : view === "gantt" ? (
         <div className="overflow-x-auto">
           {tasks.length ? (

@@ -13,6 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
+import MultiSelect from "../_components/MultiSelect";
 import {
   readDefaultViewMode,
   writeDefaultViewMode,
@@ -463,7 +464,7 @@ export default function ProjectsView({
                 });
               });
             }}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
           >
             {hideCompleted
               ? "Show completed & cancelled"
@@ -487,7 +488,7 @@ export default function ProjectsView({
                 });
               });
             }}
-            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+            className={`inline-flex min-h-11 items-center rounded-md border px-3 py-1.5 text-xs font-semibold ${
               includeWatching
                 ? "border-blue-300 bg-blue-50 text-blue-700 hover:border-blue-400 hover:text-blue-800"
                 : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
@@ -502,7 +503,7 @@ export default function ProjectsView({
           <button
             type="button"
             onClick={() => applyView("table")}
-            className={`rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
               view === "table"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -513,7 +514,7 @@ export default function ProjectsView({
           <button
             type="button"
             onClick={() => applyView("gantt")}
-            className={`rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
               view === "gantt"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -524,7 +525,7 @@ export default function ProjectsView({
           <button
             type="button"
             onClick={() => applyView("board")}
-            className={`rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
               view === "board"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -535,7 +536,7 @@ export default function ProjectsView({
           <button
             type="button"
             onClick={saveDefaultView}
-            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+            className={`min-h-11 rounded-md border px-3 py-1.5 text-xs font-semibold ${
               defaultView === view
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
@@ -547,7 +548,40 @@ export default function ProjectsView({
       </div>
 
       {view === "table" ? (
-        <div className="overflow-x-auto">
+        <>
+        <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MultiSelect
+              options={clients.map((client) => ({ value: client.id, label: client.name }))}
+              selectedValues={filters.client}
+              placeholder="All clients"
+              onChange={(next) => applyFilters({ ...filters, client: next })}
+            />
+            <MultiSelect
+              options={statusOptions.map((status) => ({
+                value: status,
+                label: formatProjectStatusLabel(status),
+              }))}
+              selectedValues={filters.status}
+              placeholder="All statuses"
+              onChange={(next) => applyFilters({ ...filters, status: next })}
+            />
+            <MultiSelect
+              options={[
+                { value: "unassigned", label: "Unassigned" },
+                ...users.map((user) => ({
+                  value: user.id,
+                  label: user.full_name || user.email || "Unnamed user",
+                })),
+              ]}
+              selectedValues={filters.assignee}
+              placeholder="All assignees"
+              onChange={(next) => applyFilters({ ...filters, assignee: next })}
+              className="sm:col-span-2"
+            />
+          </div>
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -838,6 +872,66 @@ export default function ProjectsView({
             </tbody>
           </table>
         </div>
+        <div className="space-y-3 p-4 md:hidden">
+          {projects.length ? (
+            projects.map((project) => {
+              const assigneeIds = assigneesByProject[project.id] || [];
+              const clientName = project.client_id
+                ? clientNameById[project.client_id] || "No client"
+                : "No client";
+              return (
+                <article
+                  key={`mobile-${project.id}`}
+                  className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Link
+                      href={`/projects/${project.id}`}
+                      className="text-base font-semibold text-slate-900 hover:underline"
+                    >
+                      {project.name}
+                    </Link>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                      {formatProjectStatusLabel(project.status)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                      {openTaskCountByProjectId[project.id] ?? 0} open tasks
+                    </span>
+                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                      {getAssigneeLabel(assigneeIds)}
+                    </span>
+                  </div>
+                  <div className="grid gap-1 text-sm text-slate-600">
+                    <p>
+                      <span className="font-semibold text-slate-700">Client:</span> {clientName}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-700">Start:</span>{" "}
+                      {project.start_date || "-"}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-700">End:</span>{" "}
+                      {project.end_date || "-"}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/projects/${project.id}`}
+                    className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Open project
+                  </Link>
+                </article>
+              );
+            })
+          ) : (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              No projects found.
+            </p>
+          )}
+        </div>
+        </>
       ) : view === "gantt" ? (
         <div className="overflow-x-auto">
           {projects.length ? (

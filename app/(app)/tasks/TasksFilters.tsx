@@ -132,7 +132,7 @@ export default function TasksFilters({
 
   return (
     <form
-      className="mt-4 grid gap-4 md:grid-cols-6"
+      className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6"
       onSubmit={(event) => {
         event.preventDefault();
         apply(filters);
@@ -165,7 +165,7 @@ export default function TasksFilters({
       <select
         name="due"
         value={filters.due}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        className="h-11 rounded-md border border-slate-300 px-3 text-sm"
         onChange={(event) => update("due", event.target.value)}
       >
         {dueOptions.map((filter) => (
@@ -191,7 +191,7 @@ export default function TasksFilters({
 
       <button
         type="submit"
-        className="md:col-span-6 w-fit rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+        className="sm:col-span-2 xl:col-span-6 inline-flex min-h-11 w-full items-center justify-center rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-fit"
       >
         Apply filters
       </button>

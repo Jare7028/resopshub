@@ -162,7 +162,7 @@ export default function GlobalSearchBar() {
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => setIsFocused(true)}
           placeholder="Search notes, tasks, projects, and personal pages..."
-          className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
+          className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
         />
         {showSuggestions ? (
           <div className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
@@ -181,7 +181,7 @@ export default function GlobalSearchBar() {
                     <button
                       type="button"
                       onClick={() => openSuggestion(item.href)}
-                      className="w-full px-3 py-2 text-left hover:bg-slate-50"
+                      className="w-full px-3 py-2.5 text-left hover:bg-slate-50"
                     >
                       <p className="truncate text-sm font-semibold text-slate-900">{item.title}</p>
                       <p className="truncate text-xs text-slate-500">{item.subtitle}</p>

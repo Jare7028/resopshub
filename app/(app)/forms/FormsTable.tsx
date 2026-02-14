@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
 import {
   FilterIcon,
@@ -141,7 +142,30 @@ export default function FormsTable({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
         <h2 className="text-lg font-semibold text-slate-900">Forms</h2>
       </div>
-      <div className="overflow-x-auto">
+      <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className="block">Search</span>
+            <input
+              type="search"
+              value={filters.q}
+              onChange={(event) => applyFilters({ ...filters, q: event.target.value })}
+              placeholder="Search title or description"
+              className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+            />
+          </label>
+          <MultiSelect
+            options={statusOptions.map((status) => ({
+              value: status,
+              label: formatFormLabel(status),
+            }))}
+            selectedValues={filters.status}
+            placeholder="All statuses"
+            onChange={(next) => applyFilters({ ...filters, status: next })}
+          />
+        </div>
+      </div>
+      <div className="hidden overflow-x-auto md:block">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
@@ -260,6 +284,49 @@ export default function FormsTable({
             )}
           </tbody>
         </table>
+      </div>
+      <div className="space-y-3 p-4 md:hidden">
+        {rows.length ? (
+          rows.map((row) => (
+            <article
+              key={`mobile-${row.id}`}
+              className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Link
+                  href={`/forms/${row.id}?tab=submissions&scope=completed${
+                    detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
+                  }`}
+                  className="text-base font-semibold text-slate-900 hover:underline"
+                >
+                  {row.title}
+                </Link>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                  {formatFormLabel(row.status)}
+                </span>
+              </div>
+              <p className="text-sm text-slate-700">{summarizeDescription(row.description)}</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-semibold">
+                  {row.openSubmissions} open submissions
+                </span>
+                <span>Updated {new Date(row.updated_at || row.created_at).toLocaleDateString()}</span>
+              </div>
+              <Link
+                href={`/forms/${row.id}?tab=submissions&scope=completed${
+                  detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
+                }`}
+                className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Open form
+              </Link>
+            </article>
+          ))
+        ) : (
+          <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+            No forms found.
+          </p>
+        )}
       </div>
     </section>
   );

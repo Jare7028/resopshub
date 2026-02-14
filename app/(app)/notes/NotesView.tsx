@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import ConfirmDelete from "../_components/ConfirmDelete";
+import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
 import {
   FilterIcon,
@@ -138,7 +139,48 @@ export default function NotesView({
       <div className="border-b border-slate-200 px-6 py-4">
         <h2 className="text-lg font-semibold text-slate-900">All notes</h2>
       </div>
-      <div className="overflow-x-auto">
+      <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <MultiSelect
+            options={clients.map((client) => ({ value: client.id, label: client.name }))}
+            selectedValues={filters.client}
+            placeholder="All clients"
+            onChange={(next) => applyFilters({ ...filters, client: next })}
+          />
+          <MultiSelect
+            options={users.map((user) => ({
+              value: user.id,
+              label: user.full_name || user.email || "Unnamed user",
+            }))}
+            selectedValues={filters.user}
+            placeholder={supportsNotePages ? "All editors" : "All users"}
+            onChange={(next) => applyFilters({ ...filters, user: next })}
+          />
+          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className="block">From</span>
+            <input
+              type="date"
+              value={filters.dateFrom}
+              onChange={(event) =>
+                applyFilters({ ...filters, dateFrom: event.target.value })
+              }
+              className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className="block">To</span>
+            <input
+              type="date"
+              value={filters.dateTo}
+              onChange={(event) =>
+                applyFilters({ ...filters, dateTo: event.target.value })
+              }
+              className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+            />
+          </label>
+        </div>
+      </div>
+      <div className="hidden overflow-x-auto md:block">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
@@ -397,7 +439,84 @@ export default function NotesView({
           </tbody>
         </table>
       </div>
+      <div className="space-y-3 p-4 md:hidden">
+        {notes.length ? (
+          notes.map((note) => {
+            const lastEditedAt = note.last_edited_at || note.created_at || null;
+            const editedById = note.last_edited_by_user_id || note.user_id || "";
+            const editedByLabel = editedById
+              ? editorLabelsById[editedById] || "Unknown user"
+              : "Unknown user";
+            const clientName = getRelationName(note.clients, "Unknown client");
+            const noteTitle = note.title || "Untitled";
+            return (
+              <article
+                key={`mobile-${note.id}`}
+                className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 font-semibold text-slate-700">
+                    {clientName}
+                  </span>
+                  <span>
+                    {lastEditedAt
+                      ? new Date(lastEditedAt).toLocaleDateString("en-US")
+                      : ""}
+                  </span>
+                </div>
+                {supportsNotePages ? (
+                  <>
+                    <Link
+                      href={`/clients/${note.client_id}/notes/${note.id}`}
+                      className="block text-base font-semibold text-slate-900 hover:underline"
+                    >
+                      {noteTitle}
+                    </Link>
+                    <p className="text-sm text-slate-700">
+                      {truncate(note.content || "") || "-"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="whitespace-pre-line text-sm text-slate-700">
+                    {note.content || "-"}
+                  </p>
+                )}
+                <div className="text-xs text-slate-500">
+                  {supportsNotePages ? "Last edited by" : "Added by"} {editedByLabel}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {supportsNotePages ? (
+                    <Link
+                      href={`/clients/${note.client_id}/notes/${note.id}`}
+                      className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Open
+                    </Link>
+                  ) : (
+                    <span />
+                  )}
+                  <form action={onDelete}>
+                    <input type="hidden" name="note_id" value={note.id} />
+                    <ConfirmDelete
+                      name={
+                        (note.content || "")
+                          .replace(/\s+/g, " ")
+                          .trim()
+                          .slice(0, 40) || "this"
+                      }
+                      itemType="Note"
+                    />
+                  </form>
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+            No notes found.
+          </p>
+        )}
+      </div>
     </section>
   );
 }
-

@@ -56,7 +56,7 @@ export default function MultiSelect({
     <details className={["relative", className].filter(Boolean).join(" ")}>
       <summary
         className={[
-          "flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700",
+          "flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700",
           summaryClassName,
         ]
           .filter(Boolean)
@@ -92,16 +92,16 @@ export default function MultiSelect({
         <div className="max-h-64 overflow-auto p-2">
           {options.length ? (
             options.map((option) => (
-              <label
-                key={option.value}
-                className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-slate-300"
-                  checked={selectedSet.has(option.value)}
-                  onChange={() => toggle(option.value)}
-                />
+            <label
+              key={option.value}
+              className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 h-5 w-5 rounded border-slate-300"
+                checked={selectedSet.has(option.value)}
+                onChange={() => toggle(option.value)}
+              />
                 <span className="leading-5">{option.label}</span>
               </label>
             ))

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import ConfirmDelete from "../_components/ConfirmDelete";
+import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
 import {
   readDefaultViewMode,
@@ -357,7 +358,7 @@ export default function ClientsTable({
         <button
           type="button"
           onClick={() => applyView("table")}
-          className={`rounded-md px-3 py-1.5 font-semibold ${
+          className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
             view === "table"
               ? "bg-slate-900 text-white"
               : "border border-slate-300 text-slate-700"
@@ -368,7 +369,7 @@ export default function ClientsTable({
         <button
           type="button"
           onClick={() => applyView("gantt")}
-          className={`rounded-md px-3 py-1.5 font-semibold ${
+          className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
             view === "gantt"
               ? "bg-slate-900 text-white"
               : "border border-slate-300 text-slate-700"
@@ -379,7 +380,7 @@ export default function ClientsTable({
         <button
           type="button"
           onClick={() => applyView("board")}
-          className={`rounded-md px-3 py-1.5 font-semibold ${
+          className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
             view === "board"
               ? "bg-slate-900 text-white"
               : "border border-slate-300 text-slate-700"
@@ -390,7 +391,7 @@ export default function ClientsTable({
         <button
           type="button"
           onClick={saveDefaultView}
-          className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+          className={`min-h-11 rounded-md border px-3 py-1.5 text-xs font-semibold ${
             defaultView === view
               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
               : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
@@ -401,7 +402,40 @@ export default function ClientsTable({
       </div>
 
       {view === "table" ? (
-        <div className="overflow-x-auto">
+        <>
+        <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <span className="block">Search</span>
+              <input
+                type="search"
+                value={filters.q}
+                onChange={(event) =>
+                  applyFilters({ ...filters, q: event.target.value })
+                }
+                placeholder="Search by name..."
+                className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+              />
+            </label>
+            <MultiSelect
+              options={statusOptions.map((status) => ({
+                value: status,
+                label: status.replaceAll("_", " "),
+              }))}
+              selectedValues={filters.status}
+              placeholder="All statuses"
+              onChange={(next) => applyFilters({ ...filters, status: next })}
+            />
+            <MultiSelect
+              options={industryOptions}
+              selectedValues={filters.industry}
+              placeholder="All industries"
+              onChange={(next) => applyFilters({ ...filters, industry: next })}
+              className="sm:col-span-2"
+            />
+          </div>
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
@@ -547,6 +581,61 @@ export default function ClientsTable({
         </tbody>
           </table>
         </div>
+        <div className="space-y-3 p-4 md:hidden">
+          {clients.length ? (
+            clients.map((client) => (
+              <article
+                key={`mobile-${client.id}`}
+                className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Link
+                    href={`/clients/${client.id}`}
+                    className="text-base font-semibold text-slate-900 hover:underline"
+                  >
+                    {client.name}
+                  </Link>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                    {client.status?.replaceAll("_", " ") || "-"}
+                  </span>
+                </div>
+                <div className="grid gap-1 text-sm text-slate-600">
+                  <p>
+                    <span className="font-semibold text-slate-700">Industry:</span>{" "}
+                    {client.industry || "-"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-700">Owner:</span>{" "}
+                    {client.account_owner || "-"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-700">Start:</span>{" "}
+                    {client.start_date
+                      ? new Date(client.start_date).toLocaleDateString("en-US")
+                      : "-"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Link
+                    href={`/clients/${client.id}`}
+                    className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Open
+                  </Link>
+                  <form action={onDelete}>
+                    <input type="hidden" name="client_id" value={client.id} />
+                    <ConfirmDelete name={client.name} itemType="Client" />
+                  </form>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              No clients found.
+            </p>
+          )}
+        </div>
+        </>
       ) : view === "board" ? (
         <div className="overflow-x-auto px-6 py-6">
           <div className="flex min-w-max gap-4">

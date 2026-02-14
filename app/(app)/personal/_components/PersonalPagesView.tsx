@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
+import MultiSelect from "@/app/(app)/_components/MultiSelect";
 import {
   FilterIcon,
   FilterMenuDateRange,
@@ -132,7 +133,52 @@ export default function PersonalPagesView({
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <MultiSelect
+            options={sections.map((section) => ({
+              value: section.id,
+              label: section.title,
+            }))}
+            selectedValues={filters.section}
+            placeholder="All sections"
+            onChange={(next) => applyFilters({ ...filters, section: next })}
+          />
+          <MultiSelect
+            options={sharingOptions.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            selectedValues={filters.shareMode}
+            placeholder="All sharing modes"
+            onChange={(next) => applyFilters({ ...filters, shareMode: next })}
+          />
+          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className="block">Updated from</span>
+            <input
+              type="date"
+              value={filters.updatedFrom}
+              onChange={(event) =>
+                applyFilters({ ...filters, updatedFrom: event.target.value })
+              }
+              className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className="block">Updated to</span>
+            <input
+              type="date"
+              value={filters.updatedTo}
+              onChange={(event) =>
+                applyFilters({ ...filters, updatedTo: event.target.value })
+              }
+              className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"
+            />
+          </label>
+        </div>
+      </div>
+      <div className="hidden overflow-x-auto md:block">
       <table className="min-w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
@@ -269,6 +315,51 @@ export default function PersonalPagesView({
           )}
         </tbody>
       </table>
+      </div>
+      <div className="space-y-3 p-4 md:hidden">
+        {pages?.length ? (
+          pages.map((page) => (
+            <article
+              key={`mobile-${page.id}`}
+              className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+            >
+              <Link
+                href={`/personal/${page.id}`}
+                className="block text-base font-semibold text-slate-900 hover:underline"
+              >
+                {page.title || "Untitled"}
+              </Link>
+              <div className="grid gap-2 text-sm text-slate-600">
+                <p>
+                  <span className="font-semibold text-slate-700">Section:</span>{" "}
+                  {getRelationTitle(page.personal_sections, "General")}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-700">Sharing:</span>{" "}
+                  {sharingOptions.find((o) => o.value === (page.share_mode || "private"))
+                    ?.label || "Private"}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-700">Updated:</span>{" "}
+                  {page.updated_at
+                    ? new Date(page.updated_at).toLocaleDateString("en-US")
+                    : "-"}
+                </p>
+              </div>
+              <Link
+                href={`/personal/${page.id}`}
+                className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Open page
+              </Link>
+            </article>
+          ))
+        ) : (
+          <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+            No pages found.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

@@ -283,11 +283,26 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen overflow-x-hidden app-bg text-slate-900">
       <div className="relative min-h-screen overflow-x-hidden">
-        <input id="app-sidebar-collapsed" type="checkbox" className="peer sr-only" />
+        <input
+          id="app-sidebar-collapsed"
+          type="checkbox"
+          className="peer/sidebar sr-only hidden md:block"
+        />
+        <input
+          id="app-sidebar-open"
+          type="checkbox"
+          className="peer/drawer sr-only md:hidden"
+        />
 
-        <aside className="fixed inset-y-0 left-0 z-30 flex h-screen w-64 flex-col overflow-x-hidden border-r app-border app-surface transition-[width] duration-200 peer-checked:w-16 peer-checked:[&_.nav-label]:hidden peer-checked:[&_.personal-nav-sections]:hidden peer-checked:[&_.sidebar-logo]:hidden peer-checked:[&_.sidebar-mini-logo]:inline-flex peer-checked:[&_.nav-item]:justify-center peer-checked:[&_.chat-badge]:absolute peer-checked:[&_.chat-badge]:right-1 peer-checked:[&_.chat-badge]:top-1">
-          <div className="px-4 py-5">
-            <div className="flex items-center">
+        <label
+          htmlFor="app-sidebar-open"
+          className="fixed inset-0 z-30 hidden bg-slate-900/35 backdrop-blur-[1px] peer-checked/drawer:block md:hidden"
+          aria-label="Close navigation drawer"
+        />
+
+        <aside className="fixed inset-y-0 left-0 z-40 flex h-screen w-[17.5rem] max-w-[85vw] -translate-x-full flex-col overflow-x-hidden border-r app-border app-surface transition-transform duration-200 peer-checked/drawer:translate-x-0 md:w-64 md:translate-x-0 md:transition-[width] md:duration-200 md:peer-checked/sidebar:w-16 md:peer-checked/sidebar:[&_.nav-label]:hidden md:peer-checked/sidebar:[&_.personal-nav-sections]:hidden md:peer-checked/sidebar:[&_.sidebar-logo]:hidden md:peer-checked/sidebar:[&_.sidebar-mini-logo]:inline-flex md:peer-checked/sidebar:[&_.nav-item]:justify-center md:peer-checked/sidebar:[&_.chat-badge]:absolute md:peer-checked/sidebar:[&_.chat-badge]:right-1 md:peer-checked/sidebar:[&_.chat-badge]:top-1">
+          <div className="px-4 py-4 md:py-5">
+            <div className="flex items-center justify-between gap-2">
               <Link href="/clients" className="flex items-center gap-2">
                 <Image
                   src="/logo.png"
@@ -306,11 +321,30 @@ export default async function AppLayout({
                   />
                 </span>
               </Link>
+              <label
+                htmlFor="app-sidebar-open"
+                className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:hidden"
+                aria-label="Close navigation"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </label>
             </div>
           </div>
           <label
             htmlFor="app-sidebar-collapsed"
-            className="absolute right-[-14px] top-6 z-50 inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-md hover:bg-slate-100 hover:text-slate-900"
+            className="absolute right-[-14px] top-6 z-50 hidden h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-md hover:bg-slate-100 hover:text-slate-900 md:inline-flex"
             aria-label="Toggle sidebar"
             title="Collapse / expand menu"
           >
@@ -322,7 +356,7 @@ export default async function AppLayout({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="h-5 w-5 transition-transform peer-checked:rotate-180"
+              className="h-5 w-5 transition-transform md:peer-checked/sidebar:rotate-180"
             >
               <path d="m15 18-6-6 6-6" />
             </svg>
@@ -336,7 +370,7 @@ export default async function AppLayout({
                     key={link.href}
                     initialUnreadCount={unreadChatCount}
                     userId={user.id}
-                    className="nav-item"
+                    className="nav-item min-h-11"
                     labelClassName="nav-label"
                     badgeClassName="chat-badge"
                   />
@@ -344,7 +378,7 @@ export default async function AppLayout({
                   <Link
                     key={link.href}
                     href={link.href}
-                    className="nav-item relative flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                    className="nav-item relative flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                     title={link.label}
                     aria-label={link.label}
                   >
@@ -366,7 +400,7 @@ export default async function AppLayout({
           <div className="px-3 pb-4">
             <Link
               href="/settings"
-              className="nav-item group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+              className="nav-item group flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
               aria-label="Settings"
               title="Settings"
             >
@@ -388,30 +422,52 @@ export default async function AppLayout({
           </div>
         </aside>
 
-        <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-64 transition-[padding] duration-200 peer-checked:pl-16">
-          <header className="border-b app-border app-header px-6 py-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="min-w-[12rem]">
+        <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-0 transition-[padding] duration-200 md:pl-64 md:peer-checked/sidebar:pl-16">
+          <header className="border-b app-border app-header px-4 py-3 md:px-6 md:py-4">
+            <div className="flex flex-wrap items-center gap-3 md:gap-4">
+              <label
+                htmlFor="app-sidebar-open"
+                className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 md:hidden"
+                aria-label="Open navigation"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M3 12h18" />
+                  <path d="M3 18h18" />
+                </svg>
+              </label>
+              <div className="min-w-0 flex-1 md:min-w-[12rem] md:flex-none">
                 <p className="text-sm text-slate-500">Signed in as</p>
-                <p className="text-sm font-semibold text-slate-900">{email}</p>
+                <p className="truncate text-sm font-semibold text-slate-900">{email}</p>
               </div>
-              <div className="order-3 w-full md:order-2 md:flex-1">
-                <GlobalSearchBar />
-              </div>
-              <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
+              <div className="order-2 ml-auto flex items-center gap-2 md:order-3 md:gap-3">
                 <NotificationBell userId={user.id} />
                 <form action={signOut}>
                   <button
                     type="submit"
-                    className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                    className="inline-flex h-11 items-center justify-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 md:h-auto md:border-0 md:bg-transparent md:px-0"
                   >
                     Sign out
                   </button>
                 </form>
               </div>
+              <div className="order-3 w-full md:order-2 md:flex-1">
+                <GlobalSearchBar />
+              </div>
             </div>
           </header>
-          <main className="flex-1 min-w-0 overflow-x-hidden px-6 py-8">{children}</main>
+          <main className="flex-1 min-w-0 overflow-x-hidden px-4 py-5 md:px-6 md:py-8">
+            {children}
+          </main>
         </div>
       </div>
     </div>
