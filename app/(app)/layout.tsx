@@ -298,11 +298,11 @@ export default async function AppLayout({
                 />
                 <span className="sidebar-mini-logo hidden h-8 w-8 overflow-hidden rounded-md">
                   <Image
-                    src="/logo.png"
+                    src="/logo-mark.png"
                     alt="ResOpsHub"
                     width={32}
                     height={32}
-                    className="h-8 w-8 object-cover object-left"
+                    className="h-8 w-8 object-contain"
                   />
                 </span>
               </Link>
