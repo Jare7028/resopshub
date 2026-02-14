@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSignedChatAttachmentUrl } from "@/lib/chatAttachments";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const maxImageSizeBytes = 10 * 1024 * 1024;
@@ -77,9 +78,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: uploadError.message }, { status: 400 });
   }
 
-  const publicUrl = supabase.storage
-    .from("chat-attachments")
-    .getPublicUrl(storagePath).data.publicUrl;
+  const signedUrl = await getSignedChatAttachmentUrl(supabase.storage, storagePath);
+  if (!signedUrl) {
+    return NextResponse.json({ error: "Unable to create image URL" }, { status: 500 });
+  }
 
   return NextResponse.json({
     attachment: {
@@ -87,8 +89,7 @@ export async function POST(req: Request) {
       filename: file.name || fileName,
       mime_type: file.type || "application/octet-stream",
       size_bytes: file.size,
-      url: publicUrl,
+      url: signedUrl,
     },
   });
 }
-

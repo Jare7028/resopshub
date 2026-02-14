@@ -64,7 +64,7 @@ grant select, insert, delete on table public.chat_message_attachments to authent
 
 -- Storage bucket for chat attachments.
 insert into storage.buckets (id, name, public)
-values ('chat-attachments', 'chat-attachments', true)
+values ('chat-attachments', 'chat-attachments', false)
 on conflict (id) do update set public = excluded.public;
 
 grant select, insert, update, delete on table storage.objects to authenticated;
@@ -128,4 +128,3 @@ create policy chat_attachments_delete
       or public.is_admin()
     )
   );
-

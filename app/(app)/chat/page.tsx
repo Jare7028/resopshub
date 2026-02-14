@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
 import ChatPageClient from "./ChatPageClient";
 
 type LinkEntityType =
@@ -63,6 +64,10 @@ type DbMessageAttachmentRow = {
   filename: string;
   mime_type: string;
   size_bytes: number;
+};
+
+type DbMessageAttachmentWithUrlRow = DbMessageAttachmentRow & {
+  url: string | null;
 };
 
 function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string | null>) {
@@ -223,6 +228,10 @@ export default async function ChatPage(props: {
     selectedAttachmentsError && isSupabaseMissingTableError(selectedAttachmentsError)
       ? ([] as DbMessageAttachmentRow[])
       : ((selectedAttachmentsRaw || []) as DbMessageAttachmentRow[]);
+  const selectedAttachmentsWithUrls = await withSignedChatAttachmentUrls(
+    supabase.storage,
+    selectedAttachments
+  );
 
   const noteIds = Array.from(
     new Set(
@@ -254,8 +263,8 @@ export default async function ChatPage(props: {
     acc[row.message_id].push(row);
     return acc;
   }, {});
-  const attachmentsByMessageId = selectedAttachments.reduce<
-    Record<string, DbMessageAttachmentRow[]>
+  const attachmentsByMessageId = selectedAttachmentsWithUrls.reduce<
+    Record<string, DbMessageAttachmentWithUrlRow[]>
   >((acc, row) => {
     acc[row.message_id] ||= [];
     acc[row.message_id].push(row);
@@ -270,12 +279,7 @@ export default async function ChatPage(props: {
       label: link.label,
       href: linkHref(link, noteClientById),
     })),
-    attachments: (attachmentsByMessageId[message.id] || []).map((attachment) => ({
-      ...attachment,
-      url: supabase.storage
-        .from("chat-attachments")
-        .getPublicUrl(attachment.storage_path).data.publicUrl,
-    })),
+    attachments: attachmentsByMessageId[message.id] || [],
     reactions: reactionsByMessageId[message.id] || [],
   }));
 

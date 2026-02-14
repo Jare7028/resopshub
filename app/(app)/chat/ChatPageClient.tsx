@@ -48,7 +48,7 @@ type MessageAttachmentRow = {
   filename: string;
   mime_type: string;
   size_bytes: number;
-  url: string;
+  url: string | null;
 };
 
 type MessageReactionRow = {
@@ -660,22 +660,31 @@ export default function ChatPageClient(props: {
                         {message.attachments.length ? (
                           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                             {message.attachments.map((attachment) => (
-                              <a
-                                key={attachment.id}
-                                href={attachment.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="block overflow-hidden rounded-md border border-slate-200"
-                              >
-                                <Image
-                                  src={attachment.url}
-                                  alt={attachment.filename}
-                                  width={320}
-                                  height={112}
-                                  unoptimized
-                                  className="h-28 w-full object-cover"
-                                />
-                              </a>
+                              attachment.url ? (
+                                <a
+                                  key={attachment.id}
+                                  href={attachment.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block overflow-hidden rounded-md border border-slate-200"
+                                >
+                                  <Image
+                                    src={attachment.url}
+                                    alt={attachment.filename}
+                                    width={320}
+                                    height={112}
+                                    unoptimized
+                                    className="h-28 w-full object-cover"
+                                  />
+                                </a>
+                              ) : (
+                                <div
+                                  key={attachment.id}
+                                  className="flex h-28 items-center justify-center rounded-md border border-slate-200 bg-slate-100 px-2 text-center text-xs text-slate-600"
+                                >
+                                  Attachment unavailable
+                                </div>
+                              )
                             ))}
                           </div>
                         ) : null}

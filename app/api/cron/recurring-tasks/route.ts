@@ -53,10 +53,7 @@ function isDuplicateKeyError(error: { code?: string; message?: string }) {
 }
 
 export async function GET(request: Request) {
-  if (
-    process.env.NODE_ENV === "production" &&
-    !isAuthorizedCronRequest(request)
-  ) {
+  if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

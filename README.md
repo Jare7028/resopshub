@@ -40,7 +40,7 @@ Run tests with coverage:
 npm run test:coverage
 ```
 
-Current coverage includes security-focused authorization tests for cron request validation in `lib/cron.ts`.
+Current coverage includes security-focused tests for cron authorization in `lib/cron.ts` and signed attachment URL handling in `lib/chatAttachments.ts`.
 
 ## Learn More
 

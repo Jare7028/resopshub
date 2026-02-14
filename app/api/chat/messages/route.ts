@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -35,6 +36,10 @@ type DbMessageAttachmentRow = {
   mime_type: string;
   size_bytes: number;
   created_at: string;
+};
+
+type DbMessageAttachmentWithUrlRow = DbMessageAttachmentRow & {
+  url: string | null;
 };
 
 async function getNoteClientMap(
@@ -130,7 +135,7 @@ export async function GET(req: Request) {
   }, {});
 
   let reactionsByMessageId: Record<string, DbMessageReactionRow[]> = {};
-  let attachmentsByMessageId: Record<string, DbMessageAttachmentRow[]> = {};
+  let attachmentsByMessageId: Record<string, DbMessageAttachmentWithUrlRow[]> = {};
   if (messageIds.length) {
     const { data: reactionsRaw, error: reactionsError } = await supabase
       .from("chat_message_reactions")
@@ -161,8 +166,13 @@ export async function GET(req: Request) {
     }
 
     if (attachmentsRaw?.length) {
-      attachmentsByMessageId = (attachmentsRaw as DbMessageAttachmentRow[]).reduce<
-        Record<string, DbMessageAttachmentRow[]>
+      const signedAttachments = await withSignedChatAttachmentUrls(
+        supabase.storage,
+        attachmentsRaw as DbMessageAttachmentRow[]
+      );
+
+      attachmentsByMessageId = signedAttachments.reduce<
+        Record<string, DbMessageAttachmentWithUrlRow[]>
       >((acc, row) => {
         acc[row.message_id] ||= [];
         acc[row.message_id].push(row);
@@ -180,12 +190,7 @@ export async function GET(req: Request) {
       label: link.label,
       href: linkHref(link, noteClientById),
     })),
-    attachments: (attachmentsByMessageId[message.id] || []).map((attachment) => ({
-      ...attachment,
-      url: supabase.storage
-        .from("chat-attachments")
-        .getPublicUrl(attachment.storage_path).data.publicUrl,
-    })),
+    attachments: attachmentsByMessageId[message.id] || [],
     reactions: reactionsByMessageId[message.id] || [],
   }));
 
@@ -337,12 +342,7 @@ export async function POST(req: Request) {
     message: {
       ...createdMessage,
       links,
-      attachments: createdAttachments.map((attachment) => ({
-        ...attachment,
-        url: supabase.storage
-          .from("chat-attachments")
-          .getPublicUrl(attachment.storage_path).data.publicUrl,
-      })),
+      attachments: await withSignedChatAttachmentUrls(supabase.storage, createdAttachments),
       reactions: [],
     },
   });

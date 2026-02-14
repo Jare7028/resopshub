@@ -12,11 +12,7 @@ function formatYmdInTimeZone(date: Date, timeZone: string) {
 }
 
 export async function GET(request: Request) {
-  // Allow either Vercel Cron header or an explicit secret.
-  if (
-    process.env.NODE_ENV === "production" &&
-    !isAuthorizedCronRequest(request)
-  ) {
+  if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
