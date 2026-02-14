@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "node:crypto";
+import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -42,6 +43,19 @@ export async function updateTaskContent(taskId: string, content: unknown) {
   }
 
   if (mentionHandles.length) {
+    try {
+      await syncMentionAssignmentsFromTextChange({
+        actorAuthUserId: editorId,
+        previousText: previousContentText,
+        nextText: contentText,
+        sourceType: "task",
+        sourceId: taskId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[tasks.updateTaskContent.mentions.assign]", message);
+    }
+
     try {
       await notifyMentionedUsersFromTextChange({
         actorAuthUserId: editorId,

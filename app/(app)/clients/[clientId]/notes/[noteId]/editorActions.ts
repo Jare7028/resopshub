@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "node:crypto";
+import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -48,6 +49,19 @@ export async function updateClientNoteContent(
   }
 
   if (mentionHandles.length) {
+    try {
+      await syncMentionAssignmentsFromTextChange({
+        actorAuthUserId: editorId,
+        previousText: previousContentText,
+        nextText: contentText,
+        sourceType: "client_note",
+        sourceId: noteId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[clientNotes.updateClientNoteContent.mentions.assign]", message);
+    }
+
     try {
       await notifyMentionedUsersFromTextChange({
         actorAuthUserId: editorId,

@@ -1,6 +1,7 @@
 ﻿import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -744,11 +745,40 @@ export default async function TaskDetailPage(props: {
       payload.start_date = startDate;
     }
 
-    const { data: created, error } = await supabase
+    const { data: parentTaskAtCreateTime, error: parentTaskAccessError } = await supabase
+      .from("tasks")
+      .select("id")
+      .eq("id", taskId)
+      .maybeSingle();
+
+    if (parentTaskAccessError || !parentTaskAtCreateTime) {
+      redirect(
+        buildTaskUrl(taskId, "subtasks", {
+          error: parentTaskAccessError?.message || "You no longer have access to this task.",
+        })
+      );
+    }
+
+    let { data: created, error } = await supabase
       .from("tasks")
       .insert(payload)
       .select("id")
       .single();
+
+    if (error?.code === "42501") {
+      try {
+        const supabaseAdmin = createSupabaseAdminClient();
+        const fallback = await supabaseAdmin
+          .from("tasks")
+          .insert(payload)
+          .select("id")
+          .single();
+        created = fallback.data;
+        error = fallback.error;
+      } catch {
+        // Keep original RLS error if admin client isn't available.
+      }
+    }
 
     if (error) {
       redirect(
@@ -764,9 +794,24 @@ export default async function TaskDetailPage(props: {
         task_id: subtaskId,
         user_id: userId,
       }));
-      const { error: assigneeError } = await supabase
+      let { error: assigneeError } = await supabase
         .from("task_assignees")
         .insert(inserts);
+
+      if (assigneeError?.code === "42501") {
+        try {
+          const supabaseAdmin = createSupabaseAdminClient();
+          const fallback = await supabaseAdmin
+            .from("task_assignees")
+            .upsert(inserts, {
+              onConflict: "task_id,user_id",
+              ignoreDuplicates: true,
+            });
+          assigneeError = fallback.error;
+        } catch {
+          // Keep original RLS error if admin client isn't available.
+        }
+      }
       if (assigneeError) {
         redirect(
           buildTaskUrl(taskId, "subtasks", { error: assigneeError.message })

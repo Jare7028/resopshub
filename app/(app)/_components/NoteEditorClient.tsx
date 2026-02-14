@@ -50,6 +50,24 @@ type SlashMenuState = {
   items: SlashCommand[];
 };
 
+type MentionSuggestion = {
+  id: string;
+  handle: string;
+  full_name: string | null;
+  email: string | null;
+};
+
+type MentionMenuState = {
+  open: boolean;
+  query: string;
+  x: number;
+  y: number;
+  index: number;
+  range: SlashRange | null;
+  items: MentionSuggestion[];
+  loading: boolean;
+};
+
 type NoteEditorClientProps = {
   entityId: string;
   initialContent: unknown;
@@ -693,6 +711,47 @@ function filterSlashCommands(commands: SlashCommand[], query: string) {
   });
 }
 
+function normalizeMentionHandle(value: string) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, "")
+    .replace(/[^a-z0-9._@-]/g, "")
+    .replace(/^[._-]+|[._-]+$/g, "");
+
+  return normalized.length >= 2 ? normalized : "";
+}
+
+function getMentionMatch(editor: Editor) {
+  const { state } = editor;
+  if (!state.selection.empty) {
+    return null;
+  }
+
+  const { from } = state.selection;
+  const start = Math.max(0, from - 160);
+  const textBefore = state.doc.textBetween(start, from, "\n", "\n");
+  const match = textBefore.match(/(^|[^a-zA-Z0-9_])@([a-zA-Z0-9._@-]{0,127})$/);
+  if (!match) {
+    return null;
+  }
+
+  const mentionQuery = String(match[2] || "");
+  const mentionToken = `@${mentionQuery}`;
+  const tokenStartInText = textBefore.lastIndexOf(mentionToken);
+  if (tokenStartInText < 0) {
+    return null;
+  }
+
+  return {
+    range: {
+      from: start + tokenStartInText,
+      to: from,
+    },
+    query: mentionQuery.toLowerCase(),
+  };
+}
+
 function normalizeInlineText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -765,10 +824,25 @@ export default function NoteEditorClient({
     range: null,
     items: [],
   });
+  const [mentionMenu, setMentionMenu] = useState<MentionMenuState>({
+    open: false,
+    query: "",
+    x: 0,
+    y: 0,
+    index: 0,
+    range: null,
+    items: [],
+    loading: false,
+  });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
+  const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuStateRef = useRef<SlashMenuState>(slashMenu);
+  const mentionMenuStateRef = useRef<MentionMenuState>(mentionMenu);
+  const mentionFetchAbortRef = useRef<AbortController | null>(null);
+  const mentionFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mentionRequestIdRef = useRef(0);
   const editorRef = useRef<Editor | null>(null);
   const taskInsertSelectionRef = useRef<TaskInsertSelection | null>(null);
   const lastTaskSelectionRef = useRef<TaskInsertSelection | null>(null);
@@ -820,10 +894,38 @@ export default function NoteEditorClient({
     slashMenuStateRef.current = slashMenu;
   }, [slashMenu]);
 
+  useEffect(() => {
+    mentionMenuStateRef.current = mentionMenu;
+  }, [mentionMenu]);
+
   const closeSlashMenu = useCallback(() => {
     setSlashMenu((prev) =>
       prev.open
         ? { ...prev, open: false, query: "", items: [], range: null, index: 0 }
+        : prev
+    );
+  }, []);
+
+  const closeMentionMenu = useCallback(() => {
+    if (mentionFetchTimerRef.current) {
+      clearTimeout(mentionFetchTimerRef.current);
+      mentionFetchTimerRef.current = null;
+    }
+    if (mentionFetchAbortRef.current) {
+      mentionFetchAbortRef.current.abort();
+      mentionFetchAbortRef.current = null;
+    }
+    setMentionMenu((prev) =>
+      prev.open
+        ? {
+            ...prev,
+            open: false,
+            query: "",
+            items: [],
+            range: null,
+            index: 0,
+            loading: false,
+          }
         : prev
     );
   }, []);
@@ -867,6 +969,7 @@ export default function NoteEditorClient({
 
       closeContextMenu();
       closeSlashMenu();
+      closeMentionMenu();
       setTaskCreator({
         open: true,
         title: nextTaskSelection?.text || prefillTitle,
@@ -876,7 +979,7 @@ export default function NoteEditorClient({
         error: "",
       });
     },
-    [onCreateTask, closeContextMenu, closeSlashMenu]
+    [onCreateTask, closeContextMenu, closeSlashMenu, closeMentionMenu]
   );
 
   const slashCommands = useMemo(() => {
@@ -910,8 +1013,104 @@ export default function NoteEditorClient({
     [closeSlashMenu]
   );
 
+  const applyMentionSuggestion = useCallback(
+    (item: MentionSuggestion, range: SlashRange) => {
+      const currentEditor = editorRef.current;
+      if (!currentEditor) {
+        return;
+      }
+      const handle = normalizeMentionHandle(item.handle);
+      if (!handle) {
+        return;
+      }
+      currentEditor
+        .chain()
+        .focus()
+        .insertContentAt(range, {
+          type: "text",
+          text: `@${handle} `,
+        })
+        .run();
+      closeMentionMenu();
+    },
+    [closeMentionMenu]
+  );
+
+  const updateMentionMenu = useCallback(
+    (editor: Editor) => {
+      const match = getMentionMatch(editor);
+      if (!match) {
+        if (mentionMenuStateRef.current.open) {
+          closeMentionMenu();
+        }
+        return;
+      }
+
+      const coords = editor.view.coordsAtPos(match.range.to);
+      setMentionMenu((prev) => {
+        const queryChanged = prev.query !== match.query;
+        const nextIndex = prev.items.length
+          ? Math.min(queryChanged ? 0 : prev.index, Math.max(prev.items.length - 1, 0))
+          : 0;
+        return {
+          open: true,
+          query: match.query,
+          x: coords.left,
+          y: coords.bottom + 6,
+          index: nextIndex,
+          range: match.range,
+          items: queryChanged ? [] : prev.items,
+          loading: queryChanged || prev.loading,
+        };
+      });
+    },
+    [closeMentionMenu]
+  );
+
   const handleEditorKeyDown = useCallback(
     (_view: unknown, event: KeyboardEvent) => {
+      const mention = mentionMenuStateRef.current;
+      if (mention.open) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setMentionMenu((prev) => {
+            if (!prev.items.length) return prev;
+            return {
+              ...prev,
+              index: (prev.index + 1) % prev.items.length,
+            };
+          });
+          return true;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setMentionMenu((prev) => {
+            if (!prev.items.length) return prev;
+            return {
+              ...prev,
+              index: (prev.index - 1 + prev.items.length) % prev.items.length,
+            };
+          });
+          return true;
+        }
+
+        if (event.key === "Enter" || event.key === "Tab") {
+          if (mention.items.length && mention.range) {
+            event.preventDefault();
+            const item = mention.items[mention.index] || mention.items[0];
+            applyMentionSuggestion(item, mention.range);
+            return true;
+          }
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeMentionMenu();
+          return true;
+        }
+      }
+
       const menu = slashMenuStateRef.current;
       if (!menu.open) {
         return false;
@@ -962,7 +1161,7 @@ export default function NoteEditorClient({
 
       return false;
     },
-    [applySlashCommand, closeSlashMenu]
+    [applyMentionSuggestion, applySlashCommand, closeMentionMenu, closeSlashMenu]
   );
 
   const updateSlashMenu = useCallback(
@@ -995,6 +1194,100 @@ export default function NoteEditorClient({
     },
     [closeSlashMenu, slashCommands]
   );
+
+  useEffect(() => {
+    if (!mentionMenu.open) {
+      return;
+    }
+
+    const query = mentionMenu.query.trim().toLowerCase();
+
+    if (mentionFetchTimerRef.current) {
+      clearTimeout(mentionFetchTimerRef.current);
+      mentionFetchTimerRef.current = null;
+    }
+    if (mentionFetchAbortRef.current) {
+      mentionFetchAbortRef.current.abort();
+      mentionFetchAbortRef.current = null;
+    }
+
+    mentionFetchTimerRef.current = setTimeout(() => {
+      const requestId = mentionRequestIdRef.current + 1;
+      mentionRequestIdRef.current = requestId;
+      const controller = new AbortController();
+      mentionFetchAbortRef.current = controller;
+
+      const params = new URLSearchParams();
+      params.set("limit", "8");
+      if (query) {
+        params.set("q", query);
+      }
+
+      void fetch(`/api/mentions/suggestions?${params.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          const payload = (await response.json().catch(() => ({}))) as {
+            items?: MentionSuggestion[];
+            error?: string;
+          };
+          if (!response.ok) {
+            throw new Error(payload.error || "Unable to load mentions");
+          }
+          if (mentionRequestIdRef.current !== requestId) {
+            return;
+          }
+
+          const nextItems = Array.isArray(payload.items)
+            ? payload.items
+                .map((item) => ({
+                  id: String(item.id || ""),
+                  handle: normalizeMentionHandle(String(item.handle || "")),
+                  full_name: item.full_name ? String(item.full_name) : null,
+                  email: item.email ? String(item.email) : null,
+                }))
+                .filter((item) => item.id && item.handle)
+            : [];
+
+          setMentionMenu((prev) => {
+            if (!prev.open || prev.query.trim().toLowerCase() !== query) {
+              return prev;
+            }
+            const nextIndex = nextItems.length
+              ? Math.min(prev.index, nextItems.length - 1)
+              : 0;
+            return {
+              ...prev,
+              items: nextItems,
+              index: nextIndex,
+              loading: false,
+            };
+          });
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted || mentionRequestIdRef.current !== requestId) {
+            return;
+          }
+          console.error(
+            "[noteEditor.mentions.fetch]",
+            error instanceof Error ? error.message : String(error)
+          );
+          setMentionMenu((prev) => (prev.open ? { ...prev, items: [], loading: false } : prev));
+        });
+    }, 110);
+
+    return () => {
+      if (mentionFetchTimerRef.current) {
+        clearTimeout(mentionFetchTimerRef.current);
+        mentionFetchTimerRef.current = null;
+      }
+      if (mentionFetchAbortRef.current) {
+        mentionFetchAbortRef.current.abort();
+        mentionFetchAbortRef.current = null;
+      }
+    };
+  }, [mentionMenu.open, mentionMenu.query]);
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
     const clipboard = event.clipboardData;
@@ -1119,6 +1412,7 @@ export default function NoteEditorClient({
     },
     onUpdate: ({ editor }) => {
       updateSlashMenu(editor);
+      updateMentionMenu(editor);
       const nextColType = getActiveTableColumnType(editor);
       setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
       setSaveError((prev) => (prev ? "" : prev));
@@ -1141,6 +1435,7 @@ export default function NoteEditorClient({
     },
     onSelectionUpdate: ({ editor }) => {
       updateSlashMenu(editor);
+      updateMentionMenu(editor);
       const nextColType = getActiveTableColumnType(editor);
       setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
       const { from, to, empty } = editor.state.selection;
@@ -1181,6 +1476,12 @@ export default function NoteEditorClient({
       }
       if (taskHoverCloseTimerRef.current) {
         clearTimeout(taskHoverCloseTimerRef.current);
+      }
+      if (mentionFetchTimerRef.current) {
+        clearTimeout(mentionFetchTimerRef.current);
+      }
+      if (mentionFetchAbortRef.current) {
+        mentionFetchAbortRef.current.abort();
       }
     };
   }, []);
@@ -1239,6 +1540,24 @@ export default function NoteEditorClient({
   }, [slashMenu.open, closeSlashMenu]);
 
   useEffect(() => {
+    if (!mentionMenu.open) {
+      return;
+    }
+
+    const handleClick = (event: MouseEvent) => {
+      if (mentionMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      closeMentionMenu();
+    };
+
+    window.addEventListener("click", handleClick);
+    return () => {
+      window.removeEventListener("click", handleClick);
+    };
+  }, [mentionMenu.open, closeMentionMenu]);
+
+  useEffect(() => {
     if (!contextMenu.open || !contextMenuRef.current) {
       return;
     }
@@ -1275,6 +1594,25 @@ export default function NoteEditorClient({
       );
     }
   }, [slashMenu.open, slashMenu.x, slashMenu.y]);
+
+  useEffect(() => {
+    if (!mentionMenu.open || !mentionMenuRef.current) {
+      return;
+    }
+
+    const rect = mentionMenuRef.current.getBoundingClientRect();
+    const padding = 8;
+    const maxLeft = window.innerWidth - rect.width - padding;
+    const maxTop = window.innerHeight - rect.height - padding;
+    const nextLeft = Math.max(padding, Math.min(mentionMenu.x, maxLeft));
+    const nextTop = Math.max(padding, Math.min(mentionMenu.y, maxTop));
+
+    if (nextLeft !== mentionMenu.x || nextTop !== mentionMenu.y) {
+      setMentionMenu((prev) =>
+        prev.open ? { ...prev, x: nextLeft, y: nextTop } : prev
+      );
+    }
+  }, [mentionMenu.open, mentionMenu.x, mentionMenu.y]);
 
   const handleContextMenu = useCallback(
     (event: ReactMouseEvent) => {
@@ -1971,6 +2309,7 @@ export default function NoteEditorClient({
   }
 
   const activeSlashItem = slashMenu.items[slashMenu.index];
+  const activeMentionItem = mentionMenu.items[mentionMenu.index];
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4" aria-label={title}>
@@ -2460,6 +2799,59 @@ export default function NoteEditorClient({
           {activeSlashItem ? (
             <div className="border-t border-slate-200 px-3 py-2 text-xs text-slate-400">
               Tip: type to filter, use arrows then Enter to insert.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {mentionMenu.open ? (
+        <div
+          className="fixed z-50 w-80 rounded-md border border-slate-200 bg-white shadow-lg"
+          style={{ top: mentionMenu.y, left: mentionMenu.x }}
+          ref={mentionMenuRef}
+        >
+          <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-400">
+            Mention someone
+          </div>
+          <div className="max-h-64 overflow-y-auto py-1">
+            {mentionMenu.loading ? (
+              <div className="px-3 py-2 text-xs text-slate-500">Loading people...</div>
+            ) : mentionMenu.items.length ? (
+              mentionMenu.items.map((item, index) => (
+                <button
+                  key={`${item.id}:${item.handle}`}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() =>
+                    setMentionMenu((prev) => ({ ...prev, index }))
+                  }
+                  onClick={() =>
+                    mentionMenu.range ? applyMentionSuggestion(item, mentionMenu.range) : null
+                  }
+                  className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left ${
+                    index === mentionMenu.index
+                      ? "bg-slate-100 text-slate-900"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="text-sm font-semibold">
+                    {item.full_name || item.email || item.handle}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    @{item.handle}
+                    {item.email ? ` • ${item.email}` : ""}
+                  </span>
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-xs text-slate-500">
+                No matches for @{mentionMenu.query || "..."}
+              </div>
+            )}
+          </div>
+          {activeMentionItem ? (
+            <div className="border-t border-slate-200 px-3 py-2 text-xs text-slate-400">
+              Tip: use arrows and Enter (or Tab) to insert.
             </div>
           ) : null}
         </div>
