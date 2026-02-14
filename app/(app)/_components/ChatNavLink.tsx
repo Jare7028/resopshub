@@ -8,9 +8,15 @@ import { supabase } from "@/lib/supabaseClient";
 export default function ChatNavLink({
   initialUnreadCount,
   userId,
+  className,
+  labelClassName,
+  badgeClassName,
 }: {
   initialUnreadCount: number;
   userId: string;
+  className?: string;
+  labelClassName?: string;
+  badgeClassName?: string;
 }) {
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
@@ -88,7 +94,9 @@ export default function ChatNavLink({
   return (
     <Link
       href="/chat"
-      className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+      className={`flex items-center rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 ${className || ""}`}
+      title="Chat"
+      aria-label="Chat"
     >
       <span className="flex items-center gap-2">
         <svg
@@ -103,10 +111,14 @@ export default function ChatNavLink({
         >
           <path d="M21 12a8.8 8.8 0 0 1-.9 3.8 9 9 0 0 1-8.1 5.2 8.8 8.8 0 0 1-3.8-.9L3 21l1.9-5.1a8.8 8.8 0 0 1-.9-3.8 9 9 0 0 1 5.2-8.1A8.8 8.8 0 0 1 13 3h.5a9 9 0 0 1 7.5 7.5V12Z" />
         </svg>
-        <span>Chat</span>
+        <span className={labelClassName}>Chat</span>
       </span>
       {showBadge ? (
-        <span className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+        <span
+          className={`ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white ${
+            badgeClassName || ""
+          }`}
+        >
           {unreadLabel}
         </span>
       ) : null}

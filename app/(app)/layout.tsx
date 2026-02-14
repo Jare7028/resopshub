@@ -282,50 +282,85 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen overflow-x-hidden app-bg text-slate-900">
-      <div className="flex min-h-screen overflow-x-hidden">
-        <aside className="sticky top-0 flex h-screen w-64 flex-col border-r app-border app-surface">
-          <div className="px-6 py-6">
-            <Link href="/clients" className="flex items-center">
-              <Image
-                src="/logo.png"
-                alt="ResOpsHub"
-                width={128}
-                height={32}
-                className="h-8 w-auto"
-              />
-            </Link>
+      <div className="relative min-h-screen overflow-x-hidden">
+        <input id="app-sidebar-collapsed" type="checkbox" className="peer sr-only" />
+
+        <aside className="fixed inset-y-0 left-0 z-30 flex h-screen w-64 flex-col border-r app-border app-surface transition-[width] duration-200 peer-checked:w-20">
+          <div className="px-4 py-5">
+            <div className="flex items-center justify-between gap-2">
+              <Link href="/clients" className="flex items-center gap-2">
+                <Image
+                  src="/logo.png"
+                  alt="ResOpsHub"
+                  width={128}
+                  height={32}
+                  className="h-8 w-auto peer-checked:hidden"
+                />
+                <span className="hidden h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-sm font-bold text-white peer-checked:inline-flex">
+                  R
+                </span>
+              </Link>
+              <label
+                htmlFor="app-sidebar-collapsed"
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                aria-label="Toggle sidebar"
+                title="Collapse / expand menu"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4 transition-transform peer-checked:rotate-180"
+                >
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </label>
+            </div>
           </div>
+
           <nav className="min-h-0 flex-1 overflow-y-auto px-3">
             <div className="space-y-1">
-              {navLinks.map((link) => (
+              {navLinks.map((link) =>
                 link.href === "/chat" ? (
                   <ChatNavLink
                     key={link.href}
                     initialUnreadCount={unreadChatCount}
                     userId={user.id}
+                    className="peer-checked:justify-center"
+                    labelClassName="peer-checked:hidden"
+                    badgeClassName="peer-checked:absolute peer-checked:right-1 peer-checked:top-1"
                   />
                 ) : (
                   <Link
                     key={link.href}
                     href={link.href}
-                    className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                    className="relative flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 peer-checked:justify-center"
+                    title={link.label}
+                    aria-label={link.label}
                   >
                     <SidebarIcon name={link.icon} />
-                    <span>{link.label}</span>
+                    <span className="peer-checked:hidden">{link.label}</span>
                   </Link>
                 )
-              ))}
+              )}
             </div>
-            <PersonalNavSections
-              currentUserId={user.id}
-              sections={personalSections || []}
-              pages={personalPages || []}
-            />
+            <div className="peer-checked:hidden">
+              <PersonalNavSections
+                currentUserId={user.id}
+                sections={personalSections || []}
+                pages={personalPages || []}
+              />
+            </div>
           </nav>
+
           <div className="px-3 pb-4">
             <Link
               href="/settings"
-              className="group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+              className="group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 peer-checked:justify-center"
               aria-label="Settings"
               title="Settings"
             >
@@ -342,12 +377,12 @@ export default async function AppLayout({
                 <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
                 <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a8.8 8.8 0 0 0-1.7-1l-.4-2.7H9.1l-.4 2.7a8.8 8.8 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 13a7.9 7.9 0 0 0-.1 1 7.9 7.9 0 0 0 .1 1L2.5 16.6l2 3.4 2.5-1a8.8 8.8 0 0 0 1.7 1l.4 2.7h5.8l.4-2.7a8.8 8.8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 15Z" />
               </svg>
-              <span>Settings</span>
+              <span className="peer-checked:hidden">Settings</span>
             </Link>
           </div>
         </aside>
 
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col overflow-x-hidden">
+        <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-64 transition-[padding] duration-200 peer-checked:pl-20">
           <header className="border-b app-border app-header px-6 py-4">
             <div className="flex flex-wrap items-center gap-4">
               <div className="min-w-[12rem]">
