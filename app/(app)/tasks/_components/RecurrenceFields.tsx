@@ -46,6 +46,11 @@ type RecurrenceFieldsProps = {
   initialLeadDays?: number;
 };
 
+const fieldLabelClass =
+  "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const fieldControlClass =
+  "mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -118,6 +123,18 @@ export default function RecurrenceFields({
   const [recurrenceMonthDay, setRecurrenceMonthDay] = useState(
     String(Number(initialDate.split("-")[2] || "1") || 1)
   );
+  const intervalUnitLabel = useMemo(() => {
+    if (recurrencePattern === "daily") return "Days";
+    if (recurrencePattern === "weekly") return "Weeks";
+    if (recurrencePattern === "monthly") return "Months";
+    return "Years";
+  }, [recurrencePattern]);
+  const intervalUnitSummary = useMemo(() => {
+    if (recurrencePattern === "daily") return "day";
+    if (recurrencePattern === "weekly") return "week";
+    if (recurrencePattern === "monthly") return "month";
+    return "year";
+  }, [recurrencePattern]);
 
   useEffect(() => {
     if (recurrencePattern !== "weekly") return;
@@ -174,10 +191,13 @@ export default function RecurrenceFields({
       hour: "numeric",
       minute: "2-digit",
     });
-    const everyText = normalizedInterval === 1 ? "every" : `every ${normalizedInterval}`;
+    const everyText =
+      normalizedInterval === 1
+        ? `every ${intervalUnitSummary}`
+        : `every ${normalizedInterval} ${intervalUnitSummary}s`;
 
     if (recurrencePattern === "daily") {
-      return `Repeats ${everyText} day(s) at ${timeLabel} (${timeZone}).`;
+      return `Repeats ${everyText} at ${timeLabel} (${timeZone}).`;
     }
 
     if (recurrencePattern === "weekly") {
@@ -185,17 +205,18 @@ export default function RecurrenceFields({
         .map((value) => weekdayOptions.find((option) => option.value === value)?.label || "")
         .filter(Boolean);
       const daysText = dayLabels.length ? dayLabels.join(", ") : "selected days";
-      return `Repeats ${everyText} week(s) on ${daysText} at ${timeLabel} (${timeZone}).`;
+      return `Repeats ${everyText} on ${daysText} at ${timeLabel} (${timeZone}).`;
     }
 
     if (recurrencePattern === "monthly") {
-      return `Repeats ${everyText} month(s) on day ${normalizedMonthDay} at ${timeLabel} (${timeZone}).`;
+      return `Repeats ${everyText} on day ${normalizedMonthDay} at ${timeLabel} (${timeZone}).`;
     }
 
     const yearlyDateLabel = new Date(`${recurrenceStartDate}T00:00:00`)
       .toLocaleDateString("en-US", { month: "long", day: "numeric" });
-    return `Repeats ${everyText} year(s) on ${yearlyDateLabel} at ${timeLabel} (${timeZone}).`;
+    return `Repeats ${everyText} on ${yearlyDateLabel} at ${timeLabel} (${timeZone}).`;
   }, [
+    intervalUnitSummary,
     dueTime,
     normalizedInterval,
     normalizedMonthDay,
@@ -210,9 +231,9 @@ export default function RecurrenceFields({
   return (
     <>
       <div className="md:col-span-1">
-        <label className="text-xs font-semibold text-slate-500">Frequency</label>
+        <label className={fieldLabelClass}>Frequency</label>
         <select
-          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+          className={fieldControlClass}
           value={scheduleMode}
           onChange={(event) => setScheduleMode(event.target.value as ScheduleMode)}
         >
@@ -226,9 +247,9 @@ export default function RecurrenceFields({
 
       {recurring ? (
         <div className="md:col-span-1">
-          <label className="text-xs font-semibold text-slate-500">Recurs</label>
+          <label className={fieldLabelClass}>Recurs</label>
           <select
-            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+            className={fieldControlClass}
             value={recurrencePattern}
             onChange={(event) =>
               setRecurrencePattern(event.target.value as RecurrencePattern)
@@ -246,16 +267,16 @@ export default function RecurrenceFields({
       )}
 
       <fieldset className="md:col-span-6">
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+        <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-4 py-4 shadow-sm">
           {recurring ? (
             <div className="grid gap-3 md:grid-cols-6">
-              <div className="md:col-span-1">
-                <label className="text-xs font-semibold text-slate-500">Interval</label>
+              <div className="md:col-span-2">
+                <label className={fieldLabelClass}>{`Every X ${intervalUnitLabel}`}</label>
                 <input
                   type="number"
                   min={1}
                   name="recurrence_interval_input"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className={fieldControlClass}
                   value={recurrenceInterval}
                   onChange={(event) => setRecurrenceInterval(event.target.value)}
                   required
@@ -263,11 +284,11 @@ export default function RecurrenceFields({
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-slate-500">Due time</label>
+                <label className={fieldLabelClass}>Due time</label>
                 <input
                   type="time"
                   name="due_time"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className={fieldControlClass}
                   value={dueTime}
                   onChange={(event) => setDueTime(event.target.value)}
                   required
@@ -275,21 +296,21 @@ export default function RecurrenceFields({
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-slate-500">Start date</label>
+                <label className={fieldLabelClass}>Start date</label>
                 <input
                   type="date"
                   name="recurrence_start_date_input"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className={fieldControlClass}
                   value={recurrenceStartDate}
                   onChange={(event) => setRecurrenceStartDate(event.target.value)}
                   required
                 />
               </div>
 
-              <div className="md:col-span-1">
-                <label className="text-xs font-semibold text-slate-500">End</label>
+              <div className="md:col-span-2">
+                <label className={fieldLabelClass}>End</label>
                 <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className={fieldControlClass}
                   value={recurrenceEndMode}
                   onChange={(event) =>
                     setRecurrenceEndMode(event.target.value as "never" | "on")
@@ -302,7 +323,7 @@ export default function RecurrenceFields({
 
               {recurrencePattern === "weekly" ? (
                 <div className="md:col-span-4">
-                  <label className="text-xs font-semibold text-slate-500">On days</label>
+                  <label className={fieldLabelClass}>On days</label>
                   <div className="mt-1">
                     <MultiSelect
                       options={weekdayOptions}
@@ -316,11 +337,9 @@ export default function RecurrenceFields({
 
               {recurrencePattern === "monthly" ? (
                 <div className="md:col-span-2">
-                  <label className="text-xs font-semibold text-slate-500">
-                    Day of month
-                  </label>
+                  <label className={fieldLabelClass}>Day of month</label>
                   <select
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className={fieldControlClass}
                     value={recurrenceMonthDay}
                     onChange={(event) => setRecurrenceMonthDay(event.target.value)}
                   >
@@ -335,11 +354,11 @@ export default function RecurrenceFields({
 
               {recurrenceEndMode === "on" ? (
                 <div className="md:col-span-2">
-                  <label className="text-xs font-semibold text-slate-500">End date</label>
+                  <label className={fieldLabelClass}>End date</label>
                   <input
                     type="date"
                     name="recurrence_end_date_input"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className={fieldControlClass}
                     value={recurrenceEndDate}
                     onChange={(event) => setRecurrenceEndDate(event.target.value)}
                     required
@@ -348,7 +367,7 @@ export default function RecurrenceFields({
               ) : null}
 
               {recurrencePattern === "yearly" ? (
-                <div className="md:col-span-6 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                <div className="md:col-span-6 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
                   Yearly recurrence uses the month/day from start date.
                 </div>
               ) : null}
@@ -356,11 +375,11 @@ export default function RecurrenceFields({
           ) : (
             <div className="grid gap-3 md:grid-cols-6">
               <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-slate-500">Due time</label>
+                <label className={fieldLabelClass}>Due time</label>
                 <input
                   type="time"
                   name="due_time"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className={fieldControlClass}
                   value={dueTime}
                   onChange={(event) => setDueTime(event.target.value)}
                   required
@@ -368,11 +387,11 @@ export default function RecurrenceFields({
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-slate-500">Due date</label>
+                <label className={fieldLabelClass}>Due date</label>
                 <input
                   type="date"
                   name="due_date"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className={fieldControlClass}
                   value={dueDate}
                   onChange={(event) => setDueDate(event.target.value)}
                   required
@@ -380,13 +399,11 @@ export default function RecurrenceFields({
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-slate-500">
-                  Start date (optional)
-                </label>
+                <label className={fieldLabelClass}>Start date (optional)</label>
                 <input
                   type="date"
                   name="start_date"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className={fieldControlClass}
                   value={recurrenceStartDate}
                   onChange={(event) => setRecurrenceStartDate(event.target.value)}
                 />
@@ -394,7 +411,7 @@ export default function RecurrenceFields({
             </div>
           )}
 
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
             {recurring ? recurringSummary : onceSummary}
           </p>
 

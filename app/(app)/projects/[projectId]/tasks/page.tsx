@@ -37,6 +37,10 @@ const dueDateFilters = [
   { value: "none", label: "No due date" },
 ] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
+const addTaskLabelClass =
+  "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const addTaskControlClass =
+  "mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
 
 function isTemplateStatusEnumError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -699,22 +703,20 @@ export default async function ProjectTasksPage(props: {
               </>
             ) : null}
             <div className="md:col-span-2">
-              <label className="text-xs font-semibold text-slate-500">Title</label>
+              <label className={addTaskLabelClass}>Title</label>
               <input
                 name="title"
                 placeholder="Task title"
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className={addTaskControlClass}
                 defaultValue={selectedTemplate?.title || ""}
                 required
               />
             </div>
             <div className="md:col-span-1">
-              <label className="text-xs font-semibold text-slate-500">
-                Parent task
-              </label>
+              <label className={addTaskLabelClass}>Parent task</label>
               <select
                 name="parent_task_id"
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className={addTaskControlClass}
                 defaultValue=""
               >
                 <option value="">Parent task (optional)</option>
@@ -726,7 +728,7 @@ export default async function ProjectTasksPage(props: {
               </select>
             </div>
             <div className="md:col-span-1">
-              <label className="text-xs font-semibold text-slate-500">Assignees</label>
+              <label className={addTaskLabelClass}>Assignees</label>
               <div className="mt-1 relative">
                 <AssigneeMultiSelect
                   users={users || []}
@@ -735,10 +737,10 @@ export default async function ProjectTasksPage(props: {
               </div>
             </div>
             <div className="md:col-span-1">
-              <label className="text-xs font-semibold text-slate-500">Status</label>
+              <label className={addTaskLabelClass}>Status</label>
               <select
                 name="status"
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className={addTaskControlClass}
                 defaultValue={selectedTemplate?.status || "to_do"}
               >
                 {statusOptions.map((status) => (
@@ -749,10 +751,10 @@ export default async function ProjectTasksPage(props: {
               </select>
             </div>
             <div className="md:col-span-1">
-              <label className="text-xs font-semibold text-slate-500">Priority</label>
+              <label className={addTaskLabelClass}>Priority</label>
               <select
                 name="priority"
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className={addTaskControlClass}
                 defaultValue={selectedTemplate?.priority || "medium"}
               >
                 {priorityOptions.map((priority) => (
