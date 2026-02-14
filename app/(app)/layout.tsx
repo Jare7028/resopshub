@@ -287,7 +287,7 @@ export default async function AppLayout({
 
         <aside className="fixed inset-y-0 left-0 z-30 flex h-screen w-64 flex-col overflow-x-hidden border-r app-border app-surface transition-[width] duration-200 peer-checked:w-16 peer-checked:[&_.nav-label]:hidden peer-checked:[&_.personal-nav-sections]:hidden peer-checked:[&_.sidebar-logo]:hidden peer-checked:[&_.sidebar-mini-logo]:inline-flex peer-checked:[&_.nav-item]:justify-center peer-checked:[&_.chat-badge]:absolute peer-checked:[&_.chat-badge]:right-1 peer-checked:[&_.chat-badge]:top-1">
           <div className="px-4 py-5">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center">
               <Link href="/clients" className="flex items-center gap-2">
                 <Image
                   src="/logo.png"
@@ -300,27 +300,27 @@ export default async function AppLayout({
                   R
                 </span>
               </Link>
-              <label
-                htmlFor="app-sidebar-collapsed"
-                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                aria-label="Toggle sidebar"
-                title="Collapse / expand menu"
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4 transition-transform peer-checked:rotate-180"
-                >
-                  <path d="m15 18-6-6 6-6" />
-                </svg>
-              </label>
             </div>
           </div>
+          <label
+            htmlFor="app-sidebar-collapsed"
+            className="absolute right-[-14px] top-6 z-50 inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-md hover:bg-slate-100 hover:text-slate-900"
+            aria-label="Toggle sidebar"
+            title="Collapse / expand menu"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5 transition-transform peer-checked:rotate-180"
+            >
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </label>
 
           <nav className="min-h-0 flex-1 overflow-y-auto px-3">
             <div className="space-y-1">
