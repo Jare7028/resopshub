@@ -60,7 +60,7 @@ export default function AssigneeMultiSelect({
     <div className={className} ref={containerRef}>
       <button
         type="button"
-        className="relative h-10 w-full rounded-lg border border-slate-300 bg-white px-3 pr-8 text-left text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+        className="relative h-10 w-full rounded-lg border border-slate-200 bg-white px-3 pr-8 text-left text-sm leading-5 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -82,7 +82,7 @@ export default function AssigneeMultiSelect({
         </span>
       </button>
       {open ? (
-        <div className="absolute z-10 mt-1 w-full min-w-[16rem] max-h-56 overflow-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+        <div className="absolute z-10 mt-1 w-full min-w-[16rem] max-h-56 overflow-auto rounded-lg bg-white p-2 ring-1 ring-slate-200 shadow-lg">
           {users.length ? (
             users.map((user) => (
               <label

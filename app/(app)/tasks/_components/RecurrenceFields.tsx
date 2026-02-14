@@ -49,9 +49,9 @@ type RecurrenceFieldsProps = {
 const fieldLabelClass =
   "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const fieldControlClass =
-  "mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm leading-5 text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+  "mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200";
 const fieldControlStaticClass =
-  "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm leading-5 text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+  "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200";
 
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -231,7 +231,7 @@ export default function RecurrenceFields({
   const recurring = scheduleMode === "recurring";
 
   return (
-    <fieldset className="md:col-span-6 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-white p-4 shadow-sm md:p-5">
+    <fieldset className="md:col-span-6 rounded-xl bg-slate-50/70 p-4 ring-1 ring-slate-100 md:p-5">
       <legend className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
         Schedule
       </legend>
@@ -376,7 +376,7 @@ export default function RecurrenceFields({
           ) : null}
 
           {recurrencePattern === "yearly" ? (
-            <div className="md:col-span-6 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+            <div className="md:col-span-6 rounded-lg bg-white px-3 py-2 text-xs text-slate-500 ring-1 ring-slate-100">
               Yearly recurrence uses the month/day from start date.
             </div>
           ) : null}
@@ -408,7 +408,7 @@ export default function RecurrenceFields({
         </>
       )}
 
-      <p className="md:col-span-6 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+      <p className="md:col-span-6 rounded-lg bg-white px-3 py-2 text-xs text-slate-500 ring-1 ring-slate-100">
         {recurring ? recurringSummary : onceSummary}
       </p>
       </div>
