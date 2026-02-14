@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -61,6 +61,8 @@ type NoteEditorClientProps = {
   }) => Promise<{ taskId: string }>;
   lastEditedAtLabel?: string | null;
   lastEditedByLabel?: string | null;
+  showTopToolbar?: boolean;
+  enableZoomControls?: boolean;
 };
 
 const SLASH_COMMANDS: SlashCommand[] = [
@@ -271,6 +273,8 @@ export default function NoteEditorClient({
   onCreateTask,
   lastEditedAtLabel,
   lastEditedByLabel,
+  showTopToolbar = true,
+  enableZoomControls = false,
 }: NoteEditorClientProps) {
   const [isPending, startTransition] = useTransition();
   const [isTaskPending, startTaskTransition] = useTransition();
@@ -296,6 +300,8 @@ export default function NoteEditorClient({
   const slashMenuStateRef = useRef<SlashMenuState>(slashMenu);
   const editorRef = useRef<Editor | null>(null);
   const taskTitleRef = useRef<HTMLInputElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const [zoomPercent, setZoomPercent] = useState(100);
 
   const [taskCreator, setTaskCreator] = useState<{
     open: boolean;
@@ -834,6 +840,145 @@ export default function NoteEditorClient({
     [editor]
   );
 
+  const editorScale = Math.max(0.2, zoomPercent / 100);
+
+  const currentBlockStyle = useMemo(() => {
+    if (!editor) {
+      return "paragraph";
+    }
+    if (editor.isActive("heading", { level: 1 })) return "h1";
+    if (editor.isActive("heading", { level: 2 })) return "h2";
+    if (editor.isActive("heading", { level: 3 })) return "h3";
+    if (editor.isActive("blockquote")) return "quote";
+    return "paragraph";
+  }, [editor]);
+
+  const applyBlockStyle = useCallback(
+    (nextStyle: string) => {
+      if (!editor) {
+        return;
+      }
+      if (nextStyle === "h1") {
+        editor.chain().focus().toggleHeading({ level: 1 }).run();
+        return;
+      }
+      if (nextStyle === "h2") {
+        editor.chain().focus().toggleHeading({ level: 2 }).run();
+        return;
+      }
+      if (nextStyle === "h3") {
+        editor.chain().focus().toggleHeading({ level: 3 }).run();
+        return;
+      }
+      if (nextStyle === "quote") {
+        editor.chain().focus().toggleBlockquote().run();
+        return;
+      }
+      editor.chain().focus().setParagraph().run();
+    },
+    [editor]
+  );
+
+  const setLinkFromPrompt = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    const currentHref = editor.getAttributes("link")?.href || "";
+    const nextHref = window.prompt("Enter link URL", currentHref);
+    if (nextHref === null) {
+      return;
+    }
+    const trimmedHref = nextHref.trim();
+    if (!trimmedHref) {
+      editor.chain().focus().unsetLink().run();
+      return;
+    }
+    editor.chain().focus().extendMarkRange("link").setLink({ href: trimmedHref }).run();
+  }, [editor]);
+
+  const insertImageFromPrompt = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    const src = window.prompt("Enter image URL");
+    const trimmedSrc = String(src || "").trim();
+    if (!trimmedSrc) {
+      return;
+    }
+    editor.chain().focus().setImage({ src: trimmedSrc }).run();
+  }, [editor]);
+
+  const insertSectionBox = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "blockquote",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Section box" }],
+          },
+        ],
+      })
+      .run();
+  }, [editor]);
+
+  const clearFormatting = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    editor.chain().focus().unsetAllMarks().clearNodes().run();
+  }, [editor]);
+
+  const triggerAttachmentPicker = useCallback(() => {
+    attachmentInputRef.current?.click();
+  }, []);
+
+  const handleAttachmentSelected = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.currentTarget.value = "";
+      if (!file || !editor) {
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        window.alert("Attachment is too large. Use files up to 5 MB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== "string") {
+          return;
+        }
+        if (file.type.startsWith("image/")) {
+          editor.chain().focus().setImage({ src: result }).run();
+          return;
+        }
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: file.name,
+                marks: [{ type: "link", attrs: { href: result } }],
+              },
+            ],
+          })
+          .run();
+      };
+      reader.readAsDataURL(file);
+    },
+    [editor]
+  );
+
   const bubbleActions = useMemo(
     () => [
       {
@@ -959,8 +1104,185 @@ export default function NoteEditorClient({
         </div>
       ) : null}
 
+      {showTopToolbar ? (
+        <div className="sticky top-0 z-20 mt-4 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs font-semibold text-slate-600">Style</label>
+            <select
+              value={currentBlockStyle}
+              onChange={(event) => applyBlockStyle(event.target.value)}
+              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+            >
+              <option value="paragraph">Paragraph</option>
+              <option value="h1">Heading 1</option>
+              <option value="h2">Heading 2</option>
+              <option value="h3">Heading 3</option>
+              <option value="quote">Callout / Quote</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleBold().run()}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                editor.isActive("bold")
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Bold
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleItalic().run()}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                editor.isActive("italic")
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Italic
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleUnderline().run()}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                editor.isActive("underline")
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Underline
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleHighlight().run()}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                editor.isActive("highlight")
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Highlight
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                editor.isActive("bulletList")
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Bullets
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                editor.isActive("orderedList")
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Numbered
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleTaskList().run()}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                editor.isActive("taskList")
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Checklist
+            </button>
+            <button
+              type="button"
+              onClick={insertSectionBox}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Add box
+            </button>
+            <button
+              type="button"
+              onClick={setLinkFromPrompt}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Link
+            </button>
+            <button
+              type="button"
+              onClick={insertImageFromPrompt}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Image
+            </button>
+            <button
+              type="button"
+              onClick={triggerAttachmentPicker}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Attachment
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                editor
+                  .chain()
+                  .focus()
+                  .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                  .run()
+              }
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Table
+            </button>
+            <button
+              type="button"
+              onClick={clearFormatting}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Clear format
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().undo().run()}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().redo().run()}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              Redo
+            </button>
+          </div>
+          {editor.isActive("table") ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500">Selected column type</span>
+              <select
+                value={activeTableColType}
+                onChange={(event) =>
+                  setSelectedTableColumnsType(event.target.value as TableColumnType)
+                }
+                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+              >
+                {TABLE_COLUMN_TYPES.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
-        className="mt-4"
+        className={showTopToolbar ? "mt-3" : "mt-4"}
         onContextMenu={handleContextMenu}
         title={metaTooltip || undefined}
       >
@@ -1003,8 +1325,53 @@ export default function NoteEditorClient({
             ) : null}
           </div>
         </BubbleMenu>
-        <EditorContent editor={editor} />
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white p-4">
+          <div
+            style={{
+              transform: `scale(${editorScale})`,
+              transformOrigin: "top left",
+              width: `${100 / editorScale}%`,
+            }}
+          >
+            <EditorContent editor={editor} />
+          </div>
+        </div>
       </div>
+      <input
+        ref={attachmentInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleAttachmentSelected}
+      />
+
+      {enableZoomControls ? (
+        <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+          <button
+            type="button"
+            onClick={() => setZoomPercent((prev) => Math.max(20, prev - 10))}
+            className="h-8 w-8 rounded-md border border-slate-300 text-sm font-semibold text-slate-700 hover:border-slate-400"
+            aria-label="Zoom out"
+          >
+            -
+          </button>
+          <button
+            type="button"
+            onClick={() => setZoomPercent(100)}
+            className="h-8 min-w-[3.8rem] rounded-md border border-slate-300 px-2 text-xs font-semibold text-slate-700 hover:border-slate-400"
+            aria-label="Reset zoom"
+          >
+            {zoomPercent}%
+          </button>
+          <button
+            type="button"
+            onClick={() => setZoomPercent((prev) => Math.min(1000, prev + 10))}
+            className="h-8 w-8 rounded-md border border-slate-300 text-sm font-semibold text-slate-700 hover:border-slate-400"
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+        </div>
+      ) : null}
 
       {slashMenu.open ? (
         <div

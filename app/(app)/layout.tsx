@@ -25,6 +25,16 @@ type NavLink = {
   icon: NavIconName;
 };
 
+function isMissingColumnError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const anyError = error as { code?: unknown; message?: unknown };
+  const code = typeof anyError.code === "string" ? anyError.code : "";
+  const message = typeof anyError.message === "string" ? anyError.message : "";
+  return code === "42703" || message.includes("does not exist");
+}
+
 function SidebarIcon({ name }: { name: NavIconName }) {
   const iconClassName = "h-4 w-4 shrink-0";
 
@@ -202,10 +212,29 @@ export default async function AppLayout({
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
 
-  const { data: personalPages } = await supabase
+  let personalPages: Array<{
+    id: string;
+    title: string;
+    section_id: string | null;
+    updated_at: string | null;
+    sort_order?: number | null;
+  }> = [];
+  const { data: personalPagesWithSortRaw, error: personalPagesWithSortError } = await supabase
     .from("personal_pages")
-    .select("id,title,section_id,updated_at")
+    .select("id,title,section_id,updated_at,sort_order")
+    .order("section_id", { ascending: true, nullsFirst: true })
+    .order("sort_order", { ascending: true })
     .order("updated_at", { ascending: false });
+
+  if (personalPagesWithSortError && isMissingColumnError(personalPagesWithSortError)) {
+    const { data: fallbackPagesRaw } = await supabase
+      .from("personal_pages")
+      .select("id,title,section_id,updated_at")
+      .order("updated_at", { ascending: false });
+    personalPages = (fallbackPagesRaw || []) as typeof personalPages;
+  } else if (!personalPagesWithSortError) {
+    personalPages = (personalPagesWithSortRaw || []) as typeof personalPages;
+  }
 
   let unreadChatCount = 0;
   const { data: myMembershipsRaw, error: myMembershipsError } = await supabase

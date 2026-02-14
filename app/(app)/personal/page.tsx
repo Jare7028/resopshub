@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalTabs, {
   normalizePersonalTabKey,
   type PersonalTabKey,
@@ -17,6 +19,16 @@ export const dynamic = "force-dynamic";
 
 const defaultPageContent = DEFAULT_EDITOR_CONTENT;
 const defaultPageContentText = extractPlainText(defaultPageContent);
+
+function isMissingColumnError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const anyError = error as { code?: unknown; message?: unknown };
+  const code = typeof anyError.code === "string" ? anyError.code : "";
+  const message = typeof anyError.message === "string" ? anyError.message : "";
+  return code === "42703" || message.includes("does not exist");
+}
 
 function getSelectedMembers(formData: FormData, ownerId: string) {
   const selected = formData.getAll("share_user").map((value) => String(value));
@@ -70,7 +82,7 @@ export default async function PersonalHome(props: {
 
   const selectedSectionIds = parseCsvParam(searchParams?.section);
   const selectedFilter = (searchParams?.filter || "all").trim();
-  const selectedSort = (searchParams?.sort || "updated").trim();
+  const selectedSort = (searchParams?.sort || "manual").trim();
   const query = (searchParams?.q || "").trim();
   const activeTab = normalizePersonalTabKey(searchParams?.tab);
   const selectedShareModes = parseCsvParam(searchParams?.share_mode);
@@ -82,7 +94,7 @@ export default async function PersonalHome(props: {
   if (selectedFilter !== "all") {
     baseParams.set("filter", selectedFilter);
   }
-  if (selectedSort !== "updated") {
+  if (selectedSort !== "manual") {
     baseParams.set("sort", selectedSort);
   }
   if (query) {
@@ -110,15 +122,42 @@ export default async function PersonalHome(props: {
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
 
+  const { data: pageTemplatesRaw, error: pageTemplatesError } = await supabase
+    .from("personal_page_templates")
+    .select("id,name")
+    .eq("owner_id", user.id)
+    .order("name", { ascending: true });
+  const pageTemplatesTableMissing = Boolean(
+    pageTemplatesError && isSupabaseMissingTableError(pageTemplatesError)
+  );
+  const pageTemplates = ((pageTemplatesError ? [] : pageTemplatesRaw) || []) as Array<{
+    id: string;
+    name: string;
+  }>;
+
+  let pages: Array<{
+    id: string;
+    title: string | null;
+    section_id: string | null;
+    share_mode: string | null;
+    updated_at: string | null;
+    created_at: string | null;
+    sort_order?: number | null;
+    personal_sections?:
+      | { title?: string | null }
+      | { title?: string | null }[]
+      | null
+      | undefined;
+  }> = [];
+  let pageSortOrderColumnMissing = false;
   let pagesRequest = supabase
     .from("personal_pages")
-    .select("id,title,section_id,share_mode,updated_at,personal_sections(title)")
-    .order("updated_at", { ascending: false });
-
+    .select(
+      "id,title,section_id,share_mode,updated_at,created_at,sort_order,personal_sections(title)"
+    );
   if (selectedSectionIds.length) {
     pagesRequest = pagesRequest.in("section_id", selectedSectionIds);
   }
-
   if (selectedShareModes.length) {
     pagesRequest = pagesRequest.in("share_mode", selectedShareModes);
   } else if (selectedFilter === "private") {
@@ -126,35 +165,109 @@ export default async function PersonalHome(props: {
   } else if (selectedFilter === "shared") {
     pagesRequest = pagesRequest.neq("share_mode", "private");
   }
-
   if (query) {
     pagesRequest = pagesRequest.ilike("title", `%${query}%`);
   }
-
-  if (selectedSort === "title") {
-    pagesRequest = pagesRequest.order("title", { ascending: true });
-  }
-
   if (updatedFrom) {
     pagesRequest = pagesRequest.gte("updated_at", updatedFrom);
   }
   if (updatedTo) {
     pagesRequest = pagesRequest.lte("updated_at", updatedTo);
   }
+  if (selectedSort === "title") {
+    pagesRequest = pagesRequest.order("title", { ascending: true });
+  } else if (selectedSort === "updated") {
+    pagesRequest = pagesRequest.order("updated_at", { ascending: false });
+  } else {
+    pagesRequest = pagesRequest
+      .order("section_id", { ascending: true, nullsFirst: true })
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+  }
+  const { data: pagesRaw, error: pagesError } = await pagesRequest;
+  if (pagesError && isMissingColumnError(pagesError)) {
+    pageSortOrderColumnMissing = true;
+    let fallbackPagesRequest = supabase
+      .from("personal_pages")
+      .select("id,title,section_id,share_mode,updated_at,created_at,personal_sections(title)");
+    if (selectedSectionIds.length) {
+      fallbackPagesRequest = fallbackPagesRequest.in("section_id", selectedSectionIds);
+    }
+    if (selectedShareModes.length) {
+      fallbackPagesRequest = fallbackPagesRequest.in("share_mode", selectedShareModes);
+    } else if (selectedFilter === "private") {
+      fallbackPagesRequest = fallbackPagesRequest.eq("share_mode", "private");
+    } else if (selectedFilter === "shared") {
+      fallbackPagesRequest = fallbackPagesRequest.neq("share_mode", "private");
+    }
+    if (query) {
+      fallbackPagesRequest = fallbackPagesRequest.ilike("title", `%${query}%`);
+    }
+    if (updatedFrom) {
+      fallbackPagesRequest = fallbackPagesRequest.gte("updated_at", updatedFrom);
+    }
+    if (updatedTo) {
+      fallbackPagesRequest = fallbackPagesRequest.lte("updated_at", updatedTo);
+    }
+    if (selectedSort === "title") {
+      fallbackPagesRequest = fallbackPagesRequest.order("title", { ascending: true });
+    } else {
+      fallbackPagesRequest = fallbackPagesRequest.order("updated_at", { ascending: false });
+    }
+    const { data: fallbackPagesRaw } = await fallbackPagesRequest;
+    pages = (fallbackPagesRaw || []) as typeof pages;
+  } else {
+    pages = (pagesRaw || []) as typeof pages;
+  }
 
-  const { data: pages } = await pagesRequest;
-  const { data: sectionPageRows } = await supabase
+  let sectionPages: Array<{
+    id: string;
+    title: string | null;
+    section_id: string | null;
+    owner_id: string;
+    sort_order?: number | null;
+    created_at: string | null;
+  }> = [];
+  const { data: sectionPagesRaw, error: sectionPagesError } = await supabase
     .from("personal_pages")
-    .select("section_id");
-  const pageCountBySectionId = (sectionPageRows || []).reduce<Record<string, number>>(
-    (acc, row) => {
-      const sectionId = row.section_id;
-      if (!sectionId) return acc;
-      acc[sectionId] = (acc[sectionId] || 0) + 1;
-      return acc;
-    },
-    {}
-  );
+    .select("id,title,section_id,owner_id,sort_order,created_at")
+    .order("section_id", { ascending: true, nullsFirst: true })
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (sectionPagesError && isMissingColumnError(sectionPagesError)) {
+    pageSortOrderColumnMissing = true;
+    const { data: fallbackSectionPagesRaw } = await supabase
+      .from("personal_pages")
+      .select("id,title,section_id,owner_id,created_at")
+      .order("section_id", { ascending: true, nullsFirst: true })
+      .order("created_at", { ascending: true });
+    sectionPages = (fallbackSectionPagesRaw || []) as typeof sectionPages;
+  } else {
+    sectionPages = (sectionPagesRaw || []) as typeof sectionPages;
+  }
+
+  const pageCountBySectionId = sectionPages.reduce<Record<string, number>>((acc, row) => {
+    const sectionId = row.section_id;
+    if (!sectionId) return acc;
+    acc[sectionId] = (acc[sectionId] || 0) + 1;
+    return acc;
+  }, {});
+  const pagesBySectionId = sectionPages.reduce<
+    Record<
+      string,
+      Array<{ id: string; title: string | null; owner_id: string; sort_order?: number | null }>
+    >
+  >((acc, row) => {
+    const sectionId = row.section_id || "__general__";
+    acc[sectionId] ||= [];
+    acc[sectionId].push({
+      id: row.id,
+      title: row.title,
+      owner_id: row.owner_id,
+      sort_order: row.sort_order,
+    });
+    return acc;
+  }, {});
 
   async function createSection(formData: FormData) {
     "use server";
@@ -282,6 +395,208 @@ export default async function PersonalHome(props: {
     revalidatePath("/personal");
   }
 
+  async function moveSectionOrder(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUser = authData.user;
+    const sectionId = String(formData.get("section_id") || "").trim();
+    const direction = String(formData.get("direction") || "").trim();
+
+    if (!currentUser) {
+      redirect("/login");
+    }
+    if (!sectionId || (direction !== "up" && direction !== "down")) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: "Missing reorder details",
+        })
+      );
+    }
+
+    const { data: currentSection, error: currentError } = await supabase
+      .from("personal_sections")
+      .select("id,owner_id,sort_order")
+      .eq("id", sectionId)
+      .maybeSingle();
+    if (currentError || !currentSection) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: currentError?.message || "Section not found",
+        })
+      );
+    }
+    if (currentSection.owner_id !== currentUser.id) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: "Only the section owner can reorder sections",
+        })
+      );
+    }
+
+    let neighborRequest = supabase
+      .from("personal_sections")
+      .select("id,sort_order")
+      .eq("owner_id", currentUser.id)
+      .limit(1);
+    if (direction === "up") {
+      neighborRequest = neighborRequest
+        .lt("sort_order", currentSection.sort_order)
+        .order("sort_order", { ascending: false });
+    } else {
+      neighborRequest = neighborRequest
+        .gt("sort_order", currentSection.sort_order)
+        .order("sort_order", { ascending: true });
+    }
+
+    const { data: neighborSection, error: neighborError } = await neighborRequest.maybeSingle();
+    if (neighborError) {
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: neighborError.message }));
+    }
+    if (!neighborSection) {
+      revalidatePath("/personal");
+      return;
+    }
+
+    const currentSort = currentSection.sort_order;
+    const neighborSort = neighborSection.sort_order;
+    const { error: currentUpdateError } = await supabase
+      .from("personal_sections")
+      .update({ sort_order: neighborSort })
+      .eq("id", currentSection.id);
+    if (currentUpdateError) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", { error: currentUpdateError.message })
+      );
+    }
+
+    const { error: neighborUpdateError } = await supabase
+      .from("personal_sections")
+      .update({ sort_order: currentSort })
+      .eq("id", neighborSection.id);
+    if (neighborUpdateError) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", { error: neighborUpdateError.message })
+      );
+    }
+
+    revalidatePath("/personal");
+  }
+
+  async function movePageOrder(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUser = authData.user;
+    const pageId = String(formData.get("page_id") || "").trim();
+    const direction = String(formData.get("direction") || "").trim();
+
+    if (!currentUser) {
+      redirect("/login");
+    }
+    if (!pageId || (direction !== "up" && direction !== "down")) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: "Missing page reorder details",
+        })
+      );
+    }
+
+    const { data: currentPage, error: currentPageError } = await supabase
+      .from("personal_pages")
+      .select("id,owner_id,section_id,sort_order")
+      .eq("id", pageId)
+      .maybeSingle();
+    if (currentPageError) {
+      if (isMissingColumnError(currentPageError)) {
+        redirect(
+          buildPersonalUrlFromBase(baseQuery, "sections", {
+            error: "Manual page ordering needs sql/personal_templates_and_page_order.sql",
+          })
+        );
+      }
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: currentPageError.message,
+        })
+      );
+    }
+    if (!currentPage) {
+      redirect(buildPersonalUrlFromBase(baseQuery, "sections", { error: "Page not found" }));
+    }
+    if (currentPage.owner_id !== currentUser.id) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: "Only the page owner can reorder pages",
+        })
+      );
+    }
+
+    let neighborRequest = supabase
+      .from("personal_pages")
+      .select("id,sort_order")
+      .eq("owner_id", currentUser.id)
+      .limit(1);
+    if (currentPage.section_id) {
+      neighborRequest = neighborRequest.eq("section_id", currentPage.section_id);
+    } else {
+      neighborRequest = neighborRequest.is("section_id", null);
+    }
+    if (direction === "up") {
+      neighborRequest = neighborRequest
+        .lt("sort_order", currentPage.sort_order)
+        .order("sort_order", { ascending: false });
+    } else {
+      neighborRequest = neighborRequest
+        .gt("sort_order", currentPage.sort_order)
+        .order("sort_order", { ascending: true });
+    }
+
+    const { data: neighborPage, error: neighborError } = await neighborRequest.maybeSingle();
+    if (neighborError) {
+      if (isMissingColumnError(neighborError)) {
+        redirect(
+          buildPersonalUrlFromBase(baseQuery, "sections", {
+            error: "Manual page ordering needs sql/personal_templates_and_page_order.sql",
+          })
+        );
+      }
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", {
+          error: neighborError.message,
+        })
+      );
+    }
+    if (!neighborPage) {
+      revalidatePath("/personal");
+      return;
+    }
+
+    const currentSort = Number(currentPage.sort_order || 0);
+    const neighborSort = Number(neighborPage.sort_order || 0);
+    const { error: currentUpdateError } = await supabase
+      .from("personal_pages")
+      .update({ sort_order: neighborSort })
+      .eq("id", currentPage.id);
+    if (currentUpdateError) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", { error: currentUpdateError.message })
+      );
+    }
+
+    const { error: neighborUpdateError } = await supabase
+      .from("personal_pages")
+      .update({ sort_order: currentSort })
+      .eq("id", neighborPage.id);
+    if (neighborUpdateError) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "sections", { error: neighborUpdateError.message })
+      );
+    }
+
+    revalidatePath("/personal");
+  }
+
   async function createPage(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -294,6 +609,7 @@ export default async function PersonalHome(props: {
 
     const title = String(formData.get("title") || "").trim();
     let sectionId = String(formData.get("section_id") || "").trim();
+    const templateId = String(formData.get("template_id") || "").trim();
     const privacy = String(formData.get("privacy") || "private");
     const shareScope = String(formData.get("share_scope") || "page");
 
@@ -341,18 +657,97 @@ export default async function PersonalHome(props: {
         ? "inherit"
         : "custom";
 
-    const { data: page, error: pageError } = await supabase
+    let pageContent = defaultPageContent;
+    let pageContentText = defaultPageContentText;
+    if (templateId) {
+      const { data: template, error: templateError } = await supabase
+        .from("personal_page_templates")
+        .select("id,content")
+        .eq("owner_id", user.id)
+        .eq("id", templateId)
+        .maybeSingle();
+      if (templateError) {
+        if (isSupabaseMissingTableError(templateError)) {
+          redirect(
+            buildPersonalUrlFromBase(baseQuery, "pages", {
+              error: "Page templates need sql/personal_templates_and_page_order.sql",
+            })
+          );
+        }
+        redirect(
+          buildPersonalUrlFromBase(baseQuery, "pages", {
+            error: templateError.message,
+          })
+        );
+      }
+      if (!template) {
+        redirect(
+          buildPersonalUrlFromBase(baseQuery, "pages", {
+            error: "Template not found",
+          })
+        );
+      }
+      if (template.content && typeof template.content === "object") {
+        pageContent = template.content;
+        pageContentText = extractPlainText(template.content);
+      }
+    }
+
+    let nextSortOrder: number | null = null;
+    let lastPageSortRequest = supabase
       .from("personal_pages")
-      .insert({
-        title,
-        section_id: sectionId,
-        owner_id: user.id,
-        share_mode: shareMode,
-        content: defaultPageContent,
-        content_text: defaultPageContentText,
-      })
+      .select("sort_order")
+      .order("sort_order", { ascending: false })
+      .limit(1);
+    if (sectionId) {
+      lastPageSortRequest = lastPageSortRequest.eq("section_id", sectionId);
+    } else {
+      lastPageSortRequest = lastPageSortRequest.is("section_id", null);
+    }
+    const { data: lastPageSortRows, error: lastPageSortError } = await lastPageSortRequest;
+    if (lastPageSortError && !isMissingColumnError(lastPageSortError)) {
+      redirect(
+        buildPersonalUrlFromBase(baseQuery, "pages", {
+          error: lastPageSortError.message,
+        })
+      );
+    }
+    if (!lastPageSortError) {
+      nextSortOrder = Number(lastPageSortRows?.[0]?.sort_order || 0) + 1;
+    }
+
+    const pageInsertPayload: Record<string, unknown> = {
+      title,
+      section_id: sectionId || null,
+      owner_id: user.id,
+      share_mode: shareMode,
+      content: pageContent,
+      content_text: pageContentText,
+    };
+    if (nextSortOrder !== null) {
+      pageInsertPayload.sort_order = nextSortOrder;
+    }
+
+    let page: { id: string } | null = null;
+    let pageError: { message: string } | null = null;
+    const createPageResult = await supabase
+      .from("personal_pages")
+      .insert(pageInsertPayload)
       .select("id")
       .single();
+    page = createPageResult.data || null;
+    pageError = createPageResult.error;
+
+    if (pageError && isMissingColumnError(pageError)) {
+      delete pageInsertPayload.sort_order;
+      const fallbackCreatePageResult = await supabase
+        .from("personal_pages")
+        .insert(pageInsertPayload)
+        .select("id")
+        .single();
+      page = fallbackCreatePageResult.data || null;
+      pageError = fallbackCreatePageResult.error;
+    }
 
     if (pageError || !page) {
       redirect(
@@ -452,13 +847,16 @@ export default async function PersonalHome(props: {
                       <tr>
                         <th className="px-4 py-3">Section</th>
                         <th className="px-4 py-3">Access</th>
+                        <th className="px-4 py-3">Reorder</th>
                         <th className="px-4 py-3 text-right">Pages</th>
+                        <th className="px-4 py-3">Page order</th>
                         <th className="px-4 py-3">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {sections.map((section) => {
                         const isOwner = section.owner_id === user.id;
+                        const sectionPagesForOrder = pagesBySectionId[section.id] || [];
                         return (
                           <tr key={section.id}>
                             <td className="px-4 py-3 font-semibold text-slate-900">
@@ -467,8 +865,80 @@ export default async function PersonalHome(props: {
                             <td className="px-4 py-3 text-slate-600">
                               {isOwner ? "Owner" : "Shared"}
                             </td>
+                            <td className="px-4 py-3">
+                              {isOwner ? (
+                                <form action={moveSectionOrder} className="flex items-center gap-1">
+                                  <input type="hidden" name="section_id" value={section.id} />
+                                  <button
+                                    type="submit"
+                                    name="direction"
+                                    value="up"
+                                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:border-slate-400"
+                                  >
+                                    Up
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    name="direction"
+                                    value="down"
+                                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:border-slate-400"
+                                  >
+                                    Down
+                                  </button>
+                                </form>
+                              ) : (
+                                <span className="text-xs text-slate-500">View only</span>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-right text-slate-600">
                               {pageCountBySectionId[section.id] || 0}
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              {sectionPagesForOrder.length ? (
+                                <div className="space-y-1">
+                                  {sectionPagesForOrder.map((page) => {
+                                    const canReorderPage = page.owner_id === user.id;
+                                    return (
+                                      <div
+                                        key={page.id}
+                                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5"
+                                      >
+                                        <Link
+                                          href={`/personal/${page.id}`}
+                                          className="text-xs font-medium text-slate-700 hover:underline"
+                                        >
+                                          {page.title || "Untitled"}
+                                        </Link>
+                                        {canReorderPage ? (
+                                          <form action={movePageOrder} className="flex items-center gap-1">
+                                            <input type="hidden" name="page_id" value={page.id} />
+                                            <button
+                                              type="submit"
+                                              name="direction"
+                                              value="up"
+                                              className="rounded-md border border-slate-300 px-1.5 py-1 text-[11px] text-slate-700"
+                                            >
+                                              Up
+                                            </button>
+                                            <button
+                                              type="submit"
+                                              name="direction"
+                                              value="down"
+                                              className="rounded-md border border-slate-300 px-1.5 py-1 text-[11px] text-slate-700"
+                                            >
+                                              Down
+                                            </button>
+                                          </form>
+                                        ) : (
+                                          <span className="text-[11px] text-slate-400">View</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-400">No pages</p>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               {isOwner ? (
@@ -521,6 +991,59 @@ export default async function PersonalHome(props: {
               ) : (
                 <p className="mt-4 text-sm text-slate-600">No sections yet.</p>
               )}
+              {pageSortOrderColumnMissing ? (
+                <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Manual page ordering needs `sql/personal_templates_and_page_order.sql`.
+                </p>
+              ) : null}
+              {(pagesBySectionId.__general__ || []).length ? (
+                <div className="mt-4 rounded-md border border-slate-200 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    General pages order
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {(pagesBySectionId.__general__ || []).map((page) => {
+                      const canReorderPage = page.owner_id === user.id;
+                      return (
+                        <div
+                          key={page.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5"
+                        >
+                          <Link
+                            href={`/personal/${page.id}`}
+                            className="text-xs font-medium text-slate-700 hover:underline"
+                          >
+                            {page.title || "Untitled"}
+                          </Link>
+                          {canReorderPage ? (
+                            <form action={movePageOrder} className="flex items-center gap-1">
+                              <input type="hidden" name="page_id" value={page.id} />
+                              <button
+                                type="submit"
+                                name="direction"
+                                value="up"
+                                className="rounded-md border border-slate-300 px-1.5 py-1 text-[11px] text-slate-700"
+                              >
+                                Up
+                              </button>
+                              <button
+                                type="submit"
+                                name="direction"
+                                value="down"
+                                className="rounded-md border border-slate-300 px-1.5 py-1 text-[11px] text-slate-700"
+                              >
+                                Down
+                              </button>
+                            </form>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">View</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -537,6 +1060,19 @@ export default async function PersonalHome(props: {
               </summary>
               <div className="mt-4">
                 <form action={createPage} className="grid gap-4 md:grid-cols-2">
+                  <select
+                    name="template_id"
+                    defaultValue=""
+                    disabled={pageTemplatesTableMissing}
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">Blank page</option>
+                    {pageTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        Template: {template.name}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     name="title"
                     placeholder="Page title"
@@ -617,6 +1153,11 @@ export default async function PersonalHome(props: {
                     Create page
                   </button>
                 </form>
+                {pageTemplatesTableMissing ? (
+                  <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Page templates need `sql/personal_templates_and_page_order.sql`.
+                  </p>
+                ) : null}
               </div>
             </details>
           </div>
@@ -633,6 +1174,7 @@ export default async function PersonalHome(props: {
                 defaultValue={selectedSort}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
+                <option value="manual">Manual order</option>
                 <option value="updated">Recently updated</option>
                 <option value="title">Title</option>
               </select>

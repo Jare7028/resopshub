@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
 import { extractPlainText } from "@/lib/tiptapText";
 import PersonalPageTabs, {
@@ -188,6 +189,18 @@ export default async function PersonalPage(props: {
     .from("clients")
     .select("id,name")
     .order("name", { ascending: true });
+  const { data: pageTemplatesRaw, error: pageTemplatesError } = await supabase
+    .from("personal_page_templates")
+    .select("id,name")
+    .eq("owner_id", user.id)
+    .order("name", { ascending: true });
+  const pageTemplatesTableMissing = Boolean(
+    pageTemplatesError && isSupabaseMissingTableError(pageTemplatesError)
+  );
+  const pageTemplates = ((pageTemplatesError ? [] : pageTemplatesRaw) || []) as Array<{
+    id: string;
+    name: string;
+  }>;
 
   const lastEditedAtLabel = page.last_edited_at
     ? new Date(page.last_edited_at).toLocaleString("en-US")
@@ -303,6 +316,52 @@ export default async function PersonalPage(props: {
 
     revalidatePath("/personal");
     redirect("/personal");
+  }
+
+  async function savePageAsTemplate(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUser = authData.user;
+    if (!currentUser) {
+      redirect("/login");
+    }
+
+    const name = String(formData.get("name") || "").trim();
+    if (!name) {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("error", "Template name is required");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    const { error } = await supabase.from("personal_page_templates").upsert(
+      {
+        owner_id: currentUser.id,
+        name,
+        content: pageContent,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "owner_id,name" }
+    );
+
+    if (error) {
+      const sp = new URLSearchParams();
+      if (activeTab !== "notes") sp.set("tab", activeTab);
+      if (isSupabaseMissingTableError(error)) {
+        sp.set("error", "Page templates need sql/personal_templates_and_page_order.sql");
+      } else {
+        sp.set("error", error.message);
+      }
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    revalidatePath("/personal");
+    revalidatePath(`/personal/${pageId}`);
+    const sp = new URLSearchParams();
+    if (activeTab !== "notes") sp.set("tab", activeTab);
+    sp.set("success", "Template saved");
+    redirect(`/personal/${pageId}?${sp.toString()}`);
   }
 
   async function addSectionMember(formData: FormData) {
@@ -693,6 +752,32 @@ export default async function PersonalPage(props: {
               Update
             </button>
           </form>
+
+          {isOwner ? (
+            <div className="w-full max-w-[420px] rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Page templates
+              </p>
+              <form action={savePageAsTemplate} className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  name="name"
+                  defaultValue={pageTitle}
+                  className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                >
+                  Save as template
+                </button>
+              </form>
+              <p className="mt-2 text-xs text-slate-500">
+                {pageTemplatesTableMissing
+                  ? "Page templates need sql/personal_templates_and_page_order.sql."
+                  : `${pageTemplates.length} template${pageTemplates.length === 1 ? "" : "s"} available.`}
+              </p>
+            </div>
+          ) : null}
 
           {isOwner ? (
             <details className="w-full max-w-[420px] rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">

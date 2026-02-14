@@ -31,6 +31,8 @@ export default function PersonalPageEditorClient({
       onCreateTask={handleCreateTask}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
+      showTopToolbar
+      enableZoomControls
     />
   );
 }
