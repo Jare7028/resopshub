@@ -661,50 +661,65 @@ export default async function ClientTasksPage(props: {
               <input type="hidden" name="template_task_id" value={templateTaskId} />
             </>
           ) : null}
-          <input
-            name="title"
-            placeholder="Task title"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue={selectedTemplate?.title || ""}
-            required
-          />
-          <select
-            name="project_id"
-            className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue=""
-          >
-            <option value="">Project (N/A)</option>
-            {projects?.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <div className="md:col-span-2 relative">
-            <AssigneeMultiSelect users={users || []} name="assignee_user_ids" />
+          <div className="md:col-span-2">
+            <label className="text-xs font-semibold text-slate-500">Title</label>
+            <input
+              name="title"
+              placeholder="Task title"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+              defaultValue={selectedTemplate?.title || ""}
+              required
+            />
           </div>
-          <select
-            name="status"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue={selectedTemplate?.status || "to_do"}
-          >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {formatTaskStatusLabel(status)}
-              </option>
-            ))}
-          </select>
-          <select
-            name="priority"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue={selectedTemplate?.priority || "medium"}
-          >
-            {priorityOptions.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
+          <div className="md:col-span-2">
+            <label className="text-xs font-semibold text-slate-500">Project</label>
+            <select
+              name="project_id"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+              defaultValue=""
+            >
+              <option value="">Project (N/A)</option>
+              {projects?.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-xs font-semibold text-slate-500">Assignees</label>
+            <div className="mt-1 relative">
+              <AssigneeMultiSelect users={users || []} name="assignee_user_ids" />
+            </div>
+          </div>
+          <div className="md:col-span-1">
+            <label className="text-xs font-semibold text-slate-500">Status</label>
+            <select
+              name="status"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+              defaultValue={selectedTemplate?.status || "to_do"}
+            >
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {formatTaskStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="md:col-span-1">
+            <label className="text-xs font-semibold text-slate-500">Priority</label>
+            <select
+              name="priority"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+              defaultValue={selectedTemplate?.priority || "medium"}
+            >
+              {priorityOptions.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priority}
+                </option>
+              ))}
+            </select>
+          </div>
           <RecurrenceFields
             initialFrequency={initialRecurrenceFrequency}
             initialDueTime={selectedTemplate?.due_time || undefined}
