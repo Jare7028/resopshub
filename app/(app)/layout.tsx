@@ -7,17 +7,128 @@ import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
 
-const baseNavLinks = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/search", label: "Search" },
-  { href: "/clients", label: "Clients" },
-  { href: "/projects", label: "Projects" },
-  { href: "/tasks", label: "Tasks" },
-  { href: "/forms", label: "Forms" },
-  { href: "/chat", label: "Chat" },
-  { href: "/personal", label: "Personal" },
-  { href: "/notes", label: "Notes" },
-  { href: "/feature-suggestions", label: "Feature Suggestions" },
+type NavIconName =
+  | "dashboard"
+  | "search"
+  | "clients"
+  | "projects"
+  | "tasks"
+  | "forms"
+  | "chat"
+  | "personal"
+  | "notes"
+  | "featureSuggestions";
+
+type NavLink = {
+  href: string;
+  label: string;
+  icon: NavIconName;
+};
+
+function SidebarIcon({ name }: { name: NavIconName }) {
+  const iconClassName = "h-4 w-4 shrink-0";
+
+  switch (name) {
+    case "dashboard":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M3 13h8V3H3v10Z" />
+          <path d="M13 21h8v-6h-8v6Z" />
+          <path d="M13 3h8v8h-8V3Z" />
+          <path d="M3 21h8v-4H3v4Z" />
+        </svg>
+      );
+    case "search":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+      );
+    case "clients":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="8.5" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.9" />
+          <path d="M15.5 3.1a4 4 0 0 1 0 7.8" />
+        </svg>
+      );
+    case "projects":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+        </svg>
+      );
+    case "tasks":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M9 11 6.5 8.5 5 10" />
+          <path d="M9 17 6.5 14.5 5 16" />
+          <path d="M11 10h8" />
+          <path d="M11 16h8" />
+          <path d="M5 4h14" />
+        </svg>
+      );
+    case "forms":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M6 3h9l4 4v14H6V3Z" />
+          <path d="M15 3v4h4" />
+          <path d="M9 12h6" />
+          <path d="M9 16h6" />
+        </svg>
+      );
+    case "chat":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M21 12a8.8 8.8 0 0 1-.9 3.8 9 9 0 0 1-8.1 5.2 8.8 8.8 0 0 1-3.8-.9L3 21l1.9-5.1a8.8 8.8 0 0 1-.9-3.8 9 9 0 0 1 5.2-8.1A8.8 8.8 0 0 1 13 3h.5a9 9 0 0 1 7.5 7.5V12Z" />
+        </svg>
+      );
+    case "personal":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <circle cx="12" cy="7" r="4" />
+          <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
+        </svg>
+      );
+    case "notes":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M4 4h16v16H4z" />
+          <path d="M8 8h8" />
+          <path d="M8 12h8" />
+          <path d="M8 16h5" />
+        </svg>
+      );
+    case "featureSuggestions":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M9 18h6" />
+          <path d="M10 22h4" />
+          <path d="M12 2a7 7 0 0 0-4 12.7c.7.5 1 1.3 1 2.1V18h6v-1.2c0-.8.3-1.6 1-2.1A7 7 0 0 0 12 2Z" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+const baseNavLinks: NavLink[] = [
+  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+  { href: "/search", label: "Search", icon: "search" },
+  { href: "/clients", label: "Clients", icon: "clients" },
+  { href: "/projects", label: "Projects", icon: "projects" },
+  { href: "/tasks", label: "Tasks", icon: "tasks" },
+  { href: "/forms", label: "Forms", icon: "forms" },
+  { href: "/chat", label: "Chat", icon: "chat" },
+  { href: "/personal", label: "Personal", icon: "personal" },
+  { href: "/notes", label: "Notes", icon: "notes" },
+  {
+    href: "/feature-suggestions",
+    label: "Feature Suggestions",
+    icon: "featureSuggestions",
+  },
 ];
 
 export default async function AppLayout({
@@ -175,8 +286,9 @@ export default async function AppLayout({
                   <Link
                     key={link.href}
                     href={link.href}
-                    className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                    className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                   >
+                    <SidebarIcon name={link.icon} />
                     <span>{link.label}</span>
                   </Link>
                 )

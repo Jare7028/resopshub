@@ -23,12 +23,8 @@ import TasksTabs, {
   normalizeTasksTabKey,
   type TasksTabKey,
 } from "./_components/TasksTabs";
-import {
-  DEFAULT_RECURRENCE_TZ,
-  getFirstOccurrence,
-  getNextOccurrence,
-  type RecurrenceConfig,
-} from "@/lib/recurrence";
+import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
+import { parseTaskScheduleFormData } from "@/lib/taskSchedule";
 import RecurrenceFields from "./_components/RecurrenceFields";
 import {
   normalizeTaskSortDir,
@@ -588,29 +584,12 @@ export default async function TasksPage(props: {
     const title = String(formData.get("title") || "").trim();
     const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
-    const startDate = String(formData.get("start_date") || "");
-    const dueDate = String(formData.get("due_date") || "").trim();
-    const dueTime = String(formData.get("due_time") || "").trim();
     const assigneeUserId = String(formData.get("assignee_user_id") || "");
     const assigneeIds = formData
       .getAll("assignee_user_ids")
       .map((value) => String(value).trim())
       .filter(Boolean);
     const templateTaskIdFromForm = String(formData.get("template_task_id") || "").trim();
-    const recurrenceFrequencyRaw = String(formData.get("recurrence_frequency") || "")
-      .trim()
-      .toLowerCase();
-    const recurrenceLeadDays = Number(formData.get("recurrence_lead_days") || 7) || 7;
-    const recurrenceTimezone =
-      String(formData.get("recurrence_timezone") || "").trim() ||
-      DEFAULT_RECURRENCE_TZ;
-    const recurrenceFrequency =
-      recurrenceFrequencyRaw === "daily" ||
-      recurrenceFrequencyRaw === "weekly" ||
-      recurrenceFrequencyRaw === "monthly" ||
-      recurrenceFrequencyRaw === "yearly"
-        ? (recurrenceFrequencyRaw as RecurrenceConfig["frequency"])
-        : null;
     const clientIdRaw = String(formData.get("client_id") || "").trim();
     const projectIdRaw = String(formData.get("project_id") || "").trim();
     let clientId = clientIdRaw || null;
@@ -625,14 +604,16 @@ export default async function TasksPage(props: {
       );
     }
 
-    if (!dueDate || !dueTime) {
+    const scheduleResult = parseTaskScheduleFormData(formData, DEFAULT_RECURRENCE_TZ);
+    if (scheduleResult.error || !scheduleResult.value) {
       redirect(
         buildTasksRedirectUrl(returnTo, {
           tab: "add",
-          error: "Deadline date and time are required",
+          error: scheduleResult.error || "Invalid schedule",
         })
       );
     }
+    const schedule = scheduleResult.value;
 
     if (projectId && !clientId) {
       const { data: project, error } = await supabase
@@ -701,31 +682,6 @@ export default async function TasksPage(props: {
     );
     const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || "";
 
-    let recurrenceConfig: RecurrenceConfig | null = null;
-    let recurrenceNextDate: string | null = null;
-
-    if (recurrenceFrequency) {
-      const startDateForRecurrence = dueDate;
-      const weekDay = new Date(`${startDateForRecurrence}T00:00:00Z`).getUTCDay();
-      const monthDay = Number(startDateForRecurrence.split("-")[2]);
-
-      recurrenceConfig = {
-        frequency: recurrenceFrequency,
-        interval: 1,
-        startDate: startDateForRecurrence,
-        endDate: null,
-        weekdays: recurrenceFrequency === "weekly" ? [weekDay] : null,
-        monthDay: recurrenceFrequency === "monthly" ? monthDay : null,
-        monthWeek: null,
-        monthWeekday: null,
-      };
-
-      const firstOccurrence = dueDate || getFirstOccurrence(recurrenceConfig);
-      if (firstOccurrence) {
-        recurrenceNextDate = getNextOccurrence(recurrenceConfig, firstOccurrence);
-      }
-    }
-
     const taskId = randomUUID();
     const payload: Record<string, unknown> = {
       id: taskId,
@@ -734,30 +690,30 @@ export default async function TasksPage(props: {
       title,
       status,
       priority,
-      due_date: dueDate || null,
-      due_time: dueTime || null,
+      due_date: schedule.dueDate,
+      due_time: schedule.dueTime,
       assignee_user_id: primaryAssignee || null,
       created_by_user_id: authData.user.id,
       content: DEFAULT_EDITOR_CONTENT,
       content_text: defaultContentText,
     };
 
-    if (recurrenceConfig && recurrenceNextDate) {
-      payload.recurrence_frequency = recurrenceConfig.frequency;
-      payload.recurrence_interval = recurrenceConfig.interval;
-      payload.recurrence_weekdays = recurrenceConfig.weekdays;
-      payload.recurrence_month_day = recurrenceConfig.monthDay;
-      payload.recurrence_month_week = recurrenceConfig.monthWeek;
-      payload.recurrence_month_weekday = recurrenceConfig.monthWeekday;
-      payload.recurrence_start_date = recurrenceConfig.startDate;
-      payload.recurrence_end_date = recurrenceConfig.endDate;
-      payload.recurrence_lead_days = recurrenceLeadDays;
-      payload.recurrence_next_date = recurrenceNextDate;
-      payload.recurrence_timezone = recurrenceTimezone;
+    if (schedule.recurrenceConfig) {
+      payload.recurrence_frequency = schedule.recurrenceConfig.frequency;
+      payload.recurrence_interval = schedule.recurrenceConfig.interval;
+      payload.recurrence_weekdays = schedule.recurrenceConfig.weekdays;
+      payload.recurrence_month_day = schedule.recurrenceConfig.monthDay;
+      payload.recurrence_month_week = schedule.recurrenceConfig.monthWeek;
+      payload.recurrence_month_weekday = schedule.recurrenceConfig.monthWeekday;
+      payload.recurrence_start_date = schedule.recurrenceConfig.startDate;
+      payload.recurrence_end_date = schedule.recurrenceConfig.endDate;
+      payload.recurrence_lead_days = schedule.recurrenceLeadDays;
+      payload.recurrence_next_date = schedule.recurrenceNextDate;
+      payload.recurrence_timezone = schedule.recurrenceTimezone;
     }
 
-    if (startDate) {
-      payload.start_date = startDate;
+    if (schedule.startDate) {
+      payload.start_date = schedule.startDate;
     }
 
     const { error } = await supabase.from("tasks").insert(payload);
@@ -1265,7 +1221,6 @@ export default async function TasksPage(props: {
               ))}
             </select>
             <RecurrenceFields
-              className="md:col-span-6"
               initialFrequency={initialRecurrenceFrequency}
               initialDueTime={selectedTemplate?.due_time || undefined}
               initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}

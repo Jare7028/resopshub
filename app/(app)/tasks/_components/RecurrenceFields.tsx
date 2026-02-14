@@ -1,19 +1,44 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import MultiSelect from "@/app/(app)/_components/MultiSelect";
 
-const frequencyOptions = [
+const scheduleModeOptions = [
   { value: "once", label: "Once" },
+  { value: "recurring", label: "Recurring" },
+] as const;
+
+const recurrencePatternOptions = [
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
   { value: "monthly", label: "Monthly" },
   { value: "yearly", label: "Yearly" },
 ] as const;
 
-type FrequencyValue = (typeof frequencyOptions)[number]["value"];
+const weekdayOptions = [
+  { value: "1", label: "Mon" },
+  { value: "2", label: "Tue" },
+  { value: "3", label: "Wed" },
+  { value: "4", label: "Thu" },
+  { value: "5", label: "Fri" },
+  { value: "6", label: "Sat" },
+  { value: "0", label: "Sun" },
+] as const;
+
+const weekdayOrder = new Map<string, number>(
+  weekdayOptions.map((option, index) => [option.value, index])
+);
+
+const monthDayOptions = Array.from({ length: 31 }, (_, index) => {
+  const day = String(index + 1);
+  return { value: day, label: day };
+});
+
+type ScheduleMode = (typeof scheduleModeOptions)[number]["value"];
+type RecurrencePattern = (typeof recurrencePatternOptions)[number]["value"];
+type FrequencyValue = "once" | RecurrencePattern;
 
 type RecurrenceFieldsProps = {
-  className?: string;
   initialFrequency?: FrequencyValue;
   initialDueDate?: string;
   initialDueTime?: string;
@@ -21,8 +46,35 @@ type RecurrenceFieldsProps = {
   initialLeadDays?: number;
 };
 
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function normalizeTime(value: string) {
+  if (!value) return "09:00";
+  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) {
+    return value.slice(0, 5);
+  }
+  if (/^\d{2}:\d{2}$/.test(value)) {
+    return value;
+  }
+  return "09:00";
+}
+
+function weekdayFromDate(ymd: string) {
+  if (!isIsoDate(ymd)) return "1";
+  const date = new Date(`${ymd}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "1";
+  return String(date.getUTCDay());
+}
+
+function sortWeekdays(values: string[]) {
+  return Array.from(new Set(values))
+    .filter((value) => weekdayOrder.has(value))
+    .sort((a, b) => (weekdayOrder.get(a) || 0) - (weekdayOrder.get(b) || 0));
+}
+
 export default function RecurrenceFields({
-  className,
   initialFrequency = "once",
   initialDueDate,
   initialDueTime,
@@ -34,18 +86,68 @@ export default function RecurrenceFields({
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
     []
   );
+  const initialDate = useMemo(
+    () => (isIsoDate(initialStartDate || "") ? (initialStartDate as string) : today),
+    [initialStartDate, today]
+  );
+  const initialRecurrencePattern: RecurrencePattern =
+    initialFrequency === "daily" ||
+    initialFrequency === "weekly" ||
+    initialFrequency === "monthly" ||
+    initialFrequency === "yearly"
+      ? initialFrequency
+      : "weekly";
 
-  const [frequency, setFrequency] = useState<FrequencyValue>(initialFrequency);
-  const [dueDate, setDueDate] = useState(initialDueDate || today);
-  const [dueTime, setDueTime] = useState(initialDueTime || "09:00");
-  const [startDate, setStartDate] = useState(initialStartDate || "");
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(
+    initialFrequency === "once" ? "once" : "recurring"
+  );
+  const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>(
+    initialRecurrencePattern
+  );
+  const [dueDate, setDueDate] = useState(
+    isIsoDate(initialDueDate || "") ? (initialDueDate as string) : today
+  );
+  const [dueTime, setDueTime] = useState(normalizeTime(initialDueTime || ""));
+  const [recurrenceStartDate, setRecurrenceStartDate] = useState(initialDate);
+  const [recurrenceInterval, setRecurrenceInterval] = useState("1");
+  const [recurrenceEndMode, setRecurrenceEndMode] = useState<"never" | "on">("never");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
+  const [selectedWeekdays, setSelectedWeekdays] = useState<string[]>([
+    weekdayFromDate(initialDate),
+  ]);
+  const [recurrenceMonthDay, setRecurrenceMonthDay] = useState(
+    String(Number(initialDate.split("-")[2] || "1") || 1)
+  );
 
-  const summary = useMemo(() => {
+  useEffect(() => {
+    if (recurrencePattern !== "weekly") return;
+    if (selectedWeekdays.length) return;
+    setSelectedWeekdays([weekdayFromDate(recurrenceStartDate)]);
+  }, [recurrencePattern, recurrenceStartDate, selectedWeekdays.length]);
+
+  const normalizedInterval = useMemo(() => {
+    const parsed = Number.parseInt(recurrenceInterval, 10);
+    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    return parsed;
+  }, [recurrenceInterval]);
+
+  const normalizedMonthDay = useMemo(() => {
+    const parsed = Number.parseInt(recurrenceMonthDay, 10);
+    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    if (parsed > 31) return 31;
+    return parsed;
+  }, [recurrenceMonthDay]);
+
+  const onceSummary = useMemo(() => {
     if (!dueDate || !dueTime) {
-      return "Choose a deadline date and time.";
+      return "Set a due date and time.";
     }
 
     const dateTime = new Date(`${dueDate}T${dueTime}:00`);
+    if (Number.isNaN(dateTime.getTime())) {
+      return "Set a due date and time.";
+    }
+
     const dateLabel = dateTime.toLocaleDateString("en-US", {
       month: "long",
       day: "numeric",
@@ -55,110 +157,300 @@ export default function RecurrenceFields({
       hour: "numeric",
       minute: "2-digit",
     });
-    const weekdayLabel = dateTime.toLocaleDateString("en-US", { weekday: "long" });
+    return `Due ${dateLabel} at ${timeLabel}.`;
+  }, [dueDate, dueTime]);
 
-    if (frequency === "once") {
-      return `Due ${dateLabel} at ${timeLabel}.`;
+  const recurringSummary = useMemo(() => {
+    if (!recurrenceStartDate || !dueTime) {
+      return "Set start date, interval, and time.";
     }
 
-    if (frequency === "daily") {
-      return `Repeats daily at ${timeLabel} (${timeZone}).`;
+    const start = new Date(`${recurrenceStartDate}T${dueTime}:00`);
+    if (Number.isNaN(start.getTime())) {
+      return "Set start date, interval, and time.";
     }
 
-    if (frequency === "weekly") {
-      return `Repeats every ${weekdayLabel} at ${timeLabel} (${timeZone}).`;
+    const timeLabel = start.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const everyText = normalizedInterval === 1 ? "every" : `every ${normalizedInterval}`;
+
+    if (recurrencePattern === "daily") {
+      return `Repeats ${everyText} day(s) at ${timeLabel} (${timeZone}).`;
     }
 
-    if (frequency === "monthly") {
-      const dayOfMonth = Number(dueDate.split("-")[2]);
-      return `Repeats monthly on day ${dayOfMonth} at ${timeLabel} (${timeZone}).`;
+    if (recurrencePattern === "weekly") {
+      const dayLabels = sortWeekdays(selectedWeekdays)
+        .map((value) => weekdayOptions.find((option) => option.value === value)?.label || "")
+        .filter(Boolean);
+      const daysText = dayLabels.length ? dayLabels.join(", ") : "selected days";
+      return `Repeats ${everyText} week(s) on ${daysText} at ${timeLabel} (${timeZone}).`;
     }
 
-    return `Repeats yearly on ${dateTime.toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-    })} at ${timeLabel} (${timeZone}).`;
-  }, [dueDate, dueTime, frequency, timeZone]);
+    if (recurrencePattern === "monthly") {
+      return `Repeats ${everyText} month(s) on day ${normalizedMonthDay} at ${timeLabel} (${timeZone}).`;
+    }
+
+    const yearlyDateLabel = new Date(`${recurrenceStartDate}T00:00:00`)
+      .toLocaleDateString("en-US", { month: "long", day: "numeric" });
+    return `Repeats ${everyText} year(s) on ${yearlyDateLabel} at ${timeLabel} (${timeZone}).`;
+  }, [
+    dueTime,
+    normalizedInterval,
+    normalizedMonthDay,
+    recurrencePattern,
+    recurrenceStartDate,
+    selectedWeekdays,
+    timeZone,
+  ]);
+
+  const recurring = scheduleMode === "recurring";
 
   return (
-    <fieldset className={className}>
-      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="min-w-20 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Frequency
-          </span>
-          <div className="flex flex-wrap gap-2 rounded-md border border-slate-200 bg-white p-1">
-            {frequencyOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setFrequency(option.value)}
-                className={[
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition",
-                  frequency === option.value
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100",
-                ].join(" ")}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-6">
-          <div className="md:col-span-2">
-            <label className="text-xs font-semibold text-slate-500">Start date</label>
-            <input
-              type="date"
-              name="start_date"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="text-xs font-semibold text-slate-500">Due time</label>
-            <input
-              type="time"
-              name="due_time"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              value={dueTime}
-              onChange={(event) => setDueTime(event.target.value)}
-              required
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="text-xs font-semibold text-slate-500">Due date</label>
-            <input
-              type="date"
-              name="due_date"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              value={dueDate}
-              onChange={(event) => setDueDate(event.target.value)}
-              required
-            />
-          </div>
-        </div>
-
-        <p className="mt-3 text-xs text-slate-500">{summary}</p>
-
-        <input
-          type="hidden"
-          name="recurrence_frequency"
-          value={frequency === "once" ? "" : frequency}
-        />
-        <input type="hidden" name="recurrence_interval" value="1" />
-        <input
-          type="hidden"
-          name="recurrence_lead_days"
-          value={String(initialLeadDays || 7)}
-        />
-        <input type="hidden" name="recurrence_timezone" value={timeZone} />
+    <>
+      <div className="md:col-span-1">
+        <label className="text-xs font-semibold text-slate-500">Frequency</label>
+        <select
+          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+          value={scheduleMode}
+          onChange={(event) => setScheduleMode(event.target.value as ScheduleMode)}
+        >
+          {scheduleModeOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
-    </fieldset>
+
+      {recurring ? (
+        <div className="md:col-span-1">
+          <label className="text-xs font-semibold text-slate-500">Recurs</label>
+          <select
+            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+            value={recurrencePattern}
+            onChange={(event) =>
+              setRecurrencePattern(event.target.value as RecurrencePattern)
+            }
+          >
+            {recurrencePatternOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="hidden md:block md:col-span-1" aria-hidden="true" />
+      )}
+
+      <fieldset className="md:col-span-6">
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+          {recurring ? (
+            <div className="grid gap-3 md:grid-cols-6">
+              <div className="md:col-span-1">
+                <label className="text-xs font-semibold text-slate-500">Interval</label>
+                <input
+                  type="number"
+                  min={1}
+                  name="recurrence_interval_input"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  value={recurrenceInterval}
+                  onChange={(event) => setRecurrenceInterval(event.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-slate-500">Due time</label>
+                <input
+                  type="time"
+                  name="due_time"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  value={dueTime}
+                  onChange={(event) => setDueTime(event.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-slate-500">Start date</label>
+                <input
+                  type="date"
+                  name="recurrence_start_date_input"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  value={recurrenceStartDate}
+                  onChange={(event) => setRecurrenceStartDate(event.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-1">
+                <label className="text-xs font-semibold text-slate-500">End</label>
+                <select
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  value={recurrenceEndMode}
+                  onChange={(event) =>
+                    setRecurrenceEndMode(event.target.value as "never" | "on")
+                  }
+                >
+                  <option value="never">Never</option>
+                  <option value="on">On date</option>
+                </select>
+              </div>
+
+              {recurrencePattern === "weekly" ? (
+                <div className="md:col-span-4">
+                  <label className="text-xs font-semibold text-slate-500">On days</label>
+                  <div className="mt-1">
+                    <MultiSelect
+                      options={weekdayOptions}
+                      selectedValues={selectedWeekdays}
+                      placeholder="Select days"
+                      onChange={(next) => setSelectedWeekdays(sortWeekdays(next))}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {recurrencePattern === "monthly" ? (
+                <div className="md:col-span-2">
+                  <label className="text-xs font-semibold text-slate-500">
+                    Day of month
+                  </label>
+                  <select
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    value={recurrenceMonthDay}
+                    onChange={(event) => setRecurrenceMonthDay(event.target.value)}
+                  >
+                    {monthDayOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              {recurrenceEndMode === "on" ? (
+                <div className="md:col-span-2">
+                  <label className="text-xs font-semibold text-slate-500">End date</label>
+                  <input
+                    type="date"
+                    name="recurrence_end_date_input"
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    value={recurrenceEndDate}
+                    onChange={(event) => setRecurrenceEndDate(event.target.value)}
+                    required
+                  />
+                </div>
+              ) : null}
+
+              {recurrencePattern === "yearly" ? (
+                <div className="md:col-span-6 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                  Yearly recurrence uses the month/day from start date.
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-6">
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-slate-500">Due time</label>
+                <input
+                  type="time"
+                  name="due_time"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  value={dueTime}
+                  onChange={(event) => setDueTime(event.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-slate-500">Due date</label>
+                <input
+                  type="date"
+                  name="due_date"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  value={dueDate}
+                  onChange={(event) => setDueDate(event.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-slate-500">
+                  Start date (optional)
+                </label>
+                <input
+                  type="date"
+                  name="start_date"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  value={recurrenceStartDate}
+                  onChange={(event) => setRecurrenceStartDate(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <p className="mt-3 text-xs text-slate-500">
+            {recurring ? recurringSummary : onceSummary}
+          </p>
+
+          <input
+            type="hidden"
+            name="recurrence_frequency"
+            value={recurring ? recurrencePattern : ""}
+          />
+          <input
+            type="hidden"
+            name="recurrence_interval"
+            value={recurring ? String(normalizedInterval) : "1"}
+          />
+          <input
+            type="hidden"
+            name="recurrence_start_date"
+            value={recurring ? recurrenceStartDate : ""}
+          />
+          <input
+            type="hidden"
+            name="recurrence_end_mode"
+            value={recurring ? recurrenceEndMode : "never"}
+          />
+          <input
+            type="hidden"
+            name="recurrence_end_date"
+            value={recurring && recurrenceEndMode === "on" ? recurrenceEndDate : ""}
+          />
+          <input
+            type="hidden"
+            name="recurrence_month_day"
+            value={
+              recurring && recurrencePattern === "monthly"
+                ? String(normalizedMonthDay)
+                : ""
+            }
+          />
+          {recurring && recurrencePattern === "weekly"
+            ? sortWeekdays(selectedWeekdays).map((weekday) => (
+                <input
+                  key={weekday}
+                  type="hidden"
+                  name="recurrence_weekdays"
+                  value={weekday}
+                />
+              ))
+            : null}
+          <input
+            type="hidden"
+            name="recurrence_lead_days"
+            value={String(initialLeadDays || 7)}
+          />
+          <input type="hidden" name="recurrence_timezone" value={timeZone} />
+          {recurring ? <input type="hidden" name="due_date" value="" /> : null}
+        </div>
+      </fieldset>
+    </>
   );
 }
-
