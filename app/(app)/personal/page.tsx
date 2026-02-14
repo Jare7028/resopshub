@@ -63,8 +63,6 @@ export default async function PersonalHome(props: {
     tab?: string;
     section?: string | string[];
     filter?: string;
-    sort?: string;
-    q?: string;
     error?: string;
     share_mode?: string | string[];
     updated_from?: string;
@@ -82,8 +80,6 @@ export default async function PersonalHome(props: {
 
   const selectedSectionIds = parseCsvParam(searchParams?.section);
   const selectedFilter = (searchParams?.filter || "all").trim();
-  const selectedSort = (searchParams?.sort || "manual").trim();
-  const query = (searchParams?.q || "").trim();
   const activeTab = normalizePersonalTabKey(searchParams?.tab);
   const selectedShareModes = parseCsvParam(searchParams?.share_mode);
   const updatedFrom = (searchParams?.updated_from || "").trim();
@@ -93,12 +89,6 @@ export default async function PersonalHome(props: {
   setCsvParam(baseParams, "section", selectedSectionIds);
   if (selectedFilter !== "all") {
     baseParams.set("filter", selectedFilter);
-  }
-  if (selectedSort !== "manual") {
-    baseParams.set("sort", selectedSort);
-  }
-  if (query) {
-    baseParams.set("q", query);
   }
   setCsvParam(baseParams, "share_mode", selectedShareModes);
   if (updatedFrom) baseParams.set("updated_from", updatedFrom);
@@ -165,25 +155,13 @@ export default async function PersonalHome(props: {
   } else if (selectedFilter === "shared") {
     pagesRequest = pagesRequest.neq("share_mode", "private");
   }
-  if (query) {
-    pagesRequest = pagesRequest.ilike("title", `%${query}%`);
-  }
   if (updatedFrom) {
     pagesRequest = pagesRequest.gte("updated_at", updatedFrom);
   }
   if (updatedTo) {
     pagesRequest = pagesRequest.lte("updated_at", updatedTo);
   }
-  if (selectedSort === "title") {
-    pagesRequest = pagesRequest.order("title", { ascending: true });
-  } else if (selectedSort === "updated") {
-    pagesRequest = pagesRequest.order("updated_at", { ascending: false });
-  } else {
-    pagesRequest = pagesRequest
-      .order("section_id", { ascending: true, nullsFirst: true })
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
-  }
+  pagesRequest = pagesRequest.order("updated_at", { ascending: false });
   const { data: pagesRaw, error: pagesError } = await pagesRequest;
   if (pagesError && isMissingColumnError(pagesError)) {
     pageSortOrderColumnMissing = true;
@@ -200,20 +178,13 @@ export default async function PersonalHome(props: {
     } else if (selectedFilter === "shared") {
       fallbackPagesRequest = fallbackPagesRequest.neq("share_mode", "private");
     }
-    if (query) {
-      fallbackPagesRequest = fallbackPagesRequest.ilike("title", `%${query}%`);
-    }
     if (updatedFrom) {
       fallbackPagesRequest = fallbackPagesRequest.gte("updated_at", updatedFrom);
     }
     if (updatedTo) {
       fallbackPagesRequest = fallbackPagesRequest.lte("updated_at", updatedTo);
     }
-    if (selectedSort === "title") {
-      fallbackPagesRequest = fallbackPagesRequest.order("title", { ascending: true });
-    } else {
-      fallbackPagesRequest = fallbackPagesRequest.order("updated_at", { ascending: false });
-    }
+    fallbackPagesRequest = fallbackPagesRequest.order("updated_at", { ascending: false });
     const { data: fallbackPagesRaw } = await fallbackPagesRequest;
     pages = (fallbackPagesRaw || []) as typeof pages;
   } else {
@@ -1160,31 +1131,6 @@ export default async function PersonalHome(props: {
                 ) : null}
               </div>
             </details>
-          </div>
-          <div className="border-b border-slate-200 px-6 py-4">
-            <form className="grid gap-3 md:grid-cols-5">
-              <input
-                name="q"
-                placeholder="Search pages"
-                defaultValue={query}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-              <select
-                name="sort"
-                defaultValue={selectedSort}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="manual">Manual order</option>
-                <option value="updated">Recently updated</option>
-                <option value="title">Title</option>
-              </select>
-              <button
-                type="submit"
-                className="md:col-span-2 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-              >
-                Apply filters
-              </button>
-            </form>
           </div>
           <div className="overflow-x-auto">
             <PersonalPagesView

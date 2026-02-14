@@ -208,20 +208,21 @@ export default async function AppLayout({
 
   const { data: personalSections } = await supabase
     .from("personal_sections")
-    .select("id,title,sort_order")
+    .select("id,title,owner_id,sort_order")
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
 
   let personalPages: Array<{
     id: string;
     title: string;
+    owner_id: string;
     section_id: string | null;
     updated_at: string | null;
     sort_order?: number | null;
   }> = [];
   const { data: personalPagesWithSortRaw, error: personalPagesWithSortError } = await supabase
     .from("personal_pages")
-    .select("id,title,section_id,updated_at,sort_order")
+    .select("id,title,owner_id,section_id,updated_at,sort_order")
     .order("section_id", { ascending: true, nullsFirst: true })
     .order("sort_order", { ascending: true })
     .order("updated_at", { ascending: false });
@@ -229,7 +230,7 @@ export default async function AppLayout({
   if (personalPagesWithSortError && isMissingColumnError(personalPagesWithSortError)) {
     const { data: fallbackPagesRaw } = await supabase
       .from("personal_pages")
-      .select("id,title,section_id,updated_at")
+      .select("id,title,owner_id,section_id,updated_at")
       .order("updated_at", { ascending: false });
     personalPages = (fallbackPagesRaw || []) as typeof personalPages;
   } else if (!personalPagesWithSortError) {
@@ -316,6 +317,7 @@ export default async function AppLayout({
               ))}
             </div>
             <PersonalNavSections
+              currentUserId={user.id}
               sections={personalSections || []}
               pages={personalPages || []}
             />
