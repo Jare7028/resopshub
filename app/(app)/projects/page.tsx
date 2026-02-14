@@ -12,7 +12,15 @@ import {
   type StatusOptionRow,
 } from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
-import ProjectsTable from "./ProjectsTable";
+import ProjectsView, {
+  type ProjectSortDir,
+  type ProjectSortKey,
+} from "./ProjectsView";
+import ProjectsTabs, {
+  normalizeProjectsTabKey,
+  type ProjectsTabKey,
+} from "./_components/ProjectsTabs";
+import ProjectTemplateAutoSelect from "./_components/ProjectTemplateAutoSelect";
 
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const toProjectCode = (value: string) =>
@@ -50,14 +58,191 @@ function formatDbError(
   return parts.join(" | ");
 }
 
+const addProjectLabelClass =
+  "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const addProjectControlClass =
+  "mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200";
+const addProjectInlineControlClass =
+  "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200";
+const addProjectPanelClass =
+  "rounded-xl bg-slate-50/70 p-4 ring-1 ring-slate-100 md:p-5";
+const addProjectPanelTitleClass =
+  "text-xs font-semibold uppercase tracking-wide text-slate-500";
+
+function formatProjectStatusLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function normalizeProjectSortKey(value: string | null | undefined): ProjectSortKey {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "name" ||
+    normalized === "client" ||
+    normalized === "status" ||
+    normalized === "assignees" ||
+    normalized === "start" ||
+    normalized === "end" ||
+    normalized === "open_tasks" ||
+    normalized === "created"
+  ) {
+    return normalized;
+  }
+  return "created";
+}
+
+function normalizeProjectSortDir(value: string | null | undefined): ProjectSortDir {
+  return String(value || "").trim().toLowerCase() === "asc" ? "asc" : "desc";
+}
+
+function sortProjectsForDisplay(args: {
+  projects: Array<{
+    id: string;
+    name: string;
+    status: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    created_at: string | null;
+    client_id: string | null;
+    clients?: { name?: string | null } | { name?: string | null }[] | null;
+  }>;
+  users: Array<{ id: string; full_name: string | null; email: string | null }>;
+  assigneesByProject: Record<string, string[]>;
+  openTaskCountByProjectId: Record<string, number>;
+  sortKey: ProjectSortKey;
+  sortDir: ProjectSortDir;
+}) {
+  const usersById = args.users.reduce<Record<string, string>>((acc, user) => {
+    acc[user.id] = user.full_name || user.email || "";
+    return acc;
+  }, {});
+
+  const getClientName = (
+    relation:
+      | { name?: string | null }
+      | { name?: string | null }[]
+      | null
+      | undefined
+  ) => {
+    if (Array.isArray(relation)) return relation[0]?.name || "";
+    return relation?.name || "";
+  };
+
+  const getAssigneeLabel = (projectId: string) => {
+    const assigneeIds = args.assigneesByProject[projectId] || [];
+    if (!assigneeIds.length) return "";
+    const labels = assigneeIds.map((id) => usersById[id] || "").filter(Boolean);
+    return labels.join(", ");
+  };
+
+  const toTime = (value: string | null | undefined) =>
+    value ? new Date(value).getTime() || 0 : 0;
+
+  const rows = [...args.projects];
+  rows.sort((a, b) => {
+    let aValue: string | number = "";
+    let bValue: string | number = "";
+
+    switch (args.sortKey) {
+      case "name":
+        aValue = a.name.toLowerCase();
+        bValue = b.name.toLowerCase();
+        break;
+      case "client":
+        aValue = getClientName(a.clients).toLowerCase();
+        bValue = getClientName(b.clients).toLowerCase();
+        break;
+      case "status":
+        aValue = String(a.status || "").toLowerCase();
+        bValue = String(b.status || "").toLowerCase();
+        break;
+      case "assignees":
+        aValue = getAssigneeLabel(a.id).toLowerCase();
+        bValue = getAssigneeLabel(b.id).toLowerCase();
+        break;
+      case "start":
+        aValue = toTime(a.start_date);
+        bValue = toTime(b.start_date);
+        break;
+      case "end":
+        aValue = toTime(a.end_date);
+        bValue = toTime(b.end_date);
+        break;
+      case "open_tasks":
+        aValue = args.openTaskCountByProjectId[a.id] || 0;
+        bValue = args.openTaskCountByProjectId[b.id] || 0;
+        break;
+      case "created":
+      default:
+        aValue = toTime(a.created_at);
+        bValue = toTime(b.created_at);
+        break;
+    }
+
+    if (typeof aValue === "number" && typeof bValue === "number") {
+      return args.sortDir === "asc" ? aValue - bValue : bValue - aValue;
+    }
+
+    const textA = String(aValue || "");
+    const textB = String(bValue || "");
+    const compare = textA.localeCompare(textB);
+    return args.sortDir === "asc" ? compare : -compare;
+  });
+
+  return rows;
+}
+
+function buildProjectsRedirectUrl(
+  baseUrl: string,
+  params: {
+    tab?: "list" | "add";
+    error?: string;
+    success?: string;
+    createMode?: "new" | "template";
+    templateProjectId?: string;
+  }
+) {
+  const [path, queryString = ""] = baseUrl.split("?");
+  const sp = new URLSearchParams(queryString);
+
+  if (params.tab && params.tab !== "list") sp.set("tab", params.tab);
+  else sp.delete("tab");
+
+  if (params.error) sp.set("error", params.error);
+  else sp.delete("error");
+
+  if (params.success) sp.set("success", params.success);
+  else sp.delete("success");
+
+  if (params.createMode === "template") sp.set("create_mode", "template");
+  else if (params.createMode === "new") sp.delete("create_mode");
+
+  if (params.templateProjectId) sp.set("template_project_id", params.templateProjectId);
+  else if (typeof params.templateProjectId !== "undefined") sp.delete("template_project_id");
+
+  const qs = sp.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
 export default async function ProjectsPage(props: {
   searchParams?: Promise<{
+    tab?: string;
     client?: string | string[];
     status?: string | string[];
+    assignee?: string | string[];
     hide?: string;
+    watch?: string;
+    sort?: string;
+    dir?: string;
+    view?: string;
     create_mode?: string;
     template_project_id?: string;
     error?: string;
+    success?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -73,10 +258,19 @@ export default async function ProjectsPage(props: {
     .eq("email", authEmail)
     .maybeSingle();
   const currentUserId = currentUser?.id;
-  const isAdmin = currentUser?.role === "admin";
+  const selectedViewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const selectedView: "table" | "gantt" | "board" =
+    selectedViewRaw === "gantt" || selectedViewRaw === "board" || selectedViewRaw === "table"
+      ? (selectedViewRaw as "table" | "gantt" | "board")
+      : "table";
+  const selectedSortKey = normalizeProjectSortKey(searchParams?.sort);
+  const selectedSortDir = normalizeProjectSortDir(searchParams?.dir);
+  const activeTab = normalizeProjectsTabKey(searchParams?.tab);
   const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
   const selectedStatusesRaw = parseCsvParam(searchParams?.status);
+  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const includeWatching = (searchParams?.watch ?? "0").trim() === "1";
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
     .toLowerCase();
@@ -85,12 +279,14 @@ export default async function ProjectsPage(props: {
   const templateProjectId = String(searchParams?.template_project_id || "").trim();
   const returnParams = new URLSearchParams();
 
-  returnParams.set("hide", hideCompleted ? "1" : "0");
-
   const { data: clients } = await supabase
     .from("clients")
     .select("id,name")
     .order("name", { ascending: true });
+  const { data: users } = await supabase
+    .from("users")
+    .select("id,full_name,email")
+    .order("full_name", { ascending: true });
 
   const { data: statusOptionsRaw } = await supabase
     .from("status_options")
@@ -109,30 +305,117 @@ export default async function ProjectsPage(props: {
   const selectedStatuses = selectedStatusesRaw.filter((value) =>
     projectStatusOptions.includes(value)
   );
+  const userIdSet = new Set((users || []).map((user) => user.id));
+  const selectedAssignees = selectedAssigneesRaw.filter(
+    (value) => value === "unassigned" || userIdSet.has(value)
+  );
 
+  returnParams.set("hide", hideCompleted ? "1" : "0");
+  if (includeWatching) returnParams.set("watch", "1");
+  returnParams.set("sort", selectedSortKey);
+  returnParams.set("dir", selectedSortDir);
+  if (selectedView !== "table") returnParams.set("view", selectedView);
   setCsvParam(returnParams, "client", selectedClientIds);
   setCsvParam(returnParams, "status", selectedStatuses);
+  setCsvParam(returnParams, "assignee", selectedAssignees);
 
   const returnTo = returnParams.toString() ? `/projects?${returnParams}` : "/projects";
   const toggleParams = new URLSearchParams(returnParams);
   toggleParams.set("hide", hideCompleted ? "0" : "1");
   const toggleUrl = toggleParams.toString() ? `/projects?${toggleParams}` : "/projects";
+  const watchToggleParams = new URLSearchParams(returnParams);
+  if (includeWatching) watchToggleParams.delete("watch");
+  else watchToggleParams.set("watch", "1");
+  const watchToggleUrl = watchToggleParams.toString() ? `/projects?${watchToggleParams}` : "/projects";
+
+  const buildProjectsUrl = (
+    tab: ProjectsTabKey,
+    params?: { error?: string; success?: string }
+  ) => {
+    const sp = new URLSearchParams(returnParams);
+    if (tab !== "list") sp.set("tab", tab);
+    if (params?.error) sp.set("error", params.error);
+    if (params?.success) sp.set("success", params.success);
+    const qs = sp.toString();
+    return qs ? `/projects?${qs}` : "/projects";
+  };
+
+  const buildAddProjectUrl = (
+    mode: "new" | "template",
+    templateId?: string
+  ) => {
+    const sp = new URLSearchParams(returnParams);
+    sp.set("tab", "add");
+    if (mode === "template") {
+      sp.set("create_mode", "template");
+      if (templateId) sp.set("template_project_id", templateId);
+      else sp.delete("template_project_id");
+    } else {
+      sp.delete("create_mode");
+      sp.delete("template_project_id");
+    }
+    const qs = sp.toString();
+    return qs ? `/projects?${qs}` : "/projects?tab=add";
+  };
+
+  const projectsTabUrls: Record<ProjectsTabKey, string> = {
+    list: buildProjectsUrl("list"),
+    add: buildProjectsUrl("add"),
+  };
+  const addProjectModeUrls = {
+    new: buildAddProjectUrl("new"),
+    template: buildAddProjectUrl("template", templateProjectId || undefined),
+  };
+
+  let assignedProjectIds: string[] = [];
+  let watchedProjectIds: string[] = [];
+  let createdProjectIds: string[] = [];
+
+  if (currentUserId) {
+    const [{ data: assignedRows }, { data: watcherRows }, { data: createdRows }] =
+      await Promise.all([
+        supabase.from("project_users").select("project_id").eq("user_id", currentUserId),
+        includeWatching
+          ? supabase
+              .from("project_watchers")
+              .select("project_id")
+              .eq("user_id", currentUserId)
+          : Promise.resolve({ data: [] as Array<{ project_id: string | null }> }),
+        supabase.from("projects").select("id").eq("created_by_user_id", currentUserId),
+      ]);
+
+    assignedProjectIds = (assignedRows || [])
+      .map((row) => row.project_id)
+      .filter(Boolean) as string[];
+    watchedProjectIds = (watcherRows || [])
+      .map((row) => row.project_id)
+      .filter(Boolean) as string[];
+    createdProjectIds = (createdRows || [])
+      .map((row) => row.id)
+      .filter(Boolean) as string[];
+  }
+
+  const allowedProjectIds = Array.from(
+    new Set([
+      ...assignedProjectIds,
+      ...watchedProjectIds,
+      ...createdProjectIds,
+    ])
+  );
 
   let request = supabase
     .from("projects")
-    .select("id,name,status,start_date,end_date,client_id,clients(name)")
+    .select("id,name,status,start_date,end_date,created_at,client_id,clients(name)")
     .order("created_at", { ascending: false });
 
-  if (selectedClientIds.length) {
-    request = request.in("client_id", selectedClientIds);
+  if (allowedProjectIds.length) {
+    request = request.in("id", allowedProjectIds);
+  } else {
+    request = request.eq("id", "00000000-0000-0000-0000-000000000000");
   }
-
-  if (selectedStatuses.length) {
-    request = request.in("status", selectedStatuses);
-  }
-  if (hideCompleted) {
-    request = request.not("status", "in", "(completed,cancelled)");
-  }
+  if (selectedClientIds.length) request = request.in("client_id", selectedClientIds);
+  if (selectedStatuses.length) request = request.in("status", selectedStatuses);
+  if (hideCompleted) request = request.not("status", "in", "(completed,cancelled)");
 
   let projects: Array<{
     id: string;
@@ -140,31 +423,24 @@ export default async function ProjectsPage(props: {
     status: string | null;
     start_date: string | null;
     end_date: string | null;
+    created_at: string | null;
     client_id: string | null;
     clients?: { name?: string | null } | { name?: string | null }[] | null;
   }> = [];
+  const { data: projectsRaw } = await request;
+  projects = (projectsRaw || []) as typeof projects;
 
-  if (isAdmin) {
-    const { data } = await request;
-    projects = data || [];
-  } else {
-    if (!currentUserId) {
-      projects = [];
-    } else {
-    const { data: assignments } = await supabase
+  const assigneesByProject: Record<string, string[]> = {};
+  const projectIds = projects.map((project) => project.id).filter(Boolean) as string[];
+  if (projectIds.length) {
+    const { data: assigneeRows } = await supabase
       .from("project_users")
-      .select("project_id")
-      .eq("user_id", currentUserId);
-    const assignedIds = (assignments || [])
-      .map((assignment) => assignment.project_id)
-      .filter(Boolean) as string[];
-    if (assignedIds.length) {
-      const { data } = await request.in("id", assignedIds);
-      projects = data || [];
-    } else {
-      projects = [];
-    }
-    }
+      .select("project_id,user_id")
+      .in("project_id", projectIds);
+    (assigneeRows || []).forEach((row) => {
+      if (!assigneesByProject[row.project_id]) assigneesByProject[row.project_id] = [];
+      assigneesByProject[row.project_id].push(row.user_id);
+    });
   }
 
   const openTaskCountByProjectId: Record<string, number> = {};
@@ -191,6 +467,29 @@ export default async function ProjectsPage(props: {
     }
   }
 
+  if (selectedAssignees.length) {
+    const selectedSet = new Set(selectedAssignees);
+    projects = projects.filter((project) => {
+      const assigneeIds = assigneesByProject[project.id] || [];
+      const hasUnassigned = assigneeIds.length === 0 && selectedSet.has("unassigned");
+      const hasAssignedMatch = assigneeIds.some((id) => selectedSet.has(id));
+      return hasUnassigned || hasAssignedMatch;
+    });
+  }
+
+  projects = sortProjectsForDisplay({
+    projects,
+    users: (users || []) as Array<{
+      id: string;
+      full_name: string | null;
+      email: string | null;
+    }>,
+    assigneesByProject,
+    openTaskCountByProjectId,
+    sortKey: selectedSortKey,
+    sortDir: selectedSortDir,
+  });
+
   type ProjectTemplateRow = {
     id: string;
     name: string;
@@ -204,6 +503,10 @@ export default async function ProjectsPage(props: {
     .order("name", { ascending: true });
 
   const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
+  const templateOptions = projectTemplates.map((template) => ({
+    id: template.id,
+    name: template.name,
+  }));
   const selectedTemplate =
     createMode === "template" && templateProjectId
       ? projectTemplates.find((tpl) => tpl.id === templateProjectId) || null
@@ -237,10 +540,9 @@ export default async function ProjectsPage(props: {
     const updates: Record<string, string | null> = {};
 
     if (!projectId) {
-      const errorUrl = returnTo.includes("?")
-        ? `${returnTo}&error=Missing%20project%20id`
-        : `${returnTo}?error=Missing%20project%20id`;
-      redirect(errorUrl);
+      redirect(
+        buildProjectsRedirectUrl(returnTo, { error: "Missing project id" })
+      );
     }
 
     if (formData.has("client_id")) {
@@ -266,10 +568,9 @@ export default async function ProjectsPage(props: {
     const { error } = await supabase.from("projects").update(updates).eq("id", projectId);
 
     if (error) {
-      const errorUrl = returnTo.includes("?")
-        ? `${returnTo}&error=${encodeURIComponent(error.message)}`
-        : `${returnTo}?error=${encodeURIComponent(error.message)}`;
-      redirect(errorUrl);
+      redirect(
+        buildProjectsRedirectUrl(returnTo, { error: error.message })
+      );
     }
 
     revalidatePath("/projects");
@@ -290,6 +591,19 @@ export default async function ProjectsPage(props: {
     const startDate = String(formData.get("start_date") || "");
     const endDate = String(formData.get("end_date") || "");
     const templateProjectIdFromForm = String(formData.get("template_project_id") || "").trim();
+    const createModeFromForm: "new" | "template" = templateProjectIdFromForm
+      ? "template"
+      : "new";
+    const redirectCreateError = (message: string) => {
+      redirect(
+        buildProjectsRedirectUrl(returnTo, {
+          tab: "add",
+          error: message,
+          createMode: createModeFromForm,
+          templateProjectId: templateProjectIdFromForm || undefined,
+        })
+      );
+    };
 
     const cloneTemplateCustomFields = async (
       templateEntityType: "task_template" | "project_template",
@@ -423,7 +737,7 @@ export default async function ProjectsPage(props: {
     };
 
     if (!name) {
-      redirect(`/projects?error=Name%20is%20required`);
+      redirectCreateError("Name is required");
     }
 
     const code = await ensureUniqueProjectCode(toProjectCode(name));
@@ -443,7 +757,7 @@ export default async function ProjectsPage(props: {
       .single();
 
     if (error) {
-      redirect(`/projects?error=${encodeURIComponent(error.message)}`);
+      redirectCreateError(error.message);
     }
 
     if (created?.id && currentUserId) {
@@ -462,7 +776,7 @@ export default async function ProjectsPage(props: {
           created.id
         );
       } catch (error) {
-        redirect(`/projects?error=${encodeURIComponent(String((error as Error).message || error))}`);
+        redirectCreateError(String((error as Error).message || error));
       }
     }
 
@@ -474,7 +788,7 @@ export default async function ProjectsPage(props: {
         .order("position", { ascending: true });
 
       if (linksError && !isSupabaseMissingTableError(linksError)) {
-        redirect(`/projects?error=${encodeURIComponent(linksError.message)}`);
+        redirectCreateError(linksError.message);
       }
 
       const links = (linksError ? [] : linksRaw || []) as Array<{
@@ -493,7 +807,7 @@ export default async function ProjectsPage(props: {
           .in("id", templateTaskIds);
 
         if (templateTasksError) {
-          redirect(`/projects?error=${encodeURIComponent(templateTasksError.message)}`);
+          redirectCreateError(templateTasksError.message);
         }
 
         const templateTasks = (templateTasksRaw || []) as Array<{
@@ -515,7 +829,7 @@ export default async function ProjectsPage(props: {
           .select("task_template_id,user_id")
           .in("task_template_id", templateTaskIds);
         if (templateAssigneesError && !isSupabaseMissingTableError(templateAssigneesError)) {
-          redirect(`/projects?error=${encodeURIComponent(templateAssigneesError.message)}`);
+          redirectCreateError(templateAssigneesError.message);
         }
         const assigneeIdsByTemplateId = ((templateAssigneesError
           ? []
@@ -551,10 +865,8 @@ export default async function ProjectsPage(props: {
             .single();
 
           if (taskError) {
-            redirect(
-              `/projects?error=${encodeURIComponent(
-                formatDbError("projects.createProject.templateTask.tasks.insert", taskError)
-              )}`
+            redirectCreateError(
+              formatDbError("projects.createProject.templateTask.tasks.insert", taskError)
             );
           }
 
@@ -563,7 +875,7 @@ export default async function ProjectsPage(props: {
           try {
             await cloneTemplateCustomFields("task_template", tpl.id, "task", parentTaskId);
           } catch (error) {
-            redirect(`/projects?error=${encodeURIComponent(String((error as Error).message || error))}`);
+            redirectCreateError(String((error as Error).message || error));
           }
           if (assigneeIds.length) {
             const { error: parentAssigneesError } = await supabase
@@ -575,7 +887,7 @@ export default async function ProjectsPage(props: {
                 }))
               );
             if (parentAssigneesError) {
-              redirect(`/projects?error=${encodeURIComponent(parentAssigneesError.message)}`);
+              redirectCreateError(parentAssigneesError.message);
             }
           }
 
@@ -586,7 +898,7 @@ export default async function ProjectsPage(props: {
             .order("position", { ascending: true });
 
           if (subtaskTemplatesError && !isSupabaseMissingTableError(subtaskTemplatesError)) {
-            redirect(`/projects?error=${encodeURIComponent(subtaskTemplatesError.message)}`);
+            redirectCreateError(subtaskTemplatesError.message);
           }
 
           const subtaskTemplates = (subtaskTemplatesError
@@ -616,7 +928,7 @@ export default async function ProjectsPage(props: {
               subtaskTemplateAssigneesError &&
               !isSupabaseMissingTableError(subtaskTemplateAssigneesError)
             ) {
-              redirect(`/projects?error=${encodeURIComponent(subtaskTemplateAssigneesError.message)}`);
+              redirectCreateError(subtaskTemplateAssigneesError.message);
             }
             const assigneeIdsBySubtaskTemplateId = (
               (subtaskTemplateAssigneesError ? [] : subtaskTemplateAssigneesRaw || []) as Array<{
@@ -657,13 +969,11 @@ export default async function ProjectsPage(props: {
               .insert(subtaskPlans.map((plan) => plan.payload))
               .select("id");
             if (subtaskInsertError) {
-              redirect(
-                `/projects?error=${encodeURIComponent(
-                  formatDbError(
-                    "projects.createProject.templateSubtasks.tasks.insert",
-                    subtaskInsertError
-                  )
-                )}`
+              redirectCreateError(
+                formatDbError(
+                  "projects.createProject.templateSubtasks.tasks.insert",
+                  subtaskInsertError
+                )
               );
             }
             const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
@@ -677,7 +987,7 @@ export default async function ProjectsPage(props: {
                 .from("task_assignees")
                 .insert(subtaskAssigneeInserts);
               if (subtaskAssigneesError) {
-                redirect(`/projects?error=${encodeURIComponent(subtaskAssigneesError.message)}`);
+                redirectCreateError(subtaskAssigneesError.message);
               }
             }
           }
@@ -687,7 +997,7 @@ export default async function ProjectsPage(props: {
 
     revalidatePath("/projects");
     revalidatePath("/tasks");
-    redirect("/projects");
+    redirect(buildProjectsRedirectUrl(returnTo, { success: "Project created" }));
   }
 
   return (
@@ -695,205 +1005,230 @@ export default async function ProjectsPage(props: {
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold text-slate-900">Projects</h1>
         <p className="text-sm text-slate-600">
-          View all projects across clients. Create projects with or without a client.
+          Review projects across clients and teams.
         </p>
       </section>
 
-      {searchParams?.error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-          {searchParams.error}
-        </p>
+      {(searchParams?.error || searchParams?.success) && (
+        <div className="space-y-2">
+          {searchParams?.error ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+              {searchParams.error}
+            </p>
+          ) : null}
+          {searchParams?.success ? (
+            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+              {searchParams.success}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      <ProjectsTabs active={activeTab} urls={projectsTabUrls} />
+
+      {activeTab === "add" ? (
+        <div className="fixed inset-0 z-50">
+          <Link
+            href={projectsTabUrls.list}
+            aria-label="Close add project dialog"
+            className="absolute inset-0 block bg-slate-900/35 backdrop-blur-[2px]"
+          />
+          <div className="relative z-10 flex min-h-full items-start justify-center overflow-y-auto p-4 pb-8 pt-8 sm:p-6 lg:p-10">
+            <section className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)]">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Add project</h2>
+                <Link
+                  href={projectsTabUrls.list}
+                  className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Close
+                </Link>
+              </div>
+              <div className="px-6 pb-6">
+                <div className="w-full">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Link
+                        href={addProjectModeUrls.new}
+                        className={`rounded-md px-3 py-1.5 font-medium ${
+                          createMode === "new"
+                            ? "tab-active"
+                            : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        New project
+                      </Link>
+                      <Link
+                        href={
+                          templateProjectId
+                            ? buildAddProjectUrl("template", templateProjectId)
+                            : addProjectModeUrls.template
+                        }
+                        className={`rounded-md px-3 py-1.5 font-medium ${
+                          createMode === "template"
+                            ? "tab-active"
+                            : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        Choose from template
+                      </Link>
+                    </div>
+
+                    {createMode === "template" ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <ProjectTemplateAutoSelect
+                          templates={templateOptions}
+                          selectedTemplateId={selectedTemplate?.id || ""}
+                          preservedQuery={returnParams.toString()}
+                          disabled={Boolean(projectTemplatesError)}
+                          className={`min-w-[16rem] ${addProjectInlineControlClass}`}
+                        />
+                        <Link
+                          href="/settings?tab=templates&templates=projects"
+                          className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                        >
+                          Manage templates
+                        </Link>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {createMode === "template" && projectTemplatesError ? (
+                    <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                      Templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor,
+                      then refresh this page.
+                    </p>
+                  ) : null}
+
+                  {createMode === "template" && !selectedTemplate && !projectTemplatesError ? (
+                    <div className="mt-5 rounded-xl bg-slate-50/70 px-4 py-6 text-sm text-slate-600 ring-1 ring-slate-100">
+                      Select a template to load project details.
+                    </div>
+                  ) : (
+                    <form action={createProject} className="mt-5 grid gap-5 md:grid-cols-6">
+                      {createMode === "template" && selectedTemplate ? (
+                        <>
+                          <input type="hidden" name="create_mode" value="template" />
+                          <input
+                            type="hidden"
+                            name="template_project_id"
+                            value={selectedTemplate.id}
+                          />
+                        </>
+                      ) : null}
+
+                      <div className={`md:col-span-6 ${addProjectPanelClass}`}>
+                        <p className={addProjectPanelTitleClass}>Project details</p>
+                        {createMode === "template" && selectedTemplate ? (
+                          <div className="mt-2 text-xs text-slate-600">
+                            {selectedTemplateTaskPreviewError ? (
+                              <span className="text-amber-800">{selectedTemplateTaskPreviewError}</span>
+                            ) : (
+                              <span>
+                                Template creates {selectedTemplateTaskTemplateCount ?? 0} task
+                                {(selectedTemplateTaskTemplateCount ?? 0) === 1 ? "" : "s"}.
+                              </span>
+                            )}
+                          </div>
+                        ) : null}
+                        <div className="mt-3 grid gap-4 md:grid-cols-6">
+                          <div className="md:col-span-3">
+                            <label className={addProjectLabelClass}>Name</label>
+                            <input
+                              name="name"
+                              placeholder="Project name"
+                              className={addProjectControlClass}
+                              defaultValue={selectedTemplate?.name || ""}
+                              required
+                            />
+                          </div>
+                          <div className="md:col-span-3">
+                            <label className={addProjectLabelClass}>Client</label>
+                            <select
+                              name="client_id"
+                              className={addProjectControlClass}
+                              defaultValue=""
+                            >
+                              <option value="">No client</option>
+                              {clients?.map((client) => (
+                                <option key={client.id} value={client.id}>
+                                  {client.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className={addProjectLabelClass}>Status</label>
+                            <select
+                              name="status"
+                              className={addProjectControlClass}
+                              defaultValue={selectedTemplate?.status || "planned"}
+                            >
+                              {projectStatusOptions.map((status) => (
+                                <option key={status} value={status}>
+                                  {formatProjectStatusLabel(status)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className={addProjectLabelClass}>Start date</label>
+                            <input
+                              type="date"
+                              name="start_date"
+                              className={addProjectControlClass}
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className={addProjectLabelClass}>End date</label>
+                            <input
+                              type="date"
+                              name="end_date"
+                              className={addProjectControlClass}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-6 flex justify-end">
+                        <button
+                          type="submit"
+                          className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+                        >
+                          {createMode === "template" && selectedTemplate
+                            ? "Create project from template"
+                            : "Create project"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Add project</h2>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2 text-sm">
-            <Link
-              href={returnTo}
-              className={`rounded-md px-3 py-1.5 font-medium ${
-                createMode === "new"
-                  ? "tab-active"
-                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-            >
-              New project
-            </Link>
-            <Link
-              href={
-                templateProjectId
-                  ? `${returnTo}${returnTo.includes("?") ? "&" : "?"}create_mode=template&template_project_id=${encodeURIComponent(
-                      templateProjectId
-                    )}`
-                  : `${returnTo}${returnTo.includes("?") ? "&" : "?"}create_mode=template`
-              }
-              className={`rounded-md px-3 py-1.5 font-medium ${
-                createMode === "template"
-                  ? "tab-active"
-                  : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-            >
-              Choose from template
-            </Link>
-          </div>
-
-          {createMode === "template" ? (
-            <form method="get" action="/projects" className="flex flex-wrap items-center gap-2">
-              {Array.from(returnParams.entries()).map(([key, value]) => (
-                <input key={key} type="hidden" name={key} value={value} />
-              ))}
-              <input type="hidden" name="create_mode" value="template" />
-              <select
-                name="template_project_id"
-                defaultValue={templateProjectId || ""}
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                disabled={Boolean(projectTemplatesError)}
-              >
-                <option value="">Select a template</option>
-                {projectTemplates.map((tpl) => (
-                  <option key={tpl.id} value={tpl.id}>
-                    {tpl.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                disabled={Boolean(projectTemplatesError)}
-              >
-                Select template
-              </button>
-              <Link
-                href="/settings?tab=templates&templates=projects"
-                className="text-sm font-semibold text-slate-700 hover:text-slate-900"
-              >
-                Manage templates
-              </Link>
-            </form>
-          ) : null}
-        </div>
-
-        {createMode === "template" && projectTemplatesError ? (
-          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-            Templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor,
-            then refresh this page.
-          </p>
-        ) : null}
-        {createMode === "template" && !projectTemplatesError ? (
-          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-            {selectedTemplate ? (
-              <>
-                <div className="font-semibold text-slate-900">
-                  Template selected: {selectedTemplate.name}
-                </div>
-                {selectedTemplate.description ? (
-                  <div className="mt-1 text-slate-700">{selectedTemplate.description}</div>
-                ) : null}
-                {selectedTemplateTaskPreviewError ? (
-                  <div className="mt-2 text-amber-900">{selectedTemplateTaskPreviewError}</div>
-                ) : (
-                  <div className="mt-2 text-slate-700">
-                    This template will create{" "}
-                    <span className="font-semibold text-slate-900">
-                      {selectedTemplateTaskTemplateCount ?? 0}
-                    </span>{" "}
-                    task{(selectedTemplateTaskTemplateCount ?? 0) === 1 ? "" : "s"} in the new
-                    project.
-                  </div>
-                )}
-                <div className="mt-2 text-slate-700">
-                  Next: enter a project name below, then click{" "}
-                  <span className="font-semibold text-slate-900">Create project from template</span>
-                  .
-                </div>
-              </>
-            ) : (
-              <div className="text-slate-700">
-                Step 1: Select a template above and click{" "}
-                <span className="font-semibold text-slate-900">Select template</span>. Step 2: Enter
-                a project name below, then click{" "}
-                <span className="font-semibold text-slate-900">Create project</span>.
-              </div>
-            )}
-          </div>
-        ) : null}
-        <form action={createProject} className="mt-4 grid gap-4 md:grid-cols-5">
-          {createMode === "template" && templateProjectId ? (
-            <>
-              <input type="hidden" name="create_mode" value="template" />
-              <input type="hidden" name="template_project_id" value={templateProjectId} />
-            </>
-          ) : null}
-          <input
-            name="name"
-            placeholder="Project name"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm md:col-span-2"
-            defaultValue={selectedTemplate?.name || ""}
-            required
-          />
-          <select
-            name="client_id"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue=""
-          >
-            <option value="">No client</option>
-            {clients?.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-          <select
-            name="status"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue={selectedTemplate?.status || "planned"}
-          >
-            {projectStatusOptions.map((status) => (
-              <option key={status} value={status}>
-                {status.replace("_", " ")}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            name="start_date"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            name="end_date"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-          >
-            {createMode === "template" && templateProjectId
-              ? "Create project from template"
-              : "Create project"}
-          </button>
-        </form>
-      </section>
-
       <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
-          <a
-            href={toggleUrl}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-          >
-            {hideCompleted
-              ? "Show completed & cancelled"
-              : "Hide completed & cancelled"}
-          </a>
-        </div>
-        <ProjectsTable
+        <ProjectsView
           projects={projects || []}
+          users={users || []}
           clients={clients || []}
-          statusOptions={projectStatusOptions}
-          initialFilters={{ client: selectedClientIds, status: selectedStatuses }}
-          hideCompleted={hideCompleted}
+          assigneesByProject={assigneesByProject}
           openTaskCountByProjectId={openTaskCountByProjectId}
+          statusOptions={projectStatusOptions}
+          initialView={selectedView}
+          initialFilters={{
+            client: selectedClientIds,
+            status: selectedStatuses,
+            assignee: selectedAssignees,
+          }}
+          hideCompleted={hideCompleted}
+          toggleUrl={toggleUrl}
+          includeWatching={includeWatching}
+          watchToggleUrl={watchToggleUrl}
+          sortKey={selectedSortKey}
+          sortDir={selectedSortDir}
           onUpdate={updateProjectInline}
         />
       </section>
