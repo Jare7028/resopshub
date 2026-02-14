@@ -8,6 +8,9 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import Underline from "@tiptap/extension-underline";
+import { FontSize, TextStyle } from "@tiptap/extension-text-style";
+import FontFamily from "@tiptap/extension-font-family";
+import TextAlign from "@tiptap/extension-text-align";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
@@ -165,6 +168,39 @@ const TABLE_COLUMN_TYPES = [
 
 type TableColumnType = (typeof TABLE_COLUMN_TYPES)[number]["id"];
 
+const WORD_FONT_OPTIONS = [
+  { value: "", label: "Default font" },
+  { value: "Arial", label: "Arial" },
+  { value: "Verdana", label: "Verdana" },
+  { value: "Georgia", label: "Georgia" },
+  { value: "Times New Roman", label: "Times New Roman" },
+  { value: "Courier New", label: "Courier New" },
+] as const;
+
+const WORD_FONT_SIZE_OPTIONS = [
+  { value: "", label: "Default size" },
+  { value: "12px", label: "12" },
+  { value: "14px", label: "14" },
+  { value: "16px", label: "16" },
+  { value: "18px", label: "18" },
+  { value: "24px", label: "24" },
+  { value: "32px", label: "32" },
+] as const;
+
+type WordTextAlign = "left" | "center" | "right" | "justify";
+type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
+
+type CopiedFormatSnapshot = {
+  blockStyle: WordBlockStyle;
+  textAlign: WordTextAlign;
+  fontFamily: string;
+  fontSize: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  highlight: boolean;
+};
+
 function getActiveTableColumnType(editor: Editor | null | undefined): TableColumnType {
   if (!editor || !editor.isActive("table")) {
     return "text";
@@ -181,6 +217,31 @@ function getActiveTableColumnType(editor: Editor | null | undefined): TableColum
     }
   }
   return "text";
+}
+
+function getCurrentTextAlign(editor: Editor | null | undefined): WordTextAlign {
+  if (!editor) {
+    return "left";
+  }
+  const candidates = [
+    editor.getAttributes("paragraph"),
+    editor.getAttributes("heading"),
+    editor.getAttributes("blockquote"),
+  ] as Array<{ textAlign?: string }>;
+  for (const attrs of candidates) {
+    const value = String(attrs?.textAlign || "")
+      .trim()
+      .toLowerCase();
+    if (
+      value === "left" ||
+      value === "center" ||
+      value === "right" ||
+      value === "justify"
+    ) {
+      return value;
+    }
+  }
+  return "left";
 }
 
 function normalizeContent(content: unknown) {
@@ -322,6 +383,7 @@ export default function NoteEditorClient({
   const [taskToast, setTaskToast] = useState<{ taskId: string; title: string } | null>(
     null
   );
+  const [copiedFormat, setCopiedFormat] = useState<CopiedFormatSnapshot | null>(null);
 
   useEffect(() => {
     slashMenuStateRef.current = slashMenu;
@@ -537,6 +599,15 @@ export default function NoteEditorClient({
       }),
       Highlight,
       Underline,
+      TextStyle,
+      FontSize,
+      FontFamily.configure({
+        types: ["textStyle"],
+      }),
+      TextAlign.configure({
+        types: ["heading", "paragraph", "blockquote"],
+        alignments: ["left", "center", "right", "justify"],
+      }),
       TaskList,
       TaskItem.configure({ nested: true }),
       Image.configure({ inline: false, allowBase64: true }),
@@ -842,42 +913,138 @@ export default function NoteEditorClient({
 
   const editorScale = Math.max(0.2, zoomPercent / 100);
 
-  const currentBlockStyle = useMemo(() => {
-    if (!editor) {
-      return "paragraph";
-    }
-    if (editor.isActive("heading", { level: 1 })) return "h1";
-    if (editor.isActive("heading", { level: 2 })) return "h2";
-    if (editor.isActive("heading", { level: 3 })) return "h3";
-    if (editor.isActive("blockquote")) return "quote";
-    return "paragraph";
-  }, [editor]);
+  const currentBlockStyle: WordBlockStyle = !editor
+    ? "paragraph"
+    : editor.isActive("heading", { level: 1 })
+    ? "h1"
+    : editor.isActive("heading", { level: 2 })
+    ? "h2"
+    : editor.isActive("heading", { level: 3 })
+    ? "h3"
+    : editor.isActive("blockquote")
+    ? "quote"
+    : "paragraph";
 
   const applyBlockStyle = useCallback(
-    (nextStyle: string) => {
+    (nextStyle: WordBlockStyle) => {
       if (!editor) {
         return;
       }
       if (nextStyle === "h1") {
-        editor.chain().focus().toggleHeading({ level: 1 }).run();
+        editor.chain().focus().setHeading({ level: 1 }).run();
         return;
       }
       if (nextStyle === "h2") {
-        editor.chain().focus().toggleHeading({ level: 2 }).run();
+        editor.chain().focus().setHeading({ level: 2 }).run();
         return;
       }
       if (nextStyle === "h3") {
-        editor.chain().focus().toggleHeading({ level: 3 }).run();
+        editor.chain().focus().setHeading({ level: 3 }).run();
         return;
       }
       if (nextStyle === "quote") {
-        editor.chain().focus().toggleBlockquote().run();
+        editor.chain().focus().setBlockquote().run();
         return;
       }
       editor.chain().focus().setParagraph().run();
     },
     [editor]
   );
+
+  const currentTextStyleAttrs = (editor?.getAttributes("textStyle") || {}) as {
+    fontFamily?: string;
+    fontSize?: string;
+  };
+
+  const currentFontFamily = String(currentTextStyleAttrs.fontFamily || "");
+  const currentFontSize = String(currentTextStyleAttrs.fontSize || "");
+  const currentTextAlign = getCurrentTextAlign(editor);
+
+  const setFontFamilyValue = useCallback(
+    (nextFontFamily: string) => {
+      if (!editor) {
+        return;
+      }
+      if (nextFontFamily) {
+        editor.chain().focus().setFontFamily(nextFontFamily).run();
+      } else {
+        editor.chain().focus().unsetFontFamily().run();
+      }
+    },
+    [editor]
+  );
+
+  const setFontSizeValue = useCallback(
+    (nextFontSize: string) => {
+      if (!editor) {
+        return;
+      }
+      if (nextFontSize) {
+        editor.chain().focus().setFontSize(nextFontSize).run();
+      } else {
+        editor.chain().focus().unsetFontSize().run();
+      }
+    },
+    [editor]
+  );
+
+  const setTextAlignValue = useCallback(
+    (align: WordTextAlign) => {
+      if (!editor) {
+        return;
+      }
+      editor.chain().focus().setTextAlign(align).run();
+    },
+    [editor]
+  );
+
+  const copyFormatting = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    setCopiedFormat({
+      blockStyle: currentBlockStyle,
+      textAlign: currentTextAlign,
+      fontFamily: currentFontFamily,
+      fontSize: currentFontSize,
+      bold: editor.isActive("bold"),
+      italic: editor.isActive("italic"),
+      underline: editor.isActive("underline"),
+      highlight: editor.isActive("highlight"),
+    });
+  }, [
+    editor,
+    currentBlockStyle,
+    currentTextAlign,
+    currentFontFamily,
+    currentFontSize,
+  ]);
+
+  const applyCopiedFormatting = useCallback(() => {
+    if (!editor || !copiedFormat) {
+      return;
+    }
+    applyBlockStyle(copiedFormat.blockStyle);
+    setTextAlignValue(copiedFormat.textAlign);
+    setFontFamilyValue(copiedFormat.fontFamily);
+    setFontSizeValue(copiedFormat.fontSize);
+
+    if (copiedFormat.bold) editor.chain().focus().setBold().run();
+    else editor.chain().focus().unsetBold().run();
+    if (copiedFormat.italic) editor.chain().focus().setItalic().run();
+    else editor.chain().focus().unsetItalic().run();
+    if (copiedFormat.underline) editor.chain().focus().setUnderline().run();
+    else editor.chain().focus().unsetUnderline().run();
+    if (copiedFormat.highlight) editor.chain().focus().setHighlight().run();
+    else editor.chain().focus().unsetHighlight().run();
+  }, [
+    editor,
+    copiedFormat,
+    applyBlockStyle,
+    setTextAlignValue,
+    setFontFamilyValue,
+    setFontSizeValue,
+  ]);
 
   const setLinkFromPrompt = useCallback(() => {
     if (!editor) {
@@ -1110,7 +1277,7 @@ export default function NoteEditorClient({
             <label className="text-xs font-semibold text-slate-600">Style</label>
             <select
               value={currentBlockStyle}
-              onChange={(event) => applyBlockStyle(event.target.value)}
+              onChange={(event) => applyBlockStyle(event.target.value as WordBlockStyle)}
               className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
             >
               <option value="paragraph">Paragraph</option>
@@ -1119,6 +1286,93 @@ export default function NoteEditorClient({
               <option value="h3">Heading 3</option>
               <option value="quote">Callout / Quote</option>
             </select>
+            <select
+              value={currentFontFamily}
+              onChange={(event) => setFontFamilyValue(event.target.value)}
+              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+              title="Font family"
+            >
+              {WORD_FONT_OPTIONS.map((font) => (
+                <option key={font.value || "default"} value={font.value}>
+                  {font.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={currentFontSize}
+              onChange={(event) => setFontSizeValue(event.target.value)}
+              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+              title="Font size"
+            >
+              {WORD_FONT_SIZE_OPTIONS.map((size) => (
+                <option key={size.value || "default"} value={size.value}>
+                  {size.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setTextAlignValue("left")}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                currentTextAlign === "left"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Left
+            </button>
+            <button
+              type="button"
+              onClick={() => setTextAlignValue("center")}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                currentTextAlign === "center"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Center
+            </button>
+            <button
+              type="button"
+              onClick={() => setTextAlignValue("right")}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                currentTextAlign === "right"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Right
+            </button>
+            <button
+              type="button"
+              onClick={() => setTextAlignValue("justify")}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                currentTextAlign === "justify"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Justify
+            </button>
+            <button
+              type="button"
+              onClick={copyFormatting}
+              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
+                copiedFormat
+                  ? "border-blue-600 bg-blue-50 text-blue-700"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              Copy format
+            </button>
+            <button
+              type="button"
+              onClick={applyCopiedFormatting}
+              disabled={!copiedFormat}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Apply format
+            </button>
 
             <button
               type="button"
