@@ -23,6 +23,7 @@ import TasksTabs, {
   normalizeTasksTabKey,
   type TasksTabKey,
 } from "./_components/TasksTabs";
+import TemplateAutoSelect from "./_components/TemplateAutoSelect";
 import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
 import { parseTaskScheduleFormData } from "@/lib/taskSchedule";
 import RecurrenceFields from "./_components/RecurrenceFields";
@@ -327,6 +328,10 @@ export default async function TasksPage(props: {
     selectedTemplate?.recurrence_frequency === "yearly"
       ? selectedTemplate.recurrence_frequency
       : "once";
+  const templateOptions = taskTemplates.map((template) => ({
+    id: template.id,
+    name: template.name,
+  }));
 
   const userIdSet = new Set((users || []).map((user) => user.id));
   const selectedAssignees = selectedAssigneesRaw.filter(
@@ -1158,48 +1163,13 @@ export default async function TasksPage(props: {
                     </div>
 
                     {createMode === "template" ? (
-                      <form
-                        method="get"
-                        action="/tasks"
-                        className="flex flex-wrap items-center gap-2"
-                      >
-                        {Array.from(returnParams.entries()).map(([key, value]) => (
-                          <input
-                            key={`${key}:${value}`}
-                            type="hidden"
-                            name={key}
-                            value={value}
-                          />
-                        ))}
-                        <input type="hidden" name="tab" value="add" />
-                        <input type="hidden" name="create_mode" value="template" />
-                        <select
-                          name="template_task_id"
-                          defaultValue={templateTaskId || ""}
-                          className={addTaskInlineControlClass}
-                          disabled={Boolean(taskTemplatesError)}
-                        >
-                          <option value="">Select a template</option>
-                          {taskTemplates.map((tpl) => (
-                            <option key={tpl.id} value={tpl.id}>
-                              {tpl.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="submit"
-                          className="h-10 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                          disabled={Boolean(taskTemplatesError)}
-                        >
-                          Apply
-                        </button>
-                        <Link
-                          href="/settings?tab=templates&templates=tasks"
-                          className="text-sm font-semibold text-slate-700 hover:text-slate-900"
-                        >
-                          Manage templates
-                        </Link>
-                      </form>
+                      <TemplateAutoSelect
+                        templates={templateOptions}
+                        selectedTemplateId={selectedTemplate?.id || ""}
+                        preservedQuery={returnParams.toString()}
+                        disabled={Boolean(taskTemplatesError)}
+                        className={`min-w-[16rem] ${addTaskInlineControlClass}`}
+                      />
                     ) : null}
                   </div>
 
@@ -1210,117 +1180,123 @@ export default async function TasksPage(props: {
                     </p>
                   ) : null}
 
-                  <form action={createTask} className="mt-5 grid gap-5 md:grid-cols-6">
-                    {createMode === "template" && templateTaskId ? (
-                      <>
-                        <input type="hidden" name="create_mode" value="template" />
-                        <input
-                          type="hidden"
-                          name="template_task_id"
-                          value={templateTaskId}
-                        />
-                      </>
-                    ) : null}
-                    <div className={`md:col-span-6 ${addTaskPanelClass}`}>
-                      <p className={addTaskPanelTitleClass}>Task details</p>
-                      <div className="mt-3 grid gap-4 md:grid-cols-6">
-                        <div className="md:col-span-2">
-                          <label className={addTaskLabelClass}>Title</label>
+                  {createMode === "template" && !selectedTemplate ? (
+                    <div className="mt-5 rounded-xl bg-slate-50/70 px-4 py-6 text-sm text-slate-600 ring-1 ring-slate-100">
+                      Select a template to load task details.
+                    </div>
+                  ) : (
+                    <form action={createTask} className="mt-5 grid gap-5 md:grid-cols-6">
+                      {createMode === "template" && selectedTemplate ? (
+                        <>
+                          <input type="hidden" name="create_mode" value="template" />
                           <input
-                            name="title"
-                            placeholder="Task title"
-                            className={addTaskControlClass}
-                            defaultValue={selectedTemplate?.title || ""}
-                            required
+                            type="hidden"
+                            name="template_task_id"
+                            value={selectedTemplate.id}
                           />
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className={addTaskLabelClass}>Client</label>
-                          <select
-                            name="client_id"
-                            className={addTaskControlClass}
-                            defaultValue=""
-                          >
-                            <option value="">Client (N/A)</option>
-                            {clients?.map((client) => (
-                              <option key={client.id} value={client.id}>
-                                {client.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className={addTaskLabelClass}>Project</label>
-                          <select
-                            name="project_id"
-                            className={addTaskControlClass}
-                            defaultValue=""
-                          >
-                            <option value="">Project (N/A)</option>
-                            {projects?.map((project) => {
-                              const projectClientName = getRelationName(project.clients, "");
-                              return (
-                                <option key={project.id} value={project.id}>
-                                  {project.name}
-                                  {projectClientName ? ` - ${projectClientName}` : ""}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className={addTaskLabelClass}>Assignees</label>
-                          <div className="mt-1 relative">
-                            <AssigneeMultiSelect
-                              users={users || []}
-                              name="assignee_user_ids"
+                        </>
+                      ) : null}
+                      <div className={`md:col-span-6 ${addTaskPanelClass}`}>
+                        <p className={addTaskPanelTitleClass}>Task details</p>
+                        <div className="mt-3 grid gap-4 md:grid-cols-6">
+                          <div className="md:col-span-2">
+                            <label className={addTaskLabelClass}>Title</label>
+                            <input
+                              name="title"
+                              placeholder="Task title"
+                              className={addTaskControlClass}
+                              defaultValue={selectedTemplate?.title || ""}
+                              required
                             />
                           </div>
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className={addTaskLabelClass}>Status</label>
-                          <select
-                            name="status"
-                            className={addTaskControlClass}
-                            defaultValue={selectedTemplate?.status || "to_do"}
-                          >
-                            {statusOptions.map((status) => (
-                              <option key={status} value={status}>
-                                {formatTaskStatusLabel(status)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className={addTaskLabelClass}>Priority</label>
-                          <select
-                            name="priority"
-                            className={addTaskControlClass}
-                            defaultValue={selectedTemplate?.priority || "medium"}
-                          >
-                            {priorityOptions.map((priority) => (
-                              <option key={priority} value={priority}>
-                                {priority}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="md:col-span-2">
+                            <label className={addTaskLabelClass}>Client</label>
+                            <select
+                              name="client_id"
+                              className={addTaskControlClass}
+                              defaultValue=""
+                            >
+                              <option value="">Client (N/A)</option>
+                              {clients?.map((client) => (
+                                <option key={client.id} value={client.id}>
+                                  {client.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className={addTaskLabelClass}>Project</label>
+                            <select
+                              name="project_id"
+                              className={addTaskControlClass}
+                              defaultValue=""
+                            >
+                              <option value="">Project (N/A)</option>
+                              {projects?.map((project) => {
+                                const projectClientName = getRelationName(project.clients, "");
+                                return (
+                                  <option key={project.id} value={project.id}>
+                                    {project.name}
+                                    {projectClientName ? ` - ${projectClientName}` : ""}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className={addTaskLabelClass}>Assignees</label>
+                            <div className="mt-1 relative">
+                              <AssigneeMultiSelect
+                                users={users || []}
+                                name="assignee_user_ids"
+                              />
+                            </div>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className={addTaskLabelClass}>Status</label>
+                            <select
+                              name="status"
+                              className={addTaskControlClass}
+                              defaultValue={selectedTemplate?.status || "to_do"}
+                            >
+                              {statusOptions.map((status) => (
+                                <option key={status} value={status}>
+                                  {formatTaskStatusLabel(status)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className={addTaskLabelClass}>Priority</label>
+                            <select
+                              name="priority"
+                              className={addTaskControlClass}
+                              defaultValue={selectedTemplate?.priority || "medium"}
+                            >
+                              {priorityOptions.map((priority) => (
+                                <option key={priority} value={priority}>
+                                  {priority}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <RecurrenceFields
-                      initialFrequency={initialRecurrenceFrequency}
-                      initialDueTime={selectedTemplate?.due_time || undefined}
-                      initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
-                    />
-                    <div className="md:col-span-6 flex justify-end">
-                      <button
-                        type="submit"
-                        className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"
-                      >
-                        Create task
-                      </button>
-                    </div>
-                  </form>
+                      <RecurrenceFields
+                        initialFrequency={initialRecurrenceFrequency}
+                        initialDueTime={selectedTemplate?.due_time || undefined}
+                        initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
+                      />
+                      <div className="md:col-span-6 flex justify-end">
+                        <button
+                          type="submit"
+                          className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+                        >
+                          Create task
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               </div>
             </section>
