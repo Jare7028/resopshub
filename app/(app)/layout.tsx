@@ -285,7 +285,7 @@ export default async function AppLayout({
       <div className="relative min-h-screen overflow-x-hidden">
         <input id="app-sidebar-collapsed" type="checkbox" className="peer sr-only" />
 
-        <aside className="fixed inset-y-0 left-0 z-30 flex h-screen w-64 flex-col border-r app-border app-surface transition-[width] duration-200 peer-checked:w-20">
+        <aside className="fixed inset-y-0 left-0 z-30 flex h-screen w-64 flex-col overflow-x-hidden border-r app-border app-surface transition-[width] duration-200 peer-checked:w-16 peer-checked:[&_.nav-label]:hidden peer-checked:[&_.personal-nav-sections]:hidden peer-checked:[&_.sidebar-logo]:hidden peer-checked:[&_.sidebar-mini-logo]:inline-flex peer-checked:[&_.nav-item]:justify-center peer-checked:[&_.chat-badge]:absolute peer-checked:[&_.chat-badge]:right-1 peer-checked:[&_.chat-badge]:top-1">
           <div className="px-4 py-5">
             <div className="flex items-center justify-between gap-2">
               <Link href="/clients" className="flex items-center gap-2">
@@ -294,9 +294,9 @@ export default async function AppLayout({
                   alt="ResOpsHub"
                   width={128}
                   height={32}
-                  className="h-8 w-auto peer-checked:hidden"
+                  className="sidebar-logo h-8 w-auto"
                 />
-                <span className="hidden h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-sm font-bold text-white peer-checked:inline-flex">
+                <span className="sidebar-mini-logo hidden h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-sm font-bold text-white">
                   R
                 </span>
               </Link>
@@ -330,25 +330,25 @@ export default async function AppLayout({
                     key={link.href}
                     initialUnreadCount={unreadChatCount}
                     userId={user.id}
-                    className="peer-checked:justify-center"
-                    labelClassName="peer-checked:hidden"
-                    badgeClassName="peer-checked:absolute peer-checked:right-1 peer-checked:top-1"
+                    className="nav-item"
+                    labelClassName="nav-label"
+                    badgeClassName="chat-badge"
                   />
                 ) : (
                   <Link
                     key={link.href}
                     href={link.href}
-                    className="relative flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 peer-checked:justify-center"
+                    className="nav-item relative flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                     title={link.label}
                     aria-label={link.label}
                   >
                     <SidebarIcon name={link.icon} />
-                    <span className="peer-checked:hidden">{link.label}</span>
+                    <span className="nav-label">{link.label}</span>
                   </Link>
                 )
               )}
             </div>
-            <div className="peer-checked:hidden">
+            <div className="personal-nav-sections">
               <PersonalNavSections
                 currentUserId={user.id}
                 sections={personalSections || []}
@@ -360,7 +360,7 @@ export default async function AppLayout({
           <div className="px-3 pb-4">
             <Link
               href="/settings"
-              className="group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 peer-checked:justify-center"
+              className="nav-item group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
               aria-label="Settings"
               title="Settings"
             >
@@ -377,12 +377,12 @@ export default async function AppLayout({
                 <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
                 <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a8.8 8.8 0 0 0-1.7-1l-.4-2.7H9.1l-.4 2.7a8.8 8.8 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 13a7.9 7.9 0 0 0-.1 1 7.9 7.9 0 0 0 .1 1L2.5 16.6l2 3.4 2.5-1a8.8 8.8 0 0 0 1.7 1l.4 2.7h5.8l.4-2.7a8.8 8.8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 15Z" />
               </svg>
-              <span className="peer-checked:hidden">Settings</span>
+              <span className="nav-label">Settings</span>
             </Link>
           </div>
         </aside>
 
-        <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-64 transition-[padding] duration-200 peer-checked:pl-20">
+        <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-64 transition-[padding] duration-200 peer-checked:pl-16">
           <header className="border-b app-border app-header px-6 py-4">
             <div className="flex flex-wrap items-center gap-4">
               <div className="min-w-[12rem]">
