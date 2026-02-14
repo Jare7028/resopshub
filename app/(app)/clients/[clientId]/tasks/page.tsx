@@ -89,6 +89,12 @@ export default async function ClientTasksPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = authData.user?.id;
+  const authEmail = String(authData.user?.email || "").trim().toLowerCase();
+  if (!authUserId) {
+    redirect("/login");
+  }
   const { data: statusOptionsRaw } = await supabase
     .from("status_options")
     .select("entity_type,value,position")
@@ -156,6 +162,12 @@ export default async function ClientTasksPage(props: {
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );
   const userIdSet = new Set((users || []).map((user) => user.id));
+  const defaultAssigneeUserId =
+    (authEmail &&
+      (users || []).find(
+        (user) => String(user.email || "").trim().toLowerCase() === authEmail
+      )?.id) ||
+    (userIdSet.has(authUserId) ? authUserId : null);
   const selectedAssignees = selectedAssigneesRaw.filter(
     (value) => value === "unassigned" || userIdSet.has(value)
   );
@@ -397,7 +409,13 @@ export default async function ClientTasksPage(props: {
     const uniqueAssigneeIds = Array.from(
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
     );
-    const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || "";
+    const fallbackAssigneeId = defaultAssigneeUserId || authData.user.id;
+    const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || fallbackAssigneeId || "";
+    const effectiveAssigneeIds = uniqueAssigneeIds.length
+      ? uniqueAssigneeIds
+      : primaryAssignee
+        ? [primaryAssignee]
+        : [];
 
     const taskId = randomUUID();
     const payload: Record<string, unknown> = {
@@ -443,8 +461,8 @@ export default async function ClientTasksPage(props: {
       );
     }
 
-    if (taskId && uniqueAssigneeIds.length) {
-        const inserts = uniqueAssigneeIds.map((userId) => ({
+    if (taskId && effectiveAssigneeIds.length) {
+        const inserts = effectiveAssigneeIds.map((userId) => ({
           task_id: taskId,
           user_id: userId,
         }));
@@ -550,7 +568,7 @@ export default async function ClientTasksPage(props: {
 
         const inserts = subtaskRows.flatMap((row, index) => {
           const explicitIds = subtaskPlans[index]?.assigneeIds || [];
-          const effectiveIds = explicitIds.length ? explicitIds : uniqueAssigneeIds;
+          const effectiveIds = explicitIds.length ? explicitIds : effectiveAssigneeIds;
           return effectiveIds.map((userId) => ({ task_id: row.id as string, user_id: userId }));
         });
         if (inserts.length) {
@@ -704,7 +722,15 @@ export default async function ClientTasksPage(props: {
                 <div className="md:col-span-2">
                   <label className={addTaskLabelClass}>Assignees</label>
                   <div className="mt-1 relative">
-                    <AssigneeMultiSelect users={users || []} name="assignee_user_ids" />
+                    <AssigneeMultiSelect
+                      users={users || []}
+                      name="assignee_user_ids"
+                      defaultSelected={
+                        createMode === "new" && defaultAssigneeUserId
+                          ? [defaultAssigneeUserId]
+                          : []
+                      }
+                    />
                   </div>
                 </div>
                 <div className="md:col-span-2">

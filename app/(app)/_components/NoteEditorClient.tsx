@@ -200,7 +200,6 @@ const TABLE_COLUMN_TYPES = [
 type TableColumnType = (typeof TABLE_COLUMN_TYPES)[number]["id"];
 
 const WORD_FONT_OPTIONS = [
-  { value: "", label: "Default font" },
   { value: "Arial", label: "Arial" },
   { value: "Verdana", label: "Verdana" },
   { value: "Georgia", label: "Georgia" },
@@ -209,7 +208,6 @@ const WORD_FONT_OPTIONS = [
 ] as const;
 
 const WORD_FONT_SIZE_OPTIONS = [
-  { value: "", label: "Default size" },
   { value: "12px", label: "12" },
   { value: "14px", label: "14" },
   { value: "16px", label: "16" },
@@ -500,6 +498,25 @@ function normalizeImageFloat(value: string | null | undefined): ImageFloatMode {
   return "none";
 }
 
+function normalizeFontFamilyLabel(value: string) {
+  const firstFamily = String(value || "")
+    .split(",")[0]
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
+  return firstFamily || "Default";
+}
+
+function normalizeFontSizeLabel(value: string) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.endsWith("px")) {
+    const px = Number.parseFloat(raw.slice(0, -2));
+    if (Number.isFinite(px) && px > 0) {
+      return Number.isInteger(px) ? String(px) : px.toFixed(1).replace(/\.0$/, "");
+    }
+  }
+  return "Default";
+}
+
 function readBlobAsDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -766,6 +783,8 @@ export default function NoteEditorClient({
   const taskHoverRequestIdRef = useRef(0);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [saveError, setSaveError] = useState("");
+  const [defaultFontFamilyLabel, setDefaultFontFamilyLabel] = useState("Arial");
+  const [defaultFontSizeLabel, setDefaultFontSizeLabel] = useState("14");
 
   const [taskCreator, setTaskCreator] = useState<{
     open: boolean;
@@ -1137,6 +1156,19 @@ export default function NoteEditorClient({
 
   useEffect(() => {
     editorRef.current = editor;
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const root = editor.view.dom as HTMLElement | null;
+    if (!root) {
+      return;
+    }
+    const styles = window.getComputedStyle(root);
+    setDefaultFontFamilyLabel(normalizeFontFamilyLabel(styles.fontFamily));
+    setDefaultFontSizeLabel(normalizeFontSizeLabel(styles.fontSize));
   }, [editor]);
 
   useEffect(() => {
@@ -1644,6 +1676,21 @@ export default function NoteEditorClient({
   const currentFontFamily = String(currentTextStyleAttrs.fontFamily || "");
   const currentFontSize = String(currentTextStyleAttrs.fontSize || "");
   const currentTextAlign = getCurrentTextAlign(editor);
+  const fontFamilyOptions = useMemo(
+    () =>
+      WORD_FONT_OPTIONS.filter(
+        (font) =>
+          font.label.toLowerCase() !== defaultFontFamilyLabel.toLowerCase()
+      ),
+    [defaultFontFamilyLabel]
+  );
+  const fontSizeOptions = useMemo(
+    () =>
+      WORD_FONT_SIZE_OPTIONS.filter(
+        (size) => size.label !== defaultFontSizeLabel
+      ),
+    [defaultFontSizeLabel]
+  );
 
   const setFontFamilyValue = useCallback(
     (nextFontFamily: string) => {
@@ -2026,8 +2073,9 @@ export default function NoteEditorClient({
                   className="h-7 w-[7.2rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
                   title="Font family"
                 >
-                  {WORD_FONT_OPTIONS.map((font) => (
-                    <option key={font.value || "default"} value={font.value}>
+                  <option value="">{defaultFontFamilyLabel}</option>
+                  {fontFamilyOptions.map((font) => (
+                    <option key={font.value} value={font.value}>
                       {font.label}
                     </option>
                   ))}
@@ -2038,8 +2086,9 @@ export default function NoteEditorClient({
                   className="h-7 w-[3.8rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
                   title="Font size"
                 >
-                  {WORD_FONT_SIZE_OPTIONS.map((size) => (
-                    <option key={size.value || "default"} value={size.value}>
+                  <option value="">{defaultFontSizeLabel}</option>
+                  {fontSizeOptions.map((size) => (
+                    <option key={size.value} value={size.value}>
                       {size.label}
                     </option>
                   ))}

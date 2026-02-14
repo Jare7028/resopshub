@@ -685,6 +685,7 @@ export default async function ProjectsPage(props: {
     const createModeFromForm: "new" | "template" = templateProjectIdFromForm
       ? "template"
       : "new";
+    const defaultTaskAssigneeId = currentUserId || null;
     const redirectCreateError = (message: string) => {
       redirect(
         buildProjectsRedirectUrl(returnTo, {
@@ -937,7 +938,12 @@ export default async function ProjectsPage(props: {
           const assigneeIds = Array.from(
             new Set(assigneeIdsByTemplateId[tpl.id] || [])
           );
-          const primaryAssignee = assigneeIds[0] || null;
+          const effectiveAssigneeIds = assigneeIds.length
+            ? assigneeIds
+            : defaultTaskAssigneeId
+              ? [defaultTaskAssigneeId]
+              : [];
+          const primaryAssignee = effectiveAssigneeIds[0] || null;
 
           const { data: createdTask, error: taskError } = await supabase
             .from("tasks")
@@ -968,11 +974,11 @@ export default async function ProjectsPage(props: {
           } catch (error) {
             redirectCreateError(String((error as Error).message || error));
           }
-          if (assigneeIds.length) {
+          if (effectiveAssigneeIds.length) {
             const { error: parentAssigneesError } = await supabase
               .from("task_assignees")
               .insert(
-                assigneeIds.map((userId) => ({
+                effectiveAssigneeIds.map((userId) => ({
                   task_id: parentTaskId,
                   user_id: userId,
                 }))
@@ -1070,7 +1076,7 @@ export default async function ProjectsPage(props: {
             const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
             const subtaskAssigneeInserts = createdSubtaskRows.flatMap((row, index) => {
               const explicitIds = subtaskPlans[index]?.assigneeIds || [];
-              const effectiveIds = explicitIds.length ? explicitIds : assigneeIds;
+              const effectiveIds = explicitIds.length ? explicitIds : effectiveAssigneeIds;
               return effectiveIds.map((userId) => ({ task_id: row.id, user_id: userId }));
             });
             if (subtaskAssigneeInserts.length) {

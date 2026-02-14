@@ -104,6 +104,12 @@ export default async function TaskDetailPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = authData.user?.id;
+  const authEmail = String(authData.user?.email || "").trim().toLowerCase();
+  if (!authUserId) {
+    redirect("/login");
+  }
   const { data: statusOptionsRaw } = await supabase
     .from("status_options")
     .select("entity_type,value,position")
@@ -233,6 +239,12 @@ export default async function TaskDetailPage(props: {
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );
   const userIdSet = new Set((users || []).map((user) => user.id));
+  const defaultAssigneeUserId =
+    (authEmail &&
+      (users || []).find(
+        (user) => String(user.email || "").trim().toLowerCase() === authEmail
+      )?.id) ||
+    (userIdSet.has(authUserId) ? authUserId : null);
   const selectedAssignees = selectedAssigneesRaw.filter(
     (value) => value === "unassigned" || userIdSet.has(value)
   );
@@ -699,8 +711,19 @@ export default async function TaskDetailPage(props: {
       );
     }
 
+    const explicitAssigneeIds = assigneeIds.filter((value) => value !== "unassigned");
+    const fallbackAssigneeId = defaultAssigneeUserId || authData.user.id;
     const primaryAssignee =
-      assigneeIds.find((value) => value !== "unassigned") || assignee;
+      explicitAssigneeIds[0] || assignee || fallbackAssigneeId || "";
+    const effectiveAssigneeIds = Array.from(
+      new Set(
+        explicitAssigneeIds.length
+          ? explicitAssigneeIds
+          : primaryAssignee
+            ? [primaryAssignee]
+            : []
+      )
+    );
 
     const payload: Record<string, unknown> = {
       client_id: taskClientId,
@@ -736,23 +759,18 @@ export default async function TaskDetailPage(props: {
     }
 
     const subtaskId = created?.id;
-    if (subtaskId && assigneeIds.length) {
-      const uniqueIds = Array.from(
-        new Set(assigneeIds.filter((value) => value !== "unassigned"))
-      );
-      if (uniqueIds.length) {
-        const inserts = uniqueIds.map((userId) => ({
-          task_id: subtaskId,
-          user_id: userId,
-        }));
-        const { error: assigneeError } = await supabase
-          .from("task_assignees")
-          .insert(inserts);
-        if (assigneeError) {
-          redirect(
-            buildTaskUrl(taskId, "subtasks", { error: assigneeError.message })
-          );
-        }
+    if (subtaskId && effectiveAssigneeIds.length) {
+      const inserts = effectiveAssigneeIds.map((userId) => ({
+        task_id: subtaskId,
+        user_id: userId,
+      }));
+      const { error: assigneeError } = await supabase
+        .from("task_assignees")
+        .insert(inserts);
+      if (assigneeError) {
+        redirect(
+          buildTaskUrl(taskId, "subtasks", { error: assigneeError.message })
+        );
       }
     }
 
@@ -1262,6 +1280,7 @@ export default async function TaskDetailPage(props: {
                 users={users || []}
                 name="assignee_user_ids"
                 className="relative"
+                defaultSelected={defaultAssigneeUserId ? [defaultAssigneeUserId] : []}
               />
             </div>
             <div className="grid gap-1">

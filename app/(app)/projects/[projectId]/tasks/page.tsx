@@ -177,6 +177,9 @@ export default async function ProjectTasksPage(props: {
     .order("full_name", { ascending: true });
 
   const userIdSet = new Set((users || []).map((user) => user.id));
+  const defaultAssigneeUserId =
+    (currentUserId && userIdSet.has(currentUserId) && currentUserId) ||
+    (authData.user?.id && userIdSet.has(authData.user.id) ? authData.user.id : null);
   const selectedAssignees = selectedAssigneesRaw.filter(
     (value) => value === "unassigned" || userIdSet.has(value)
   );
@@ -435,7 +438,13 @@ export default async function ProjectTasksPage(props: {
     const uniqueAssigneeIds = Array.from(
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
     );
-    const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || "";
+    const fallbackAssigneeId = defaultAssigneeUserId || authData.user.id;
+    const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || fallbackAssigneeId || "";
+    const effectiveAssigneeIds = uniqueAssigneeIds.length
+      ? uniqueAssigneeIds
+      : primaryAssignee
+        ? [primaryAssignee]
+        : [];
 
     const taskId = randomUUID();
     const payload: Record<string, unknown> = {
@@ -482,8 +491,8 @@ export default async function ProjectTasksPage(props: {
       );
     }
 
-    if (taskId && uniqueAssigneeIds.length) {
-      const inserts = uniqueAssigneeIds.map((userId) => ({
+    if (taskId && effectiveAssigneeIds.length) {
+      const inserts = effectiveAssigneeIds.map((userId) => ({
         task_id: taskId,
         user_id: userId,
       }));
@@ -589,7 +598,7 @@ export default async function ProjectTasksPage(props: {
 
         const inserts = subtaskRows.flatMap((row, index) => {
           const explicitIds = payloads[index]?.assigneeIds || [];
-          const effectiveIds = explicitIds.length ? explicitIds : uniqueAssigneeIds;
+          const effectiveIds = explicitIds.length ? explicitIds : effectiveAssigneeIds;
           return effectiveIds.map((userId) => ({ task_id: row.id as string, user_id: userId }));
         });
         if (inserts.length) {
@@ -744,6 +753,11 @@ export default async function ProjectTasksPage(props: {
                       <AssigneeMultiSelect
                         users={users || []}
                         name="assignee_user_ids"
+                        defaultSelected={
+                          createMode === "new" && defaultAssigneeUserId
+                            ? [defaultAssigneeUserId]
+                            : []
+                        }
                       />
                     </div>
                   </div>

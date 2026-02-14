@@ -235,10 +235,13 @@ export default async function ClientProjectsPage(props: {
       redirect("/login");
     }
     const name = String(formData.get("name") || "").trim();
+    const projectClientIdRaw = String(formData.get("client_id") || "").trim();
+    const projectClientId = projectClientIdRaw || null;
     const status = String(formData.get("status") || "planned");
     const startDate = String(formData.get("start_date") || "");
     const endDate = String(formData.get("end_date") || "");
     const templateProjectIdFromForm = String(formData.get("template_project_id") || "").trim();
+    const defaultTaskAssigneeId = currentUserId || null;
 
     const cloneTemplateCustomFields = async (
       templateEntityType: "task_template" | "project_template",
@@ -379,7 +382,7 @@ export default async function ClientProjectsPage(props: {
     const { data: created, error } = await supabase
       .from("projects")
       .insert({
-        client_id: clientId,
+        client_id: projectClientId,
         name,
         code,
         status,
@@ -482,12 +485,17 @@ export default async function ClientProjectsPage(props: {
           const assigneeIds = Array.from(
             new Set(assigneeIdsByTemplateId[tpl.id] || [])
           );
-          const primaryAssignee = assigneeIds[0] || null;
+          const effectiveAssigneeIds = assigneeIds.length
+            ? assigneeIds
+            : defaultTaskAssigneeId
+              ? [defaultTaskAssigneeId]
+              : [];
+          const primaryAssignee = effectiveAssigneeIds[0] || null;
 
           const { data: createdTask, error: taskError } = await supabase
             .from("tasks")
             .insert({
-              client_id: clientId,
+              client_id: projectClientId,
               project_id: created.id,
               title: tpl.title,
               status: normalizeTaskStatusOrDefault(String(tpl.status || "to_do")),
@@ -515,11 +523,11 @@ export default async function ClientProjectsPage(props: {
           } catch (error) {
             redirect(`/clients/${clientId}/projects?error=${encodeURIComponent(String((error as Error).message || error))}`);
           }
-          if (assigneeIds.length) {
+          if (effectiveAssigneeIds.length) {
             const { error: parentAssigneesError } = await supabase
               .from("task_assignees")
               .insert(
-                assigneeIds.map((userId) => ({
+                effectiveAssigneeIds.map((userId) => ({
                   task_id: parentTaskId,
                   user_id: userId,
                 }))
@@ -592,7 +600,7 @@ export default async function ClientProjectsPage(props: {
               return {
                 assigneeIds: subtaskAssigneeIds,
                 payload: {
-                  client_id: clientId,
+                  client_id: projectClientId,
                   project_id: created.id,
                   parent_task_id: parentTaskId,
                   title: subtaskTpl.title,
@@ -625,7 +633,7 @@ export default async function ClientProjectsPage(props: {
             const createdSubtaskRows = (createdSubtasks || []).filter((row) => Boolean(row.id));
             const subtaskAssigneeInserts = createdSubtaskRows.flatMap((row, index) => {
               const explicitIds = subtaskPlans[index]?.assigneeIds || [];
-              const effectiveIds = explicitIds.length ? explicitIds : assigneeIds;
+              const effectiveIds = explicitIds.length ? explicitIds : effectiveAssigneeIds;
               return effectiveIds.map((userId) => ({ task_id: row.id, user_id: userId }));
             });
             if (subtaskAssigneeInserts.length) {
@@ -642,10 +650,14 @@ export default async function ClientProjectsPage(props: {
     }
 
     revalidatePath(`/clients/${clientId}/tasks`);
+    revalidatePath("/projects");
     if (created?.id) {
       revalidatePath(`/projects/${created.id}/tasks`);
     }
     revalidatePath("/tasks");
+    if (projectClientId !== clientId) {
+      redirect(`/projects?success=${encodeURIComponent("Project created")}`);
+    }
   }
 
   async function updateProjectInline(formData: FormData) {
@@ -821,7 +833,7 @@ export default async function ClientProjectsPage(props: {
             )}
           </div>
         ) : null}
-        <form action={createProject} className="mt-4 grid gap-4 md:grid-cols-4">
+        <form action={createProject} className="mt-4 grid gap-4 md:grid-cols-5">
           {createMode === "template" && templateProjectId ? (
             <>
               <input type="hidden" name="create_mode" value="template" />
@@ -835,6 +847,14 @@ export default async function ClientProjectsPage(props: {
             defaultValue={selectedTemplate?.name || ""}
             required
           />
+          <select
+            name="client_id"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            defaultValue={clientId}
+          >
+            <option value="">No client</option>
+            <option value={clientId}>{client.name}</option>
+          </select>
           <select
             name="status"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
@@ -858,7 +878,7 @@ export default async function ClientProjectsPage(props: {
           />
           <button
             type="submit"
-            className="md:col-span-4 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+            className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
           >
             {createMode === "template" && templateProjectId
               ? "Create project from template"

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ProjectTabs from "./_components/ProjectTabs";
+import ConfirmDelete from "../../_components/ConfirmDelete";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
@@ -323,7 +324,19 @@ export default async function ProjectOverviewPage(props: {
         <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Project
         </p>
-        <h1 className="text-3xl font-semibold text-slate-900">{project.name}</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-3xl font-semibold text-slate-900">{project.name}</h1>
+          {canDeleteProject ? (
+            <form method="post" action={`/projects/${projectId}/delete`}>
+              <ConfirmDelete
+                name={project.name}
+                itemType="Project"
+                triggerLabel="Delete project"
+                confirmLabel="Permanently delete"
+              />
+            </form>
+          ) : null}
+        </div>
         <p className="text-sm text-slate-600">
           Client: {getRelationName(project.clients, "--")}
         </p>
@@ -553,33 +566,6 @@ export default async function ProjectOverviewPage(props: {
         ) : null}
       </section>
 
-      {canDeleteProject ? (
-        <section className="rounded-lg border border-red-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Danger zone</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Deleting a project will also delete its tasks and any project-level notes. This cannot be undone.
-          </p>
-          <details className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3">
-            <summary className="cursor-pointer select-none text-sm font-semibold text-red-700">
-              Delete project
-            </summary>
-            <div className="mt-3 space-y-3 text-sm text-slate-800">
-              <p>
-                Are you sure you want to delete{" "}
-                <span className="font-semibold text-red-700">{project.name}</span> project?
-              </p>
-              <form method="post" action={`/projects/${projectId}/delete`}>
-                <button
-                  type="submit"
-                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-                >
-                  Yes, delete {project.name}
-                </button>
-              </form>
-            </div>
-          </details>
-        </section>
-      ) : null}
     </div>
   );
 }
