@@ -204,6 +204,7 @@ export default async function TasksPage(props: {
     viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
+  const hasExplicitView = typeof searchParams?.view !== "undefined";
 
   const sortSource =
     typeof searchParams?.sort !== "undefined"
@@ -1332,6 +1333,8 @@ export default async function TasksPage(props: {
           sortKey={sortKey}
           sortDir={sortDir}
           initialView={selectedView}
+          hasExplicitView={hasExplicitView}
+          viewPreferenceScope="tasks"
         />
       </section>
     </div>

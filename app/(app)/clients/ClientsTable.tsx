@@ -6,6 +6,11 @@ import { useRouter } from "next/navigation";
 import ConfirmDelete from "../_components/ConfirmDelete";
 import { setCsvParam } from "@/lib/queryParams";
 import {
+  readDefaultViewMode,
+  writeDefaultViewMode,
+  type ViewPreferenceScope,
+} from "@/lib/viewPreferences";
+import {
   FilterIcon,
   FilterMenuMulti,
   FilterMenuText,
@@ -62,6 +67,8 @@ export default function ClientsTable({
   sortKey,
   sortDir,
   initialView = "table",
+  hasExplicitView = false,
+  viewPreferenceScope = "clients",
   onDelete,
 }: {
   clients: ClientRow[];
@@ -70,11 +77,14 @@ export default function ClientsTable({
   sortKey: ClientSortKey;
   sortDir: ClientSortDir;
   initialView?: "table" | "board" | "gantt";
+  hasExplicitView?: boolean;
+  viewPreferenceScope?: ViewPreferenceScope;
   onDelete: (formData: FormData) => void;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [view, setView] = useState<"table" | "board" | "gantt">(initialView);
+  const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const ganttScrollRef = useRef<HTMLDivElement | null>(null);
   const [ganttViewportWidth, setGanttViewportWidth] = useState(960);
   const [ganttAnchorDate, setGanttAnchorDate] = useState<string>(() =>
@@ -181,6 +191,21 @@ export default function ClientsTable({
     startTransition(() => {
       router.replace(query ? `/clients?${query}` : "/clients", { scroll: false });
     });
+  };
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
+    setDefaultView(savedDefaultView);
+    if (!hasExplicitView && savedDefaultView && savedDefaultView !== view) {
+      applyView(savedDefaultView);
+    }
+  }, [hasExplicitView, view, viewPreferenceScope]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const saveDefaultView = () => {
+    writeDefaultViewMode(viewPreferenceScope, view);
+    setDefaultView(view);
   };
 
   const statusColors: Record<string, string> = {
@@ -361,6 +386,17 @@ export default function ClientsTable({
           }`}
         >
           Board
+        </button>
+        <button
+          type="button"
+          onClick={saveDefaultView}
+          className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+            defaultView === view
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+          }`}
+        >
+          {defaultView === view ? "Default view" : "Set as default"}
         </button>
       </div>
 

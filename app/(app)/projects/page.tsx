@@ -263,6 +263,7 @@ export default async function ProjectsPage(props: {
     selectedViewRaw === "gantt" || selectedViewRaw === "board" || selectedViewRaw === "table"
       ? (selectedViewRaw as "table" | "gantt" | "board")
       : "table";
+  const hasExplicitView = typeof searchParams?.view !== "undefined";
   const selectedSortKey = normalizeProjectSortKey(searchParams?.sort);
   const selectedSortDir = normalizeProjectSortDir(searchParams?.dir);
   const activeTab = normalizeProjectsTabKey(searchParams?.tab);
@@ -1230,6 +1231,8 @@ export default async function ProjectsPage(props: {
           sortKey={selectedSortKey}
           sortDir={selectedSortDir}
           onUpdate={updateProjectInline}
+          hasExplicitView={hasExplicitView}
+          viewPreferenceScope="projects"
         />
       </section>
     </div>

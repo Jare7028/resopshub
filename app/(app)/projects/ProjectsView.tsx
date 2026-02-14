@@ -11,6 +11,11 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
+import {
+  readDefaultViewMode,
+  writeDefaultViewMode,
+  type ViewPreferenceScope,
+} from "@/lib/viewPreferences";
 import { FilterIcon, FilterMenuMulti } from "../_components/TableHeaderFilters";
 
 type UserOption = {
@@ -68,6 +73,8 @@ type ProjectsViewProps = {
   sortKey: ProjectSortKey;
   sortDir: ProjectSortDir;
   basePath?: string;
+  hasExplicitView?: boolean;
+  viewPreferenceScope?: ViewPreferenceScope;
 };
 
 type HeaderMenuKey = "client" | "status" | "assignees";
@@ -131,10 +138,13 @@ export default function ProjectsView({
   sortKey,
   sortDir,
   basePath = "/projects",
+  hasExplicitView = false,
+  viewPreferenceScope = "projects",
 }: ProjectsViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
+  const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
@@ -243,6 +253,25 @@ export default function ProjectsView({
     startTransition(() => {
       router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
+  };
+
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
+    setDefaultView(savedDefaultView);
+    if (!hasExplicitView && savedDefaultView && savedDefaultView !== view) {
+      applyView(savedDefaultView);
+    }
+  }, [hasExplicitView, view, viewPreferenceScope]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const saveDefaultView = () => {
+    writeDefaultViewMode(viewPreferenceScope, view);
+    setDefaultView(view);
   };
 
   const headerClass = (key: ProjectSortKey) =>
@@ -434,6 +463,17 @@ export default function ProjectsView({
             }`}
           >
             Board
+          </button>
+          <button
+            type="button"
+            onClick={saveDefaultView}
+            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+              defaultView === view
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            }`}
+          >
+            {defaultView === view ? "Default view" : "Set as default"}
           </button>
         </div>
       </div>

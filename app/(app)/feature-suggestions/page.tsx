@@ -95,6 +95,7 @@ export default async function FeatureSuggestionsPage(props: {
     viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
+  const hasExplicitView = typeof searchParams?.view !== "undefined";
   const sortKey = normalizeSortKey((searchParams?.sort || "").trim());
   const sortDir = normalizeSortDir((searchParams?.dir || "").trim(), sortKey);
 
@@ -491,6 +492,8 @@ export default async function FeatureSuggestionsPage(props: {
         onVote={toggleVote}
         onUpdateStatus={updateStatus}
         onUpdateType={updateType}
+        hasExplicitView={hasExplicitView}
+        viewPreferenceScope="feature-suggestions"
       />
     </div>
   );

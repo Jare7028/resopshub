@@ -5,6 +5,11 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
 import {
+  readDefaultViewMode,
+  writeDefaultViewMode,
+  type ViewPreferenceScope,
+} from "@/lib/viewPreferences";
+import {
   FilterIcon,
   FilterMenuMulti,
   FilterMenuText,
@@ -164,6 +169,8 @@ export default function FeatureSuggestionsTable({
   onVote,
   onUpdateStatus,
   onUpdateType,
+  hasExplicitView = false,
+  viewPreferenceScope = "feature-suggestions",
 }: {
   rows: SuggestionRow[];
   hideCompleted: boolean;
@@ -176,11 +183,14 @@ export default function FeatureSuggestionsTable({
   onVote: (formData: FormData) => Promise<void>;
   onUpdateStatus: (formData: FormData) => Promise<void> | void;
   onUpdateType: (formData: FormData) => Promise<void> | void;
+  hasExplicitView?: boolean;
+  viewPreferenceScope?: ViewPreferenceScope;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
+  const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -259,6 +269,21 @@ export default function FeatureSuggestionsTable({
         scroll: false,
       });
     });
+  };
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
+    setDefaultView(savedDefaultView);
+    if (!hasExplicitView && savedDefaultView && savedDefaultView !== view) {
+      applyView(savedDefaultView);
+    }
+  }, [hasExplicitView, view, viewPreferenceScope]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const saveDefaultView = () => {
+    writeDefaultViewMode(viewPreferenceScope, view);
+    setDefaultView(view);
   };
 
   const toggleHideCompleted = () => {
@@ -403,6 +428,17 @@ export default function FeatureSuggestionsTable({
             }`}
           >
             Board
+          </button>
+          <button
+            type="button"
+            onClick={saveDefaultView}
+            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+              defaultView === view
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            }`}
+          >
+            {defaultView === view ? "Default view" : "Set as default"}
           </button>
         </div>
       </div>
@@ -684,4 +720,3 @@ export default function FeatureSuggestionsTable({
     </section>
   );
 }
-

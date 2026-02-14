@@ -121,6 +121,7 @@ export default async function ClientTasksPage(props: {
     viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
+  const hasExplicitView = typeof searchParams?.view !== "undefined";
   const { data: client } = await supabase
     .from("clients")
     .select("id,name")
@@ -786,6 +787,8 @@ export default async function ClientTasksPage(props: {
           sortKey={sortKey}
           sortDir={sortDir}
           basePath={`/clients/${clientId}/tasks`}
+          hasExplicitView={hasExplicitView}
+          viewPreferenceScope="tasks"
         />
       </section>
     </div>

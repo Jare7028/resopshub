@@ -46,6 +46,7 @@ export default async function ClientsPage(props: {
     searchParams?.view === "board" || searchParams?.view === "gantt"
       ? searchParams.view
       : "table";
+  const hasExplicitView = typeof searchParams?.view !== "undefined";
   const ascending = sortDir === "asc";
 
   const buildClientsQuery = (includeEndDate: boolean) => {
@@ -186,6 +187,8 @@ export default async function ClientsPage(props: {
           sortKey={sortKey}
           sortDir={sortDir}
           initialView={initialView}
+          hasExplicitView={hasExplicitView}
+          viewPreferenceScope="clients"
           onDelete={deleteClient}
         />
       </section>

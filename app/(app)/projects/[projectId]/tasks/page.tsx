@@ -103,6 +103,7 @@ export default async function ProjectTasksPage(props: {
     viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
+  const hasExplicitView = typeof searchParams?.view !== "undefined";
   const selectedStatuses = coerceTaskStatusList(parseCsvParam(searchParams?.status)).filter(
     (status) => statusOptions.includes(status)
   );
@@ -827,6 +828,8 @@ export default async function ProjectTasksPage(props: {
             project: projectId,
             ...(projectClientId ? { client: projectClientId } : {}),
           }}
+          hasExplicitView={hasExplicitView}
+          viewPreferenceScope="tasks"
         />
       </section>
     </div>

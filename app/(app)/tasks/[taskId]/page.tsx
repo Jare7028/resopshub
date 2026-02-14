@@ -182,6 +182,7 @@ export default async function TaskDetailPage(props: {
     viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
+  const hasExplicitSubtaskView = typeof searchParams?.view !== "undefined";
   const subtaskSortKey = normalizeTaskSortKey(searchParams?.sort);
   const subtaskSortDir = normalizeTaskSortDir(searchParams?.dir);
   const selectedStatusesRaw = parseCsvParam(searchParams?.status);
@@ -1390,6 +1391,8 @@ export default async function TaskDetailPage(props: {
             sortDir={subtaskSortDir}
             basePath={`/tasks/${taskId}`}
             fixedParams={{ tab: "subtasks" }}
+            hasExplicitView={hasExplicitSubtaskView}
+            viewPreferenceScope="tasks"
           />
         </section>
       ) : null}

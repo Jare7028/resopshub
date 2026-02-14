@@ -9,6 +9,11 @@ import { setCsvParam } from "@/lib/queryParams";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
 import {
+  readDefaultViewMode,
+  writeDefaultViewMode,
+  type ViewPreferenceScope,
+} from "@/lib/viewPreferences";
+import {
   FilterIcon,
   FilterMenuMulti,
   FilterMenuSingle,
@@ -78,6 +83,8 @@ type TasksViewProps = {
   sortDir: TaskSortDir;
   basePath?: string;
   fixedParams?: Record<string, string | null | undefined>;
+  hasExplicitView?: boolean;
+  viewPreferenceScope?: ViewPreferenceScope;
 };
 
 const statusColors: Record<string, string> = {
@@ -137,8 +144,11 @@ export default function TasksView({
   sortDir,
   basePath = "/tasks",
   fixedParams = {},
+  hasExplicitView = false,
+  viewPreferenceScope = "tasks",
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
+  const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
@@ -231,6 +241,25 @@ export default function TasksView({
     startTransition(() => {
       router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
+  };
+
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
+    setDefaultView(savedDefaultView);
+    if (!hasExplicitView && savedDefaultView && savedDefaultView !== view) {
+      applyView(savedDefaultView);
+    }
+  }, [hasExplicitView, view, viewPreferenceScope]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const saveDefaultView = () => {
+    writeDefaultViewMode(viewPreferenceScope, view);
+    setDefaultView(view);
   };
 
   const headerClass = (key: TaskSortKey) =>
@@ -429,6 +458,17 @@ export default function TasksView({
             }`}
           >
             Board
+          </button>
+          <button
+            type="button"
+            onClick={saveDefaultView}
+            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+              defaultView === view
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            }`}
+          >
+            {defaultView === view ? "Default view" : "Set as default"}
           </button>
         </div>
       </div>
