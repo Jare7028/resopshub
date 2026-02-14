@@ -283,14 +283,18 @@ export default function TasksView({
     setView(initialView);
   }, [initialView]);
 
+  useEffect(() => {
+    setDefaultView(readDefaultViewMode(viewPreferenceScope));
+  }, [viewPreferenceScope]);
+
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
+    if (hasExplicitView) return;
     const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
-    setDefaultView(savedDefaultView);
-    if (!hasExplicitView && savedDefaultView && savedDefaultView !== view) {
+    if (savedDefaultView && savedDefaultView !== initialView) {
       applyView(savedDefaultView);
     }
-  }, [hasExplicitView, view, viewPreferenceScope]);
+  }, [hasExplicitView, initialView, viewPreferenceScope]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const saveDefaultView = () => {
