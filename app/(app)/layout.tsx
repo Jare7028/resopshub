@@ -296,8 +296,14 @@ export default async function AppLayout({
                   height={32}
                   className="sidebar-logo h-8 w-auto"
                 />
-                <span className="sidebar-mini-logo hidden h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-sm font-bold text-white">
-                  R
+                <span className="sidebar-mini-logo hidden h-8 w-8 overflow-hidden rounded-md">
+                  <Image
+                    src="/logo.png"
+                    alt="ResOpsHub"
+                    width={32}
+                    height={32}
+                    className="h-8 w-8 object-cover object-left"
+                  />
                 </span>
               </Link>
             </div>
