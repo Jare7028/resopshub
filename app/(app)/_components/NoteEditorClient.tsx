@@ -87,6 +87,12 @@ type TaskHoverState = {
   data: TaskHoverSummary | null;
 };
 
+type TaskInsertSelection = {
+  from: number;
+  to: number;
+  text: string;
+};
+
 const SLASH_COMMANDS: SlashCommand[] = [
   {
     id: "paragraph",
@@ -208,6 +214,15 @@ const WORD_FONT_SIZE_OPTIONS = [
 
 type WordTextAlign = "left" | "center" | "right" | "justify";
 type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
+type RibbonTabId = "home" | "insert" | "layout" | "review" | "view";
+
+const RIBBON_TABS: ReadonlyArray<{ id: RibbonTabId; label: string }> = [
+  { id: "home", label: "Home" },
+  { id: "insert", label: "Insert" },
+  { id: "layout", label: "Layout" },
+  { id: "review", label: "Review" },
+  { id: "view", label: "View" },
+];
 
 type CopiedFormatSnapshot = {
   blockStyle: WordBlockStyle;
@@ -265,6 +280,7 @@ function RibbonIconButton({
   return (
     <button
       type="button"
+      onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
       title={title || label}
       disabled={disabled}
@@ -567,7 +583,8 @@ export default function NoteEditorClient({
   showTopToolbar = true,
   enableZoomControls = false,
 }: NoteEditorClientProps) {
-  const [isPending, startTransition] = useTransition();
+  const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>("home");
+  const [, startTransition] = useTransition();
   const [isTaskPending, startTaskTransition] = useTransition();
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     open: false,
@@ -590,6 +607,9 @@ export default function NoteEditorClient({
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuStateRef = useRef<SlashMenuState>(slashMenu);
   const editorRef = useRef<Editor | null>(null);
+  const taskInsertSelectionRef = useRef<TaskInsertSelection | null>(null);
+  const lastTaskSelectionRef = useRef<TaskInsertSelection | null>(null);
+  const lastTaskSelectionAtRef = useRef(0);
   const editorSurfaceRef = useRef<HTMLDivElement | null>(null);
   const taskTitleRef = useRef<HTMLInputElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
@@ -647,19 +667,43 @@ export default function NoteEditorClient({
   }, []);
 
   const closeTaskCreator = useCallback(() => {
+    taskInsertSelectionRef.current = null;
     setTaskCreator((prev) => (prev.open ? { ...prev, open: false, error: "" } : prev));
   }, []);
 
   const openTaskCreator = useCallback(
-    (prefillTitle = "") => {
+    (prefillTitle = "", options?: { useLastSelection?: boolean }) => {
       if (!onCreateTask) {
         return;
       }
+
+      const currentEditor = editorRef.current;
+      let nextTaskSelection: TaskInsertSelection | null = null;
+      if (currentEditor) {
+        const { from, to, empty } = currentEditor.state.selection;
+        if (!empty && to > from) {
+          nextTaskSelection = {
+            from,
+            to,
+            text: normalizeInlineText(currentEditor.state.doc.textBetween(from, to, " ")),
+          };
+        }
+      }
+
+      if (!nextTaskSelection && options?.useLastSelection !== false) {
+        const ageMs = Date.now() - lastTaskSelectionAtRef.current;
+        if (ageMs >= 0 && ageMs <= 10_000 && lastTaskSelectionRef.current) {
+          nextTaskSelection = { ...lastTaskSelectionRef.current };
+        }
+      }
+
+      taskInsertSelectionRef.current = nextTaskSelection;
+
       closeContextMenu();
       closeSlashMenu();
       setTaskCreator({
         open: true,
-        title: prefillTitle,
+        title: nextTaskSelection?.text || prefillTitle,
         dueDate: "",
         dueTime: "",
         assignToMe: true,
@@ -681,7 +725,7 @@ export default function NoteEditorClient({
       keywords: ["task", "todo", "action", "action item"],
       run: (editor, range) => {
         editor.chain().focus().deleteRange(range).run();
-        openTaskCreator(getSuggestedTaskTitle(editor));
+        openTaskCreator(getSuggestedTaskTitle(editor), { useLastSelection: false });
       },
     };
 
@@ -924,6 +968,14 @@ export default function NoteEditorClient({
       updateSlashMenu(editor);
       const nextColType = getActiveTableColumnType(editor);
       setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
+      const { from, to, empty } = editor.state.selection;
+      if (!empty && to > from) {
+        const selectedText = normalizeInlineText(editor.state.doc.textBetween(from, to, " "));
+        if (selectedText) {
+          lastTaskSelectionRef.current = { from, to, text: selectedText };
+          lastTaskSelectionAtRef.current = Date.now();
+        }
+      }
     },
   });
 
@@ -1044,12 +1096,16 @@ export default function NoteEditorClient({
       const inTable = Boolean(target?.closest("table"));
 
       if (editor) {
-        const pos = editor.view.posAtCoords({
-          left: event.clientX,
-          top: event.clientY,
-        });
-        if (pos) {
-          editor.chain().focus().setTextSelection(pos.pos).run();
+        if (editor.state.selection.empty) {
+          const pos = editor.view.posAtCoords({
+            left: event.clientX,
+            top: event.clientY,
+          });
+          if (pos) {
+            editor.chain().focus().setTextSelection(pos.pos).run();
+          } else {
+            editor.commands.focus();
+          }
         } else {
           editor.commands.focus();
         }
@@ -1106,19 +1162,42 @@ export default function NoteEditorClient({
         .then((result) => {
           const currentEditor = editorRef.current;
           if (currentEditor) {
-            currentEditor
-              .chain()
-              .focus()
-              .insertContent([
-                {
-                  type: "text",
-                  text: taskTitle,
-                  marks: [{ type: "link", attrs: { href: `/tasks/${result.taskId}` } }],
-                },
-                { type: "text", text: " " },
-              ])
-              .run();
+            const selection = taskInsertSelectionRef.current;
+            const linkText = selection?.text || taskTitle;
+
+            if (selection && selection.to > selection.from) {
+              const maxPos = currentEditor.state.doc.content.size;
+              const from = Math.max(0, Math.min(selection.from, maxPos));
+              const to = Math.max(from, Math.min(selection.to, maxPos));
+
+              currentEditor
+                .chain()
+                .focus()
+                .insertContentAt(
+                  { from, to },
+                  {
+                    type: "text",
+                    text: linkText,
+                    marks: [{ type: "link", attrs: { href: `/tasks/${result.taskId}` } }],
+                  }
+                )
+                .run();
+            } else {
+              currentEditor
+                .chain()
+                .focus()
+                .insertContent([
+                  {
+                    type: "text",
+                    text: taskTitle,
+                    marks: [{ type: "link", attrs: { href: `/tasks/${result.taskId}` } }],
+                  },
+                  { type: "text", text: " " },
+                ])
+                .run();
+            }
           }
+          taskInsertSelectionRef.current = null;
           setTaskToast({ taskId: result.taskId, title: taskTitle });
           setTaskCreator((prev) => ({ ...prev, open: false, error: "" }));
         })
@@ -1695,10 +1774,28 @@ export default function NoteEditorClient({
             taskToast ? "mt-3" : ""
           }`}
         >
-          <div className="mb-1.5 flex items-center justify-end">
-            <span className="text-[11px] text-slate-400">
-              {isPending ? "Saving..." : "Saved"}
-            </span>
+          <div className="mb-1.5 flex items-center border-b border-slate-200 px-1">
+            <div className="flex items-center gap-1" role="tablist" aria-label="Editor tabs">
+              {RIBBON_TABS.map((tab) => {
+                const isActive = activeRibbonTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveRibbonTab(tab.id)}
+                    role="tab"
+                    aria-selected={isActive}
+                    className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
+                      isActive
+                        ? "border-slate-300 bg-white text-slate-900"
+                        : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="-mx-1 overflow-x-auto px-1">
             <div className="flex min-w-max items-start gap-1.5">
