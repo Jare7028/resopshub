@@ -68,6 +68,25 @@ type NoteEditorClientProps = {
   enableZoomControls?: boolean;
 };
 
+type TaskHoverSummary = {
+  taskId: string;
+  title: string;
+  status: string;
+  dueDate: string | null;
+  dueTime: string | null;
+  assignee: string | null;
+};
+
+type TaskHoverState = {
+  open: boolean;
+  taskId: string | null;
+  x: number;
+  y: number;
+  loading: boolean;
+  error: string;
+  data: TaskHoverSummary | null;
+};
+
 const SLASH_COMMANDS: SlashCommand[] = [
   {
     id: "paragraph",
@@ -499,6 +518,22 @@ function normalizeInlineText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeTaskStatusLabel(value: string | null | undefined) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "To Do";
+  return normalized
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function extractTaskIdFromHref(href: string) {
+  const match = href.match(/^\/tasks\/([a-z0-9-]+)/i);
+  return match?.[1] || null;
+}
+
 function isPersonalPathLink(value: string) {
   return /^\/personal\/[a-f0-9-]+(?:[?#][^\s]*)?$/i.test(value.trim());
 }
@@ -555,8 +590,14 @@ export default function NoteEditorClient({
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuStateRef = useRef<SlashMenuState>(slashMenu);
   const editorRef = useRef<Editor | null>(null);
+  const editorSurfaceRef = useRef<HTMLDivElement | null>(null);
   const taskTitleRef = useRef<HTMLInputElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const taskHoverOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskHoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskHoverLinkRef = useRef<HTMLAnchorElement | null>(null);
+  const taskHoverCacheRef = useRef<Record<string, TaskHoverSummary>>({});
+  const taskHoverRequestIdRef = useRef(0);
   const [zoomPercent, setZoomPercent] = useState(100);
 
   const [taskCreator, setTaskCreator] = useState<{
@@ -578,6 +619,15 @@ export default function NoteEditorClient({
   const [taskToast, setTaskToast] = useState<{ taskId: string; title: string } | null>(
     null
   );
+  const [taskHover, setTaskHover] = useState<TaskHoverState>({
+    open: false,
+    taskId: null,
+    x: 0,
+    y: 0,
+    loading: false,
+    error: "",
+    data: null,
+  });
   const [copiedFormat, setCopiedFormat] = useState<CopiedFormatSnapshot | null>(null);
 
   useEffect(() => {
@@ -886,6 +936,12 @@ export default function NoteEditorClient({
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
+      if (taskHoverOpenTimerRef.current) {
+        clearTimeout(taskHoverOpenTimerRef.current);
+      }
+      if (taskHoverCloseTimerRef.current) {
+        clearTimeout(taskHoverCloseTimerRef.current);
+      }
     };
   }, []);
 
@@ -1048,6 +1104,21 @@ export default function NoteEditorClient({
         assignToMe: taskCreator.assignToMe,
       })
         .then((result) => {
+          const currentEditor = editorRef.current;
+          if (currentEditor) {
+            currentEditor
+              .chain()
+              .focus()
+              .insertContent([
+                {
+                  type: "text",
+                  text: taskTitle,
+                  marks: [{ type: "link", attrs: { href: `/tasks/${result.taskId}` } }],
+                },
+                { type: "text", text: " " },
+              ])
+              .run();
+          }
           setTaskToast({ taskId: result.taskId, title: taskTitle });
           setTaskCreator((prev) => ({ ...prev, open: false, error: "" }));
         })
@@ -1057,6 +1128,190 @@ export default function NoteEditorClient({
         });
     });
   }, [onCreateTask, startTaskTransition, taskCreator]);
+
+  const closeTaskHover = useCallback(() => {
+    taskHoverLinkRef.current = null;
+    setTaskHover((prev) =>
+      prev.open || prev.loading || prev.error || prev.data || prev.taskId
+        ? {
+            open: false,
+            taskId: null,
+            x: 0,
+            y: 0,
+            loading: false,
+            error: "",
+            data: null,
+          }
+        : prev
+    );
+  }, []);
+
+  const scheduleTaskHoverClose = useCallback(() => {
+    if (taskHoverCloseTimerRef.current) {
+      clearTimeout(taskHoverCloseTimerRef.current);
+    }
+    taskHoverCloseTimerRef.current = setTimeout(() => {
+      closeTaskHover();
+    }, 120);
+  }, [closeTaskHover]);
+
+  const clearTaskHoverClose = useCallback(() => {
+    if (taskHoverCloseTimerRef.current) {
+      clearTimeout(taskHoverCloseTimerRef.current);
+      taskHoverCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const fetchTaskHoverData = useCallback((taskId: string) => {
+    const cached = taskHoverCacheRef.current[taskId];
+    if (cached) {
+      setTaskHover((prev) => ({
+        ...prev,
+        open: true,
+        loading: false,
+        error: "",
+        data: cached,
+      }));
+      return;
+    }
+
+    const requestId = taskHoverRequestIdRef.current + 1;
+    taskHoverRequestIdRef.current = requestId;
+    setTaskHover((prev) => ({ ...prev, open: true, loading: true, error: "", data: null }));
+
+    void fetch(`/api/tasks/${taskId}/hover`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => ({}))) as
+          | TaskHoverSummary
+          | { error?: string };
+        if (!response.ok) {
+          throw new Error(
+            typeof (payload as { error?: string }).error === "string"
+              ? (payload as { error?: string }).error || "Unable to load task"
+              : "Unable to load task"
+          );
+        }
+        if (taskHoverRequestIdRef.current !== requestId) return;
+        const task = payload as TaskHoverSummary;
+        taskHoverCacheRef.current[taskId] = task;
+        setTaskHover((prev) => ({
+          ...prev,
+          open: true,
+          loading: false,
+          error: "",
+          data: task,
+        }));
+      })
+      .catch((error: unknown) => {
+        if (taskHoverRequestIdRef.current !== requestId) return;
+        setTaskHover((prev) => ({
+          ...prev,
+          open: true,
+          loading: false,
+          error: error instanceof Error ? error.message : "Unable to load task",
+          data: null,
+        }));
+      });
+  }, []);
+
+  const openTaskHoverForLink = useCallback(
+    (link: HTMLAnchorElement) => {
+      const href = link.getAttribute("href") || "";
+      const taskId = extractTaskIdFromHref(href);
+      if (!taskId) {
+        scheduleTaskHoverClose();
+        return;
+      }
+      clearTaskHoverClose();
+      if (taskHoverOpenTimerRef.current) {
+        clearTimeout(taskHoverOpenTimerRef.current);
+      }
+      taskHoverOpenTimerRef.current = setTimeout(() => {
+        const rect = link.getBoundingClientRect();
+        const popoverWidth = 300;
+        const x = Math.max(
+          12,
+          Math.min(window.innerWidth - popoverWidth - 12, rect.left)
+        );
+        const y = Math.min(window.innerHeight - 170, rect.bottom + 8);
+        taskHoverLinkRef.current = link;
+        setTaskHover((prev) => ({ ...prev, taskId, x, y }));
+        fetchTaskHoverData(taskId);
+      }, 110);
+    },
+    [clearTaskHoverClose, fetchTaskHoverData, scheduleTaskHoverClose]
+  );
+
+  const handleEditorMouseMove = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.buttons !== 0) return;
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) {
+        scheduleTaskHoverClose();
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest('a[href^="/tasks/"]') as HTMLAnchorElement | null;
+      if (!link || !editorSurfaceRef.current?.contains(link)) {
+        scheduleTaskHoverClose();
+        return;
+      }
+
+      if (taskHoverLinkRef.current === link && taskHover.open) {
+        const rect = link.getBoundingClientRect();
+        const popoverWidth = 300;
+        const x = Math.max(
+          12,
+          Math.min(window.innerWidth - popoverWidth - 12, rect.left)
+        );
+        const y = Math.min(window.innerHeight - 170, rect.bottom + 8);
+        setTaskHover((prev) => ({ ...prev, x, y }));
+        clearTaskHoverClose();
+        return;
+      }
+
+      openTaskHoverForLink(link);
+    },
+    [clearTaskHoverClose, openTaskHoverForLink, scheduleTaskHoverClose, taskHover.open]
+  );
+
+  const markTaskHoverDone = useCallback(() => {
+    const taskId = taskHover.taskId;
+    if (!taskId) return;
+    setTaskHover((prev) => ({ ...prev, loading: true, error: "" }));
+    void fetch(`/api/tasks/${taskId}/hover`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "mark_done" }),
+    })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          status?: string;
+          error?: string;
+        };
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || "Unable to mark done");
+        }
+        setTaskHover((prev) => ({
+          ...prev,
+          loading: false,
+          data: prev.data ? { ...prev.data, status: payload.status || "completed" } : prev.data,
+        }));
+        const cached = taskHoverCacheRef.current[taskId];
+        if (cached) {
+          taskHoverCacheRef.current[taskId] = { ...cached, status: payload.status || "completed" };
+        }
+      })
+      .catch((error: unknown) => {
+        setTaskHover((prev) => ({
+          ...prev,
+          loading: false,
+          error: error instanceof Error ? error.message : "Unable to mark done",
+        }));
+      });
+  }, [taskHover.taskId]);
 
   const setSelectedTableColumnsType = useCallback(
     (colType: TableColumnType) => {
@@ -1677,8 +1932,11 @@ export default function NoteEditorClient({
       ) : null}
 
       <div
+        ref={editorSurfaceRef}
         className={showTopToolbar ? "mt-3" : "mt-4"}
         onContextMenu={handleContextMenu}
+        onMouseMove={handleEditorMouseMove}
+        onMouseLeave={() => scheduleTaskHoverClose()}
         title={metaTooltip || undefined}
       >
         <BubbleMenu
@@ -1738,6 +1996,62 @@ export default function NoteEditorClient({
         className="hidden"
         onChange={handleAttachmentSelected}
       />
+
+      {taskHover.open && taskHover.taskId ? (
+        <div
+          className="fixed z-[70] w-[300px] rounded-md border border-slate-200 bg-white p-3 shadow-xl"
+          style={{ left: taskHover.x, top: taskHover.y }}
+          onMouseEnter={clearTaskHoverClose}
+          onMouseLeave={scheduleTaskHoverClose}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {taskHover.loading ? (
+            <p className="text-sm text-slate-500">Loading task...</p>
+          ) : taskHover.error ? (
+            <p className="text-sm text-red-600">{taskHover.error}</p>
+          ) : taskHover.data ? (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-slate-900">{taskHover.data.title}</p>
+              <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 text-xs">
+                <span className="font-semibold uppercase tracking-wide text-slate-500">Status</span>
+                <span className="text-slate-700">
+                  {normalizeTaskStatusLabel(taskHover.data.status)}
+                </span>
+                <span className="font-semibold uppercase tracking-wide text-slate-500">Due</span>
+                <span className="text-slate-700">
+                  {taskHover.data.dueDate
+                    ? `${new Date(taskHover.data.dueDate).toLocaleDateString("en-US")}${
+                        taskHover.data.dueTime
+                          ? ` ${taskHover.data.dueTime.slice(0, 5)}`
+                          : ""
+                      }`
+                    : "No due date"}
+                </span>
+                <span className="font-semibold uppercase tracking-wide text-slate-500">Assignee</span>
+                <span className="text-slate-700">{taskHover.data.assignee || "Unassigned"}</span>
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <a
+                  href={`/tasks/${taskHover.taskId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                >
+                  Open
+                </a>
+                <button
+                  type="button"
+                  onClick={markTaskHoverDone}
+                  disabled={taskHover.data.status === "completed" || taskHover.loading}
+                  className="rounded-md btn-primary px-2.5 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {taskHover.data.status === "completed" ? "Done" : "Mark done"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {enableZoomControls ? (
         <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
@@ -2065,6 +2379,22 @@ export default function NoteEditorClient({
           </div>
         </div>
       ) : null}
+
+      <style jsx global>{`
+        .note-editor a[href^="/tasks/"] {
+          border-bottom: 1px solid #6366f1;
+          background: rgba(99, 102, 241, 0.12);
+          border-radius: 4px;
+          padding: 0 2px;
+          color: #3730a3;
+          font-weight: 600;
+          text-decoration: none;
+          cursor: pointer;
+        }
+        .note-editor a[href^="/tasks/"]:hover {
+          background: rgba(99, 102, 241, 0.2);
+        }
+      `}</style>
     </section>
   );
 }
