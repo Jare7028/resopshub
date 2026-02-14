@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
+import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import {
   readDefaultViewMode,
   writeDefaultViewMode,
@@ -372,6 +373,20 @@ export default function ProjectsView({
     });
   };
 
+  const handleAssigneesChange = (projectId: string, selectedUserIds: string[]) => {
+    const formData = new FormData();
+    formData.set("project_id", projectId);
+    formData.set("assignees_updated", "1");
+    selectedUserIds.forEach((userId) => {
+      if (userId) {
+        formData.append("assignee_user_ids", userId);
+      }
+    });
+    startTransition(() => {
+      void onUpdate(formData);
+    });
+  };
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
@@ -618,9 +633,6 @@ export default function ProjectsView({
               {projects.length ? (
                 projects.map((project) => {
                   const assigneeIds = assigneesByProject[project.id] || [];
-                  const assigneeNames = assigneeIds
-                    .map((id) => usersById[id])
-                    .filter(Boolean);
 
                   return (
                     <tr key={project.id} className="border-t border-slate-200">
@@ -670,7 +682,19 @@ export default function ProjectsView({
                         </form>
                       </td>
                       <td className="px-6 py-3 text-slate-600">
-                        {assigneeNames.length ? assigneeNames.join(", ") : "Unassigned"}
+                        <form id={`project-${project.id}-assignees`}>
+                          <input type="hidden" name="project_id" value={project.id} />
+                          <AssigneeMultiSelect
+                            users={users}
+                            name="assignee_user_ids"
+                            defaultSelected={assigneeIds}
+                            className="w-full"
+                            form={`project-${project.id}-assignees`}
+                            onSelectionChange={(selectedIds) =>
+                              handleAssigneesChange(project.id, selectedIds)
+                            }
+                          />
+                        </form>
                       </td>
                       <td className="px-6 py-3 text-slate-600">
                         <form>

@@ -538,6 +538,15 @@ export default async function ProjectsPage(props: {
     const status = String(formData.get("status") || "").trim();
     const startDate = String(formData.get("start_date") || "").trim();
     const endDate = String(formData.get("end_date") || "").trim();
+    const assigneesUpdated = String(formData.get("assignees_updated") || "").trim() === "1";
+    const assigneeUserIds = Array.from(
+      new Set(
+        formData
+          .getAll("assignee_user_ids")
+          .map((value) => String(value).trim())
+          .filter(Boolean)
+      )
+    );
     const updates: Record<string, string | null> = {};
 
     if (!projectId) {
@@ -562,16 +571,48 @@ export default async function ProjectsPage(props: {
       updates.end_date = endDate || null;
     }
 
-    if (!Object.keys(updates).length) {
+    if (!Object.keys(updates).length && !assigneesUpdated) {
       return;
     }
 
-    const { error } = await supabase.from("projects").update(updates).eq("id", projectId);
+    if (Object.keys(updates).length) {
+      const { error } = await supabase.from("projects").update(updates).eq("id", projectId);
 
-    if (error) {
-      redirect(
-        buildProjectsRedirectUrl(returnTo, { error: error.message })
-      );
+      if (error) {
+        redirect(
+          buildProjectsRedirectUrl(returnTo, { error: error.message })
+        );
+      }
+    }
+
+    if (assigneesUpdated) {
+      const { error: clearAssigneesError } = await supabase
+        .from("project_users")
+        .delete()
+        .eq("project_id", projectId);
+
+      if (clearAssigneesError) {
+        redirect(
+          buildProjectsRedirectUrl(returnTo, { error: clearAssigneesError.message })
+        );
+      }
+
+      if (assigneeUserIds.length) {
+        const { error: addAssigneesError } = await supabase
+          .from("project_users")
+          .insert(
+            assigneeUserIds.map((userId) => ({
+              project_id: projectId,
+              user_id: userId,
+            }))
+          );
+
+        if (addAssigneesError) {
+          redirect(
+            buildProjectsRedirectUrl(returnTo, { error: addAssigneesError.message })
+          );
+        }
+      }
     }
 
     revalidatePath("/projects");

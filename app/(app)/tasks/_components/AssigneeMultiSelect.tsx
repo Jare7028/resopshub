@@ -14,6 +14,7 @@ type AssigneeMultiSelectProps = {
   className?: string;
   defaultSelected?: string[];
   form?: string;
+  onSelectionChange?: (selectedIds: string[]) => void;
 };
 
 export default function AssigneeMultiSelect({
@@ -22,6 +23,7 @@ export default function AssigneeMultiSelect({
   className,
   defaultSelected = [],
   form,
+  onSelectionChange,
 }: AssigneeMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(defaultSelected);
@@ -49,11 +51,13 @@ export default function AssigneeMultiSelect({
   }, [selectedIds, users]);
 
   const toggle = (userId: string) => {
-    setSelectedIds((current) =>
-      current.includes(userId)
+    setSelectedIds((current) => {
+      const next = current.includes(userId)
         ? current.filter((id) => id !== userId)
-        : [...current, userId]
-    );
+        : [...current, userId];
+      onSelectionChange?.(next);
+      return next;
+    });
   };
 
   return (
