@@ -721,7 +721,29 @@ export default async function PersonalPage(props: {
           <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Personal page
           </p>
-          <h1 className="text-xl font-semibold text-slate-900">{page.title}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold text-slate-900">{page.title}</h1>
+            {isOwner ? (
+              <details className="group relative">
+                <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:border-red-300 hover:text-red-800">
+                  Delete
+                </summary>
+                <div className="absolute left-0 z-30 mt-2 w-72 rounded-md border border-red-200 bg-white p-3 text-sm text-red-800 shadow-lg">
+                  <p className="text-xs">
+                    This will permanently delete the page and its content.
+                  </p>
+                  <form action={deletePersonalPage} className="mt-2">
+                    <button
+                      type="submit"
+                      className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                    >
+                      Confirm delete
+                    </button>
+                  </form>
+                </div>
+              </details>
+            ) : null}
+          </div>
           <p className="text-sm text-slate-600">
             {sectionTitle || "General"} -{" "}
             {shareModeLabels[page.share_mode] || "Private"}
@@ -753,25 +775,6 @@ export default async function PersonalPage(props: {
               Update
             </button>
           </form>
-
-          {isOwner ? (
-            <details className="w-full max-w-[420px] rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-              <summary className="cursor-pointer select-none font-semibold">
-                Delete page
-              </summary>
-              <div className="mt-1.5 space-y-1.5">
-                <p>This will permanently delete the page and its content.</p>
-                <form action={deletePersonalPage}>
-                  <button
-                    type="submit"
-                    className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
-                  >
-                    Confirm delete
-                  </button>
-                </form>
-              </div>
-            </details>
-          ) : null}
         </div>
         </div>
       </section>
@@ -797,48 +800,106 @@ export default async function PersonalPage(props: {
         sectionId={sectionId}
         extra={
           isOwner ? (
-            <details className="group relative">
-              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">
-                <span>Page templates</span>
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 12 12"
-                  className="h-3 w-3 text-slate-400 transition group-open:rotate-180"
-                >
-                  <path
-                    d="M2.5 4.5 6 8l3.5-3.5"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </summary>
-              <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Save current page as template
-                </p>
-                <form action={savePageAsTemplate} className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    name="name"
-                    defaultValue={pageTitle}
-                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="submit"
-                    className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            <div className="flex items-start gap-2">
+              <details className="group relative">
+                <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">
+                  <span>Link client note</span>
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 12 12"
+                    className="h-3 w-3 text-slate-400 transition group-open:rotate-180"
                   >
-                    Save
-                  </button>
-                </form>
-                <p className="mt-2 text-xs text-slate-500">
-                  {pageTemplatesTableMissing
-                    ? "Page templates need sql/personal_templates_and_page_order.sql."
-                    : `${pageTemplates.length} template${pageTemplates.length === 1 ? "" : "s"} available.`}
-                </p>
-              </div>
-            </details>
+                    <path
+                      d="M2.5 4.5 6 8l3.5-3.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </summary>
+                <div className="absolute right-0 z-30 mt-2 w-[26rem] max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Create linked client note
+                  </p>
+                  <form action={linkPageToClientNote} className="mt-2 flex flex-wrap items-end gap-2">
+                    <select
+                      name="client_id"
+                      className="min-w-[200px] flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                      defaultValue=""
+                      required
+                    >
+                      <option value="" disabled>
+                        Select client
+                      </option>
+                      {(clients || []).map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      name="visibility"
+                      defaultValue="internal"
+                      className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                    >
+                      <option value="internal">internal</option>
+                      <option value="client_shared">client shared</option>
+                    </select>
+                    <button
+                      type="submit"
+                      className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
+                    >
+                      Link
+                    </button>
+                  </form>
+                </div>
+              </details>
+
+              <details className="group relative">
+                <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">
+                  <span>Page templates</span>
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 12 12"
+                    className="h-3 w-3 text-slate-400 transition group-open:rotate-180"
+                  >
+                    <path
+                      d="M2.5 4.5 6 8l3.5-3.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </summary>
+                <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Save current page as template
+                  </p>
+                  <form action={savePageAsTemplate} className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      name="name"
+                      defaultValue={pageTitle}
+                      className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                    >
+                      Save
+                    </button>
+                  </form>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {pageTemplatesTableMissing
+                      ? "Page templates need sql/personal_templates_and_page_order.sql."
+                      : `${pageTemplates.length} template${pageTemplates.length === 1 ? "" : "s"} available.`}
+                  </p>
+                </div>
+              </details>
+            </div>
           ) : null
         }
       />
@@ -999,45 +1060,6 @@ export default async function PersonalPage(props: {
 
       {activeTab === "notes" ? (
         <div className="space-y-3">
-          <details className="rounded-lg border border-slate-200 bg-white p-3">
-            <summary className="cursor-pointer select-none text-sm font-semibold text-slate-800">
-              Link to client note
-            </summary>
-            <p className="mt-1 text-xs text-slate-500">
-              Create a client note that links back to this personal page.
-            </p>
-            <form action={linkPageToClientNote} className="mt-2 flex flex-wrap items-end gap-2">
-              <select
-                name="client_id"
-                className="min-w-[220px] rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                defaultValue=""
-                required
-              >
-                <option value="" disabled>
-                  Select client
-                </option>
-                {(clients || []).map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                name="visibility"
-                defaultValue="internal"
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              >
-                <option value="internal">internal</option>
-                <option value="client_shared">client shared</option>
-              </select>
-              <button
-                type="submit"
-                className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
-              >
-                Link note
-              </button>
-            </form>
-          </details>
           <PersonalPageEditorClient
             pageId={page.id}
             initialContent={page.content ?? null}
