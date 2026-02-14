@@ -50,6 +50,8 @@ const fieldLabelClass =
   "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const fieldControlClass =
   "mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+const fieldControlStaticClass =
+  "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
 
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -329,6 +331,10 @@ export default function RecurrenceFields({
                       options={weekdayOptions}
                       selectedValues={selectedWeekdays}
                       placeholder="Select days"
+                      summaryClassName={fieldControlStaticClass}
+                      menuClassName="rounded-lg"
+                      showCount={false}
+                      headerLabel="Days"
                       onChange={(next) => setSelectedWeekdays(sortWeekdays(next))}
                     />
                   </div>

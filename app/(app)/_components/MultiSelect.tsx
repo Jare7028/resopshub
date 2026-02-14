@@ -9,11 +9,21 @@ export default function MultiSelect({
   selectedValues,
   placeholder,
   onChange,
+  className,
+  summaryClassName,
+  menuClassName,
+  showCount = true,
+  headerLabel = "Select",
 }: {
   options: readonly MultiSelectOption[];
   selectedValues: readonly string[];
   placeholder: string;
   onChange: (next: string[]) => void;
+  className?: string;
+  summaryClassName?: string;
+  menuClassName?: string;
+  showCount?: boolean;
+  headerLabel?: string;
 }) {
   const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
 
@@ -43,17 +53,33 @@ export default function MultiSelect({
   };
 
   return (
-    <details className="relative">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
+    <details className={["relative", className].filter(Boolean).join(" ")}>
+      <summary
+        className={[
+          "flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700",
+          summaryClassName,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <span className="truncate">{summaryLabel}</span>
-        <span className="text-xs text-slate-400">
-          {selectedValues.length ? selectedValues.length : ""}
-        </span>
+        {showCount ? (
+          <span className="text-xs text-slate-400">
+            {selectedValues.length ? selectedValues.length : ""}
+          </span>
+        ) : null}
       </summary>
-      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+      <div
+        className={[
+          "absolute z-20 mt-2 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg",
+          menuClassName,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Select
+            {headerLabel}
           </p>
           <button
             type="button"
@@ -87,4 +113,3 @@ export default function MultiSelect({
     </details>
   );
 }
-
