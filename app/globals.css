@@ -188,6 +188,35 @@
   border-radius: 0.5rem;
 }
 
+.note-editor img:not([data-float]),
+.note-editor img[data-float="none"] {
+  clear: both;
+  display: block;
+  margin: 0.8rem 0;
+}
+
+.note-editor img[data-float="left"],
+.note-editor img[data-float="right"] {
+  max-width: min(48%, 22rem);
+  width: 100%;
+}
+
+.note-editor img[data-float="left"] {
+  float: left;
+  margin: 0.25rem 1rem 0.75rem 0;
+}
+
+.note-editor img[data-float="right"] {
+  float: right;
+  margin: 0.25rem 0 0.75rem 1rem;
+}
+
+.note-editor::after {
+  clear: both;
+  content: "";
+  display: block;
+}
+
 .note-editor th,
 .note-editor td {
   border: 1px solid #e2e8f0;

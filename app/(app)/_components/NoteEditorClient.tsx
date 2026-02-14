@@ -93,6 +93,8 @@ type TaskInsertSelection = {
   text: string;
 };
 
+type ImageFloatMode = "none" | "left" | "right";
+
 const SLASH_COMMANDS: SlashCommand[] = [
   {
     id: "paragraph",
@@ -483,6 +485,37 @@ function normalizeContent(content: unknown) {
   }
   return createEmptyDoc();
 }
+
+function normalizeImageFloat(value: string | null | undefined): ImageFloatMode {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "left" || normalized === "right") {
+    return normalized;
+  }
+  return "none";
+}
+
+const FloatingImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      float: {
+        default: "none",
+        parseHTML: (element) =>
+          normalizeImageFloat(
+            element.getAttribute("data-float") || (element as HTMLElement).style.float
+          ),
+        renderHTML: (attributes) => {
+          const float = normalizeImageFloat(
+            (attributes as { float?: string | null }).float
+          );
+          return float === "none" ? {} : { "data-float": float };
+        },
+      },
+    };
+  },
+});
 
 function getSlashMatch(editor: Editor) {
   const { state } = editor;
@@ -899,7 +932,7 @@ export default function NoteEditorClient({
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Image.configure({ inline: false, allowBase64: true }),
+      FloatingImage.configure({ inline: false, allowBase64: true }),
       Table.configure({ resizable: true }),
       TableRow,
       TableHeader.extend({
@@ -1675,8 +1708,8 @@ export default function NoteEditorClient({
     [editor]
   );
 
-  const bubbleActions = useMemo(
-    () => [
+  const bubbleActions = useMemo(() => {
+    const actions = [
       {
         label: "B",
         active: editor?.isActive("bold"),
@@ -1712,9 +1745,35 @@ export default function NoteEditorClient({
         active: editor?.isActive("taskList"),
         onClick: () => editor?.chain().focus().toggleTaskList().run(),
       },
-    ],
-    [editor]
-  );
+    ];
+
+    if (editor?.isActive("image")) {
+      const imageAttrs = editor.getAttributes("image") as { float?: string | null };
+      const currentFloat = normalizeImageFloat(imageAttrs.float);
+      actions.push(
+        {
+          label: "Float left",
+          active: currentFloat === "left",
+          onClick: () =>
+            editor.chain().focus().updateAttributes("image", { float: "left" }).run(),
+        },
+        {
+          label: "Float right",
+          active: currentFloat === "right",
+          onClick: () =>
+            editor.chain().focus().updateAttributes("image", { float: "right" }).run(),
+        },
+        {
+          label: "Inline",
+          active: currentFloat === "none",
+          onClick: () =>
+            editor.chain().focus().updateAttributes("image", { float: "none" }).run(),
+        }
+      );
+    }
+
+    return actions;
+  }, [editor]);
 
   const metaTooltip = useMemo(() => {
     if (!lastEditedAtLabel && !lastEditedByLabel) {
