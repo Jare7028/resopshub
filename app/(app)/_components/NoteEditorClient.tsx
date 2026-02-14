@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -200,6 +200,201 @@ type CopiedFormatSnapshot = {
   underline: boolean;
   highlight: boolean;
 };
+
+type RibbonGroupProps = {
+  title: string;
+  children: ReactNode;
+};
+
+type RibbonIconButtonProps = {
+  label: string;
+  title?: string;
+  active?: boolean;
+  disabled?: boolean;
+  iconOnly?: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+};
+
+function RibbonGroup({ title, children }: RibbonGroupProps) {
+  return (
+    <div className="flex min-h-[100px] min-w-[170px] flex-col justify-between rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
+      <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </p>
+    </div>
+  );
+}
+
+function RibbonIconButton({
+  label,
+  title,
+  active = false,
+  disabled = false,
+  iconOnly = false,
+  onClick,
+  icon,
+}: RibbonIconButtonProps) {
+  const baseClass =
+    "inline-flex h-8 items-center gap-1.5 rounded-md border text-xs font-semibold transition";
+  const stateClass = active
+    ? "border-slate-900 bg-slate-900 text-white"
+    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-900";
+  const sizeClass = iconOnly ? "w-8 justify-center px-0" : "px-2";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title || label}
+      disabled={disabled}
+      className={`${baseClass} ${stateClass} ${sizeClass} disabled:cursor-not-allowed disabled:opacity-40`}
+    >
+      <span className="inline-flex h-3.5 w-3.5 items-center justify-center">{icon}</span>
+      {iconOnly ? <span className="sr-only">{label}</span> : <span>{label}</span>}
+    </button>
+  );
+}
+
+function AlignIcon({ align }: { align: WordTextAlign }) {
+  if (align === "center") {
+    return (
+      <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+        <path d="M2 3h10M3 6h8M2 9h10M3 12h8" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    );
+  }
+  if (align === "right") {
+    return (
+      <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+        <path d="M2 3h10M4 6h8M2 9h10M4 12h8" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    );
+  }
+  if (align === "justify") {
+    return (
+      <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+        <path d="M2 3h10M2 6h10M2 9h10M2 12h10" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M2 3h10M2 6h8M2 9h10M2 12h8" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function ListBulletedIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M5 3.5h7M5 7h7M5 10.5h7" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="2.4" cy="3.5" r="0.8" fill="currentColor" />
+      <circle cx="2.4" cy="7" r="0.8" fill="currentColor" />
+      <circle cx="2.4" cy="10.5" r="0.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ListNumberedIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M5 3.5h7M5 7h7M5 10.5h7" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M1.4 3h1v1.4M1.2 6.6h1.6M1.2 8.9l1.4-.8-1.4-.8" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  );
+}
+
+function ChecklistIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M5 3.5h7M5 7h7M5 10.5h7" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M1.5 2.8h2v2h-2zM1.5 6.3h2v2h-2zM1.5 9.8h2v2h-2z" stroke="currentColor" strokeWidth="1" fill="none" />
+    </svg>
+  );
+}
+
+function PaintIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M2.5 8.5 7.2 3.8l3 3-4.7 4.7H2.5zM8.2 2.8l1-1a1.3 1.3 0 0 1 1.8 0l1.2 1.2a1.3 1.3 0 0 1 0 1.8l-1 1" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function ApplyIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M3 2.5h8v9H3zM4.8 6.8l1.3 1.3 3-3" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function ClearIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="m3 9 3.2-3.2 3.2 3.2L6.8 11.6H4.2zM7.8 11.6H12" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M5.3 8.7 3.8 10.2a1.9 1.9 0 0 1-2.7-2.7l1.5-1.5a1.9 1.9 0 0 1 2.7 0M8.7 5.3l1.5-1.5a1.9 1.9 0 0 1 2.7 2.7l-1.5 1.5a1.9 1.9 0 0 1-2.7 0M4.8 9.2l4.4-4.4" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M2 2.5h10v9H2zM4 9l2-2 1.5 1.5L9.8 6 12 8.4" stroke="currentColor" strokeWidth="1.1" fill="none" />
+      <circle cx="4.5" cy="5" r="0.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function AttachmentIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M9.8 4.4 6 8.2a1.9 1.9 0 1 1-2.7-2.7l4-4a2.8 2.8 0 0 1 4 4l-4.1 4.1a3.6 3.6 0 0 1-5.1-5.1l3.8-3.8" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function TableIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M2 2.5h10v9H2zM2 5.5h10M2 8.5h10M5.3 2.5v9M8.7 2.5v9" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function SectionIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M2.5 2.5h9v9h-9zM4.5 4.5h5M4.5 6.8h3.5M4.5 9h4.2" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function UndoIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M5.2 4 2.6 6.5 5.2 9M3 6.5h4.5a3.5 3.5 0 1 1 0 7" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
+
+function RedoIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="m8.8 4 2.6 2.5-2.6 2.5M11 6.5H6.5a3.5 3.5 0 1 0 0 7" stroke="currentColor" strokeWidth="1.1" fill="none" />
+    </svg>
+  );
+}
 
 function getActiveTableColumnType(editor: Editor | null | undefined): TableColumnType {
   if (!editor || !editor.isActive("table")) {
@@ -1272,266 +1467,235 @@ export default function NoteEditorClient({
       ) : null}
 
       {showTopToolbar ? (
-        <div className="sticky top-0 z-20 mt-4 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-semibold text-slate-600">Style</label>
-            <select
-              value={currentBlockStyle}
-              onChange={(event) => applyBlockStyle(event.target.value as WordBlockStyle)}
-              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-            >
-              <option value="paragraph">Paragraph</option>
-              <option value="h1">Heading 1</option>
-              <option value="h2">Heading 2</option>
-              <option value="h3">Heading 3</option>
-              <option value="quote">Callout / Quote</option>
-            </select>
-            <select
-              value={currentFontFamily}
-              onChange={(event) => setFontFamilyValue(event.target.value)}
-              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-              title="Font family"
-            >
-              {WORD_FONT_OPTIONS.map((font) => (
-                <option key={font.value || "default"} value={font.value}>
-                  {font.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={currentFontSize}
-              onChange={(event) => setFontSizeValue(event.target.value)}
-              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-              title="Font size"
-            >
-              {WORD_FONT_SIZE_OPTIONS.map((size) => (
-                <option key={size.value || "default"} value={size.value}>
-                  {size.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => setTextAlignValue("left")}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                currentTextAlign === "left"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Left
-            </button>
-            <button
-              type="button"
-              onClick={() => setTextAlignValue("center")}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                currentTextAlign === "center"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Center
-            </button>
-            <button
-              type="button"
-              onClick={() => setTextAlignValue("right")}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                currentTextAlign === "right"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Right
-            </button>
-            <button
-              type="button"
-              onClick={() => setTextAlignValue("justify")}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                currentTextAlign === "justify"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Justify
-            </button>
-            <button
-              type="button"
-              onClick={copyFormatting}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                copiedFormat
-                  ? "border-blue-600 bg-blue-50 text-blue-700"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Copy format
-            </button>
-            <button
-              type="button"
-              onClick={applyCopiedFormatting}
-              disabled={!copiedFormat}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Apply format
-            </button>
-
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleBold().run()}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                editor.isActive("bold")
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Bold
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleItalic().run()}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                editor.isActive("italic")
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Italic
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleUnderline().run()}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                editor.isActive("underline")
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Underline
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleHighlight().run()}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                editor.isActive("highlight")
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Highlight
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleBulletList().run()}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                editor.isActive("bulletList")
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Bullets
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleOrderedList().run()}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                editor.isActive("orderedList")
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Numbered
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().toggleTaskList().run()}
-              className={`rounded-md border px-2 py-1 text-xs font-semibold ${
-                editor.isActive("taskList")
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-700"
-              }`}
-            >
-              Checklist
-            </button>
-            <button
-              type="button"
-              onClick={insertSectionBox}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Add box
-            </button>
-            <button
-              type="button"
-              onClick={setLinkFromPrompt}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Link
-            </button>
-            <button
-              type="button"
-              onClick={insertImageFromPrompt}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Image
-            </button>
-            <button
-              type="button"
-              onClick={triggerAttachmentPicker}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Attachment
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                editor
-                  .chain()
-                  .focus()
-                  .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-                  .run()
-              }
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Table
-            </button>
-            <button
-              type="button"
-              onClick={clearFormatting}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Clear format
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().undo().run()}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().redo().run()}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-            >
-              Redo
-            </button>
+        <div className="sticky top-0 z-20 mt-4 rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mb-2 flex items-center gap-2 border-b border-slate-200 pb-2">
+            <span className="rounded-md bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white">
+              Home
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Word-style toolbar
+            </span>
           </div>
-          {editor.isActive("table") ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500">Selected column type</span>
-              <select
-                value={activeTableColType}
-                onChange={(event) =>
-                  setSelectedTableColumnsType(event.target.value as TableColumnType)
-                }
-                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-              >
-                {TABLE_COLUMN_TYPES.map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
+          <div className="-mx-1 overflow-x-auto px-1 pb-1">
+            <div className="flex min-w-max items-stretch gap-2">
+              <RibbonGroup title="Clipboard">
+                <RibbonIconButton
+                  label="Copy style"
+                  title="Copy formatting"
+                  onClick={copyFormatting}
+                  active={Boolean(copiedFormat)}
+                  icon={<PaintIcon />}
+                />
+                <RibbonIconButton
+                  label="Apply style"
+                  title="Apply copied formatting"
+                  onClick={applyCopiedFormatting}
+                  disabled={!copiedFormat}
+                  icon={<ApplyIcon />}
+                />
+                <RibbonIconButton
+                  label="Clear"
+                  title="Clear formatting"
+                  onClick={clearFormatting}
+                  icon={<ClearIcon />}
+                />
+              </RibbonGroup>
+
+              <RibbonGroup title="Font">
+                <select
+                  value={currentBlockStyle}
+                  onChange={(event) => applyBlockStyle(event.target.value as WordBlockStyle)}
+                  className="h-8 w-[9.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                  title="Text style"
+                >
+                  <option value="paragraph">Paragraph</option>
+                  <option value="h1">Heading 1</option>
+                  <option value="h2">Heading 2</option>
+                  <option value="h3">Heading 3</option>
+                  <option value="quote">Callout / Quote</option>
+                </select>
+                <select
+                  value={currentFontFamily}
+                  onChange={(event) => setFontFamilyValue(event.target.value)}
+                  className="h-8 w-[8.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                  title="Font family"
+                >
+                  {WORD_FONT_OPTIONS.map((font) => (
+                    <option key={font.value || "default"} value={font.value}>
+                      {font.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={currentFontSize}
+                  onChange={(event) => setFontSizeValue(event.target.value)}
+                  className="h-8 w-[4.5rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                  title="Font size"
+                >
+                  {WORD_FONT_SIZE_OPTIONS.map((size) => (
+                    <option key={size.value || "default"} value={size.value}>
+                      {size.label}
+                    </option>
+                  ))}
+                </select>
+                <RibbonIconButton
+                  label="Bold"
+                  title="Bold"
+                  onClick={() => editor.chain().focus().toggleBold().run()}
+                  active={editor.isActive("bold")}
+                  icon={<span className="text-[11px] font-black leading-none">B</span>}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Italic"
+                  title="Italic"
+                  onClick={() => editor.chain().focus().toggleItalic().run()}
+                  active={editor.isActive("italic")}
+                  icon={<span className="text-[11px] italic leading-none">I</span>}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Underline"
+                  title="Underline"
+                  onClick={() => editor.chain().focus().toggleUnderline().run()}
+                  active={editor.isActive("underline")}
+                  icon={<span className="text-[11px] underline leading-none">U</span>}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Highlight"
+                  title="Highlight"
+                  onClick={() => editor.chain().focus().toggleHighlight().run()}
+                  active={editor.isActive("highlight")}
+                  icon={<span className="h-2.5 w-2.5 rounded-sm bg-amber-300" />}
+                  iconOnly
+                />
+              </RibbonGroup>
+
+              <RibbonGroup title="Paragraph">
+                <RibbonIconButton
+                  label="Align left"
+                  onClick={() => setTextAlignValue("left")}
+                  active={currentTextAlign === "left"}
+                  icon={<AlignIcon align="left" />}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Align center"
+                  onClick={() => setTextAlignValue("center")}
+                  active={currentTextAlign === "center"}
+                  icon={<AlignIcon align="center" />}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Align right"
+                  onClick={() => setTextAlignValue("right")}
+                  active={currentTextAlign === "right"}
+                  icon={<AlignIcon align="right" />}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Justify"
+                  onClick={() => setTextAlignValue("justify")}
+                  active={currentTextAlign === "justify"}
+                  icon={<AlignIcon align="justify" />}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Bullets"
+                  onClick={() => editor.chain().focus().toggleBulletList().run()}
+                  active={editor.isActive("bulletList")}
+                  icon={<ListBulletedIcon />}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Numbered"
+                  onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                  active={editor.isActive("orderedList")}
+                  icon={<ListNumberedIcon />}
+                  iconOnly
+                />
+                <RibbonIconButton
+                  label="Checklist"
+                  onClick={() => editor.chain().focus().toggleTaskList().run()}
+                  active={editor.isActive("taskList")}
+                  icon={<ChecklistIcon />}
+                  iconOnly
+                />
+              </RibbonGroup>
+
+              <RibbonGroup title="Insert">
+                <RibbonIconButton
+                  label="Section"
+                  onClick={insertSectionBox}
+                  icon={<SectionIcon />}
+                />
+                <RibbonIconButton
+                  label="Link"
+                  onClick={setLinkFromPrompt}
+                  icon={<LinkIcon />}
+                />
+                <RibbonIconButton
+                  label="Image"
+                  onClick={insertImageFromPrompt}
+                  icon={<ImageIcon />}
+                />
+                <RibbonIconButton
+                  label="File"
+                  title="Attachment"
+                  onClick={triggerAttachmentPicker}
+                  icon={<AttachmentIcon />}
+                />
+                <RibbonIconButton
+                  label="Table"
+                  onClick={() =>
+                    editor
+                      .chain()
+                      .focus()
+                      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                      .run()
+                  }
+                  icon={<TableIcon />}
+                />
+              </RibbonGroup>
+
+              <RibbonGroup title="History">
+                <RibbonIconButton
+                  label="Undo"
+                  onClick={() => editor.chain().focus().undo().run()}
+                  icon={<UndoIcon />}
+                />
+                <RibbonIconButton
+                  label="Redo"
+                  onClick={() => editor.chain().focus().redo().run()}
+                  icon={<RedoIcon />}
+                />
+              </RibbonGroup>
+
+              {editor.isActive("table") ? (
+                <RibbonGroup title="Table">
+                  <div className="w-full space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      Column type
+                    </p>
+                    <select
+                      value={activeTableColType}
+                      onChange={(event) =>
+                        setSelectedTableColumnsType(event.target.value as TableColumnType)
+                      }
+                      className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                    >
+                      {TABLE_COLUMN_TYPES.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </RibbonGroup>
+              ) : null}
             </div>
-          ) : null}
+          </div>
         </div>
       ) : null}
 
