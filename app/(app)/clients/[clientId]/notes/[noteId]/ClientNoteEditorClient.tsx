@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import NoteEditorClient from "../../../../_components/NoteEditorClient";
-import { updateClientNoteContent } from "./editorActions";
+import { createTaskFromClientNote, updateClientNoteContent } from "./editorActions";
 
 export default function ClientNoteEditorClient({
   clientId,
@@ -23,6 +23,12 @@ export default function ClientNoteEditorClient({
     [clientId]
   );
 
+  const handleCreateTask = useCallback(
+    (input: { title: string; dueDate: string | null; dueTime: string | null; assignToMe: boolean }) =>
+      createTaskFromClientNote({ clientId, noteId, ...input }),
+    [clientId, noteId]
+  );
+
   return (
     <NoteEditorClient
       entityId={noteId}
@@ -30,9 +36,9 @@ export default function ClientNoteEditorClient({
       title="Note"
       placeholder="Start writing your note..."
       onSave={handleSave}
+      onCreateTask={handleCreateTask}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
     />
   );
 }
-

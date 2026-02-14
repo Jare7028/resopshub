@@ -94,6 +94,10 @@ type TaskInsertSelection = {
 };
 
 type ImageFloatMode = "none" | "left" | "right";
+const MAX_INLINE_IMAGE_BYTES = 1_800_000;
+const MAX_INLINE_IMAGE_DIMENSION = 1800;
+const MIN_INLINE_IMAGE_DIMENSION = 640;
+const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
 
 const SLASH_COMMANDS: SlashCommand[] = [
   {
@@ -496,6 +500,115 @@ function normalizeImageFloat(value: string | null | undefined): ImageFloatMode {
   return "none";
 }
 
+function readBlobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        resolve(result);
+        return;
+      }
+      reject(new Error("Unable to read image data"));
+    };
+    reader.onerror = () => reject(reader.error || new Error("Unable to read image data"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function loadImageElement(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Unable to decode image"));
+    image.src = src;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(
+      (blob) => resolve(blob),
+      type,
+      typeof quality === "number" ? quality : undefined
+    );
+  });
+}
+
+async function optimizeImageForInlineInsert(file: File) {
+  const initialDataUrl = await readBlobAsDataUrl(file);
+  if (file.size <= MAX_INLINE_IMAGE_BYTES) {
+    return initialDataUrl;
+  }
+
+  const image = await loadImageElement(initialDataUrl);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) {
+    return initialDataUrl;
+  }
+
+  const maxDimension = Math.max(sourceWidth, sourceHeight);
+  const initialScale =
+    maxDimension > MAX_INLINE_IMAGE_DIMENSION
+      ? MAX_INLINE_IMAGE_DIMENSION / maxDimension
+      : 1;
+  let width = Math.max(1, Math.round(sourceWidth * initialScale));
+  let height = Math.max(1, Math.round(sourceHeight * initialScale));
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return initialDataUrl;
+  }
+
+  let bestBlob: Blob | null = null;
+  while (true) {
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    for (const quality of IMAGE_COMPRESSION_QUALITIES) {
+      const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+      if (!blob) {
+        continue;
+      }
+      if (!bestBlob || blob.size < bestBlob.size) {
+        bestBlob = blob;
+      }
+      if (blob.size <= MAX_INLINE_IMAGE_BYTES) {
+        return readBlobAsDataUrl(blob);
+      }
+    }
+
+    if (
+      width <= MIN_INLINE_IMAGE_DIMENSION &&
+      height <= MIN_INLINE_IMAGE_DIMENSION
+    ) {
+      break;
+    }
+
+    const nextWidth = Math.max(1, Math.floor(width * 0.85));
+    const nextHeight = Math.max(1, Math.floor(height * 0.85));
+    if (nextWidth === width && nextHeight === height) {
+      break;
+    }
+    width = nextWidth;
+    height = nextHeight;
+  }
+
+  if (!bestBlob) {
+    return initialDataUrl;
+  }
+
+  if (bestBlob.size > MAX_INLINE_IMAGE_BYTES) {
+    throw new Error("Image is too large. Try a smaller image.");
+  }
+
+  return readBlobAsDataUrl(bestBlob);
+}
+
 const FloatingImage = Image.extend({
   addAttributes() {
     return {
@@ -652,6 +765,7 @@ export default function NoteEditorClient({
   const taskHoverCacheRef = useRef<Record<string, TaskHoverSummary>>({});
   const taskHoverRequestIdRef = useRef(0);
   const [zoomPercent, setZoomPercent] = useState(100);
+  const [saveError, setSaveError] = useState("");
 
   const [taskCreator, setTaskCreator] = useState<{
     open: boolean;
@@ -894,21 +1008,22 @@ export default function NoteEditorClient({
 
     event.preventDefault();
 
-    imageItems.forEach((item) => {
-      const file = item.getAsFile();
-      if (!file) {
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const src = reader.result;
-        if (typeof src === "string") {
-          editorRef.current?.chain().focus().setImage({ src }).run();
+    void (async () => {
+      for (const item of imageItems) {
+        const file = item.getAsFile();
+        if (!file) {
+          continue;
         }
-      };
-      reader.readAsDataURL(file);
-    });
+        try {
+          const src = await optimizeImageForInlineInsert(file);
+          editorRef.current?.chain().focus().setImage({ src }).run();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Unable to paste image.";
+          window.alert(message);
+        }
+      }
+    })();
 
     return true;
   }, []);
@@ -987,13 +1102,21 @@ export default function NoteEditorClient({
       updateSlashMenu(editor);
       const nextColType = getActiveTableColumnType(editor);
       setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
+      setSaveError((prev) => (prev ? "" : prev));
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
       const json = editor.getJSON();
       saveTimer.current = setTimeout(() => {
         startTransition(() => {
-          void onSave(entityId, json);
+          void onSave(entityId, json).catch((error: unknown) => {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to save your changes.";
+            setSaveError(message);
+            console.error("[noteEditor.save]", message);
+          });
         });
       }, 600);
     },
@@ -1678,16 +1801,20 @@ export default function NoteEditorClient({
         window.alert("Attachment is too large. Use files up to 5 MB.");
         return;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result;
-        if (typeof result !== "string") {
-          return;
-        }
+      void (async () => {
         if (file.type.startsWith("image/")) {
-          editor.chain().focus().setImage({ src: result }).run();
+          try {
+            const src = await optimizeImageForInlineInsert(file);
+            editor.chain().focus().setImage({ src }).run();
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Unable to insert image.";
+            window.alert(message);
+          }
           return;
         }
+
+        const result = await readBlobAsDataUrl(file);
         editor
           .chain()
           .focus()
@@ -1702,8 +1829,7 @@ export default function NoteEditorClient({
             ],
           })
           .run();
-      };
-      reader.readAsDataURL(file);
+      })();
     },
     [editor]
   );
@@ -2007,7 +2133,7 @@ export default function NoteEditorClient({
               <RibbonGroup title="Insert">
                 {onCreateTask ? (
                   <RibbonIconButton
-                    label="+ Task"
+                    label="Task"
                     title="Create task"
                     onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
                     icon={<span className="text-sm leading-none">+</span>}
@@ -2085,6 +2211,12 @@ export default function NoteEditorClient({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {saveError ? (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {saveError}
+        </p>
       ) : null}
 
       <div

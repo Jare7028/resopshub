@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "node:crypto";
+import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
+import { extractMentionHandles } from "@/lib/mentions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
@@ -21,7 +23,21 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
   const now = new Date().toISOString();
   const editorId = authData.user?.id ?? null;
   const contentText = extractPlainText(content);
-  await supabase
+  const mentionHandles = extractMentionHandles(contentText);
+  let previousContentText: string | null = null;
+  let pageTitle: string | null = null;
+
+  if (mentionHandles.length) {
+    const { data: existingPage } = await supabase
+      .from("personal_pages")
+      .select("content_text,title")
+      .eq("id", pageId)
+      .maybeSingle();
+    previousContentText = String(existingPage?.content_text || "").trim() || null;
+    pageTitle = String(existingPage?.title || "").trim() || null;
+  }
+
+  const { error: updateError } = await supabase
     .from("personal_pages")
     .update({
       content,
@@ -31,6 +47,10 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
       last_edited_by_user_id: editorId,
     })
     .eq("id", pageId);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
 
   const { error: linkedNotesSyncError } = await supabase
     .from("notes")
@@ -44,6 +64,23 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
 
   if (linkedNotesSyncError && !isMissingColumnError(linkedNotesSyncError)) {
     console.error("[personal.updatePersonalPageContent.notes.sync]", linkedNotesSyncError.message);
+  }
+
+  if (mentionHandles.length) {
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: editorId,
+        previousText: previousContentText,
+        nextText: contentText,
+        sourceType: "personal_page",
+        sourceId: pageId,
+        sourceUrl: `/personal/${pageId}`,
+        sourceTitle: pageTitle || "Personal page",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[personal.updatePersonalPageContent.mentions.notify]", message);
+    }
   }
 
   revalidatePath(`/personal/${pageId}`);

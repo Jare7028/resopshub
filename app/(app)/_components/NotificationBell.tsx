@@ -114,6 +114,13 @@ export default function NotificationBell({ userId }: { userId: string }) {
       }
 
       const metadata = notification.metadata || {};
+      const sourceUrl =
+        typeof metadata.source_url === "string" ? metadata.source_url.trim() : "";
+      if (sourceUrl.startsWith("/")) {
+        router.push(sourceUrl);
+        return;
+      }
+
       const suggestionId =
         typeof metadata.feature_suggestion_id === "string"
           ? metadata.feature_suggestion_id
