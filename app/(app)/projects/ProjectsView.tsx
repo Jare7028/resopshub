@@ -443,7 +443,7 @@ export default function ProjectsView({
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 md:px-6">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
           <a
@@ -499,11 +499,11 @@ export default function ProjectsView({
               : "Show Projects I'm watching"}
           </a>
         </div>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="grid w-full grid-cols-2 gap-2 text-sm md:flex md:w-auto md:items-center md:gap-2">
           <button
             type="button"
             onClick={() => applyView("table")}
-            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
               view === "table"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -514,7 +514,7 @@ export default function ProjectsView({
           <button
             type="button"
             onClick={() => applyView("gantt")}
-            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
               view === "gantt"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -525,7 +525,7 @@ export default function ProjectsView({
           <button
             type="button"
             onClick={() => applyView("board")}
-            className={`min-h-11 rounded-md px-3 py-1.5 font-semibold ${
+            className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
               view === "board"
                 ? "bg-slate-900 text-white"
                 : "border border-slate-300 text-slate-700"
@@ -536,7 +536,7 @@ export default function ProjectsView({
           <button
             type="button"
             onClick={saveDefaultView}
-            className={`min-h-11 rounded-md border px-3 py-1.5 text-xs font-semibold ${
+            className={`min-h-11 w-full rounded-md border px-3 py-1.5 text-xs font-semibold md:w-auto ${
               defaultView === view
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
@@ -549,7 +549,7 @@ export default function ProjectsView({
 
       {view === "table" ? (
         <>
-        <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+        <div className="mobile-filter-panel md:hidden">
           <div className="grid gap-3 sm:grid-cols-2">
             <MultiSelect
               options={clients.map((client) => ({ value: client.id, label: client.name }))}
@@ -872,7 +872,7 @@ export default function ProjectsView({
             </tbody>
           </table>
         </div>
-        <div className="space-y-3 p-4 md:hidden">
+        <div className="mobile-list-stack md:hidden">
           {projects.length ? (
             projects.map((project) => {
               const assigneeIds = assigneesByProject[project.id] || [];
@@ -882,7 +882,7 @@ export default function ProjectsView({
               return (
                 <article
                   key={`mobile-${project.id}`}
-                  className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+                  className="mobile-list-card space-y-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Link
@@ -918,7 +918,7 @@ export default function ProjectsView({
                   </div>
                   <Link
                     href={`/projects/${project.id}`}
-                    className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    className="mobile-card-action"
                   >
                     Open project
                   </Link>
@@ -926,7 +926,7 @@ export default function ProjectsView({
               );
             })
           ) : (
-            <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+            <p className="mobile-empty-state">
               No projects found.
             </p>
           )}

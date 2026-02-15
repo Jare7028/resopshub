@@ -161,11 +161,11 @@ export default function GlobalSearchBar() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => setIsFocused(true)}
-          placeholder="Search notes, tasks, projects, and personal pages..."
-          className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
+          placeholder="Search tasks, notes, projects, and more..."
+          className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
         />
         {showSuggestions ? (
-          <div className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+          <div className="absolute left-0 right-0 top-full z-40 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
             {isLoading ? (
               <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
             ) : null}

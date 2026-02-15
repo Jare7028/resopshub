@@ -56,6 +56,20 @@ export default function ChatNavLink({
   }, [userId]);
 
   useEffect(() => {
+    void refreshUnreadCount();
+  }, [pathname, refreshUnreadCount]);
+
+  useEffect(() => {
+    const handleReadUpdated = () => {
+      void refreshUnreadCount();
+    };
+    window.addEventListener("chat-read-updated", handleReadUpdated);
+    return () => {
+      window.removeEventListener("chat-read-updated", handleReadUpdated);
+    };
+  }, [refreshUnreadCount]);
+
+  useEffect(() => {
     const channel = supabase
       .channel(`chat-nav-unread-${userId}`)
       .on(

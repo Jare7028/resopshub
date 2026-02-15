@@ -139,7 +139,7 @@ export default function NotesView({
       <div className="border-b border-slate-200 px-6 py-4">
         <h2 className="text-lg font-semibold text-slate-900">All notes</h2>
       </div>
-      <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+      <div className="mobile-filter-panel md:hidden">
         <div className="grid gap-3 sm:grid-cols-2">
           <MultiSelect
             options={clients.map((client) => ({ value: client.id, label: client.name }))}
@@ -439,7 +439,7 @@ export default function NotesView({
           </tbody>
         </table>
       </div>
-      <div className="space-y-3 p-4 md:hidden">
+      <div className="mobile-list-stack md:hidden">
         {notes.length ? (
           notes.map((note) => {
             const lastEditedAt = note.last_edited_at || note.created_at || null;
@@ -452,7 +452,7 @@ export default function NotesView({
             return (
               <article
                 key={`mobile-${note.id}`}
-                className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+                className="mobile-list-card space-y-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 font-semibold text-slate-700">
@@ -488,7 +488,7 @@ export default function NotesView({
                   {supportsNotePages ? (
                     <Link
                       href={`/clients/${note.client_id}/notes/${note.id}`}
-                      className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      className="mobile-card-action"
                     >
                       Open
                     </Link>
@@ -512,7 +512,7 @@ export default function NotesView({
             );
           })
         ) : (
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+          <p className="mobile-empty-state">
             No notes found.
           </p>
         )}

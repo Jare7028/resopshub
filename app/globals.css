@@ -101,6 +101,54 @@
     background: #f1f5f9;
     color: #0f172a;
   }
+
+  .mobile-filter-panel {
+    border-bottom: 1px solid #e2e8f0;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    padding: 0.9rem 1rem 1rem;
+  }
+
+  .mobile-list-stack {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem 1rem;
+  }
+
+  .mobile-list-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 0.85rem;
+    background: #ffffff;
+    padding: 1rem;
+    box-shadow: 0 10px 24px -24px rgba(15, 23, 42, 0.5);
+  }
+
+  .mobile-card-action {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    border-radius: 0.5rem;
+    border: 1px solid #cbd5e1;
+    padding: 0 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #334155;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .mobile-card-action:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+    color: #0f172a;
+  }
+
+  .mobile-empty-state {
+    border-radius: 0.6rem;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    padding: 1.25rem 1rem;
+    font-size: 0.875rem;
+    color: #64748b;
+  }
 }
 
 .note-editor {

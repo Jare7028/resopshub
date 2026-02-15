@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ChatComposer from "./ChatComposer";
 
 type LinkEntityType =
@@ -100,6 +100,12 @@ function chatUrl(params: { c?: string }) {
   return qs ? `/chat?${qs}` : "/chat";
 }
 
+function toUnixMs(value: string | null | undefined) {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function ChatPageClient(props: {
   currentUserId: string;
   users: UserRow[];
@@ -167,16 +173,28 @@ export default function ChatPageClient(props: {
     [members]
   );
 
+  const conversationsByRecentActivity = useMemo(() => {
+    return [...conversations].sort((left, right) => {
+      const leftActivityAt =
+        latestByConversationId[left.id]?.created_at || left.created_at;
+      const rightActivityAt =
+        latestByConversationId[right.id]?.created_at || right.created_at;
+      return toUnixMs(rightActivityAt) - toUnixMs(leftActivityAt);
+    });
+  }, [conversations, latestByConversationId]);
+
   const selectedMessages = selectedConversationId
     ? messagesByConversation[selectedConversationId] || []
     : [];
 
   const selectedConversation = selectedConversationId
-    ? conversations.find((conversation) => conversation.id === selectedConversationId) || null
+    ? conversationsByRecentActivity.find(
+        (conversation) => conversation.id === selectedConversationId
+      ) || null
     : null;
 
   const searchableConversationTextById = useMemo(() => {
-    return conversations.reduce<Record<string, string>>((acc, conversation) => {
+    return conversationsByRecentActivity.reduce<Record<string, string>>((acc, conversation) => {
       const title =
         conversation.type === "group"
           ? conversation.title || "Untitled group"
@@ -191,15 +209,21 @@ export default function ChatPageClient(props: {
       acc[conversation.id] = `${title} ${latestSender} ${latestBody}`.toLowerCase();
       return acc;
     }, {});
-  }, [conversations, currentUserId, latestByConversationId, membersByConversationId, userById]);
+  }, [
+    conversationsByRecentActivity,
+    currentUserId,
+    latestByConversationId,
+    membersByConversationId,
+    userById,
+  ]);
 
   const filteredConversations = useMemo(() => {
     const term = searchChats.trim().toLowerCase();
-    if (!term) return conversations;
-    return conversations.filter((conversation) =>
+    if (!term) return conversationsByRecentActivity;
+    return conversationsByRecentActivity.filter((conversation) =>
       (searchableConversationTextById[conversation.id] || "").includes(term)
     );
-  }, [conversations, searchChats, searchableConversationTextById]);
+  }, [conversationsByRecentActivity, searchChats, searchableConversationTextById]);
 
   function getConversationTitle(conversation: ConversationRow) {
     if (conversation.type === "group") {
@@ -236,17 +260,34 @@ export default function ChatPageClient(props: {
     }));
   };
 
-  const markConversationRead = async (conversationId: string) => {
+  const markConversationRead = useCallback(async (conversationId: string) => {
+    const res = await fetch("/api/chat/conversations/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      throw new Error(json.error || "Unable to mark conversation as read");
+    }
     setUnreadByConversationId((prev) => ({
       ...prev,
       [conversationId]: 0,
     }));
-    await fetch("/api/chat/conversations/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: conversationId }),
-    }).catch(() => null);
-  };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("chat-read-updated"));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedConversationId) {
+      return;
+    }
+    if ((unreadByConversationId[selectedConversationId] || 0) <= 0) {
+      return;
+    }
+    void markConversationRead(selectedConversationId).catch(() => null);
+  }, [markConversationRead, selectedConversationId, unreadByConversationId]);
 
   const selectConversation = async (conversationId: string) => {
     setError("");

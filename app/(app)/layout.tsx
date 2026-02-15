@@ -423,11 +423,11 @@ export default async function AppLayout({
         </aside>
 
         <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-0 transition-[padding] duration-200 md:pl-64 md:peer-checked/sidebar:pl-16">
-          <header className="border-b app-border app-header px-4 py-3 md:px-6 md:py-4">
-            <div className="flex flex-wrap items-center gap-3 md:gap-4">
+          <header className="border-b app-border app-header px-3 py-3 sm:px-4 md:px-6 md:py-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
               <label
                 htmlFor="app-sidebar-open"
-                className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 md:hidden"
+                className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-100 md:hidden"
                 aria-label="Open navigation"
               >
                 <svg
@@ -445,8 +445,8 @@ export default async function AppLayout({
                   <path d="M3 18h18" />
                 </svg>
               </label>
-              <div className="min-w-0 flex-1 md:min-w-[12rem] md:flex-none">
-                <p className="text-sm text-slate-500">Signed in as</p>
+              <div className="order-2 hidden min-w-0 flex-1 sm:block md:order-1 md:min-w-[12rem] md:flex-none">
+                <p className="text-xs uppercase tracking-wide text-slate-500 sm:text-sm sm:normal-case sm:tracking-normal">Signed in as</p>
                 <p className="truncate text-sm font-semibold text-slate-900">{email}</p>
               </div>
               <div className="order-2 ml-auto flex items-center gap-2 md:order-3 md:gap-3">
@@ -454,9 +454,24 @@ export default async function AppLayout({
                 <form action={signOut}>
                   <button
                     type="submit"
-                    className="inline-flex h-11 items-center justify-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 md:h-auto md:border-0 md:bg-transparent md:px-0"
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-slate-200 bg-white px-0 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 sm:w-auto sm:px-3 md:h-auto md:border-0 md:bg-transparent md:px-0"
+                    aria-label="Sign out"
                   >
-                    Sign out
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4 sm:hidden"
+                    >
+                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                      <path d="m10 17 5-5-5-5" />
+                      <path d="M15 12H3" />
+                    </svg>
+                    <span className="hidden sm:inline">Sign out</span>
                   </button>
                 </form>
               </div>
@@ -465,7 +480,7 @@ export default async function AppLayout({
               </div>
             </div>
           </header>
-          <main className="flex-1 min-w-0 overflow-x-hidden px-4 py-5 md:px-6 md:py-8">
+          <main className="flex-1 min-w-0 overflow-x-hidden px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-8">
             {children}
           </main>
         </div>

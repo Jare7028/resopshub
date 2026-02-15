@@ -33,6 +33,7 @@ export default function PersonalPageEditorClient({
       lastEditedByLabel={lastEditedByLabel}
       showTopToolbar
       enableZoomControls
+      contextMenuMode="favorites"
     />
   );
 }

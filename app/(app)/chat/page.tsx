@@ -70,6 +70,12 @@ type DbMessageAttachmentWithUrlRow = DbMessageAttachmentRow & {
   url: string | null;
 };
 
+function toUnixMs(value: string | null | undefined) {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string | null>) {
   if (link.entity_type === "task") return `/tasks/${link.entity_id}`;
   if (link.entity_type === "project") return `/projects/${link.entity_id}`;
@@ -184,12 +190,19 @@ export default async function ChatPage(props: {
     }
     return acc;
   }, {});
+  const conversationsByRecentActivity = [...conversations].sort((left, right) => {
+    const leftActivityAt =
+      latestMessageByConversationId[left.id]?.created_at || left.created_at;
+    const rightActivityAt =
+      latestMessageByConversationId[right.id]?.created_at || right.created_at;
+    return toUnixMs(rightActivityAt) - toUnixMs(leftActivityAt);
+  });
 
   const selectedConversationIdRaw = String(searchParams?.c || "").trim();
   const selectedConversationId =
     selectedConversationIdRaw && myConversationIds.includes(selectedConversationIdRaw)
       ? selectedConversationIdRaw
-      : conversations[0]?.id || null;
+      : conversationsByRecentActivity[0]?.id || null;
 
   const { data: selectedMessagesRaw } = selectedConversationId
     ? await supabase
@@ -362,7 +375,7 @@ export default async function ChatPage(props: {
       <ChatPageClient
         currentUserId={currentUserId}
         users={users}
-        initialConversations={conversations}
+        initialConversations={conversationsByRecentActivity}
         initialMembers={allMembers}
         initialSelectedConversationId={selectedConversationId}
         initialMessages={initialMessages}

@@ -27,6 +27,33 @@ type ContextMenuState = {
   inTable: boolean;
 };
 
+type ContextMenuMode = "full" | "favorites";
+
+type ContextMenuFavoriteActionId =
+  | "paragraph"
+  | "heading1"
+  | "heading2"
+  | "bulletList"
+  | "orderedList"
+  | "checklist"
+  | "quote"
+  | "insertTable"
+  | "divider"
+  | "addRowBefore"
+  | "addRowAfter"
+  | "addColumnBefore"
+  | "addColumnAfter"
+  | "deleteRow"
+  | "deleteColumn"
+  | "deleteTable";
+
+type ContextMenuFavoriteAction = {
+  id: ContextMenuFavoriteActionId;
+  label: string;
+  inTableOnly?: boolean;
+  destructive?: boolean;
+};
+
 type SlashRange = {
   from: number;
   to: number;
@@ -84,6 +111,7 @@ type NoteEditorClientProps = {
   lastEditedByLabel?: string | null;
   showTopToolbar?: boolean;
   enableZoomControls?: boolean;
+  contextMenuMode?: ContextMenuMode;
 };
 
 type TaskHoverSummary = {
@@ -233,6 +261,36 @@ const WORD_FONT_SIZE_OPTIONS = [
   { value: "24px", label: "24" },
   { value: "32px", label: "32" },
 ] as const;
+
+const CONTEXT_MENU_FAVORITE_ACTIONS: ReadonlyArray<ContextMenuFavoriteAction> = [
+  { id: "paragraph", label: "Paragraph" },
+  { id: "heading1", label: "Heading 1" },
+  { id: "heading2", label: "Heading 2" },
+  { id: "bulletList", label: "Bulleted list" },
+  { id: "orderedList", label: "Numbered list" },
+  { id: "checklist", label: "Checklist" },
+  { id: "quote", label: "Quote / Callout" },
+  { id: "insertTable", label: "Insert table" },
+  { id: "divider", label: "Divider" },
+  { id: "addRowBefore", label: "Insert row above", inTableOnly: true },
+  { id: "addRowAfter", label: "Insert row below", inTableOnly: true },
+  { id: "addColumnBefore", label: "Insert column left", inTableOnly: true },
+  { id: "addColumnAfter", label: "Insert column right", inTableOnly: true },
+  { id: "deleteRow", label: "Delete row", inTableOnly: true },
+  { id: "deleteColumn", label: "Delete column", inTableOnly: true },
+  {
+    id: "deleteTable",
+    label: "Delete table",
+    inTableOnly: true,
+    destructive: true,
+  },
+];
+
+const CONTEXT_MENU_FAVORITE_ACTION_ID_SET = new Set<ContextMenuFavoriteActionId>(
+  CONTEXT_MENU_FAVORITE_ACTIONS.map((action) => action.id)
+);
+
+const CONTEXT_MENU_FAVORITES_STORAGE_KEY = "note_editor_context_favorites_v1";
 
 type WordTextAlign = "left" | "center" | "right" | "justify";
 type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
@@ -804,6 +862,7 @@ export default function NoteEditorClient({
   lastEditedByLabel,
   showTopToolbar = true,
   enableZoomControls = false,
+  contextMenuMode = "full",
 }: NoteEditorClientProps) {
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>("home");
   const [, startTransition] = useTransition();
@@ -814,6 +873,11 @@ export default function NoteEditorClient({
     y: 0,
     inTable: false,
   });
+  const [contextMenuFavorites, setContextMenuFavorites] = useState<
+    ContextMenuFavoriteActionId[]
+  >([]);
+  const [contextMenuFavoritesPickerOpen, setContextMenuFavoritesPickerOpen] =
+    useState(false);
   const [activeTableColType, setActiveTableColType] = useState<TableColumnType>("text");
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>({
     open: false,
@@ -898,6 +962,45 @@ export default function NoteEditorClient({
     mentionMenuStateRef.current = mentionMenu;
   }, [mentionMenu]);
 
+  useEffect(() => {
+    if (contextMenuMode !== "favorites") {
+      setContextMenuFavorites([]);
+      return;
+    }
+    try {
+      const stored = window.localStorage.getItem(CONTEXT_MENU_FAVORITES_STORAGE_KEY);
+      if (!stored) {
+        setContextMenuFavorites([]);
+        return;
+      }
+      const parsed = JSON.parse(stored) as unknown;
+      const nextFavorites = Array.isArray(parsed)
+        ? parsed
+            .map((value) => String(value || "").trim())
+            .filter((value): value is ContextMenuFavoriteActionId =>
+              CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(value as ContextMenuFavoriteActionId)
+            )
+        : [];
+      setContextMenuFavorites(Array.from(new Set(nextFavorites)));
+    } catch {
+      setContextMenuFavorites([]);
+    }
+  }, [contextMenuMode]);
+
+  useEffect(() => {
+    if (contextMenuMode !== "favorites") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        CONTEXT_MENU_FAVORITES_STORAGE_KEY,
+        JSON.stringify(contextMenuFavorites)
+      );
+    } catch {
+      // Ignore storage failures (private mode, quota, etc.).
+    }
+  }, [contextMenuFavorites, contextMenuMode]);
+
   const closeSlashMenu = useCallback(() => {
     setSlashMenu((prev) =>
       prev.open
@@ -931,6 +1034,7 @@ export default function NoteEditorClient({
   }, []);
 
   const closeContextMenu = useCallback(() => {
+    setContextMenuFavoritesPickerOpen(false);
     setContextMenu((prev) => (prev.open ? { ...prev, open: false } : prev));
   }, []);
 
@@ -1637,6 +1741,7 @@ export default function NoteEditorClient({
         }
       }
 
+      setContextMenuFavoritesPickerOpen(false);
       setContextMenu({
         open: true,
         x: event.clientX,
@@ -1657,6 +1762,114 @@ export default function NoteEditorClient({
       editor.commands.focus();
     },
     [editor, closeContextMenu]
+  );
+
+  const toggleContextMenuFavorite = useCallback((actionId: ContextMenuFavoriteActionId) => {
+    setContextMenuFavorites((prev) => {
+      if (prev.includes(actionId)) {
+        return prev.filter((current) => current !== actionId);
+      }
+      return [...prev, actionId];
+    });
+  }, []);
+
+  const favoriteContextActions = useMemo(
+    () =>
+      CONTEXT_MENU_FAVORITE_ACTIONS.filter((action) =>
+        contextMenuFavorites.includes(action.id)
+      ),
+    [contextMenuFavorites]
+  );
+
+  const executeContextMenuFavoriteAction = useCallback(
+    (actionId: ContextMenuFavoriteActionId) => {
+      if (!editor) {
+        return;
+      }
+      if (
+        (actionId === "addRowBefore" ||
+          actionId === "addRowAfter" ||
+          actionId === "addColumnBefore" ||
+          actionId === "addColumnAfter" ||
+          actionId === "deleteRow" ||
+          actionId === "deleteColumn" ||
+          actionId === "deleteTable") &&
+        !contextMenu.inTable
+      ) {
+        return;
+      }
+
+      if (actionId === "paragraph") {
+        run(() => editor.chain().focus().setParagraph().run());
+        return;
+      }
+      if (actionId === "heading1") {
+        run(() => editor.chain().focus().toggleHeading({ level: 1 }).run());
+        return;
+      }
+      if (actionId === "heading2") {
+        run(() => editor.chain().focus().toggleHeading({ level: 2 }).run());
+        return;
+      }
+      if (actionId === "bulletList") {
+        run(() => editor.chain().focus().toggleBulletList().run());
+        return;
+      }
+      if (actionId === "orderedList") {
+        run(() => editor.chain().focus().toggleOrderedList().run());
+        return;
+      }
+      if (actionId === "checklist") {
+        run(() => editor.chain().focus().toggleTaskList().run());
+        return;
+      }
+      if (actionId === "quote") {
+        run(() => editor.chain().focus().toggleBlockquote().run());
+        return;
+      }
+      if (actionId === "insertTable") {
+        run(() =>
+          editor
+            .chain()
+            .focus()
+            .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+            .run()
+        );
+        return;
+      }
+      if (actionId === "divider") {
+        run(() => editor.chain().focus().setHorizontalRule().run());
+        return;
+      }
+      if (actionId === "addRowBefore") {
+        run(() => editor.chain().focus().addRowBefore().run());
+        return;
+      }
+      if (actionId === "addRowAfter") {
+        run(() => editor.chain().focus().addRowAfter().run());
+        return;
+      }
+      if (actionId === "addColumnBefore") {
+        run(() => editor.chain().focus().addColumnBefore().run());
+        return;
+      }
+      if (actionId === "addColumnAfter") {
+        run(() => editor.chain().focus().addColumnAfter().run());
+        return;
+      }
+      if (actionId === "deleteRow") {
+        run(() => editor.chain().focus().deleteRow().run());
+        return;
+      }
+      if (actionId === "deleteColumn") {
+        run(() => editor.chain().focus().deleteColumn().run());
+        return;
+      }
+      if (actionId === "deleteTable") {
+        run(() => editor.chain().focus().deleteTable().run());
+      }
+    },
+    [contextMenu.inTable, editor, run]
   );
 
   const submitTask = useCallback(() => {
@@ -2859,143 +3072,238 @@ export default function NoteEditorClient({
 
       {contextMenu.open ? (
         <div
-          className="fixed z-50 w-56 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+          className={`fixed z-50 rounded-md border border-slate-200 bg-white p-1 shadow-lg ${
+            contextMenuMode === "favorites" ? "w-64" : "w-56"
+          }`}
           style={{ top: contextMenu.y, left: contextMenu.x }}
           ref={contextMenuRef}
         >
-          {onCreateTask ? (
+          {contextMenuMode === "favorites" ? (
             <>
-              <button
-                type="button"
-                onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
-                className="context-menu-item font-semibold text-slate-900"
-              >
-                Create task
-              </button>
-              <div className="my-1 border-t border-slate-200" />
-            </>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().setParagraph().run())}
-            className="context-menu-item"
-          >
-            Paragraph
-          </button>
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().toggleHeading({ level: 1 }).run())}
-            className="context-menu-item"
-          >
-            Heading 1
-          </button>
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().toggleHeading({ level: 2 }).run())}
-            className="context-menu-item"
-          >
-            Heading 2
-          </button>
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().toggleBulletList().run())}
-            className="context-menu-item"
-          >
-            Bulleted list
-          </button>
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().toggleOrderedList().run())}
-            className="context-menu-item"
-          >
-            Numbered list
-          </button>
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().toggleTaskList().run())}
-            className="context-menu-item"
-          >
-            Checklist
-          </button>
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().toggleBlockquote().run())}
-            className="context-menu-item"
-          >
-            Quote / Callout
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              run(() =>
-                editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-              )
-            }
-            className="context-menu-item"
-          >
-            Insert table
-          </button>
-          {contextMenu.inTable ? (
-            <>
+              {onCreateTask ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
+                    className="context-menu-item font-semibold text-slate-900"
+                  >
+                    Create task
+                  </button>
+                  <div className="my-1 border-t border-slate-200" />
+                </>
+              ) : null}
+
+              {favoriteContextActions.length ? (
+                favoriteContextActions.map((action) => {
+                  const disabled = Boolean(action.inTableOnly && !contextMenu.inTable);
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => executeContextMenuFavoriteAction(action.id)}
+                      className={`context-menu-item flex items-center justify-between disabled:cursor-not-allowed disabled:opacity-45 ${
+                        action.destructive ? "text-red-600 hover:text-red-700" : ""
+                      }`}
+                    >
+                      <span>{action.label}</span>
+                      {action.inTableOnly ? (
+                        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                          Table
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="px-2 py-1 text-xs text-slate-500">
+                  No favorites yet. Add commands below.
+                </p>
+              )}
+
               <div className="my-1 border-t border-slate-200" />
               <button
                 type="button"
-                onClick={() => run(() => editor.chain().focus().addRowBefore().run())}
+                onClick={() =>
+                  setContextMenuFavoritesPickerOpen((prev) => !prev)
+                }
+                className="context-menu-item font-semibold text-slate-700"
+              >
+                {contextMenuFavoritesPickerOpen ? "Done editing favorites" : "Add favorite..."}
+              </button>
+
+              {contextMenuFavoritesPickerOpen ? (
+                <div className="mt-1 max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-1">
+                  {CONTEXT_MENU_FAVORITE_ACTIONS.map((action) => {
+                    const isFavorite = contextMenuFavorites.includes(action.id);
+                    return (
+                      <button
+                        key={`favorite-${action.id}`}
+                        type="button"
+                        onClick={() => toggleContextMenuFavorite(action.id)}
+                        className="context-menu-item flex items-center justify-between"
+                      >
+                        <span className="truncate text-left">{action.label}</span>
+                        <span
+                          className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            isFavorite
+                              ? "bg-slate-900 text-white"
+                              : "bg-slate-200 text-slate-700"
+                          }`}
+                        >
+                          {isFavorite ? "Added" : "Add"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {onCreateTask ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
+                    className="context-menu-item font-semibold text-slate-900"
+                  >
+                    Create task
+                  </button>
+                  <div className="my-1 border-t border-slate-200" />
+                </>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().setParagraph().run())}
                 className="context-menu-item"
               >
-                Insert row above
+                Paragraph
               </button>
               <button
                 type="button"
-                onClick={() => run(() => editor.chain().focus().addRowAfter().run())}
+                onClick={() =>
+                  run(() => editor.chain().focus().toggleHeading({ level: 1 }).run())
+                }
                 className="context-menu-item"
               >
-                Insert row below
+                Heading 1
               </button>
               <button
                 type="button"
-                onClick={() => run(() => editor.chain().focus().addColumnBefore().run())}
+                onClick={() =>
+                  run(() => editor.chain().focus().toggleHeading({ level: 2 }).run())
+                }
                 className="context-menu-item"
               >
-                Insert column left
+                Heading 2
               </button>
               <button
                 type="button"
-                onClick={() => run(() => editor.chain().focus().addColumnAfter().run())}
+                onClick={() => run(() => editor.chain().focus().toggleBulletList().run())}
                 className="context-menu-item"
               >
-                Insert column right
+                Bulleted list
               </button>
               <button
                 type="button"
-                onClick={() => run(() => editor.chain().focus().deleteRow().run())}
+                onClick={() => run(() => editor.chain().focus().toggleOrderedList().run())}
                 className="context-menu-item"
               >
-                Delete row
+                Numbered list
               </button>
               <button
                 type="button"
-                onClick={() => run(() => editor.chain().focus().deleteColumn().run())}
+                onClick={() => run(() => editor.chain().focus().toggleTaskList().run())}
                 className="context-menu-item"
               >
-                Delete column
+                Checklist
               </button>
               <button
                 type="button"
-                onClick={() => run(() => editor.chain().focus().deleteTable().run())}
-                className="context-menu-item text-red-600 hover:text-red-700"
+                onClick={() => run(() => editor.chain().focus().toggleBlockquote().run())}
+                className="context-menu-item"
               >
-                Delete table
+                Quote / Callout
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  run(() =>
+                    editor
+                      .chain()
+                      .focus()
+                      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                      .run()
+                  )
+                }
+                className="context-menu-item"
+              >
+                Insert table
+              </button>
+              {contextMenu.inTable ? (
+                <>
+                  <div className="my-1 border-t border-slate-200" />
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().addRowBefore().run())}
+                    className="context-menu-item"
+                  >
+                    Insert row above
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().addRowAfter().run())}
+                    className="context-menu-item"
+                  >
+                    Insert row below
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().addColumnBefore().run())}
+                    className="context-menu-item"
+                  >
+                    Insert column left
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().addColumnAfter().run())}
+                    className="context-menu-item"
+                  >
+                    Insert column right
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().deleteRow().run())}
+                    className="context-menu-item"
+                  >
+                    Delete row
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().deleteColumn().run())}
+                    className="context-menu-item"
+                  >
+                    Delete column
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().deleteTable().run())}
+                    className="context-menu-item text-red-600 hover:text-red-700"
+                  >
+                    Delete table
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => run(() => editor.chain().focus().setHorizontalRule().run())}
+                className="context-menu-item"
+              >
+                Divider
               </button>
             </>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => run(() => editor.chain().focus().setHorizontalRule().run())}
-            className="context-menu-item"
-          >
-            Divider
-          </button>
+          )}
         </div>
       ) : null}
 

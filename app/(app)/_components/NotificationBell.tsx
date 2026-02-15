@@ -142,7 +142,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
             void load();
           }
         }}
-        className="relative rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-md border border-slate-300 bg-white px-0 text-sm font-semibold text-slate-700 shadow-sm hover:border-slate-400 hover:text-slate-900 sm:w-auto sm:px-3"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Notifications"
@@ -161,10 +161,10 @@ export default function NotificationBell({ userId }: { userId: string }) {
             <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7" />
             <path d="M13.73 21a2 2 0 01-3.46 0" />
           </svg>
-          <span>Alerts</span>
+          <span className="hidden sm:inline">Alerts</span>
         </span>
         {unreadLabel ? (
-          <span className="absolute -right-2 -top-2 rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+          <span className="absolute -right-1.5 -top-1.5 rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">
             {unreadLabel}
           </span>
         ) : null}
@@ -173,7 +173,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-2 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+          className="absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
         >
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
             <p className="text-sm font-semibold text-slate-900">Notifications</p>
@@ -188,7 +188,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
           </div>
 
           {loading ? (
-            <div className="px-4 py-4 text-sm text-slate-500">Loading…</div>
+            <div className="px-4 py-4 text-sm text-slate-500">Loading...</div>
           ) : items.length ? (
             <div className="max-h-96 overflow-y-auto">
               {items.map((notification) => {
@@ -237,3 +237,4 @@ export default function NotificationBell({ userId }: { userId: string }) {
     </div>
   );
 }
+

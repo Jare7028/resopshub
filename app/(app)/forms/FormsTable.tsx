@@ -142,7 +142,7 @@ export default function FormsTable({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
         <h2 className="text-lg font-semibold text-slate-900">Forms</h2>
       </div>
-      <div className="border-b border-slate-200 px-4 py-4 md:hidden">
+      <div className="mobile-filter-panel md:hidden">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <span className="block">Search</span>
@@ -285,12 +285,12 @@ export default function FormsTable({
           </tbody>
         </table>
       </div>
-      <div className="space-y-3 p-4 md:hidden">
+      <div className="mobile-list-stack md:hidden">
         {rows.length ? (
           rows.map((row) => (
             <article
               key={`mobile-${row.id}`}
-              className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+              className="mobile-list-card space-y-3"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Link
@@ -316,14 +316,14 @@ export default function FormsTable({
                 href={`/forms/${row.id}?tab=submissions&scope=completed${
                   detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
                 }`}
-                className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="mobile-card-action"
               >
                 Open form
               </Link>
             </article>
           ))
         ) : (
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+          <p className="mobile-empty-state">
             No forms found.
           </p>
         )}

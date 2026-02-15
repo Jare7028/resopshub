@@ -31,9 +31,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const { data: latestMessage, error: latestMessageError } = await supabase
+    .from("chat_messages")
+    .select("created_at")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestMessageError) {
+    return NextResponse.json({ error: latestMessageError.message }, { status: 400 });
+  }
+
+  const lastReadAt =
+    typeof latestMessage?.created_at === "string" && latestMessage.created_at
+      ? latestMessage.created_at
+      : new Date().toISOString();
+
   const { error } = await supabase
     .from("chat_conversation_members")
-    .update({ last_read_at: new Date().toISOString() })
+    .update({ last_read_at: lastReadAt })
     .eq("conversation_id", conversationId)
     .eq("user_id", userId);
 
@@ -43,4 +60,3 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true });
 }
-
