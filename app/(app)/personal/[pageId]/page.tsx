@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
+import type { ContextMenuFavoriteActionId } from "../../_components/NoteEditorClient";
 import { extractPlainText } from "@/lib/tiptapText";
 import PersonalPageTabs, {
   normalizePersonalPageTabKey,
@@ -134,6 +135,40 @@ function isMissingColumnError(error: unknown) {
   return code === "42703" || message.includes("does not exist");
 }
 
+const CONTEXT_MENU_FAVORITE_ACTION_ID_SET = new Set<ContextMenuFavoriteActionId>([
+  "paragraph",
+  "heading1",
+  "heading2",
+  "bulletList",
+  "orderedList",
+  "checklist",
+  "quote",
+  "insertShape",
+  "insertArrow",
+  "insertTextBox",
+  "insertTable",
+  "divider",
+  "addRowBefore",
+  "addRowAfter",
+  "addColumnBefore",
+  "addColumnAfter",
+  "deleteRow",
+  "deleteColumn",
+  "deleteTable",
+]);
+
+function normalizeContextMenuFavorites(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as ContextMenuFavoriteActionId[];
+  }
+  const next = value
+    .map((item) => String(item || "").trim())
+    .filter((item): item is ContextMenuFavoriteActionId =>
+      CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(item as ContextMenuFavoriteActionId)
+    );
+  return Array.from(new Set(next));
+}
+
 export default async function PersonalPage(props: {
   params: Promise<{ pageId: string }>;
   searchParams?: Promise<{ tab?: string; error?: string; success?: string }>;
@@ -203,6 +238,29 @@ export default async function PersonalPage(props: {
   const lastEditedByLabel = lastEditedByUser
     ? lastEditedByUser.full_name || lastEditedByUser.email
     : null;
+
+  let initialContextMenuFavorites: ContextMenuFavoriteActionId[] = [];
+  let persistContextMenuFavorites = true;
+  const { data: noteEditorPreferencesRaw, error: noteEditorPreferencesError } = await supabase
+    .from("user_note_editor_preferences")
+    .select("personal_context_menu_favorites")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (noteEditorPreferencesError) {
+    if (isSupabaseMissingTableError(noteEditorPreferencesError)) {
+      persistContextMenuFavorites = false;
+    } else {
+      console.error(
+        "[personal.noteEditorPreferences.select]",
+        noteEditorPreferencesError.message
+      );
+    }
+  } else {
+    initialContextMenuFavorites = normalizeContextMenuFavorites(
+      noteEditorPreferencesRaw?.personal_context_menu_favorites
+    );
+  }
 
   const { data: sectionMembersRaw } = await supabase
     .from("personal_section_members")
@@ -1044,6 +1102,8 @@ export default async function PersonalPage(props: {
             initialContent={page.content ?? null}
             lastEditedAtLabel={lastEditedAtLabel}
             lastEditedByLabel={lastEditedByLabel}
+            initialContextMenuFavorites={initialContextMenuFavorites}
+            persistContextMenuFavorites={persistContextMenuFavorites}
           />
         </div>
       ) : null}

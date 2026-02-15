@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
 import ChatComposer from "./ChatComposer";
 
 type LinkEntityType =
@@ -100,12 +101,6 @@ function chatUrl(params: { c?: string }) {
   return qs ? `/chat?${qs}` : "/chat";
 }
 
-function toUnixMs(value: string | null | undefined) {
-  if (!value) return 0;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export default function ChatPageClient(props: {
   currentUserId: string;
   users: UserRow[];
@@ -173,15 +168,10 @@ export default function ChatPageClient(props: {
     [members]
   );
 
-  const conversationsByRecentActivity = useMemo(() => {
-    return [...conversations].sort((left, right) => {
-      const leftActivityAt =
-        latestByConversationId[left.id]?.created_at || left.created_at;
-      const rightActivityAt =
-        latestByConversationId[right.id]?.created_at || right.created_at;
-      return toUnixMs(rightActivityAt) - toUnixMs(leftActivityAt);
-    });
-  }, [conversations, latestByConversationId]);
+  const conversationsByRecentActivity = useMemo(
+    () => sortConversationsByRecentActivity(conversations, latestByConversationId),
+    [conversations, latestByConversationId]
+  );
 
   const selectedMessages = selectedConversationId
     ? messagesByConversation[selectedConversationId] || []

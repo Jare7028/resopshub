@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
+import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
 import ChatPageClient from "./ChatPageClient";
 
 type LinkEntityType =
@@ -69,12 +70,6 @@ type DbMessageAttachmentRow = {
 type DbMessageAttachmentWithUrlRow = DbMessageAttachmentRow & {
   url: string | null;
 };
-
-function toUnixMs(value: string | null | undefined) {
-  if (!value) return 0;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string | null>) {
   if (link.entity_type === "task") return `/tasks/${link.entity_id}`;
@@ -190,13 +185,10 @@ export default async function ChatPage(props: {
     }
     return acc;
   }, {});
-  const conversationsByRecentActivity = [...conversations].sort((left, right) => {
-    const leftActivityAt =
-      latestMessageByConversationId[left.id]?.created_at || left.created_at;
-    const rightActivityAt =
-      latestMessageByConversationId[right.id]?.created_at || right.created_at;
-    return toUnixMs(rightActivityAt) - toUnixMs(leftActivityAt);
-  });
+  const conversationsByRecentActivity = sortConversationsByRecentActivity(
+    conversations,
+    latestMessageByConversationId
+  );
 
   const selectedConversationIdRaw = String(searchParams?.c || "").trim();
   const selectedConversationId =

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveConversationReadAt } from "@/lib/chatReadMarker";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -43,10 +44,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: latestMessageError.message }, { status: 400 });
   }
 
-  const lastReadAt =
-    typeof latestMessage?.created_at === "string" && latestMessage.created_at
-      ? latestMessage.created_at
-      : new Date().toISOString();
+  const lastReadAt = resolveConversationReadAt(latestMessage?.created_at);
 
   const { error } = await supabase
     .from("chat_conversation_members")

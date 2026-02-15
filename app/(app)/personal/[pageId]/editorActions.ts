@@ -6,6 +6,7 @@ import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
 
 function isMissingColumnError(error: unknown) {
@@ -16,6 +17,38 @@ function isMissingColumnError(error: unknown) {
   const code = typeof anyError.code === "string" ? anyError.code : "";
   const message = typeof anyError.message === "string" ? anyError.message : "";
   return code === "42703" || message.includes("does not exist");
+}
+
+const CONTEXT_MENU_FAVORITE_ACTION_ID_SET = new Set([
+  "paragraph",
+  "heading1",
+  "heading2",
+  "bulletList",
+  "orderedList",
+  "checklist",
+  "quote",
+  "insertShape",
+  "insertArrow",
+  "insertTextBox",
+  "insertTable",
+  "divider",
+  "addRowBefore",
+  "addRowAfter",
+  "addColumnBefore",
+  "addColumnAfter",
+  "deleteRow",
+  "deleteColumn",
+  "deleteTable",
+]);
+
+function normalizeContextMenuFavorites(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+  const next = value
+    .map((item) => String(item || "").trim())
+    .filter((item) => CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(item));
+  return Array.from(new Set(next));
 }
 
 export async function updatePersonalPageContent(pageId: string, content: unknown) {
@@ -98,6 +131,35 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
   }
 
   revalidatePath(`/personal/${pageId}`);
+}
+
+export async function savePersonalContextMenuFavorites(input: { favorites: string[] }) {
+  const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData.user?.id;
+
+  if (!userId) {
+    throw new Error("Not signed in");
+  }
+
+  const favorites = normalizeContextMenuFavorites(input.favorites);
+
+  const { error } = await supabase
+    .from("user_note_editor_preferences")
+    .upsert(
+      {
+        user_id: userId,
+        personal_context_menu_favorites: favorites,
+      },
+      { onConflict: "user_id" }
+    );
+
+  if (error) {
+    if (isSupabaseMissingTableError(error)) {
+      return;
+    }
+    throw new Error(error.message);
+  }
 }
 
 export async function createTaskFromPersonalPage(input: {

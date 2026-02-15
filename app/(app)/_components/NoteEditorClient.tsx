@@ -29,7 +29,7 @@ type ContextMenuState = {
 
 type ContextMenuMode = "full" | "favorites";
 
-type ContextMenuFavoriteActionId =
+export type ContextMenuFavoriteActionId =
   | "paragraph"
   | "heading1"
   | "heading2"
@@ -37,6 +37,9 @@ type ContextMenuFavoriteActionId =
   | "orderedList"
   | "checklist"
   | "quote"
+  | "insertShape"
+  | "insertArrow"
+  | "insertTextBox"
   | "insertTable"
   | "divider"
   | "addRowBefore"
@@ -112,6 +115,10 @@ type NoteEditorClientProps = {
   showTopToolbar?: boolean;
   enableZoomControls?: boolean;
   contextMenuMode?: ContextMenuMode;
+  initialContextMenuFavorites?: ContextMenuFavoriteActionId[];
+  onSaveContextMenuFavorites?: (
+    favorites: ContextMenuFavoriteActionId[]
+  ) => Promise<void>;
 };
 
 type TaskHoverSummary = {
@@ -144,6 +151,8 @@ const MAX_INLINE_IMAGE_BYTES = 1_800_000;
 const MAX_INLINE_IMAGE_DIMENSION = 1800;
 const MIN_INLINE_IMAGE_DIMENSION = 640;
 const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
+const SHAPE_TEMPLATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect x="14" y="18" width="82" height="48" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/><circle cx="162" cy="42" r="24" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><path d="M96 42h42" stroke="#334155" stroke-width="2" stroke-linecap="round"/><path d="m131 34 8 8-8 8" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><text x="56" y="48" text-anchor="middle" font-size="11" font-family="Arial, sans-serif" fill="#1e293b">Shape</text><text x="162" y="48" text-anchor="middle" font-size="11" font-family="Arial, sans-serif" fill="#1e293b">Node</text></svg>`;
+const ARROW_TEMPLATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="260" height="70" viewBox="0 0 260 70"><path d="M16 35h200" stroke="#0f172a" stroke-width="4" stroke-linecap="round"/><path d="m186 19 40 16-40 16" fill="none" stroke="#0f172a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 const SLASH_COMMANDS: SlashCommand[] = [
   {
@@ -270,6 +279,9 @@ const CONTEXT_MENU_FAVORITE_ACTIONS: ReadonlyArray<ContextMenuFavoriteAction> = 
   { id: "orderedList", label: "Numbered list" },
   { id: "checklist", label: "Checklist" },
   { id: "quote", label: "Quote / Callout" },
+  { id: "insertShape", label: "Insert shape" },
+  { id: "insertArrow", label: "Insert arrow" },
+  { id: "insertTextBox", label: "Insert text box" },
   { id: "insertTable", label: "Insert table" },
   { id: "divider", label: "Divider" },
   { id: "addRowBefore", label: "Insert row above", inTableOnly: true },
@@ -291,6 +303,18 @@ const CONTEXT_MENU_FAVORITE_ACTION_ID_SET = new Set<ContextMenuFavoriteActionId>
 );
 
 const CONTEXT_MENU_FAVORITES_STORAGE_KEY = "note_editor_context_favorites_v1";
+
+function normalizeContextMenuFavoriteIds(value: unknown): ContextMenuFavoriteActionId[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const next = value
+    .map((item) => String(item || "").trim())
+    .filter((item): item is ContextMenuFavoriteActionId =>
+      CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(item as ContextMenuFavoriteActionId)
+    );
+  return Array.from(new Set(next));
+}
 
 type WordTextAlign = "left" | "center" | "right" | "justify";
 type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
@@ -495,6 +519,34 @@ function SectionIcon() {
   );
 }
 
+function ShapeIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <rect x="1.8" y="2.2" width="5.2" height="4.4" rx="0.8" stroke="currentColor" strokeWidth="1" fill="none" />
+      <circle cx="10.3" cy="9.2" r="2.1" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M6.8 5.2h2.2M8.5 4.2l1.2 1-1.2 1" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <path d="M1.5 7h8.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="m7.8 3.8 3.7 3.2-3.7 3.2" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TextBoxIcon() {
+  return (
+    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
+      <rect x="1.5" y="2.2" width="11" height="9.6" rx="1.1" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M4.2 5.1h5.6M7 5.1v3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function UndoIcon() {
   return (
     <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
@@ -562,6 +614,11 @@ function normalizeContent(content: unknown) {
     }
   }
   return createEmptyDoc();
+}
+
+function createInlineSvgDataUrl(svgMarkup: string) {
+  const compact = svgMarkup.replace(/\s+/g, " ").trim();
+  return `data:image/svg+xml;utf8,${encodeURIComponent(compact)}`;
 }
 
 function normalizeImageFloat(value: string | null | undefined): ImageFloatMode {
@@ -863,6 +920,8 @@ export default function NoteEditorClient({
   showTopToolbar = true,
   enableZoomControls = false,
   contextMenuMode = "full",
+  initialContextMenuFavorites = [],
+  onSaveContextMenuFavorites,
 }: NoteEditorClientProps) {
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>("home");
   const [, startTransition] = useTransition();
@@ -875,7 +934,7 @@ export default function NoteEditorClient({
   });
   const [contextMenuFavorites, setContextMenuFavorites] = useState<
     ContextMenuFavoriteActionId[]
-  >([]);
+  >(() => normalizeContextMenuFavoriteIds(initialContextMenuFavorites));
   const [contextMenuFavoritesPickerOpen, setContextMenuFavoritesPickerOpen] =
     useState(false);
   const [activeTableColType, setActiveTableColType] = useState<TableColumnType>("text");
@@ -953,6 +1012,9 @@ export default function NoteEditorClient({
     data: null,
   });
   const [copiedFormat, setCopiedFormat] = useState<CopiedFormatSnapshot | null>(null);
+  const contextMenuFavoritesHydratedRef = useRef(false);
+  const contextMenuFavoritesSkipPersistRef = useRef(true);
+  const prefersServerContextMenuFavorites = Boolean(onSaveContextMenuFavorites);
 
   useEffect(() => {
     slashMenuStateRef.current = slashMenu;
@@ -963,32 +1025,47 @@ export default function NoteEditorClient({
   }, [mentionMenu]);
 
   useEffect(() => {
+    contextMenuFavoritesSkipPersistRef.current = true;
     if (contextMenuMode !== "favorites") {
+      contextMenuFavoritesHydratedRef.current = false;
       setContextMenuFavorites([]);
+      return;
+    }
+    if (prefersServerContextMenuFavorites) {
+      contextMenuFavoritesHydratedRef.current = true;
+      setContextMenuFavorites(normalizeContextMenuFavoriteIds(initialContextMenuFavorites));
       return;
     }
     try {
       const stored = window.localStorage.getItem(CONTEXT_MENU_FAVORITES_STORAGE_KEY);
       if (!stored) {
+        contextMenuFavoritesHydratedRef.current = true;
         setContextMenuFavorites([]);
         return;
       }
-      const parsed = JSON.parse(stored) as unknown;
-      const nextFavorites = Array.isArray(parsed)
-        ? parsed
-            .map((value) => String(value || "").trim())
-            .filter((value): value is ContextMenuFavoriteActionId =>
-              CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(value as ContextMenuFavoriteActionId)
-            )
-        : [];
-      setContextMenuFavorites(Array.from(new Set(nextFavorites)));
+      contextMenuFavoritesHydratedRef.current = true;
+      setContextMenuFavorites(
+        normalizeContextMenuFavoriteIds(JSON.parse(stored) as unknown)
+      );
     } catch {
+      contextMenuFavoritesHydratedRef.current = true;
       setContextMenuFavorites([]);
     }
-  }, [contextMenuMode]);
+  }, [contextMenuMode, initialContextMenuFavorites, prefersServerContextMenuFavorites]);
 
   useEffect(() => {
     if (contextMenuMode !== "favorites") {
+      return;
+    }
+    if (!contextMenuFavoritesHydratedRef.current) {
+      return;
+    }
+    if (contextMenuFavoritesSkipPersistRef.current) {
+      contextMenuFavoritesSkipPersistRef.current = false;
+      return;
+    }
+    if (prefersServerContextMenuFavorites && onSaveContextMenuFavorites) {
+      void onSaveContextMenuFavorites(contextMenuFavorites).catch(() => null);
       return;
     }
     try {
@@ -999,7 +1076,12 @@ export default function NoteEditorClient({
     } catch {
       // Ignore storage failures (private mode, quota, etc.).
     }
-  }, [contextMenuFavorites, contextMenuMode]);
+  }, [
+    contextMenuFavorites,
+    contextMenuMode,
+    onSaveContextMenuFavorites,
+    prefersServerContextMenuFavorites,
+  ]);
 
   const closeSlashMenu = useCallback(() => {
     setSlashMenu((prev) =>
@@ -1827,6 +1909,37 @@ export default function NoteEditorClient({
         run(() => editor.chain().focus().toggleBlockquote().run());
         return;
       }
+      if (actionId === "insertShape") {
+        run(() =>
+          editor
+            .chain()
+            .focus()
+            .setImage({ src: createInlineSvgDataUrl(SHAPE_TEMPLATE_SVG) })
+            .run()
+        );
+        return;
+      }
+      if (actionId === "insertArrow") {
+        run(() =>
+          editor
+            .chain()
+            .focus()
+            .setImage({ src: createInlineSvgDataUrl(ARROW_TEMPLATE_SVG) })
+            .run()
+        );
+        return;
+      }
+      if (actionId === "insertTextBox") {
+        run(() =>
+          editor
+            .chain()
+            .focus()
+            .insertTable({ rows: 1, cols: 1, withHeaderRow: false })
+            .insertContent("Text box")
+            .run()
+        );
+        return;
+      }
       if (actionId === "insertTable") {
         run(() =>
           editor
@@ -2377,6 +2490,40 @@ export default function NoteEditorClient({
       .run();
   }, [editor]);
 
+  const insertShapeTemplate = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    editor
+      .chain()
+      .focus()
+      .setImage({ src: createInlineSvgDataUrl(SHAPE_TEMPLATE_SVG) })
+      .run();
+  }, [editor]);
+
+  const insertArrowTemplate = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    editor
+      .chain()
+      .focus()
+      .setImage({ src: createInlineSvgDataUrl(ARROW_TEMPLATE_SVG) })
+      .run();
+  }, [editor]);
+
+  const insertTextBoxTemplate = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    editor
+      .chain()
+      .focus()
+      .insertTable({ rows: 1, cols: 1, withHeaderRow: false })
+      .insertContent("Text box")
+      .run();
+  }, [editor]);
+
   const clearFormatting = useCallback(() => {
     if (!editor) {
       return;
@@ -2745,6 +2892,25 @@ export default function NoteEditorClient({
                   onClick={insertSectionBox}
                   icon={<SectionIcon />}
                 />
+                {contextMenuMode === "favorites" ? (
+                  <>
+                    <RibbonIconButton
+                      label="Shape"
+                      onClick={insertShapeTemplate}
+                      icon={<ShapeIcon />}
+                    />
+                    <RibbonIconButton
+                      label="Arrow"
+                      onClick={insertArrowTemplate}
+                      icon={<ArrowIcon />}
+                    />
+                    <RibbonIconButton
+                      label="Text box"
+                      onClick={insertTextBoxTemplate}
+                      icon={<TextBoxIcon />}
+                    />
+                  </>
+                ) : null}
                 <RibbonIconButton
                   label="Link"
                   onClick={setLinkFromPrompt}
