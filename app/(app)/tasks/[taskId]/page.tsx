@@ -515,10 +515,21 @@ export default async function TaskDetailPage(props: {
     const startDate = String(formData.get("start_date") || "");
     const dueDate = String(formData.get("due_date") || "");
     const dueTime = String(formData.get("due_time") || "");
+    const projectIdRaw = String(formData.get("project_id") || "").trim();
+    const projectId = projectIdRaw || null;
     const assignee = String(formData.get("assignee_user_id") || "");
 
     if (!title) {
       redirect(buildTaskUrl(taskId, "details", { error: "Task name is required" }));
+    }
+
+    let nextClientId = taskClientId || null;
+    if (projectId) {
+      const selectedProject = (projects || []).find((project) => project.id === projectId);
+      if (!selectedProject) {
+        redirect(buildTaskUrl(taskId, "details", { error: "Invalid project selected" }));
+      }
+      nextClientId = selectedProject.client_id || null;
     }
 
     const { error } = await supabase
@@ -530,6 +541,8 @@ export default async function TaskDetailPage(props: {
         start_date: startDate || null,
         due_date: dueDate || null,
         due_time: dueTime || null,
+        project_id: projectId,
+        client_id: nextClientId,
         assignee_user_id: assignee || null,
       })
       .eq("id", taskId);
@@ -964,6 +977,31 @@ export default async function TaskDetailPage(props: {
                     {priority}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <label
+                htmlFor="task-project"
+                className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Project
+              </label>
+              <select
+                id="task-project"
+                name="project_id"
+                defaultValue={task.project_id || ""}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">Project (N/A)</option>
+                {(projects || []).map((project) => {
+                  const projectClientName = getRelationName(project.clients, "");
+                  return (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                      {projectClientName ? ` - ${projectClientName}` : ""}
+                    </option>
+                  );
+                })}
               </select>
             </div>
             <div className="grid gap-1">
