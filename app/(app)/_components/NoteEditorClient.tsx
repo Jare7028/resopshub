@@ -21,16 +21,29 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { selectedRect } from "prosemirror-tables";
 import { createEmptyDoc } from "@/lib/editorContent";
 
+type OverlayNodeType = "noteShape" | "noteTextBox";
+
 type ContextMenuState = {
   open: boolean;
   x: number;
   y: number;
   inTable: boolean;
+  overlayNodeType: OverlayNodeType | null;
+  overlayNodePos: number | null;
 };
 
 type ContextMenuMode = "full" | "favorites";
 
 export type ContextMenuFavoriteActionId =
+  | "bold"
+  | "italic"
+  | "underline"
+  | "highlight"
+  | "fontSizeUp"
+  | "fontSizeDown"
+  | "textColorSlate"
+  | "textColorBlue"
+  | "textColorRed"
   | "paragraph"
   | "heading1"
   | "heading2"
@@ -309,6 +322,15 @@ const WORD_FONT_SIZE_OPTIONS = [
 ] as const;
 
 const CONTEXT_MENU_FAVORITE_ACTIONS: ReadonlyArray<ContextMenuFavoriteAction> = [
+  { id: "bold", label: "Bold" },
+  { id: "italic", label: "Italic" },
+  { id: "underline", label: "Underline" },
+  { id: "highlight", label: "Highlight" },
+  { id: "fontSizeUp", label: "Font size +" },
+  { id: "fontSizeDown", label: "Font size -" },
+  { id: "textColorSlate", label: "Text color: Slate" },
+  { id: "textColorBlue", label: "Text color: Blue" },
+  { id: "textColorRed", label: "Text color: Red" },
   { id: "paragraph", label: "Paragraph" },
   { id: "heading1", label: "Heading 1" },
   { id: "heading2", label: "Heading 2" },
@@ -317,6 +339,7 @@ const CONTEXT_MENU_FAVORITE_ACTIONS: ReadonlyArray<ContextMenuFavoriteAction> = 
   { id: "checklist", label: "Checklist" },
   { id: "quote", label: "Quote / Callout" },
   { id: "insertShape", label: "Insert shape" },
+  { id: "insertArrow", label: "Insert arrow" },
   { id: "insertTextBox", label: "Insert text box" },
   { id: "insertTable", label: "Insert table" },
   { id: "divider", label: "Divider" },
@@ -350,6 +373,47 @@ function normalizeContextMenuFavoriteIds(value: unknown): ContextMenuFavoriteAct
       CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(item as ContextMenuFavoriteActionId)
     );
   return Array.from(new Set(next));
+}
+
+function parseFontSizePx(value: string | null | undefined) {
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!raw.endsWith("px")) {
+    return null;
+  }
+  const parsed = Number.parseFloat(raw.slice(0, -2));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function getNextFontSizeValue(currentValue: string, direction: "up" | "down") {
+  const steps = WORD_FONT_SIZE_OPTIONS.map((item) => ({
+    value: String(item.value),
+    px: parseFontSizePx(item.value),
+  })).filter((item) => typeof item.px === "number") as Array<{
+    value: string;
+    px: number;
+  }>;
+
+  if (!steps.length) {
+    return "";
+  }
+
+  const currentPx = parseFontSizePx(currentValue);
+  if (currentPx === null) {
+    return direction === "up" ? steps[0].value : steps[Math.max(steps.length - 1, 0)].value;
+  }
+
+  if (direction === "up") {
+    const next = steps.find((step) => step.px > currentPx);
+    return next?.value || steps[steps.length - 1].value;
+  }
+
+  const previous = [...steps].reverse().find((step) => step.px < currentPx);
+  return previous?.value || "";
 }
 
 type WordTextAlign = "left" | "center" | "right" | "justify";
@@ -945,11 +1009,21 @@ const NoteShape = TiptapNode.create({
           }
         ) => NoteShapeAttrs
       ) => {
-        if (startEvent.button !== 0) {
+        if (startEvent.button !== 0 && startEvent.button !== -1) {
           return null;
         }
         startEvent.preventDefault();
         startEvent.stopPropagation();
+        const pointerTarget =
+          startEvent.currentTarget instanceof Element ? startEvent.currentTarget : null;
+        const pointerId = startEvent.pointerId;
+        if (pointerTarget) {
+          try {
+            pointerTarget.setPointerCapture(pointerId);
+          } catch {
+            // Pointer capture can fail for unsupported/invalid pointer targets.
+          }
+        }
         const startState = {
           attrs: currentAttrs,
           clientX: startEvent.clientX,
@@ -967,6 +1041,13 @@ const NoteShape = TiptapNode.create({
           window.removeEventListener("pointermove", handleMove);
           window.removeEventListener("pointerup", handleUp);
           window.removeEventListener("pointercancel", handleUp);
+          if (pointerTarget) {
+            try {
+              pointerTarget.releasePointerCapture(pointerId);
+            } catch {
+              // Ignore release failures when capture was not active.
+            }
+          }
           commitNodeAttrs(liveAttrs);
         };
 
@@ -1119,6 +1200,26 @@ const NoteShape = TiptapNode.create({
           applyToDom(persistedAttrs);
           return true;
         },
+        stopEvent(event) {
+          const target = event.target as HTMLElement | null;
+          if (!target) {
+            return false;
+          }
+          return Boolean(
+            target.closest("[data-note-shape-drag='1'], [data-note-shape-resize='1']")
+          );
+        },
+        ignoreMutation(mutation) {
+          if (mutation.type !== "attributes") {
+            return false;
+          }
+          return (
+            mutation.target === dom ||
+            mutation.target === inner ||
+            mutation.target === dragHandle ||
+            mutation.target === resizeHandle
+          );
+        },
         destroy() {
           dragHandle.removeEventListener("pointerdown", handleDragPointerDown);
           dragHandle.removeEventListener("mousedown", handleDragMouseDown);
@@ -1215,11 +1316,21 @@ const NoteTextBox = TiptapNode.create({
           }
         ) => NoteTextBoxAttrs
       ) => {
-        if (startEvent.button !== 0) {
+        if (startEvent.button !== 0 && startEvent.button !== -1) {
           return;
         }
         startEvent.preventDefault();
         startEvent.stopPropagation();
+        const pointerTarget =
+          startEvent.currentTarget instanceof Element ? startEvent.currentTarget : null;
+        const pointerId = startEvent.pointerId;
+        if (pointerTarget) {
+          try {
+            pointerTarget.setPointerCapture(pointerId);
+          } catch {
+            // Pointer capture can fail for unsupported/invalid pointer targets.
+          }
+        }
         const startState = {
           attrs: currentAttrs,
           clientX: startEvent.clientX,
@@ -1237,6 +1348,13 @@ const NoteTextBox = TiptapNode.create({
           window.removeEventListener("pointermove", handleMove);
           window.removeEventListener("pointerup", handleUp);
           window.removeEventListener("pointercancel", handleUp);
+          if (pointerTarget) {
+            try {
+              pointerTarget.releasePointerCapture(pointerId);
+            } catch {
+              // Ignore release failures when capture was not active.
+            }
+          }
           commitNodeAttrs(liveAttrs);
         };
 
@@ -1368,6 +1486,25 @@ const NoteTextBox = TiptapNode.create({
           );
           applyToDom(persistedAttrs);
           return true;
+        },
+        stopEvent(event) {
+          const target = event.target as HTMLElement | null;
+          if (!target) {
+            return false;
+          }
+          return Boolean(
+            target.closest("[data-note-textbox-drag='1'], [data-note-textbox-resize='1']")
+          );
+        },
+        ignoreMutation(mutation) {
+          if (mutation.type !== "attributes") {
+            return false;
+          }
+          return (
+            mutation.target === dom ||
+            mutation.target === dragHandle ||
+            mutation.target === resizeHandle
+          );
         },
         destroy() {
           dragHandle.removeEventListener("pointerdown", handleDragPointerDown);
@@ -1650,6 +1787,71 @@ function isPersonalPathLink(value: string) {
   return /^\/personal\/[a-f0-9-]+(?:[?#][^\s]*)?$/i.test(value.trim());
 }
 
+function isOverlayNodeTypeName(name: string): name is OverlayNodeType {
+  return name === "noteShape" || name === "noteTextBox";
+}
+
+function resolveOverlayNodeFromContextMenuTarget(
+  editor: Editor,
+  target: Element | null,
+  clientX: number,
+  clientY: number
+) {
+  const findOverlayAtDocPos = (pos: number | null | undefined) => {
+    if (typeof pos !== "number" || Number.isNaN(pos)) {
+      return null;
+    }
+
+    const safePos = Math.max(0, Math.min(pos, editor.state.doc.content.size));
+    const directNode = editor.state.doc.nodeAt(safePos);
+    if (directNode && isOverlayNodeTypeName(directNode.type.name)) {
+      return {
+        overlayNodeType: directNode.type.name,
+        overlayNodePos: safePos,
+      };
+    }
+
+    const resolvedPos = editor.state.doc.resolve(safePos);
+    for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
+      const node = resolvedPos.node(depth);
+      if (isOverlayNodeTypeName(node.type.name)) {
+        return {
+          overlayNodeType: node.type.name,
+          overlayNodePos: resolvedPos.before(depth),
+        };
+      }
+    }
+
+    return null;
+  };
+
+  const overlayDom = target?.closest(".note-shape-node, .note-textbox-node");
+  if (overlayDom) {
+    try {
+      const posFromDom = editor.view.posAtDOM(overlayDom, 0);
+      const fromDom = findOverlayAtDocPos(posFromDom);
+      if (fromDom) {
+        return fromDom;
+      }
+    } catch {
+      // Fallback to coordinate lookup.
+    }
+  }
+
+  const posAtCoords = editor.view.posAtCoords({ left: clientX, top: clientY });
+  if (posAtCoords) {
+    const fromCoords = findOverlayAtDocPos(posAtCoords.pos);
+    if (fromCoords) {
+      return fromCoords;
+    }
+  }
+
+  return {
+    overlayNodeType: null,
+    overlayNodePos: null,
+  };
+}
+
 function getSelectedText(editor: Editor) {
   const { from, to, empty } = editor.state.selection;
   if (empty) {
@@ -1690,6 +1892,8 @@ export default function NoteEditorClient({
     x: 0,
     y: 0,
     inTable: false,
+    overlayNodeType: null,
+    overlayNodePos: null,
   });
   const [contextMenuFavorites, setContextMenuFavorites] = useState<
     ContextMenuFavoriteActionId[]
@@ -1882,7 +2086,17 @@ export default function NoteEditorClient({
 
   const closeContextMenu = useCallback(() => {
     setContextMenuFavoritesPickerOpen(false);
-    setContextMenu((prev) => (prev.open ? { ...prev, open: false } : prev));
+    setContextMenu((prev) =>
+      prev.open
+        ? {
+            ...prev,
+            open: false,
+            inTable: false,
+            overlayNodeType: null,
+            overlayNodePos: null,
+          }
+        : prev
+    );
   }, []);
 
   const updateShapeMenuPosition = useCallback(() => {
@@ -2483,7 +2697,12 @@ export default function NoteEditorClient({
       return;
     }
 
-    const handleClick = () => closeContextMenu();
+    const handleClick = (event: MouseEvent) => {
+      if (contextMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      closeContextMenu();
+    };
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         closeContextMenu();
@@ -2633,11 +2852,19 @@ export default function NoteEditorClient({
     (event: ReactMouseEvent) => {
       event.preventDefault();
 
-      const target = event.target as HTMLElement | null;
+      const target = event.target instanceof Element ? event.target : null;
       const inTable = Boolean(target?.closest("table"));
+      const overlayContext = editor
+        ? resolveOverlayNodeFromContextMenuTarget(editor, target, event.clientX, event.clientY)
+        : {
+            overlayNodeType: null,
+            overlayNodePos: null,
+          };
 
       if (editor) {
-        if (editor.state.selection.empty) {
+        if (overlayContext.overlayNodePos !== null) {
+          editor.commands.focus();
+        } else if (editor.state.selection.empty) {
           const pos = editor.view.posAtCoords({
             left: event.clientX,
             top: event.clientY,
@@ -2659,6 +2886,8 @@ export default function NoteEditorClient({
         x: event.clientX,
         y: event.clientY,
         inTable,
+        overlayNodeType: overlayContext.overlayNodeType,
+        overlayNodePos: overlayContext.overlayNodePos,
       });
     },
     [editor]
@@ -2675,6 +2904,27 @@ export default function NoteEditorClient({
     },
     [editor, closeContextMenu]
   );
+
+  const deleteContextOverlayItem = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    const overlayNodePos = contextMenu.overlayNodePos;
+    const overlayNodeType = contextMenu.overlayNodeType;
+    if (overlayNodePos === null || overlayNodeType === null) {
+      return;
+    }
+
+    const node = editor.state.doc.nodeAt(overlayNodePos);
+    if (!node || node.type.name !== overlayNodeType) {
+      return;
+    }
+
+    run(() => {
+      const tr = editor.state.tr.delete(overlayNodePos, overlayNodePos + node.nodeSize);
+      editor.view.dispatch(tr);
+    });
+  }, [contextMenu.overlayNodePos, contextMenu.overlayNodeType, editor, run]);
 
   const toggleContextMenuFavorite = useCallback((actionId: ContextMenuFavoriteActionId) => {
     setContextMenuFavorites((prev) => {
@@ -2711,6 +2961,47 @@ export default function NoteEditorClient({
         return;
       }
 
+      if (actionId === "bold") {
+        run(() => editor.chain().focus().toggleBold().run());
+        return;
+      }
+      if (actionId === "italic") {
+        run(() => editor.chain().focus().toggleItalic().run());
+        return;
+      }
+      if (actionId === "underline") {
+        run(() => editor.chain().focus().toggleUnderline().run());
+        return;
+      }
+      if (actionId === "highlight") {
+        run(() => editor.chain().focus().toggleHighlight().run());
+        return;
+      }
+      if (actionId === "fontSizeUp" || actionId === "fontSizeDown") {
+        const currentFontSize = String(editor.getAttributes("textStyle")?.fontSize || "");
+        const nextFontSize = getNextFontSizeValue(
+          currentFontSize,
+          actionId === "fontSizeUp" ? "up" : "down"
+        );
+        if (nextFontSize) {
+          run(() => editor.chain().focus().setFontSize(nextFontSize).run());
+        } else {
+          run(() => editor.chain().focus().unsetFontSize().run());
+        }
+        return;
+      }
+      if (actionId === "textColorSlate") {
+        run(() => editor.chain().focus().setMark("textStyle", { color: "#0f172a" }).run());
+        return;
+      }
+      if (actionId === "textColorBlue") {
+        run(() => editor.chain().focus().setMark("textStyle", { color: "#1d4ed8" }).run());
+        return;
+      }
+      if (actionId === "textColorRed") {
+        run(() => editor.chain().focus().setMark("textStyle", { color: "#dc2626" }).run());
+        return;
+      }
       if (actionId === "paragraph") {
         run(() => editor.chain().focus().setParagraph().run());
         return;
@@ -3462,6 +3753,12 @@ export default function NoteEditorClient({
 
   const activeSlashItem = slashMenu.items[slashMenu.index];
   const activeMentionItem = mentionMenu.items[mentionMenu.index];
+  const contextMenuOverlayDeleteLabel =
+    contextMenu.overlayNodeType === "noteShape"
+      ? "Delete shape"
+      : contextMenu.overlayNodeType === "noteTextBox"
+      ? "Delete text box"
+      : "Delete item";
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4" aria-label={title}>
@@ -4076,6 +4373,19 @@ export default function NoteEditorClient({
                 </>
               ) : null}
 
+              {contextMenu.overlayNodePos !== null ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={deleteContextOverlayItem}
+                    className="context-menu-item font-semibold text-red-600 hover:text-red-700"
+                  >
+                    {contextMenuOverlayDeleteLabel}
+                  </button>
+                  <div className="my-1 border-t border-slate-200" />
+                </>
+              ) : null}
+
               {favoriteContextActions.length ? (
                 favoriteContextActions.map((action) => {
                   const disabled = Boolean(action.inTableOnly && !contextMenu.inTable);
@@ -4112,33 +4422,43 @@ export default function NoteEditorClient({
                 }
                 className="context-menu-item font-semibold text-slate-700"
               >
-                {contextMenuFavoritesPickerOpen ? "Done editing favorites" : "Add favorite..."}
+                {contextMenuFavoritesPickerOpen ? "Close favorites picker" : "Add favorite..."}
               </button>
 
               {contextMenuFavoritesPickerOpen ? (
-                <div className="mt-1 max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-1">
-                  {CONTEXT_MENU_FAVORITE_ACTIONS.map((action) => {
-                    const isFavorite = contextMenuFavorites.includes(action.id);
-                    return (
-                      <button
-                        key={`favorite-${action.id}`}
-                        type="button"
-                        onClick={() => toggleContextMenuFavorite(action.id)}
-                        className="context-menu-item flex items-center justify-between"
-                      >
-                        <span className="truncate text-left">{action.label}</span>
-                        <span
-                          className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                            isFavorite
-                              ? "bg-slate-900 text-white"
-                              : "bg-slate-200 text-slate-700"
-                          }`}
+                <div className="mt-1 rounded-lg border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 px-2.5 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      My favorites
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Add quick right-click actions like bold, font color, and size.
+                    </p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto p-1.5">
+                    {CONTEXT_MENU_FAVORITE_ACTIONS.map((action) => {
+                      const isFavorite = contextMenuFavorites.includes(action.id);
+                      return (
+                        <button
+                          key={`favorite-${action.id}`}
+                          type="button"
+                          onClick={() => toggleContextMenuFavorite(action.id)}
+                          className="context-menu-item flex items-center justify-between"
                         >
-                          {isFavorite ? "Added" : "Add"}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <span className="truncate text-left">{action.label}</span>
+                          <span
+                            className={`ml-2 inline-flex min-w-[3.1rem] items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              isFavorite
+                                ? "bg-slate-900 text-white"
+                                : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {isFavorite ? "Added" : "+ Add"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : null}
             </>
@@ -4152,6 +4472,18 @@ export default function NoteEditorClient({
                     className="context-menu-item font-semibold text-slate-900"
                   >
                     Create task
+                  </button>
+                  <div className="my-1 border-t border-slate-200" />
+                </>
+              ) : null}
+              {contextMenu.overlayNodePos !== null ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={deleteContextOverlayItem}
+                    className="context-menu-item font-semibold text-red-600 hover:text-red-700"
+                  >
+                    {contextMenuOverlayDeleteLabel}
                   </button>
                   <div className="my-1 border-t border-slate-200" />
                 </>
