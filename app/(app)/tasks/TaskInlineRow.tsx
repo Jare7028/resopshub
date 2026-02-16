@@ -46,9 +46,9 @@ type TaskRow = {
 
 type TaskInlineRowProps = {
   task: TaskRow;
-  openSubtaskCount: number;
-  isSubtasksExpanded: boolean;
-  onToggleSubtasks: (taskId: string) => void;
+  openSubtaskCount?: number;
+  isSubtasksExpanded?: boolean;
+  onToggleSubtasks?: (taskId: string) => void;
   assigneeUserIds: string[];
   users: UserOption[];
   clients: ClientOption[];
@@ -57,13 +57,14 @@ type TaskInlineRowProps = {
   priorityOptions: readonly string[];
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   returnTo: string;
+  rowVariant?: "task" | "subtask";
 };
 
 export default function TaskInlineRow({
   task,
-  openSubtaskCount,
-  isSubtasksExpanded,
-  onToggleSubtasks,
+  openSubtaskCount = 0,
+  isSubtasksExpanded = false,
+  onToggleSubtasks = () => {},
   assigneeUserIds,
   users,
   clients,
@@ -72,10 +73,12 @@ export default function TaskInlineRow({
   priorityOptions,
   onUpdate,
   returnTo,
+  rowVariant = "task",
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
   const normalizedStatus = normalizeTaskStatusOrDefault(task.status);
+  const isSubtaskRow = rowVariant === "subtask";
   const [, startTransition] = useTransition();
 
   const getRelationName = (
@@ -171,14 +174,29 @@ export default function TaskInlineRow({
   })();
 
   return (
-    <tr className="border-t border-slate-200">
+    <tr className={isSubtaskRow ? "border-t border-slate-100 bg-slate-50/60" : "border-t border-slate-200"}>
       <td className="px-6 py-3 font-medium text-slate-900">
-        <Link href={`/tasks/${task.id}`} className="hover:underline">
-          {task.title}
-        </Link>
+        {isSubtaskRow ? (
+          <div className="flex items-center gap-2 pl-6 text-slate-700">
+            <span aria-hidden="true" className="text-slate-400">
+              {"->"}
+            </span>
+            <Link href={`/tasks/${task.id}`} className="hover:underline">
+              {task.title}
+            </Link>
+          </div>
+        ) : (
+          <Link href={`/tasks/${task.id}`} className="hover:underline">
+            {task.title}
+          </Link>
+        )}
       </td>
-      <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
-        {openSubtaskCount > 0 ? (
+      <td
+        className={`px-6 py-3 text-right tabular-nums ${
+          isSubtaskRow ? "text-slate-400" : "text-slate-600"
+        }`}
+      >
+        {!isSubtaskRow && openSubtaskCount > 0 ? (
           <button
             type="button"
             onClick={() => onToggleSubtasks(task.id)}
@@ -191,6 +209,8 @@ export default function TaskInlineRow({
               {isSubtasksExpanded ? "v" : ">"}
             </span>
           </button>
+        ) : isSubtaskRow ? (
+          "-"
         ) : (
           0
         )}

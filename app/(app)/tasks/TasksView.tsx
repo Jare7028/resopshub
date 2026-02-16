@@ -60,8 +60,14 @@ type OpenSubtaskRow = {
   title: string;
   status: string | null;
   priority: string | null;
+  start_date: string | null;
   due_date: string | null;
   due_time?: string | null;
+  assignee_user_id: string | null;
+  client_id: string | null;
+  project_id: string | null;
+  projects?: { name: string | null } | { name: string | null }[] | null;
+  clients?: { name: string | null } | { name: string | null }[] | null;
   assignee_user_ids: string[];
 };
 
@@ -78,6 +84,7 @@ type TasksViewProps = {
   dueOptions: readonly { value: string; label: string }[];
   initialView?: "table" | "gantt" | "board";
   returnTo: string;
+  initialExpandedTaskIds?: string[];
   initialFilters: {
     status: string[];
     priority: string[];
@@ -147,6 +154,7 @@ export default function TasksView({
   dueOptions,
   initialView = "table",
   returnTo,
+  initialExpandedTaskIds = [],
   initialFilters,
   onUpdate,
   hideCompleted,
@@ -169,7 +177,9 @@ export default function TasksView({
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
-  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
+    () => new Set(initialExpandedTaskIds)
+  );
 
   const usersById = useMemo(
     () =>
@@ -220,17 +230,26 @@ export default function TasksView({
   }, [openMenu]);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
+  const initialExpandedKey = useMemo(
+    () => initialExpandedTaskIds.join(","),
+    [initialExpandedTaskIds]
+  );
 
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    setExpandedTaskIds(new Set(initialExpandedTaskIds));
+  }, [initialExpandedKey, initialExpandedTaskIds]);
 
   const buildQuery = (
     next: typeof filters,
     nextSortKey: TaskSortKey,
     nextSortDir: TaskSortDir,
     nextView: typeof view,
-    nextHideCompleted: boolean
+    nextHideCompleted: boolean,
+    nextExpandedTaskIds: Set<string> = expandedTaskIds
   ) => {
     const params = new URLSearchParams();
     Object.entries(fixedParams).forEach(([key, value]) => {
@@ -254,8 +273,12 @@ export default function TasksView({
     if (nextView !== "table") {
       params.set("view", nextView);
     }
+    setCsvParam(params, "expand", Array.from(nextExpandedTaskIds));
     return params.toString();
   };
+
+  const inlineReturnToQuery = buildQuery(filters, sortKey, sortDir, view, hideCompleted);
+  const inlineReturnTo = inlineReturnToQuery ? `${basePath}?${inlineReturnToQuery}` : returnTo;
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);
@@ -403,7 +426,7 @@ export default function TasksView({
     const formData = new FormData();
     formData.set("task_id", taskId);
     formData.set("status", status);
-    formData.set("return_to", returnTo);
+    formData.set("return_to", inlineReturnTo);
     startTransition(() => {
       void onUpdate(formData);
     });
@@ -416,6 +439,11 @@ export default function TasksView({
         next.delete(taskId);
       } else {
         next.add(taskId);
+      }
+      const nextQuery = buildQuery(filters, sortKey, sortDir, view, hideCompleted, next);
+      const nextUrl = nextQuery ? `${basePath}?${nextQuery}` : basePath;
+      if (typeof window !== "undefined") {
+        window.history.replaceState(window.history.state, "", nextUrl);
       }
       return next;
     });
@@ -875,46 +903,23 @@ export default function TasksView({
                         statusOptions={statusOptions}
                         priorityOptions={priorityOptions}
                         onUpdate={onUpdate}
-                        returnTo={returnTo}
+                        returnTo={inlineReturnTo}
                       />
                       {isExpanded
                         ? openSubtasks.map((subtask) => (
-                            <tr
+                            <TaskInlineRow
                               key={subtask.id}
-                              className="border-t border-slate-100 bg-slate-50/60"
-                            >
-                              <td className="px-6 py-2 text-slate-700">
-                                <div className="flex items-center gap-2 pl-6">
-                                  <span aria-hidden="true" className="text-slate-400">
-                                    {"->"}
-                                  </span>
-                                  <Link
-                                    href={`/tasks/${subtask.id}`}
-                                    className="hover:underline"
-                                  >
-                                    {subtask.title}
-                                  </Link>
-                                </div>
-                              </td>
-                              <td className="px-6 py-2 text-right text-slate-400">-</td>
-                              <td className="px-6 py-2 text-slate-400">-</td>
-                              <td className="px-6 py-2 text-slate-400">-</td>
-                              <td className="px-6 py-2 text-slate-600">
-                                {formatTaskStatusLabel(
-                                  normalizeTaskStatusOrDefault(subtask.status)
-                                )}
-                              </td>
-                              <td className="px-6 py-2 text-slate-600">
-                                {subtask.priority || "medium"}
-                              </td>
-                              <td className="px-6 py-2 text-slate-600">
-                                {getAssigneeLabel(subtask.assignee_user_ids)}
-                              </td>
-                              <td className="px-6 py-2 text-slate-400">-</td>
-                              <td className="px-6 py-2 text-slate-600">
-                                {subtask.due_date || "-"}
-                              </td>
-                            </tr>
+                              task={subtask}
+                              assigneeUserIds={subtask.assignee_user_ids}
+                              users={users}
+                              clients={clients}
+                              projects={projects}
+                              statusOptions={statusOptions}
+                              priorityOptions={priorityOptions}
+                              onUpdate={onUpdate}
+                              returnTo={inlineReturnTo}
+                              rowVariant="subtask"
+                            />
                           ))
                         : null}
                     </Fragment>

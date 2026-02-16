@@ -132,6 +132,7 @@ export default async function TasksPage(props: {
     due?: string;
     client?: string | string[];
     project?: string | string[];
+    expand?: string | string[];
     hide?: string;
     watch?: string;
     sort?: string;
@@ -237,6 +238,10 @@ export default async function TasksPage(props: {
     typeof searchParams?.project !== "undefined"
       ? parseCsvParam(searchParams?.project)
       : normalizePreferenceValues(taskTablePreferences?.project);
+  const initialExpandedTaskIds =
+    typeof searchParams?.expand !== "undefined"
+      ? parseCsvParam(searchParams?.expand)
+      : [];
   const dueSource =
     typeof searchParams?.due !== "undefined"
       ? searchParams?.due
@@ -380,6 +385,7 @@ export default async function TasksPage(props: {
   }
   setCsvParam(returnParams, "client", selectedClientIds);
   setCsvParam(returnParams, "project", selectedProjectIds);
+  setCsvParam(returnParams, "expand", initialExpandedTaskIds);
   returnParams.set("hide", hideCompleted ? "1" : "0");
   returnParams.set("sort", sortKey);
   returnParams.set("dir", sortDir);
@@ -589,8 +595,14 @@ export default async function TasksPage(props: {
       title: string;
       status: string | null;
       priority: string | null;
+      start_date: string | null;
       due_date: string | null;
       due_time: string | null;
+      assignee_user_id: string | null;
+      client_id: string | null;
+      project_id: string | null;
+      projects?: { name: string | null } | { name: string | null }[] | null;
+      clients?: { name: string | null } | { name: string | null }[] | null;
       assignee_user_ids: string[];
     }>
   > = {};
@@ -598,7 +610,9 @@ export default async function TasksPage(props: {
   if (taskIdsForSubtaskCounts.length) {
     const { data: openSubtasksRaw, error: openSubtasksError } = await supabase
       .from("tasks")
-      .select("id,parent_task_id,title,status,priority,due_date,due_time,assignee_user_id")
+      .select(
+        "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id,projects(name),clients(name)"
+      )
       .in("parent_task_id", taskIdsForSubtaskCounts)
       .not("status", "in", "(completed,cancelled)")
       .order("created_at", { ascending: true });
@@ -610,9 +624,14 @@ export default async function TasksPage(props: {
         title: string;
         status: string | null;
         priority: string | null;
+        start_date: string | null;
         due_date: string | null;
         due_time: string | null;
         assignee_user_id: string | null;
+        client_id: string | null;
+        project_id: string | null;
+        projects?: { name: string | null } | { name: string | null }[] | null;
+        clients?: { name: string | null } | { name: string | null }[] | null;
       }>;
 
       const subtaskIds = openSubtasks.map((subtask) => subtask.id).filter(Boolean);
@@ -649,8 +668,14 @@ export default async function TasksPage(props: {
           title: subtask.title,
           status: subtask.status,
           priority: subtask.priority,
+          start_date: subtask.start_date,
           due_date: subtask.due_date,
           due_time: subtask.due_time,
+          assignee_user_id: subtask.assignee_user_id,
+          client_id: subtask.client_id,
+          project_id: subtask.project_id,
+          projects: subtask.projects ?? null,
+          clients: subtask.clients ?? null,
           assignee_user_ids: assigneeIds,
         });
       });
@@ -1384,6 +1409,7 @@ export default async function TasksPage(props: {
           priorityOptions={priorityOptions}
           dueOptions={dueDateFilters}
           returnTo={returnTo}
+          initialExpandedTaskIds={initialExpandedTaskIds}
           initialFilters={{
             status: selectedStatuses,
             priority: selectedPriorities,
