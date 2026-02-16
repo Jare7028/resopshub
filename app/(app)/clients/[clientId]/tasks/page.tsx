@@ -23,6 +23,7 @@ import {
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
 import { updateTaskInlineAction } from "../../../tasks/actions";
+import { normalizeTasksTabKey } from "../../../tasks/_components/TasksTabs";
 import AssigneeMultiSelect from "../../../tasks/_components/AssigneeMultiSelect";
 import RecurrenceFields from "../../../tasks/_components/RecurrenceFields";
 import TasksView from "../../../tasks/TasksView";
@@ -81,6 +82,7 @@ export default async function ClientTasksPage(props: {
     view?: string;
     sort?: string;
     dir?: string;
+    tab?: string;
     create_mode?: string;
     template_task_id?: string;
   }>;
@@ -112,6 +114,7 @@ export default async function ClientTasksPage(props: {
   const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
   let selectedDue = (searchParams?.due || "all").trim();
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const activeTab = normalizeTasksTabKey(searchParams?.tab);
 
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
@@ -196,6 +199,50 @@ export default async function ClientTasksPage(props: {
   const toggleUrl = toggleParams.toString()
     ? `/clients/${clientId}/tasks?${toggleParams}`
     : `/clients/${clientId}/tasks`;
+  const buildClientTasksUrl = (
+    tab: "list" | "add",
+    params?: { error?: string; success?: string }
+  ) => {
+    const sp = new URLSearchParams(returnParams);
+    if (tab !== "list") {
+      sp.set("tab", tab);
+    }
+    if (params?.error) {
+      sp.set("error", params.error);
+    }
+    if (params?.success) {
+      sp.set("success", params.success);
+    }
+    const qs = sp.toString();
+    return qs ? `/clients/${clientId}/tasks?${qs}` : `/clients/${clientId}/tasks`;
+  };
+  const buildAddTaskUrl = (mode: "new" | "template", templateId?: string) => {
+    const sp = new URLSearchParams(returnParams);
+    sp.set("tab", "add");
+
+    if (mode === "template") {
+      sp.set("create_mode", "template");
+      if (templateId) {
+        sp.set("template_task_id", templateId);
+      } else {
+        sp.delete("template_task_id");
+      }
+    } else {
+      sp.delete("create_mode");
+      sp.delete("template_task_id");
+    }
+
+    const qs = sp.toString();
+    return qs ? `/clients/${clientId}/tasks?${qs}` : `/clients/${clientId}/tasks?tab=add`;
+  };
+  const tasksTabUrls = {
+    list: buildClientTasksUrl("list"),
+    add: buildClientTasksUrl("add"),
+  };
+  const addTaskModeUrls = {
+    new: buildAddTaskUrl("new"),
+    template: buildAddTaskUrl("template", templateTaskId || undefined),
+  };
 
   let tasksRequest = supabase
     .from("tasks")
@@ -364,14 +411,12 @@ export default async function ClientTasksPage(props: {
     const templateTaskIdFromForm = String(formData.get("template_task_id") || "").trim();
 
     if (!title) {
-      redirect(`${returnTo}?error=${encodeURIComponent("Title is required")}`);
+      redirect(buildClientTasksUrl("add", { error: "Title is required" }));
     }
 
     const scheduleResult = parseTaskScheduleFormData(formData, DEFAULT_RECURRENCE_TZ);
     if (scheduleResult.error || !scheduleResult.value) {
-      redirect(
-        `${returnTo}?error=${encodeURIComponent(scheduleResult.error || "Invalid schedule")}`
-      );
+      redirect(buildClientTasksUrl("add", { error: scheduleResult.error || "Invalid schedule" }));
     }
     const schedule = scheduleResult.value;
 
@@ -392,10 +437,10 @@ export default async function ClientTasksPage(props: {
           .eq("task_id", templateTaskIdFromForm),
       ]);
       if (templateTaskResponse.error) {
-        redirect(`${returnTo}?error=${encodeURIComponent(templateTaskResponse.error.message)}`);
+        redirect(buildClientTasksUrl("add", { error: templateTaskResponse.error.message }));
       }
       if (templateAssigneesResponse.error) {
-        redirect(`${returnTo}?error=${encodeURIComponent(templateAssigneesResponse.error.message)}`);
+        redirect(buildClientTasksUrl("add", { error: templateAssigneesResponse.error.message }));
       }
       templateAssigneeIds = Array.from(
         new Set(
@@ -455,23 +500,21 @@ export default async function ClientTasksPage(props: {
 
     if (error) {
       redirect(
-        `${returnTo}?error=${encodeURIComponent(
-          formatDbError("clients.tasks.createTask.tasks.insert", error)
-        )}`
+        buildClientTasksUrl("add", {
+          error: formatDbError("clients.tasks.createTask.tasks.insert", error),
+        })
       );
     }
 
     if (taskId && effectiveAssigneeIds.length) {
-        const inserts = effectiveAssigneeIds.map((userId) => ({
-          task_id: taskId,
-          user_id: userId,
-        }));
-        const { error: assigneeError } = await supabase
-          .from("task_assignees")
-          .insert(inserts);
-        if (assigneeError) {
-          redirect(`${returnTo}?error=${encodeURIComponent(assigneeError.message)}`);
-        }
+      const inserts = effectiveAssigneeIds.map((userId) => ({
+        task_id: taskId,
+        user_id: userId,
+      }));
+      const { error: assigneeError } = await supabase.from("task_assignees").insert(inserts);
+      if (assigneeError) {
+        redirect(buildClientTasksUrl("add", { error: assigneeError.message }));
+      }
     }
 
     if (taskId && templateTaskIdFromForm) {
@@ -491,7 +534,7 @@ export default async function ClientTasksPage(props: {
         .eq("parent_task_id", templateTaskIdFromForm)
         .order("created_at", { ascending: true });
       if (subtaskTemplatesError) {
-        redirect(`${returnTo}?error=${encodeURIComponent(subtaskTemplatesError.message)}`);
+        redirect(buildClientTasksUrl("add", { error: subtaskTemplatesError.message }));
       }
       subtaskTemplates = (subtaskTemplatesRaw || []) as Array<{
         id: string;
@@ -509,7 +552,7 @@ export default async function ClientTasksPage(props: {
           .select("task_id,user_id")
           .in("task_id", subtaskTemplateIds);
         if (taskAssigneesError) {
-          redirect(`${returnTo}?error=${encodeURIComponent(taskAssigneesError.message)}`);
+          redirect(buildClientTasksUrl("add", { error: taskAssigneesError.message }));
         }
         (taskAssigneesRaw || []).forEach((row) => {
           assigneeIdsBySubtaskTemplateId[row.task_id] ||= [];
@@ -557,12 +600,12 @@ export default async function ClientTasksPage(props: {
 
         if (subtaskInsertError) {
           redirect(
-            `${returnTo}?error=${encodeURIComponent(
-              formatDbError(
+            buildClientTasksUrl("add", {
+              error: formatDbError(
                 "clients.tasks.createTask.templateSubtasks.tasks.insert",
                 subtaskInsertError
-              )
-            )}`
+              ),
+            })
           );
         }
 
@@ -576,14 +619,14 @@ export default async function ClientTasksPage(props: {
             .from("task_assignees")
             .insert(inserts);
           if (subtaskAssigneesError) {
-            redirect(`${returnTo}?error=${encodeURIComponent(subtaskAssigneesError.message)}`);
+            redirect(buildClientTasksUrl("add", { error: subtaskAssigneesError.message }));
           }
         }
       }
     }
 
     revalidatePath(`/clients/${clientId}/tasks`);
-    redirect(`${returnTo}?success=${encodeURIComponent("Task created")}`);
+    redirect(buildClientTasksUrl("list", { success: "Task created" }));
   }
   const updateTaskInline = updateTaskInlineAction;
 
@@ -608,177 +651,206 @@ export default async function ClientTasksPage(props: {
         </p>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Add task</h2>
-        <div className="mx-auto w-full max-w-6xl">
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2 text-sm">
-              <Link
-                href={`/clients/${clientId}/tasks`}
-                className={`rounded-md px-3 py-1.5 font-medium ${
-                  createMode === "new"
-                    ? "tab-active"
-                    : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-                }`}
-              >
-                New task
-              </Link>
-              <Link
-                href={
-                  templateTaskId
-                    ? `/clients/${clientId}/tasks?create_mode=template&template_task_id=${encodeURIComponent(
-                        templateTaskId
-                      )}`
-                    : `/clients/${clientId}/tasks?create_mode=template`
-                }
-                className={`rounded-md px-3 py-1.5 font-medium ${
-                  createMode === "template"
-                    ? "tab-active"
-                    : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-                }`}
-              >
-                Choose from template
-              </Link>
-            </div>
+      <div className="flex justify-end">
+        <Link
+          href={tasksTabUrls.add}
+          className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+        >
+          Add task
+        </Link>
+      </div>
 
-            {createMode === "template" ? (
-              <form
-                method="get"
-                action={`/clients/${clientId}/tasks`}
-                className="flex flex-wrap items-center gap-2"
-              >
-                <input type="hidden" name="create_mode" value="template" />
-                <select
-                  name="template_task_id"
-                  defaultValue={templateTaskId || ""}
-                  className={addTaskInlineControlClass}
-                  disabled={Boolean(taskTemplatesError)}
-                >
-                  <option value="">Select a template</option>
-                  {taskTemplates.map((tpl) => (
-                    <option key={tpl.id} value={tpl.id}>
-                      {tpl.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="submit"
-                  className="h-10 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                  disabled={Boolean(taskTemplatesError)}
-                >
-                  Apply
-                </button>
+      {activeTab === "add" ? (
+        <div className="fixed inset-0 z-50">
+          <Link
+            href={tasksTabUrls.list}
+            aria-label="Close add task dialog"
+            className="absolute inset-0 block bg-slate-900/35 backdrop-blur-[2px]"
+          />
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pb-8 md:pt-8 lg:p-10">
+            <section className="w-full max-h-[92vh] max-w-none overflow-y-auto rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:max-w-5xl md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Add task</h2>
                 <Link
-                  href="/settings?tab=templates&templates=tasks"
-                  className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                  href={tasksTabUrls.list}
+                  className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
                 >
-                  Manage templates
+                  Close
                 </Link>
-              </form>
-            ) : null}
-          </div>
+              </div>
+              <div className="px-4 pb-5 md:px-6 md:pb-6">
+                <div className="w-full">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Link
+                        href={addTaskModeUrls.new}
+                        className={`inline-flex min-h-11 items-center rounded-md px-3 py-1.5 font-medium ${
+                          createMode === "new"
+                            ? "tab-active"
+                            : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        New task
+                      </Link>
+                      <Link
+                        href={
+                          templateTaskId
+                            ? buildAddTaskUrl("template", templateTaskId)
+                            : addTaskModeUrls.template
+                        }
+                        className={`inline-flex min-h-11 items-center rounded-md px-3 py-1.5 font-medium ${
+                          createMode === "template"
+                            ? "tab-active"
+                            : "border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        Choose from template
+                      </Link>
+                    </div>
 
-          {createMode === "template" && taskTemplatesError ? (
-            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-              Template status is not fully set up yet. Run `sql/task_status_add_template.sql`,
-              then run `sql/task_templates_as_tasks.sql`, then refresh this page.
-            </p>
-          ) : null}
-          <form action={createTask} className="mt-5 grid gap-5 md:grid-cols-6">
-            {createMode === "template" && templateTaskId ? (
-              <>
-                <input type="hidden" name="create_mode" value="template" />
-                <input type="hidden" name="template_task_id" value={templateTaskId} />
-              </>
-            ) : null}
-            <div className={`md:col-span-6 ${addTaskPanelClass}`}>
-              <p className={addTaskPanelTitleClass}>Task details</p>
-              <div className="mt-3 grid gap-4 md:grid-cols-6">
-                <div className="md:col-span-3">
-                  <label className={addTaskLabelClass}>Title</label>
-                  <input
-                    name="title"
-                    placeholder="Task title"
-                    className={addTaskControlClass}
-                    defaultValue={selectedTemplate?.title || ""}
-                    required
-                  />
-                </div>
-                <div className="md:col-span-3">
-                  <label className={addTaskLabelClass}>Project</label>
-                  <select
-                    name="project_id"
-                    className={addTaskControlClass}
-                    defaultValue=""
-                  >
-                    <option value="">Project (N/A)</option>
-                    {projects?.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className={addTaskLabelClass}>Assignees</label>
-                  <div className="mt-1 relative">
-                    <AssigneeMultiSelect
-                      users={users || []}
-                      name="assignee_user_ids"
-                      defaultSelected={
-                        createMode === "new" && defaultAssigneeUserId
-                          ? [defaultAssigneeUserId]
-                          : []
-                      }
-                    />
+                    {createMode === "template" ? (
+                      <form
+                        method="get"
+                        action={tasksTabUrls.add}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <input type="hidden" name="create_mode" value="template" />
+                        <select
+                          name="template_task_id"
+                          defaultValue={templateTaskId || ""}
+                          className={addTaskInlineControlClass}
+                          disabled={Boolean(taskTemplatesError)}
+                        >
+                          <option value="">Select a template</option>
+                          {taskTemplates.map((tpl) => (
+                            <option key={tpl.id} value={tpl.id}>
+                              {tpl.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="submit"
+                          className="h-10 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          disabled={Boolean(taskTemplatesError)}
+                        >
+                          Apply
+                        </button>
+                        <Link
+                          href="/settings?tab=templates&templates=tasks"
+                          className="text-sm font-semibold text-slate-700 hover:text-slate-900"
+                        >
+                          Manage templates
+                        </Link>
+                      </form>
+                    ) : null}
                   </div>
-                </div>
-                <div className="md:col-span-2">
-                  <label className={addTaskLabelClass}>Status</label>
-                  <select
-                    name="status"
-                    className={addTaskControlClass}
-                    defaultValue={selectedTemplate?.status || "to_do"}
-                  >
-                    {statusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {formatTaskStatusLabel(status)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className={addTaskLabelClass}>Priority</label>
-                  <select
-                    name="priority"
-                    className={addTaskControlClass}
-                    defaultValue={selectedTemplate?.priority || "medium"}
-                  >
-                    {priorityOptions.map((priority) => (
-                      <option key={priority} value={priority}>
-                        {priority}
-                      </option>
-                    ))}
-                  </select>
+
+                  {createMode === "template" && taskTemplatesError ? (
+                    <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                      Template status is not fully set up yet. Run `sql/task_status_add_template.sql`,
+                      then run `sql/task_templates_as_tasks.sql`, then refresh this page.
+                    </p>
+                  ) : null}
+
+                  <form action={createTask} className="mt-5 grid gap-5 md:grid-cols-6">
+                    {createMode === "template" && templateTaskId ? (
+                      <>
+                        <input type="hidden" name="create_mode" value="template" />
+                        <input type="hidden" name="template_task_id" value={templateTaskId} />
+                      </>
+                    ) : null}
+                    <div className={`md:col-span-6 ${addTaskPanelClass}`}>
+                      <p className={addTaskPanelTitleClass}>Task details</p>
+                      <div className="mt-3 grid gap-4 md:grid-cols-6">
+                        <div className="md:col-span-3">
+                          <label className={addTaskLabelClass}>Title</label>
+                          <input
+                            name="title"
+                            placeholder="Task title"
+                            className={addTaskControlClass}
+                            defaultValue={selectedTemplate?.title || ""}
+                            required
+                          />
+                        </div>
+                        <div className="md:col-span-3">
+                          <label className={addTaskLabelClass}>Project</label>
+                          <select
+                            name="project_id"
+                            className={addTaskControlClass}
+                            defaultValue=""
+                          >
+                            <option value="">Project (N/A)</option>
+                            {projects?.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className={addTaskLabelClass}>Assignees</label>
+                          <div className="mt-1 relative">
+                            <AssigneeMultiSelect
+                              users={users || []}
+                              name="assignee_user_ids"
+                              defaultSelected={
+                                createMode === "new" && defaultAssigneeUserId
+                                  ? [defaultAssigneeUserId]
+                                  : []
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className={addTaskLabelClass}>Status</label>
+                          <select
+                            name="status"
+                            className={addTaskControlClass}
+                            defaultValue={selectedTemplate?.status || "to_do"}
+                          >
+                            {statusOptions.map((status) => (
+                              <option key={status} value={status}>
+                                {formatTaskStatusLabel(status)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className={addTaskLabelClass}>Priority</label>
+                          <select
+                            name="priority"
+                            className={addTaskControlClass}
+                            defaultValue={selectedTemplate?.priority || "medium"}
+                          >
+                            {priorityOptions.map((priority) => (
+                              <option key={priority} value={priority}>
+                                {priority}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    <RecurrenceFields
+                      initialFrequency={initialRecurrenceFrequency}
+                      initialDueTime={selectedTemplate?.due_time || undefined}
+                      initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
+                    />
+                    <div className="md:col-span-6 flex justify-end">
+                      <button
+                        type="submit"
+                        className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+                      >
+                        Create task
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
-            </div>
-            <RecurrenceFields
-              initialFrequency={initialRecurrenceFrequency}
-              initialDueTime={selectedTemplate?.due_time || undefined}
-              initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
-            />
-            <div className="md:col-span-6 flex justify-end">
-              <button
-                type="submit"
-                className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"
-              >
-                Create task
-              </button>
-            </div>
-          </form>
+            </section>
+          </div>
         </div>
-      </section>
+      ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <TasksView
