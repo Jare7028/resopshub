@@ -2,7 +2,7 @@
 
 import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import type { Editor } from "@tiptap/core";
+import { mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
@@ -147,12 +147,35 @@ type TaskInsertSelection = {
 };
 
 type ImageFloatMode = "none" | "left" | "right";
+type NoteShapeKind = "rectangle" | "square" | "circle" | "arrow";
+type NoteShapeAttrs = {
+  kind: NoteShapeKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  stroke: string;
+  fill: string;
+};
 const MAX_INLINE_IMAGE_BYTES = 1_800_000;
 const MAX_INLINE_IMAGE_DIMENSION = 1800;
 const MIN_INLINE_IMAGE_DIMENSION = 640;
 const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
-const SHAPE_TEMPLATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120"><rect x="14" y="18" width="82" height="48" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/><circle cx="162" cy="42" r="24" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><path d="M96 42h42" stroke="#334155" stroke-width="2" stroke-linecap="round"/><path d="m131 34 8 8-8 8" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><text x="56" y="48" text-anchor="middle" font-size="11" font-family="Arial, sans-serif" fill="#1e293b">Shape</text><text x="162" y="48" text-anchor="middle" font-size="11" font-family="Arial, sans-serif" fill="#1e293b">Node</text></svg>`;
-const ARROW_TEMPLATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="260" height="70" viewBox="0 0 260 70"><path d="M16 35h200" stroke="#0f172a" stroke-width="4" stroke-linecap="round"/><path d="m186 19 40 16-40 16" fill="none" stroke="#0f172a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const NOTE_SHAPE_DEFAULT_STROKE = "#0f172a";
+const NOTE_SHAPE_DEFAULT_FILL = "#ffffff";
+const NOTE_SHAPE_KIND_SET = new Set<NoteShapeKind>([
+  "rectangle",
+  "square",
+  "circle",
+  "arrow",
+]);
+
+const NOTE_SHAPE_INSERT_OPTIONS: ReadonlyArray<{ kind: NoteShapeKind; label: string }> = [
+  { kind: "rectangle", label: "Rectangle" },
+  { kind: "square", label: "Square" },
+  { kind: "circle", label: "Circle" },
+  { kind: "arrow", label: "Arrow" },
+];
 
 const SLASH_COMMANDS: SlashCommand[] = [
   {
@@ -280,7 +303,6 @@ const CONTEXT_MENU_FAVORITE_ACTIONS: ReadonlyArray<ContextMenuFavoriteAction> = 
   { id: "checklist", label: "Checklist" },
   { id: "quote", label: "Quote / Callout" },
   { id: "insertShape", label: "Insert shape" },
-  { id: "insertArrow", label: "Insert arrow" },
   { id: "insertTextBox", label: "Insert text box" },
   { id: "insertTable", label: "Insert table" },
   { id: "divider", label: "Divider" },
@@ -529,15 +551,6 @@ function ShapeIcon() {
   );
 }
 
-function ArrowIcon() {
-  return (
-    <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
-      <path d="M1.5 7h8.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <path d="m7.8 3.8 3.7 3.2-3.7 3.2" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function TextBoxIcon() {
   return (
     <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" aria-hidden="true">
@@ -616,10 +629,315 @@ function normalizeContent(content: unknown) {
   return createEmptyDoc();
 }
 
-function createInlineSvgDataUrl(svgMarkup: string) {
-  const compact = svgMarkup.replace(/\s+/g, " ").trim();
-  return `data:image/svg+xml;utf8,${encodeURIComponent(compact)}`;
+function normalizeNoteShapeKind(value: string | null | undefined): NoteShapeKind {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (NOTE_SHAPE_KIND_SET.has(normalized as NoteShapeKind)) {
+    return normalized as NoteShapeKind;
+  }
+  return "rectangle";
 }
+
+function normalizeShapeNumber(
+  value: unknown,
+  fallback: number,
+  options?: { min?: number; max?: number }
+) {
+  const parsed = Number(value);
+  let next = Number.isFinite(parsed) ? parsed : fallback;
+  if (typeof options?.min === "number") {
+    next = Math.max(options.min, next);
+  }
+  if (typeof options?.max === "number") {
+    next = Math.min(options.max, next);
+  }
+  return Math.round(next);
+}
+
+function getDefaultShapeSize(kind: NoteShapeKind) {
+  if (kind === "arrow") {
+    return { width: 220, height: 86 };
+  }
+  if (kind === "rectangle") {
+    return { width: 150, height: 104 };
+  }
+  return { width: 110, height: 110 };
+}
+
+function normalizeNoteShapeAttrs(attrs: Record<string, unknown> | null | undefined): NoteShapeAttrs {
+  const kind = normalizeNoteShapeKind(String(attrs?.kind || ""));
+  const defaults = getDefaultShapeSize(kind);
+  let width = normalizeShapeNumber(attrs?.width, defaults.width, { min: 56, max: 1400 });
+  let height = normalizeShapeNumber(attrs?.height, defaults.height, { min: 56, max: 1200 });
+  if (kind === "square" || kind === "circle") {
+    const size = Math.max(width, height);
+    width = size;
+    height = size;
+  }
+  return {
+    kind,
+    x: normalizeShapeNumber(attrs?.x, 24, { min: 0, max: 4000 }),
+    y: normalizeShapeNumber(attrs?.y, 24, { min: 0, max: 4000 }),
+    width,
+    height,
+    stroke: String(attrs?.stroke || NOTE_SHAPE_DEFAULT_STROKE).trim() || NOTE_SHAPE_DEFAULT_STROKE,
+    fill:
+      kind === "arrow"
+        ? "transparent"
+        : String(attrs?.fill || NOTE_SHAPE_DEFAULT_FILL).trim() || NOTE_SHAPE_DEFAULT_FILL,
+  };
+}
+
+function getShapeSvgMarkup(attrs: NoteShapeAttrs) {
+  const width = Math.max(8, attrs.width);
+  const height = Math.max(8, attrs.height);
+  const stroke = attrs.stroke || NOTE_SHAPE_DEFAULT_STROKE;
+  const fill = attrs.kind === "arrow" ? "none" : attrs.fill || NOTE_SHAPE_DEFAULT_FILL;
+
+  if (attrs.kind === "circle") {
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = Math.max(8, Math.min(width, height) / 2 - 4);
+    return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fill}" stroke="${stroke}" stroke-width="2"/></svg>`;
+  }
+
+  if (attrs.kind === "arrow") {
+    const centerY = Math.round(height / 2);
+    const headStart = Math.max(34, width - Math.max(28, Math.round(height * 0.6)));
+    const topY = Math.max(8, centerY - Math.max(8, Math.round(height * 0.2)));
+    const bottomY = Math.min(height - 8, centerY + Math.max(8, Math.round(height * 0.2)));
+    return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><path d="M8 ${centerY} H ${headStart}" stroke="${stroke}" stroke-width="4" stroke-linecap="round"/><path d="M${headStart} ${topY} L ${width - 8} ${centerY} L ${headStart} ${bottomY}" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  const cornerRadius = attrs.kind === "square" ? 4 : 10;
+  return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="${Math.max(8, width - 6)}" height="${Math.max(8, height - 6)}" rx="${cornerRadius}" fill="${fill}" stroke="${stroke}" stroke-width="2"/></svg>`;
+}
+
+function areNoteShapeAttrsEqual(left: NoteShapeAttrs, right: NoteShapeAttrs) {
+  return (
+    left.kind === right.kind &&
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.stroke === right.stroke &&
+    left.fill === right.fill
+  );
+}
+
+function getInsertShapeDefaults(editor: Editor, kind: NoteShapeKind) {
+  const { width, height } = getDefaultShapeSize(kind);
+  let existingShapeCount = 0;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "noteShape") {
+      existingShapeCount += 1;
+    }
+    return true;
+  });
+
+  const offset = (existingShapeCount % 6) * 18;
+  let x = 24 + offset;
+  let y = 24 + offset;
+  try {
+    const cursor = editor.view.coordsAtPos(editor.state.selection.from);
+    const editorRect = editor.view.dom.getBoundingClientRect();
+    const editorElement = editor.view.dom as HTMLElement;
+    x = Math.max(8, Math.round(cursor.left - editorRect.left + editorElement.scrollLeft + offset));
+    y = Math.max(8, Math.round(cursor.top - editorRect.top + editorElement.scrollTop + offset));
+  } catch {
+    // Keep fallback placement when selection coordinates are unavailable.
+  }
+
+  return normalizeNoteShapeAttrs({
+    kind,
+    x,
+    y,
+    width,
+    height,
+    stroke: NOTE_SHAPE_DEFAULT_STROKE,
+    fill: kind === "arrow" ? "transparent" : NOTE_SHAPE_DEFAULT_FILL,
+  });
+}
+
+function insertNoteShapeAtSelection(editor: Editor, kind: NoteShapeKind) {
+  const attrs = getInsertShapeDefaults(editor, kind);
+  editor.chain().focus().insertContent({ type: "noteShape", attrs }).run();
+}
+
+const NoteShape = TiptapNode.create({
+  name: "noteShape",
+  group: "block",
+  atom: true,
+  selectable: true,
+  draggable: false,
+  addAttributes() {
+    return {
+      kind: { default: "rectangle" },
+      x: { default: 24 },
+      y: { default: 24 },
+      width: { default: 150 },
+      height: { default: 104 },
+      stroke: { default: NOTE_SHAPE_DEFAULT_STROKE },
+      fill: { default: NOTE_SHAPE_DEFAULT_FILL },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "note-shape" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["note-shape", mergeAttributes(HTMLAttributes)];
+  },
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      let persistedAttrs = normalizeNoteShapeAttrs(node.attrs as Record<string, unknown>);
+      let currentAttrs = persistedAttrs;
+      const dom = document.createElement("div");
+      dom.contentEditable = "false";
+      dom.className = "note-shape-node";
+
+      const inner = document.createElement("div");
+      inner.className = "note-shape-node-inner";
+      const resizeHandle = document.createElement("button");
+      resizeHandle.type = "button";
+      resizeHandle.className = "note-shape-resize-handle";
+      resizeHandle.setAttribute("aria-label", "Resize shape");
+      resizeHandle.setAttribute("data-note-shape-resize", "1");
+
+      dom.append(inner, resizeHandle);
+
+      const applyToDom = (next: NoteShapeAttrs) => {
+        currentAttrs = next;
+        dom.style.left = `${next.x}px`;
+        dom.style.top = `${next.y}px`;
+        dom.style.width = `${next.width}px`;
+        dom.style.height = `${next.height}px`;
+        dom.setAttribute("data-note-shape-kind", next.kind);
+        inner.innerHTML = getShapeSvgMarkup(next);
+      };
+
+      const commitNodeAttrs = (next: NoteShapeAttrs) => {
+        const pos = typeof getPos === "function" ? getPos() : null;
+        if (typeof pos !== "number") {
+          return;
+        }
+        const normalizedNext = normalizeNoteShapeAttrs(next as unknown as Record<string, unknown>);
+        if (areNoteShapeAttrsEqual(normalizedNext, persistedAttrs)) {
+          return;
+        }
+        const tr = editor.state.tr.setNodeMarkup(pos, undefined, normalizedNext);
+        editor.view.dispatch(tr);
+        persistedAttrs = normalizedNext;
+      };
+
+      const bindPointerDrag = (
+        startEvent: PointerEvent,
+        onMove: (
+          event: PointerEvent,
+          startState: {
+            attrs: NoteShapeAttrs;
+            clientX: number;
+            clientY: number;
+          }
+        ) => NoteShapeAttrs
+      ) => {
+        if (startEvent.button !== 0) {
+          return null;
+        }
+        startEvent.preventDefault();
+        startEvent.stopPropagation();
+        const startState = {
+          attrs: currentAttrs,
+          clientX: startEvent.clientX,
+          clientY: startEvent.clientY,
+        };
+        let liveAttrs = startState.attrs;
+
+        const handleMove = (moveEvent: PointerEvent) => {
+          moveEvent.preventDefault();
+          liveAttrs = onMove(moveEvent, startState);
+          applyToDom(liveAttrs);
+        };
+
+        const finish = () => {
+          window.removeEventListener("pointermove", handleMove);
+          window.removeEventListener("pointerup", handleUp);
+          window.removeEventListener("pointercancel", handleUp);
+          commitNodeAttrs(liveAttrs);
+        };
+
+        const handleUp = () => finish();
+
+        window.addEventListener("pointermove", handleMove);
+        window.addEventListener("pointerup", handleUp);
+        window.addEventListener("pointercancel", handleUp);
+
+        applyToDom(startState.attrs);
+
+        return startState;
+      };
+
+      const handleShapePointerDown = (event: PointerEvent) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("[data-note-shape-resize='1']")) {
+          return;
+        }
+        bindPointerDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          return normalizeNoteShapeAttrs({
+            ...startState.attrs,
+            x: startState.attrs.x + deltaX,
+            y: startState.attrs.y + deltaY,
+          });
+        });
+      };
+
+      const handleResizePointerDown = (event: PointerEvent) => {
+        bindPointerDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          const nextRaw = {
+            ...startState.attrs,
+            width: startState.attrs.width + deltaX,
+            height: startState.attrs.height + deltaY,
+          };
+          if (
+            startState.attrs.kind === "square" ||
+            startState.attrs.kind === "circle"
+          ) {
+            const squareSize = Math.max(nextRaw.width, nextRaw.height);
+            nextRaw.width = squareSize;
+            nextRaw.height = squareSize;
+          }
+          return normalizeNoteShapeAttrs(nextRaw);
+        });
+      };
+
+      dom.addEventListener("pointerdown", handleShapePointerDown);
+      resizeHandle.addEventListener("pointerdown", handleResizePointerDown);
+      applyToDom(persistedAttrs);
+
+      return {
+        dom,
+        update(updatedNode) {
+          if (updatedNode.type.name !== "noteShape") {
+            return false;
+          }
+          persistedAttrs = normalizeNoteShapeAttrs(
+            updatedNode.attrs as Record<string, unknown>
+          );
+          applyToDom(persistedAttrs);
+          return true;
+        },
+        destroy() {
+          dom.removeEventListener("pointerdown", handleShapePointerDown);
+          resizeHandle.removeEventListener("pointerdown", handleResizePointerDown);
+        },
+      };
+    };
+  },
+});
 
 function normalizeImageFloat(value: string | null | undefined): ImageFloatMode {
   const normalized = String(value || "")
@@ -937,6 +1255,7 @@ export default function NoteEditorClient({
   >(() => normalizeContextMenuFavoriteIds(initialContextMenuFavorites));
   const [contextMenuFavoritesPickerOpen, setContextMenuFavoritesPickerOpen] =
     useState(false);
+  const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
   const [activeTableColType, setActiveTableColType] = useState<TableColumnType>("text");
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>({
     open: false,
@@ -959,6 +1278,7 @@ export default function NoteEditorClient({
   });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const shapeMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuStateRef = useRef<SlashMenuState>(slashMenu);
@@ -1545,6 +1865,7 @@ export default function NoteEditorClient({
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      NoteShape,
       FloatingImage.configure({ inline: false, allowBase64: true }),
       Table.configure({ resizable: true }),
       TableRow,
@@ -1708,6 +2029,32 @@ export default function NoteEditorClient({
   }, [contextMenu.open, closeContextMenu]);
 
   useEffect(() => {
+    if (!shapeMenuOpen) {
+      return;
+    }
+
+    const handleClick = (event: MouseEvent) => {
+      if (shapeMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setShapeMenuOpen(false);
+    };
+
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShapeMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleEsc);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [shapeMenuOpen]);
+
+  useEffect(() => {
     if (!slashMenu.open) {
       return;
     }
@@ -1823,6 +2170,7 @@ export default function NoteEditorClient({
         }
       }
 
+      setShapeMenuOpen(false);
       setContextMenuFavoritesPickerOpen(false);
       setContextMenu({
         open: true,
@@ -1910,23 +2258,11 @@ export default function NoteEditorClient({
         return;
       }
       if (actionId === "insertShape") {
-        run(() =>
-          editor
-            .chain()
-            .focus()
-            .setImage({ src: createInlineSvgDataUrl(SHAPE_TEMPLATE_SVG) })
-            .run()
-        );
+        run(() => insertNoteShapeAtSelection(editor, "rectangle"));
         return;
       }
       if (actionId === "insertArrow") {
-        run(() =>
-          editor
-            .chain()
-            .focus()
-            .setImage({ src: createInlineSvgDataUrl(ARROW_TEMPLATE_SVG) })
-            .run()
-        );
+        run(() => insertNoteShapeAtSelection(editor, "arrow"));
         return;
       }
       if (actionId === "insertTextBox") {
@@ -2490,26 +2826,12 @@ export default function NoteEditorClient({
       .run();
   }, [editor]);
 
-  const insertShapeTemplate = useCallback(() => {
+  const insertShapeByKind = useCallback((kind: NoteShapeKind) => {
     if (!editor) {
       return;
     }
-    editor
-      .chain()
-      .focus()
-      .setImage({ src: createInlineSvgDataUrl(SHAPE_TEMPLATE_SVG) })
-      .run();
-  }, [editor]);
-
-  const insertArrowTemplate = useCallback(() => {
-    if (!editor) {
-      return;
-    }
-    editor
-      .chain()
-      .focus()
-      .setImage({ src: createInlineSvgDataUrl(ARROW_TEMPLATE_SVG) })
-      .run();
+    insertNoteShapeAtSelection(editor, kind);
+    setShapeMenuOpen(false);
   }, [editor]);
 
   const insertTextBoxTemplate = useCallback(() => {
@@ -2892,25 +3214,34 @@ export default function NoteEditorClient({
                   onClick={insertSectionBox}
                   icon={<SectionIcon />}
                 />
-                {contextMenuMode === "favorites" ? (
-                  <>
-                    <RibbonIconButton
-                      label="Shape"
-                      onClick={insertShapeTemplate}
-                      icon={<ShapeIcon />}
-                    />
-                    <RibbonIconButton
-                      label="Arrow"
-                      onClick={insertArrowTemplate}
-                      icon={<ArrowIcon />}
-                    />
-                    <RibbonIconButton
-                      label="Text box"
-                      onClick={insertTextBoxTemplate}
-                      icon={<TextBoxIcon />}
-                    />
-                  </>
-                ) : null}
+                <div className="relative" ref={shapeMenuRef}>
+                  <RibbonIconButton
+                    label="Shape"
+                    title="Insert shape"
+                    onClick={() => setShapeMenuOpen((prev) => !prev)}
+                    active={shapeMenuOpen}
+                    icon={<ShapeIcon />}
+                  />
+                  {shapeMenuOpen ? (
+                    <div className="absolute left-0 top-full z-30 mt-1 w-36 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                      {NOTE_SHAPE_INSERT_OPTIONS.map((option) => (
+                        <button
+                          key={`shape-option-${option.kind}`}
+                          type="button"
+                          onClick={() => insertShapeByKind(option.kind)}
+                          className="context-menu-item"
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <RibbonIconButton
+                  label="Text box"
+                  onClick={insertTextBoxTemplate}
+                  icon={<TextBoxIcon />}
+                />
                 <RibbonIconButton
                   label="Link"
                   onClick={setLinkFromPrompt}

@@ -156,6 +156,43 @@
   outline: none;
   color: #0f172a;
   line-height: 1.7;
+  position: relative;
+}
+
+.note-editor note-shape {
+  display: block;
+}
+
+.note-editor .note-shape-node {
+  position: absolute;
+  z-index: 20;
+  touch-action: none;
+  user-select: none;
+  cursor: move;
+}
+
+.note-editor .note-shape-node-inner {
+  height: 100%;
+  width: 100%;
+}
+
+.note-editor .note-shape-node-inner svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+  pointer-events: none;
+}
+
+.note-editor .note-shape-resize-handle {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  height: 12px;
+  width: 12px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: nwse-resize;
 }
 
 .note-editor p {

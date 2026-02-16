@@ -144,7 +144,6 @@ const CONTEXT_MENU_FAVORITE_ACTION_ID_SET = new Set<ContextMenuFavoriteActionId>
   "checklist",
   "quote",
   "insertShape",
-  "insertArrow",
   "insertTextBox",
   "insertTable",
   "divider",
