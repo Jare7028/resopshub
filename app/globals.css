@@ -171,11 +171,12 @@
   position: absolute;
   z-index: 20;
   touch-action: none;
-  user-select: none;
-  cursor: move;
+  cursor: default;
 }
 
 .note-editor .note-shape-node-inner {
+  position: absolute;
+  inset: 0;
   height: 100%;
   width: 100%;
 }
@@ -187,10 +188,58 @@
   pointer-events: none;
 }
 
+.note-editor .note-shape-content {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem;
+  text-align: center;
+  line-height: 1.35;
+  color: #0f172a;
+  cursor: text;
+  user-select: text;
+}
+
+.note-editor .note-shape-content > :first-child {
+  margin-top: 0;
+}
+
+.note-editor .note-shape-content > :last-child {
+  margin-bottom: 0;
+}
+
+.note-editor .note-shape-content p {
+  margin: 0;
+  width: 100%;
+}
+
+.note-editor .note-shape-drag-handle {
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  z-index: 3;
+  transform: translateX(-50%);
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 2px 7px;
+  cursor: move;
+}
+
 .note-editor .note-shape-resize-handle {
   position: absolute;
   right: -6px;
   bottom: -6px;
+  z-index: 3;
   height: 12px;
   width: 12px;
   border: 1px solid #334155;

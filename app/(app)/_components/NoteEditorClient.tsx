@@ -802,7 +802,15 @@ function getInsertShapeDefaults(editor: Editor, kind: NoteShapeKind) {
 
 function insertNoteShapeAtSelection(editor: Editor, kind: NoteShapeKind) {
   const attrs = getInsertShapeDefaults(editor, kind);
-  editor.chain().focus().insertContent({ type: "noteShape", attrs }).run();
+  editor
+    .chain()
+    .focus()
+    .insertContent({
+      type: "noteShape",
+      attrs,
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Text" }] }],
+    })
+    .run();
 }
 
 function getInsertTextBoxDefaults(editor: Editor) {
@@ -851,7 +859,9 @@ function insertNoteTextBoxAtSelection(editor: Editor) {
 const NoteShape = TiptapNode.create({
   name: "noteShape",
   group: "block",
-  atom: true,
+  content: "block*",
+  isolating: true,
+  defining: true,
   selectable: true,
   draggable: false,
   addAttributes() {
@@ -869,25 +879,36 @@ const NoteShape = TiptapNode.create({
     return [{ tag: "note-shape" }];
   },
   renderHTML({ HTMLAttributes }) {
-    return ["note-shape", mergeAttributes(HTMLAttributes)];
+    return ["note-shape", mergeAttributes(HTMLAttributes), 0];
   },
   addNodeView() {
     return ({ node, editor, getPos }) => {
       let persistedAttrs = normalizeNoteShapeAttrs(node.attrs as Record<string, unknown>);
       let currentAttrs = persistedAttrs;
       const dom = document.createElement("div");
-      dom.contentEditable = "false";
       dom.className = "note-shape-node";
 
       const inner = document.createElement("div");
       inner.className = "note-shape-node-inner";
+      const contentDOM = document.createElement("div");
+      contentDOM.className = "note-shape-content";
+      contentDOM.setAttribute("data-note-shape-content", "1");
+      const dragHandle = document.createElement("button");
+      dragHandle.type = "button";
+      dragHandle.className = "note-shape-drag-handle";
+      dragHandle.textContent = "Move";
+      dragHandle.title = "Drag shape";
+      dragHandle.contentEditable = "false";
+      dragHandle.setAttribute("aria-label", "Drag shape");
+      dragHandle.setAttribute("data-note-shape-drag", "1");
       const resizeHandle = document.createElement("button");
       resizeHandle.type = "button";
       resizeHandle.className = "note-shape-resize-handle";
+      resizeHandle.contentEditable = "false";
       resizeHandle.setAttribute("aria-label", "Resize shape");
       resizeHandle.setAttribute("data-note-shape-resize", "1");
 
-      dom.append(inner, resizeHandle);
+      dom.append(inner, contentDOM, dragHandle, resizeHandle);
 
       const applyToDom = (next: NoteShapeAttrs) => {
         currentAttrs = next;
@@ -960,11 +981,53 @@ const NoteShape = TiptapNode.create({
         return startState;
       };
 
-      const handleShapePointerDown = (event: PointerEvent) => {
-        const target = event.target as HTMLElement | null;
-        if (target?.closest("[data-note-shape-resize='1']")) {
+      const bindMouseDrag = (
+        startEvent: MouseEvent,
+        onMove: (
+          event: MouseEvent,
+          startState: {
+            attrs: NoteShapeAttrs;
+            clientX: number;
+            clientY: number;
+          }
+        ) => NoteShapeAttrs
+      ) => {
+        if (startEvent.button !== 0) {
           return;
         }
+        startEvent.preventDefault();
+        startEvent.stopPropagation();
+        const startState = {
+          attrs: currentAttrs,
+          clientX: startEvent.clientX,
+          clientY: startEvent.clientY,
+        };
+        let liveAttrs = startState.attrs;
+
+        const handleMove = (moveEvent: MouseEvent) => {
+          moveEvent.preventDefault();
+          liveAttrs = onMove(moveEvent, startState);
+          applyToDom(liveAttrs);
+        };
+
+        const finish = () => {
+          window.removeEventListener("mousemove", handleMove);
+          window.removeEventListener("mouseup", handleUp);
+          commitNodeAttrs(liveAttrs);
+        };
+
+        const handleUp = () => finish();
+
+        window.addEventListener("mousemove", handleMove);
+        window.addEventListener("mouseup", handleUp);
+
+        applyToDom(startState.attrs);
+      };
+
+      let ignoreMouseDownUntil = 0;
+
+      const handleDragPointerDown = (event: PointerEvent) => {
+        ignoreMouseDownUntil = Date.now() + 320;
         bindPointerDrag(event, (moveEvent, startState) => {
           const deltaX = moveEvent.clientX - startState.clientX;
           const deltaY = moveEvent.clientY - startState.clientY;
@@ -976,7 +1039,23 @@ const NoteShape = TiptapNode.create({
         });
       };
 
+      const handleDragMouseDown = (event: MouseEvent) => {
+        if (Date.now() < ignoreMouseDownUntil) {
+          return;
+        }
+        bindMouseDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          return normalizeNoteShapeAttrs({
+            ...startState.attrs,
+            x: startState.attrs.x + deltaX,
+            y: startState.attrs.y + deltaY,
+          });
+        });
+      };
+
       const handleResizePointerDown = (event: PointerEvent) => {
+        ignoreMouseDownUntil = Date.now() + 320;
         bindPointerDrag(event, (moveEvent, startState) => {
           const deltaX = moveEvent.clientX - startState.clientX;
           const deltaY = moveEvent.clientY - startState.clientY;
@@ -997,12 +1076,39 @@ const NoteShape = TiptapNode.create({
         });
       };
 
-      dom.addEventListener("pointerdown", handleShapePointerDown);
+      const handleResizeMouseDown = (event: MouseEvent) => {
+        if (Date.now() < ignoreMouseDownUntil) {
+          return;
+        }
+        bindMouseDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          const nextRaw = {
+            ...startState.attrs,
+            width: startState.attrs.width + deltaX,
+            height: startState.attrs.height + deltaY,
+          };
+          if (
+            startState.attrs.kind === "square" ||
+            startState.attrs.kind === "circle"
+          ) {
+            const squareSize = Math.max(nextRaw.width, nextRaw.height);
+            nextRaw.width = squareSize;
+            nextRaw.height = squareSize;
+          }
+          return normalizeNoteShapeAttrs(nextRaw);
+        });
+      };
+
+      dragHandle.addEventListener("pointerdown", handleDragPointerDown);
+      dragHandle.addEventListener("mousedown", handleDragMouseDown);
       resizeHandle.addEventListener("pointerdown", handleResizePointerDown);
+      resizeHandle.addEventListener("mousedown", handleResizeMouseDown);
       applyToDom(persistedAttrs);
 
       return {
         dom,
+        contentDOM,
         update(updatedNode) {
           if (updatedNode.type.name !== "noteShape") {
             return false;
@@ -1014,8 +1120,10 @@ const NoteShape = TiptapNode.create({
           return true;
         },
         destroy() {
-          dom.removeEventListener("pointerdown", handleShapePointerDown);
+          dragHandle.removeEventListener("pointerdown", handleDragPointerDown);
+          dragHandle.removeEventListener("mousedown", handleDragMouseDown);
           resizeHandle.removeEventListener("pointerdown", handleResizePointerDown);
+          resizeHandle.removeEventListener("mousedown", handleResizeMouseDown);
         },
       };
     };
@@ -1141,7 +1249,53 @@ const NoteTextBox = TiptapNode.create({
         applyToDom(startState.attrs);
       };
 
+      const bindMouseDrag = (
+        startEvent: MouseEvent,
+        onMove: (
+          event: MouseEvent,
+          startState: {
+            attrs: NoteTextBoxAttrs;
+            clientX: number;
+            clientY: number;
+          }
+        ) => NoteTextBoxAttrs
+      ) => {
+        if (startEvent.button !== 0) {
+          return;
+        }
+        startEvent.preventDefault();
+        startEvent.stopPropagation();
+        const startState = {
+          attrs: currentAttrs,
+          clientX: startEvent.clientX,
+          clientY: startEvent.clientY,
+        };
+        let liveAttrs = startState.attrs;
+
+        const handleMove = (moveEvent: MouseEvent) => {
+          moveEvent.preventDefault();
+          liveAttrs = onMove(moveEvent, startState);
+          applyToDom(liveAttrs);
+        };
+
+        const finish = () => {
+          window.removeEventListener("mousemove", handleMove);
+          window.removeEventListener("mouseup", handleUp);
+          commitNodeAttrs(liveAttrs);
+        };
+
+        const handleUp = () => finish();
+
+        window.addEventListener("mousemove", handleMove);
+        window.addEventListener("mouseup", handleUp);
+
+        applyToDom(startState.attrs);
+      };
+
+      let ignoreMouseDownUntil = 0;
+
       const handleDragPointerDown = (event: PointerEvent) => {
+        ignoreMouseDownUntil = Date.now() + 320;
         bindPointerDrag(event, (moveEvent, startState) => {
           const deltaX = moveEvent.clientX - startState.clientX;
           const deltaY = moveEvent.clientY - startState.clientY;
@@ -1153,7 +1307,23 @@ const NoteTextBox = TiptapNode.create({
         });
       };
 
+      const handleDragMouseDown = (event: MouseEvent) => {
+        if (Date.now() < ignoreMouseDownUntil) {
+          return;
+        }
+        bindMouseDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          return normalizeNoteTextBoxAttrs({
+            ...startState.attrs,
+            x: startState.attrs.x + deltaX,
+            y: startState.attrs.y + deltaY,
+          });
+        });
+      };
+
       const handleResizePointerDown = (event: PointerEvent) => {
+        ignoreMouseDownUntil = Date.now() + 320;
         bindPointerDrag(event, (moveEvent, startState) => {
           const deltaX = moveEvent.clientX - startState.clientX;
           const deltaY = moveEvent.clientY - startState.clientY;
@@ -1165,8 +1335,25 @@ const NoteTextBox = TiptapNode.create({
         });
       };
 
+      const handleResizeMouseDown = (event: MouseEvent) => {
+        if (Date.now() < ignoreMouseDownUntil) {
+          return;
+        }
+        bindMouseDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          return normalizeNoteTextBoxAttrs({
+            ...startState.attrs,
+            width: startState.attrs.width + deltaX,
+            height: startState.attrs.height + deltaY,
+          });
+        });
+      };
+
       dragHandle.addEventListener("pointerdown", handleDragPointerDown);
+      dragHandle.addEventListener("mousedown", handleDragMouseDown);
       resizeHandle.addEventListener("pointerdown", handleResizePointerDown);
+      resizeHandle.addEventListener("mousedown", handleResizeMouseDown);
       applyToDom(persistedAttrs);
 
       return {
@@ -1184,7 +1371,9 @@ const NoteTextBox = TiptapNode.create({
         },
         destroy() {
           dragHandle.removeEventListener("pointerdown", handleDragPointerDown);
+          dragHandle.removeEventListener("mousedown", handleDragMouseDown);
           resizeHandle.removeEventListener("pointerdown", handleResizePointerDown);
+          resizeHandle.removeEventListener("mousedown", handleResizeMouseDown);
         },
       };
     };
