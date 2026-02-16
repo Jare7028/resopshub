@@ -17,7 +17,8 @@ type NavIconName =
   | "chat"
   | "personal"
   | "notes"
-  | "featureSuggestions";
+  | "featureSuggestions"
+  | "help";
 
 type NavLink = {
   href: string;
@@ -112,6 +113,14 @@ function SidebarIcon({ name }: { name: NavIconName }) {
           <path d="M12 2a7 7 0 0 0-4 12.7c.7.5 1 1.3 1 2.1V18h6v-1.2c0-.8.3-1.6 1-2.1A7 7 0 0 0 12 2Z" />
         </svg>
       );
+    case "help":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.25 9.5a2.75 2.75 0 1 1 4.74 1.88c-.7.74-1.46 1.24-1.46 2.37" />
+          <path d="M12 17.5h.01" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -130,6 +139,11 @@ const baseNavLinks: NavLink[] = [
     href: "/feature-suggestions",
     label: "Feature Suggestions",
     icon: "featureSuggestions",
+  },
+  {
+    href: "/help",
+    label: "Help & Walkthrough",
+    icon: "help",
   },
 ];
 
