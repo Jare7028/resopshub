@@ -651,7 +651,7 @@ export default async function ClientTasksPage(props: {
         </p>
       ) : null}
 
-      <div className="flex justify-end">
+      <div className="flex justify-start">
         <Link
           href={tasksTabUrls.add}
           className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
