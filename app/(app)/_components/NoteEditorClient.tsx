@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
+import { createPortal } from "react-dom";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import Underline from "@tiptap/extension-underline";
@@ -146,6 +147,11 @@ type TaskInsertSelection = {
   text: string;
 };
 
+type FloatingMenuPosition = {
+  x: number;
+  y: number;
+};
+
 type ImageFloatMode = "none" | "left" | "right";
 type NoteShapeKind = "rectangle" | "square" | "circle" | "arrow";
 type NoteShapeAttrs = {
@@ -157,12 +163,20 @@ type NoteShapeAttrs = {
   stroke: string;
   fill: string;
 };
+type NoteTextBoxAttrs = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 const MAX_INLINE_IMAGE_BYTES = 1_800_000;
 const MAX_INLINE_IMAGE_DIMENSION = 1800;
 const MIN_INLINE_IMAGE_DIMENSION = 640;
 const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
 const NOTE_SHAPE_DEFAULT_STROKE = "#0f172a";
 const NOTE_SHAPE_DEFAULT_FILL = "#ffffff";
+const NOTE_TEXTBOX_DEFAULT_WIDTH = 260;
+const NOTE_TEXTBOX_DEFAULT_HEIGHT = 150;
 const NOTE_SHAPE_KIND_SET = new Set<NoteShapeKind>([
   "rectangle",
   "square",
@@ -689,6 +703,32 @@ function normalizeNoteShapeAttrs(attrs: Record<string, unknown> | null | undefin
   };
 }
 
+function normalizeNoteTextBoxAttrs(
+  attrs: Record<string, unknown> | null | undefined
+): NoteTextBoxAttrs {
+  return {
+    x: normalizeShapeNumber(attrs?.x, 24, { min: 0, max: 4000 }),
+    y: normalizeShapeNumber(attrs?.y, 24, { min: 0, max: 4000 }),
+    width: normalizeShapeNumber(attrs?.width, NOTE_TEXTBOX_DEFAULT_WIDTH, {
+      min: 180,
+      max: 1800,
+    }),
+    height: normalizeShapeNumber(attrs?.height, NOTE_TEXTBOX_DEFAULT_HEIGHT, {
+      min: 100,
+      max: 1400,
+    }),
+  };
+}
+
+function areNoteTextBoxAttrsEqual(left: NoteTextBoxAttrs, right: NoteTextBoxAttrs) {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  );
+}
+
 function getShapeSvgMarkup(attrs: NoteShapeAttrs) {
   const width = Math.max(8, attrs.width);
   const height = Math.max(8, attrs.height);
@@ -763,6 +803,49 @@ function getInsertShapeDefaults(editor: Editor, kind: NoteShapeKind) {
 function insertNoteShapeAtSelection(editor: Editor, kind: NoteShapeKind) {
   const attrs = getInsertShapeDefaults(editor, kind);
   editor.chain().focus().insertContent({ type: "noteShape", attrs }).run();
+}
+
+function getInsertTextBoxDefaults(editor: Editor) {
+  let existingTextBoxCount = 0;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "noteTextBox") {
+      existingTextBoxCount += 1;
+    }
+    return true;
+  });
+
+  const offset = (existingTextBoxCount % 6) * 20;
+  let x = 24 + offset;
+  let y = 24 + offset;
+  try {
+    const cursor = editor.view.coordsAtPos(editor.state.selection.from);
+    const editorRect = editor.view.dom.getBoundingClientRect();
+    const editorElement = editor.view.dom as HTMLElement;
+    x = Math.max(8, Math.round(cursor.left - editorRect.left + editorElement.scrollLeft + offset));
+    y = Math.max(8, Math.round(cursor.top - editorRect.top + editorElement.scrollTop + offset));
+  } catch {
+    // Keep fallback placement when selection coordinates are unavailable.
+  }
+
+  return normalizeNoteTextBoxAttrs({
+    x,
+    y,
+    width: NOTE_TEXTBOX_DEFAULT_WIDTH,
+    height: NOTE_TEXTBOX_DEFAULT_HEIGHT,
+  });
+}
+
+function insertNoteTextBoxAtSelection(editor: Editor) {
+  const attrs = getInsertTextBoxDefaults(editor);
+  editor
+    .chain()
+    .focus()
+    .insertContent({
+      type: "noteTextBox",
+      attrs,
+      content: [{ type: "paragraph" }],
+    })
+    .run();
 }
 
 const NoteShape = TiptapNode.create({
@@ -932,6 +1015,175 @@ const NoteShape = TiptapNode.create({
         },
         destroy() {
           dom.removeEventListener("pointerdown", handleShapePointerDown);
+          resizeHandle.removeEventListener("pointerdown", handleResizePointerDown);
+        },
+      };
+    };
+  },
+});
+
+const NoteTextBox = TiptapNode.create({
+  name: "noteTextBox",
+  group: "block",
+  content: "block+",
+  isolating: true,
+  defining: true,
+  draggable: false,
+  addAttributes() {
+    return {
+      x: { default: 24 },
+      y: { default: 24 },
+      width: { default: NOTE_TEXTBOX_DEFAULT_WIDTH },
+      height: { default: NOTE_TEXTBOX_DEFAULT_HEIGHT },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "note-text-box" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["note-text-box", mergeAttributes(HTMLAttributes), 0];
+  },
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      let persistedAttrs = normalizeNoteTextBoxAttrs(node.attrs as Record<string, unknown>);
+      let currentAttrs = persistedAttrs;
+
+      const dom = document.createElement("div");
+      dom.className = "note-textbox-node";
+
+      const dragHandle = document.createElement("button");
+      dragHandle.type = "button";
+      dragHandle.className = "note-textbox-drag-handle";
+      dragHandle.textContent = "Move";
+      dragHandle.title = "Drag text box";
+      dragHandle.contentEditable = "false";
+      dragHandle.setAttribute("aria-label", "Drag text box");
+      dragHandle.setAttribute("data-note-textbox-drag", "1");
+
+      const contentDOM = document.createElement("div");
+      contentDOM.className = "note-textbox-content";
+
+      const resizeHandle = document.createElement("button");
+      resizeHandle.type = "button";
+      resizeHandle.className = "note-textbox-resize-handle";
+      resizeHandle.contentEditable = "false";
+      resizeHandle.setAttribute("aria-label", "Resize text box");
+      resizeHandle.setAttribute("data-note-textbox-resize", "1");
+
+      dom.append(dragHandle, contentDOM, resizeHandle);
+
+      const applyToDom = (next: NoteTextBoxAttrs) => {
+        currentAttrs = next;
+        dom.style.left = `${next.x}px`;
+        dom.style.top = `${next.y}px`;
+        dom.style.width = `${next.width}px`;
+        dom.style.height = `${next.height}px`;
+      };
+
+      const commitNodeAttrs = (next: NoteTextBoxAttrs) => {
+        const pos = typeof getPos === "function" ? getPos() : null;
+        if (typeof pos !== "number") {
+          return;
+        }
+        const normalizedNext = normalizeNoteTextBoxAttrs(
+          next as unknown as Record<string, unknown>
+        );
+        if (areNoteTextBoxAttrsEqual(normalizedNext, persistedAttrs)) {
+          return;
+        }
+        const tr = editor.state.tr.setNodeMarkup(pos, undefined, normalizedNext);
+        editor.view.dispatch(tr);
+        persistedAttrs = normalizedNext;
+      };
+
+      const bindPointerDrag = (
+        startEvent: PointerEvent,
+        onMove: (
+          event: PointerEvent,
+          startState: {
+            attrs: NoteTextBoxAttrs;
+            clientX: number;
+            clientY: number;
+          }
+        ) => NoteTextBoxAttrs
+      ) => {
+        if (startEvent.button !== 0) {
+          return;
+        }
+        startEvent.preventDefault();
+        startEvent.stopPropagation();
+        const startState = {
+          attrs: currentAttrs,
+          clientX: startEvent.clientX,
+          clientY: startEvent.clientY,
+        };
+        let liveAttrs = startState.attrs;
+
+        const handleMove = (moveEvent: PointerEvent) => {
+          moveEvent.preventDefault();
+          liveAttrs = onMove(moveEvent, startState);
+          applyToDom(liveAttrs);
+        };
+
+        const finish = () => {
+          window.removeEventListener("pointermove", handleMove);
+          window.removeEventListener("pointerup", handleUp);
+          window.removeEventListener("pointercancel", handleUp);
+          commitNodeAttrs(liveAttrs);
+        };
+
+        const handleUp = () => finish();
+
+        window.addEventListener("pointermove", handleMove);
+        window.addEventListener("pointerup", handleUp);
+        window.addEventListener("pointercancel", handleUp);
+
+        applyToDom(startState.attrs);
+      };
+
+      const handleDragPointerDown = (event: PointerEvent) => {
+        bindPointerDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          return normalizeNoteTextBoxAttrs({
+            ...startState.attrs,
+            x: startState.attrs.x + deltaX,
+            y: startState.attrs.y + deltaY,
+          });
+        });
+      };
+
+      const handleResizePointerDown = (event: PointerEvent) => {
+        bindPointerDrag(event, (moveEvent, startState) => {
+          const deltaX = moveEvent.clientX - startState.clientX;
+          const deltaY = moveEvent.clientY - startState.clientY;
+          return normalizeNoteTextBoxAttrs({
+            ...startState.attrs,
+            width: startState.attrs.width + deltaX,
+            height: startState.attrs.height + deltaY,
+          });
+        });
+      };
+
+      dragHandle.addEventListener("pointerdown", handleDragPointerDown);
+      resizeHandle.addEventListener("pointerdown", handleResizePointerDown);
+      applyToDom(persistedAttrs);
+
+      return {
+        dom,
+        contentDOM,
+        update(updatedNode) {
+          if (updatedNode.type.name !== "noteTextBox") {
+            return false;
+          }
+          persistedAttrs = normalizeNoteTextBoxAttrs(
+            updatedNode.attrs as Record<string, unknown>
+          );
+          applyToDom(persistedAttrs);
+          return true;
+        },
+        destroy() {
+          dragHandle.removeEventListener("pointerdown", handleDragPointerDown);
           resizeHandle.removeEventListener("pointerdown", handleResizePointerDown);
         },
       };
@@ -1256,6 +1508,9 @@ export default function NoteEditorClient({
   const [contextMenuFavoritesPickerOpen, setContextMenuFavoritesPickerOpen] =
     useState(false);
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
+  const [shapeMenuPosition, setShapeMenuPosition] = useState<FloatingMenuPosition | null>(
+    null
+  );
   const [activeTableColType, setActiveTableColType] = useState<TableColumnType>("text");
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>({
     open: false,
@@ -1279,6 +1534,7 @@ export default function NoteEditorClient({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const shapeMenuRef = useRef<HTMLDivElement | null>(null);
+  const shapeMenuPopupRef = useRef<HTMLDivElement | null>(null);
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const slashMenuStateRef = useRef<SlashMenuState>(slashMenu);
@@ -1438,6 +1694,29 @@ export default function NoteEditorClient({
   const closeContextMenu = useCallback(() => {
     setContextMenuFavoritesPickerOpen(false);
     setContextMenu((prev) => (prev.open ? { ...prev, open: false } : prev));
+  }, []);
+
+  const updateShapeMenuPosition = useCallback(() => {
+    if (!shapeMenuRef.current) {
+      return;
+    }
+    const anchor = shapeMenuRef.current.getBoundingClientRect();
+    const estimatedMenuWidth = 144;
+    const estimatedMenuHeight = 180;
+    const gap = 6;
+    const padding = 8;
+
+    let nextX = anchor.left;
+    if (nextX + estimatedMenuWidth + padding > window.innerWidth) {
+      nextX = Math.max(padding, window.innerWidth - estimatedMenuWidth - padding);
+    }
+
+    let nextY = anchor.bottom + gap;
+    if (nextY + estimatedMenuHeight + padding > window.innerHeight) {
+      nextY = Math.max(padding, anchor.top - estimatedMenuHeight - gap);
+    }
+
+    setShapeMenuPosition({ x: Math.round(nextX), y: Math.round(nextY) });
   }, []);
 
   const closeTaskCreator = useCallback(() => {
@@ -1866,6 +2145,7 @@ export default function NoteEditorClient({
       TaskList,
       TaskItem.configure({ nested: true }),
       NoteShape,
+      NoteTextBox,
       FloatingImage.configure({ inline: false, allowBase64: true }),
       Table.configure({ resizable: true }),
       TableRow,
@@ -2030,11 +2310,18 @@ export default function NoteEditorClient({
 
   useEffect(() => {
     if (!shapeMenuOpen) {
+      setShapeMenuPosition(null);
       return;
     }
 
+    updateShapeMenuPosition();
+
     const handleClick = (event: MouseEvent) => {
-      if (shapeMenuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        shapeMenuRef.current?.contains(target) ||
+        shapeMenuPopupRef.current?.contains(target)
+      ) {
         return;
       }
       setShapeMenuOpen(false);
@@ -2046,13 +2333,19 @@ export default function NoteEditorClient({
       }
     };
 
+    const handleReposition = () => updateShapeMenuPosition();
+
     window.addEventListener("click", handleClick);
     window.addEventListener("keydown", handleEsc);
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
     return () => {
       window.removeEventListener("click", handleClick);
       window.removeEventListener("keydown", handleEsc);
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
     };
-  }, [shapeMenuOpen]);
+  }, [shapeMenuOpen, updateShapeMenuPosition]);
 
   useEffect(() => {
     if (!slashMenu.open) {
@@ -2266,14 +2559,7 @@ export default function NoteEditorClient({
         return;
       }
       if (actionId === "insertTextBox") {
-        run(() =>
-          editor
-            .chain()
-            .focus()
-            .insertTable({ rows: 1, cols: 1, withHeaderRow: false })
-            .insertContent("Text box")
-            .run()
-        );
+        run(() => insertNoteTextBoxAtSelection(editor));
         return;
       }
       if (actionId === "insertTable") {
@@ -2838,12 +3124,7 @@ export default function NoteEditorClient({
     if (!editor) {
       return;
     }
-    editor
-      .chain()
-      .focus()
-      .insertTable({ rows: 1, cols: 1, withHeaderRow: false })
-      .insertContent("Text box")
-      .run();
+    insertNoteTextBoxAtSelection(editor);
   }, [editor]);
 
   const clearFormatting = useCallback(() => {
@@ -3218,24 +3499,18 @@ export default function NoteEditorClient({
                   <RibbonIconButton
                     label="Shape"
                     title="Insert shape"
-                    onClick={() => setShapeMenuOpen((prev) => !prev)}
+                    onClick={() => {
+                      setShapeMenuOpen((prev) => {
+                        const next = !prev;
+                        if (next) {
+                          window.requestAnimationFrame(() => updateShapeMenuPosition());
+                        }
+                        return next;
+                      });
+                    }}
                     active={shapeMenuOpen}
                     icon={<ShapeIcon />}
                   />
-                  {shapeMenuOpen ? (
-                    <div className="absolute left-0 top-full z-30 mt-1 w-36 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-                      {NOTE_SHAPE_INSERT_OPTIONS.map((option) => (
-                        <button
-                          key={`shape-option-${option.kind}`}
-                          type="button"
-                          onClick={() => insertShapeByKind(option.kind)}
-                          className="context-menu-item"
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
                 <RibbonIconButton
                   label="Text box"
@@ -3467,6 +3742,28 @@ export default function NoteEditorClient({
           </button>
         </div>
       ) : null}
+
+      {shapeMenuOpen && shapeMenuPosition
+        ? createPortal(
+            <div
+              ref={shapeMenuPopupRef}
+              className="fixed z-[75] w-36 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+              style={{ left: shapeMenuPosition.x, top: shapeMenuPosition.y }}
+            >
+              {NOTE_SHAPE_INSERT_OPTIONS.map((option) => (
+                <button
+                  key={`shape-option-${option.kind}`}
+                  type="button"
+                  onClick={() => insertShapeByKind(option.kind)}
+                  className="context-menu-item"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
 
       {slashMenu.open ? (
         <div

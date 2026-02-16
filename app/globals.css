@@ -163,6 +163,10 @@
   display: block;
 }
 
+.note-editor note-text-box {
+  display: block;
+}
+
 .note-editor .note-shape-node {
   position: absolute;
   z-index: 20;
@@ -184,6 +188,61 @@
 }
 
 .note-editor .note-shape-resize-handle {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  height: 12px;
+  width: 12px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: nwse-resize;
+}
+
+.note-editor .note-textbox-node {
+  position: absolute;
+  z-index: 24;
+  touch-action: none;
+  border: 1px solid #94a3b8;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.note-editor .note-textbox-drag-handle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  height: 1.35rem;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: move;
+}
+
+.note-editor .note-textbox-content {
+  height: calc(100% - 1.35rem);
+  overflow: auto;
+  padding: 0.55rem 0.65rem 0.7rem;
+  line-height: 1.45;
+}
+
+.note-editor .note-textbox-content > :first-child {
+  margin-top: 0;
+}
+
+.note-editor .note-textbox-content > :last-child {
+  margin-bottom: 0;
+}
+
+.note-editor .note-textbox-resize-handle {
   position: absolute;
   right: -6px;
   bottom: -6px;
