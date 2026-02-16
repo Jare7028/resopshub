@@ -428,8 +428,41 @@ export default async function SettingsPage(props: {
     acc[tpl.id] = tpl;
     return acc;
   }, {});
+  const projectTemplateById = projectTemplates.reduce<Record<string, ProjectTemplateRow>>(
+    (acc, tpl) => {
+      acc[tpl.id] = tpl;
+      return acc;
+    },
+    {}
+  );
+  const projectTemplateLinksByTaskTemplateId = projectTemplateTasks.reduce<
+    Record<string, ProjectTemplateTaskRow[]>
+  >((acc, row) => {
+    acc[row.task_template_id] ||= [];
+    acc[row.task_template_id].push(row);
+    return acc;
+  }, {});
   const selectedTaskTemplateAssigneeIds = selectedTaskTemplate
     ? assigneeIdsByTaskTemplateId[selectedTaskTemplate.id] || []
+    : [];
+  const selectedTaskTemplateProjectLinks = selectedTaskTemplate
+    ? [...(projectTemplateLinksByTaskTemplateId[selectedTaskTemplate.id] || [])].sort(
+        (left, right) => {
+          const leftName =
+            projectTemplateById[left.project_template_id]?.name || left.project_template_id;
+          const rightName =
+            projectTemplateById[right.project_template_id]?.name || right.project_template_id;
+          return leftName.localeCompare(rightName, undefined, { sensitivity: "base" });
+        }
+      )
+    : [];
+  const selectedTaskTemplateLinkedProjectTemplateIds = new Set(
+    selectedTaskTemplateProjectLinks.map((link) => link.project_template_id)
+  );
+  const availableProjectTemplatesForTaskTemplate = selectedTaskTemplate
+    ? projectTemplates.filter(
+        (tpl) => !selectedTaskTemplateLinkedProjectTemplateIds.has(tpl.id)
+      )
     : [];
 
   async function updateProfile(formData: FormData) {
@@ -1511,8 +1544,22 @@ export default async function SettingsPage(props: {
 
     const projectTemplateId = String(formData.get("project_template_id") || "").trim();
     const taskTemplateId = String(formData.get("task_template_id") || "").trim();
+    const returnTemplatesTab =
+      String(formData.get("return_templates_tab") || "").trim().toLowerCase() === "tasks"
+        ? "tasks"
+        : "projects";
+    const returnTaskTemplateId = String(formData.get("return_task_template_id") || "").trim();
+    const returnTaskTemplateQuery =
+      returnTemplatesTab === "tasks" && returnTaskTemplateId
+        ? `&task_template_id=${encodeURIComponent(returnTaskTemplateId)}`
+        : "";
 
     if (!projectTemplateId || !taskTemplateId) {
+      if (returnTemplatesTab === "tasks") {
+        redirect(
+          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=Project%20template%20and%20task%20template%20are%20required`
+        );
+      }
       redirect(
         "/settings?tab=templates&templates=projects&error=Project%20template%20and%20task%20template%20are%20required"
       );
@@ -1538,6 +1585,13 @@ export default async function SettingsPage(props: {
       const hint = isSupabaseMissingTableError(error)
         ? " Run `sql/templates.sql` in Supabase SQL editor, then refresh."
         : "";
+      if (returnTemplatesTab === "tasks") {
+        redirect(
+          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=${encodeURIComponent(
+            `${error.message}${hint}`
+          )}`
+        );
+      }
       redirect(
         `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
           projectTemplateId
@@ -1548,6 +1602,11 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
+    if (returnTemplatesTab === "tasks") {
+      redirect(
+        `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&success=Project%20template%20linked`
+      );
+    }
     redirect(
       `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
         projectTemplateId
@@ -1563,19 +1622,45 @@ export default async function SettingsPage(props: {
 
     const id = String(formData.get("id") || "").trim();
     const projectTemplateId = String(formData.get("project_template_id") || "").trim();
+    const returnTemplatesTab =
+      String(formData.get("return_templates_tab") || "").trim().toLowerCase() === "tasks"
+        ? "tasks"
+        : "projects";
+    const returnTaskTemplateId = String(formData.get("return_task_template_id") || "").trim();
+    const returnTaskTemplateQuery =
+      returnTemplatesTab === "tasks" && returnTaskTemplateId
+        ? `&task_template_id=${encodeURIComponent(returnTaskTemplateId)}`
+        : "";
     if (!id) {
+      if (returnTemplatesTab === "tasks") {
+        redirect(
+          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=Missing%20link%20id`
+        );
+      }
       redirect("/settings?tab=templates&templates=projects&error=Missing%20link%20id");
     }
 
     const { error } = await supabase.from("project_template_tasks").delete().eq("id", id);
 
     if (error) {
+      if (returnTemplatesTab === "tasks") {
+        redirect(
+          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=${encodeURIComponent(
+            error.message
+          )}`
+        );
+      }
       redirect(
         `/settings?tab=templates&templates=projects&error=${encodeURIComponent(error.message)}`
       );
     }
 
     revalidatePath("/settings");
+    if (returnTemplatesTab === "tasks") {
+      redirect(
+        `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&success=Project%20template%20unlinked`
+      );
+    }
     const nextId = projectTemplateId
       ? `&project_template_id=${encodeURIComponent(projectTemplateId)}`
       : "";
@@ -2362,6 +2447,127 @@ export default async function SettingsPage(props: {
                               Save task
                             </button>
                           </form>
+
+                          <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-sm font-semibold text-slate-900">
+                              Linked project templates
+                            </p>
+
+                            {projectTemplateTasksError &&
+                            isSupabaseMissingTableError(projectTemplateTasksError) ? (
+                              <p className="mt-2 text-sm text-amber-900">
+                                Project template links are not set up yet. Run `sql/templates.sql`
+                                in Supabase SQL editor, then refresh this page.
+                              </p>
+                            ) : null}
+
+                            <div className="mt-3 space-y-2">
+                              {selectedTaskTemplateProjectLinks.length ? (
+                                selectedTaskTemplateProjectLinks.map((link) => {
+                                  const projectTpl = projectTemplateById[link.project_template_id];
+                                  const label = projectTpl?.name || link.project_template_id;
+                                  return (
+                                    <div
+                                      key={link.id}
+                                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                    >
+                                      <div className="min-w-0">
+                                        <p className="truncate font-semibold text-slate-900">
+                                          {label}
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                          Position {link.position} in project template
+                                        </p>
+                                      </div>
+                                      <form action={removeProjectTemplateTask}>
+                                        <input type="hidden" name="id" value={link.id} />
+                                        <input
+                                          type="hidden"
+                                          name="project_template_id"
+                                          value={link.project_template_id}
+                                        />
+                                        <input
+                                          type="hidden"
+                                          name="return_templates_tab"
+                                          value="tasks"
+                                        />
+                                        <input
+                                          type="hidden"
+                                          name="return_task_template_id"
+                                          value={selectedTaskTemplate.id}
+                                        />
+                                        <ConfirmSubmitButton
+                                          className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                          confirmText={`Remove ${selectedTaskTemplate.name} from ${label}?`}
+                                          disabled={Boolean(projectTemplateTasksError)}
+                                        >
+                                          Remove
+                                        </ConfirmSubmitButton>
+                                      </form>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <p className="text-sm text-slate-600">
+                                  No project templates linked yet.
+                                </p>
+                              )}
+                            </div>
+
+                            <form
+                              action={addProjectTemplateTask}
+                              className="mt-3 grid gap-2 md:grid-cols-6"
+                            >
+                              <input
+                                type="hidden"
+                                name="task_template_id"
+                                value={selectedTaskTemplate.id}
+                              />
+                              <input type="hidden" name="return_templates_tab" value="tasks" />
+                              <input
+                                type="hidden"
+                                name="return_task_template_id"
+                                value={selectedTaskTemplate.id}
+                              />
+                              <select
+                                name="project_template_id"
+                                className="md:col-span-4 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                defaultValue=""
+                                disabled={
+                                  Boolean(projectTemplateTasksError) ||
+                                  Boolean(projectTemplatesError) ||
+                                  !availableProjectTemplatesForTaskTemplate.length
+                                }
+                                required
+                              >
+                                <option value="">Select a project template</option>
+                                {availableProjectTemplatesForTaskTemplate.map((projectTpl) => (
+                                  <option key={projectTpl.id} value={projectTpl.id}>
+                                    {projectTpl.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="submit"
+                                className="md:col-span-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                disabled={
+                                  Boolean(projectTemplateTasksError) ||
+                                  Boolean(projectTemplatesError) ||
+                                  !availableProjectTemplatesForTaskTemplate.length
+                                }
+                              >
+                                Assign project
+                              </button>
+                            </form>
+                            {!projectTemplatesError &&
+                            !projectTemplateTasksError &&
+                            projectTemplates.length > 0 &&
+                            !availableProjectTemplatesForTaskTemplate.length ? (
+                              <p className="mt-2 text-xs text-slate-500">
+                                This task template is already linked to every project template.
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
                       </section>
                       ) : null}
