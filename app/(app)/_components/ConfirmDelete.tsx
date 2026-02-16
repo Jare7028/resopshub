@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 
 type ConfirmDeleteProps = {
   name: string;
   itemType: string;
   formAction?: (formData: FormData) => void;
   confirmLabel?: string;
+  pendingLabel?: string;
   triggerLabel?: string;
 };
 
@@ -15,8 +17,10 @@ export default function ConfirmDelete({
   itemType,
   formAction,
   confirmLabel = "Confirm delete",
+  pendingLabel = "Deleting...",
   triggerLabel = "Delete",
 }: ConfirmDeleteProps) {
+  const { pending } = useFormStatus();
   const [confirming, setConfirming] = useState(false);
   const trimmedName = name.trim();
   const displayName = trimmedName || "this";
@@ -25,10 +29,11 @@ export default function ConfirmDelete({
     return (
       <button
         type="button"
-        className="text-xs font-semibold text-red-600 hover:text-red-800"
+        className="text-xs font-semibold text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-60"
         onClick={() => setConfirming(true)}
+        disabled={pending}
       >
-        {triggerLabel}
+        {pending ? pendingLabel : triggerLabel}
       </button>
     );
   }
@@ -46,14 +51,16 @@ export default function ConfirmDelete({
         <button
           type="submit"
           formAction={formAction}
-          className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+          className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={pending}
         >
-          {confirmLabel}
+          {pending ? pendingLabel : confirmLabel}
         </button>
         <button
           type="button"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => setConfirming(false)}
+          disabled={pending}
         >
           Cancel
         </button>

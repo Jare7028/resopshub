@@ -2294,6 +2294,7 @@ export default async function SettingsPage(props: {
                             <ConfirmSubmitButton
                               className="text-sm font-semibold text-red-600 hover:text-red-700"
                               confirmText={`Delete template: ${selectedTaskTemplate.name}?`}
+                              pendingLabel="Deleting..."
                             >
                               Delete task
                             </ConfirmSubmitButton>
@@ -2499,6 +2500,7 @@ export default async function SettingsPage(props: {
                                         <ConfirmSubmitButton
                                           className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
                                           confirmText={`Remove ${selectedTaskTemplate.name} from ${label}?`}
+                                          pendingLabel="Removing..."
                                           disabled={Boolean(projectTemplateTasksError)}
                                         >
                                           Remove
@@ -2803,6 +2805,7 @@ export default async function SettingsPage(props: {
                                                 <ConfirmSubmitButton
                                                   className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
                                                   confirmText={`Delete subtask: ${subtask.title}?`}
+                                                  pendingLabel="Deleting..."
                                                   disabled={Boolean(taskTemplateSubtasksError)}
                                                 >
                                                   Delete
@@ -3003,6 +3006,7 @@ export default async function SettingsPage(props: {
                             <ConfirmSubmitButton
                               className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
                               confirmText={`Delete template: ${selectedProjectTemplate.name}?`}
+                              pendingLabel="Deleting..."
                             >
                               Delete
                             </ConfirmSubmitButton>
@@ -3235,6 +3239,7 @@ export default async function SettingsPage(props: {
                                     <ConfirmSubmitButton
                                       className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
                                       confirmText={`Remove ${label} from ${selectedProjectTemplate.name}?`}
+                                      pendingLabel="Removing..."
                                       disabled={Boolean(projectTemplateTasksError)}
                                     >
                                       Remove
