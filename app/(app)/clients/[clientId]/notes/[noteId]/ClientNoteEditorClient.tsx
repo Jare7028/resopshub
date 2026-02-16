@@ -7,20 +7,22 @@ import { createTaskFromClientNote, updateClientNoteContent } from "./editorActio
 export default function ClientNoteEditorClient({
   clientId,
   noteId,
+  sourcePersonalPageId,
   initialContent,
   lastEditedAtLabel,
   lastEditedByLabel,
 }: {
   clientId: string;
   noteId: string;
+  sourcePersonalPageId: string | null;
   initialContent: unknown;
   lastEditedAtLabel?: string | null;
   lastEditedByLabel?: string | null;
 }) {
   const handleSave = useCallback(
     (entityId: string, content: unknown) =>
-      updateClientNoteContent(clientId, entityId, content),
-    [clientId]
+      updateClientNoteContent(clientId, entityId, content, sourcePersonalPageId),
+    [clientId, sourcePersonalPageId]
   );
 
   const handleCreateTask = useCallback(

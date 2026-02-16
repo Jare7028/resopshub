@@ -44,7 +44,7 @@ export default async function ClientNotePage(props: {
   const { data: note, error: noteError } = await supabase
     .from("notes")
     .select(
-      "id,client_id,title,content,content_json,visibility,created_at,last_edited_at,last_edited_by_user_id,user_id"
+      "id,client_id,title,content,content_json,visibility,created_at,last_edited_at,last_edited_by_user_id,user_id,source_personal_page_id"
     )
     .eq("id", noteId)
     .eq("client_id", clientId)
@@ -61,6 +61,8 @@ export default async function ClientNotePage(props: {
   if (!note) {
     notFound();
   }
+
+  const linkedPersonalPageId = note.source_personal_page_id || null;
 
   const initialContent =
     note.content_json ?? plainTextToTiptapDoc(note.content || "");
@@ -113,10 +115,30 @@ export default async function ClientNotePage(props: {
       redirect(`/clients/${clientId}/notes/${noteId}?error=${encodeURIComponent(error.message)}`);
     }
 
+    if (linkedPersonalPageId) {
+      const { error: linkedPageSyncError } = await supabase
+        .from("personal_pages")
+        .update({
+          title,
+          updated_at: now,
+          last_edited_at: now,
+          last_edited_by_user_id: editorId,
+        })
+        .eq("id", linkedPersonalPageId);
+
+      if (linkedPageSyncError && !isMissingColumnError(linkedPageSyncError)) {
+        console.error("[clientNotes.updateNoteDetails.personal.syncTitle]", linkedPageSyncError.message);
+      }
+    }
+
     revalidatePath(`/clients/${clientId}/notes/${noteId}`);
     revalidatePath(`/clients/${clientId}/notes`);
     revalidatePath(`/clients/${clientId}`);
     revalidatePath("/notes");
+    if (linkedPersonalPageId) {
+      revalidatePath(`/personal/${linkedPersonalPageId}`);
+    }
+    revalidatePath("/personal");
     redirect(`/clients/${clientId}/notes/${noteId}?success=Saved`);
   }
 
@@ -214,6 +236,7 @@ export default async function ClientNotePage(props: {
       <ClientNoteEditorClient
         clientId={clientId}
         noteId={noteId}
+        sourcePersonalPageId={linkedPersonalPageId}
         initialContent={initialContent}
         lastEditedAtLabel={lastEditedAtLabel}
         lastEditedByLabel={lastEditedByLabel}
@@ -221,4 +244,3 @@ export default async function ClientNotePage(props: {
     </div>
   );
 }
-

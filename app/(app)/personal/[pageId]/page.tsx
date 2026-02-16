@@ -202,24 +202,21 @@ export default async function PersonalPage(props: {
   const pageOwnerId = page.owner_id;
   const isOwner = pageOwnerId === user.id;
 
-  const { data: sections } = await supabase
-    .from("personal_sections")
-    .select("id,title")
-    .order("sort_order", { ascending: true });
-
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true });
-  const { data: pageTemplatesRaw, error: pageTemplatesError } = await supabase
-    .from("personal_page_templates")
-    .select("id,name")
-    .eq("owner_id", user.id)
-    .order("name", { ascending: true });
+  const [
+    { data: sections },
+    { data: users },
+    { data: clients },
+    { data: pageTemplatesRaw, error: pageTemplatesError },
+  ] = await Promise.all([
+    supabase.from("personal_sections").select("id,title").order("sort_order", { ascending: true }),
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+    supabase.from("clients").select("id,name").order("name", { ascending: true }),
+    supabase
+      .from("personal_page_templates")
+      .select("id,name")
+      .eq("owner_id", user.id)
+      .order("name", { ascending: true }),
+  ]);
   const pageTemplatesTableMissing = Boolean(
     pageTemplatesError && isSupabaseMissingTableError(pageTemplatesError)
   );
@@ -320,17 +317,33 @@ export default async function PersonalPage(props: {
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
-    const { error: linkedTitleSyncError } = await supabase
+    const { data: linkedTitleSyncedNotes, error: linkedTitleSyncError } = await supabase
       .from("notes")
       .update({
         title,
         last_edited_at: now,
         last_edited_by_user_id: editorId,
       })
-      .eq("source_personal_page_id", pageId);
+      .eq("source_personal_page_id", pageId)
+      .select("id,client_id");
 
     if (linkedTitleSyncError && !isMissingColumnError(linkedTitleSyncError)) {
       console.error("[personal.updatePageDetails.notes.syncTitle]", linkedTitleSyncError.message);
+    }
+
+    const linkedNotes = (linkedTitleSyncedNotes || []) as Array<{
+      id: string;
+      client_id: string | null;
+    }>;
+    linkedNotes.forEach((linkedNote) => {
+      if (linkedNote.client_id) {
+        revalidatePath(`/clients/${linkedNote.client_id}`);
+        revalidatePath(`/clients/${linkedNote.client_id}/notes`);
+        revalidatePath(`/clients/${linkedNote.client_id}/notes/${linkedNote.id}`);
+      }
+    });
+    if (linkedNotes.length) {
+      revalidatePath("/notes");
     }
 
     revalidatePath(`/personal/${pageId}`);

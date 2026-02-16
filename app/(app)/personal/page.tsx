@@ -101,22 +101,23 @@ export default async function PersonalHome(props: {
     sections: buildPersonalUrlFromBase(baseQuery, "sections"),
   };
 
-  const { data: sections } = await supabase
-    .from("personal_sections")
-    .select("id,title,owner_id,sort_order,created_at")
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
-
-  const { data: pageTemplatesRaw, error: pageTemplatesError } = await supabase
-    .from("personal_page_templates")
-    .select("id,name")
-    .eq("owner_id", user.id)
-    .order("name", { ascending: true });
+  const [
+    { data: sections },
+    { data: users },
+    { data: pageTemplatesRaw, error: pageTemplatesError },
+  ] = await Promise.all([
+    supabase
+      .from("personal_sections")
+      .select("id,title,owner_id,sort_order,created_at")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }),
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+    supabase
+      .from("personal_page_templates")
+      .select("id,name")
+      .eq("owner_id", user.id)
+      .order("name", { ascending: true }),
+  ]);
   const pageTemplatesTableMissing = Boolean(
     pageTemplatesError && isSupabaseMissingTableError(pageTemplatesError)
   );

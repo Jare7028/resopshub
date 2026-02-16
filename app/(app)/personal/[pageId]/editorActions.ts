@@ -85,7 +85,7 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
     throw new Error(updateError.message);
   }
 
-  const { error: linkedNotesSyncError } = await supabase
+  const { data: linkedNotesSynced, error: linkedNotesSyncError } = await supabase
     .from("notes")
     .update({
       content_json: content,
@@ -93,7 +93,8 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
       last_edited_at: now,
       last_edited_by_user_id: editorId,
     })
-    .eq("source_personal_page_id", pageId);
+    .eq("source_personal_page_id", pageId)
+    .select("id,client_id");
 
   if (linkedNotesSyncError && !isMissingColumnError(linkedNotesSyncError)) {
     console.error("[personal.updatePersonalPageContent.notes.sync]", linkedNotesSyncError.message);
@@ -129,7 +130,23 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
     }
   }
 
+  const linkedNotes = (linkedNotesSynced || []) as Array<{
+    id: string;
+    client_id: string | null;
+  }>;
+  linkedNotes.forEach((note) => {
+    if (note.client_id) {
+      revalidatePath(`/clients/${note.client_id}`);
+      revalidatePath(`/clients/${note.client_id}/notes`);
+      revalidatePath(`/clients/${note.client_id}/notes/${note.id}`);
+    }
+  });
+  if (linkedNotes.length) {
+    revalidatePath("/notes");
+  }
+
   revalidatePath(`/personal/${pageId}`);
+  revalidatePath("/personal");
 }
 
 export async function savePersonalContextMenuFavorites(input: { favorites: string[] }) {

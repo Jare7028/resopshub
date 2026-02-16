@@ -46,7 +46,7 @@ export default async function FormSubmissionDetailPage(props: {
     notFound();
   }
 
-  const [{ data: form }, { data: comments }, { data: templateTasks }, { data: actionTasks }, { data: users }] =
+  const [{ data: form }, { data: comments }, { data: templateTasks }, { data: actionTasks }] =
     await Promise.all([
       supabase.from("forms").select("id,title").eq("id", submission.form_id).maybeSingle(),
       supabase
@@ -64,8 +64,22 @@ export default async function FormSubmissionDetailPage(props: {
         .select("task_id,action_id,created_at")
         .eq("submission_id", submissionId)
         .order("created_at", { ascending: true }),
-      supabase.from("users").select("id,full_name,email"),
     ]);
+
+  const submissionComments = (comments || []) as Array<{
+    id: string;
+    user_id: string;
+    body: string;
+    created_at: string;
+  }>;
+  const userIds = Array.from(
+    new Set([submission.submitted_by, ...submissionComments.map((comment) => comment.user_id)].filter(Boolean))
+  ) as string[];
+  const { data: users } = userIds.length
+    ? await supabase.from("users").select("id,full_name,email").in("id", userIds)
+    : {
+        data: [] as Array<{ id: string; full_name: string | null; email: string | null }>,
+      };
 
   const userMap = new Map<string, string>();
   (users || []).forEach((user) => {
@@ -287,8 +301,8 @@ export default async function FormSubmissionDetailPage(props: {
           </form>
 
           <div className="space-y-3">
-            {(comments || []).length ? (
-              (comments || []).map((comment) => (
+            {submissionComments.length ? (
+              submissionComments.map((comment) => (
                 <article key={comment.id} className="rounded-md border border-slate-200 p-3">
                   <p className="text-xs text-slate-500">
                     {userMap.get(comment.user_id) || "Unknown user"} -{" "}

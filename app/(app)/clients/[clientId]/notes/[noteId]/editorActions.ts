@@ -8,10 +8,21 @@ import { extractMentionHandles } from "@/lib/mentions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
+function isMissingColumnError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const anyError = error as { code?: unknown; message?: unknown };
+  const code = typeof anyError.code === "string" ? anyError.code : "";
+  const message = typeof anyError.message === "string" ? anyError.message : "";
+  return code === "42703" || message.includes("does not exist");
+}
+
 export async function updateClientNoteContent(
   clientId: string,
   noteId: string,
-  content: unknown
+  content: unknown,
+  sourcePersonalPageId: string | null = null
 ) {
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -48,6 +59,25 @@ export async function updateClientNoteContent(
     throw new Error(updateError.message);
   }
 
+  if (sourcePersonalPageId) {
+    const { error: linkedPageSyncError } = await supabase
+      .from("personal_pages")
+      .update({
+        content,
+        content_text: contentText,
+        updated_at: now,
+        last_edited_at: now,
+        last_edited_by_user_id: editorId,
+      })
+      .eq("id", sourcePersonalPageId);
+    if (linkedPageSyncError && !isMissingColumnError(linkedPageSyncError)) {
+      console.error(
+        "[clientNotes.updateClientNoteContent.personal.sync]",
+        linkedPageSyncError.message
+      );
+    }
+  }
+
   if (mentionHandles.length) {
     try {
       await syncMentionAssignmentsFromTextChange({
@@ -82,6 +112,10 @@ export async function updateClientNoteContent(
   revalidatePath(`/clients/${clientId}/notes`);
   revalidatePath(`/clients/${clientId}`);
   revalidatePath("/notes");
+  if (sourcePersonalPageId) {
+    revalidatePath(`/personal/${sourcePersonalPageId}`);
+  }
+  revalidatePath("/personal");
 }
 
 export async function createTaskFromClientNote(input: {

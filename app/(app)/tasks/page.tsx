@@ -266,29 +266,27 @@ export default async function TasksPage(props: {
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );
 
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
-
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true });
-
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id,name,client_id,clients(name)")
-    .order("name", { ascending: true });
-
-  const taskTemplatesFromTasksResponse = await supabase
-    .from("tasks")
-    .select(
-      "id,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
-    )
-    .eq("status", "template")
-    .is("parent_task_id", null)
-    .order("title", { ascending: true });
+  const [
+    { data: users },
+    { data: clients },
+    { data: projects },
+    taskTemplatesFromTasksResponse,
+  ] = await Promise.all([
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+    supabase.from("clients").select("id,name").order("name", { ascending: true }),
+    supabase
+      .from("projects")
+      .select("id,name,client_id,clients(name)")
+      .order("name", { ascending: true }),
+    supabase
+      .from("tasks")
+      .select(
+        "id,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
+      )
+      .eq("status", "template")
+      .is("parent_task_id", null)
+      .order("title", { ascending: true }),
+  ]);
   const taskTemplatesFromTasksError = isTemplateStatusEnumError(
     taskTemplatesFromTasksResponse.error
   )
@@ -598,25 +596,6 @@ export default async function TasksPage(props: {
   > = {};
   const taskIdsForSubtaskCounts = (sortedTasks || []).map((t) => t.id).filter(Boolean) as string[];
   if (taskIdsForSubtaskCounts.length) {
-    const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await supabase
-      .from("tasks")
-      .select("parent_task_id,status")
-      .in("parent_task_id", taskIdsForSubtaskCounts);
-
-    if (!subtasksForCountsError) {
-      const subtasksForCounts = (subtasksForCountsRaw || []) as Array<{
-        parent_task_id: string | null;
-        status: string | null;
-      }>;
-      for (const row of subtasksForCounts) {
-        const parentId = row.parent_task_id;
-        const status = row.status || "";
-        if (!parentId) continue;
-        if (status === "completed" || status === "cancelled") continue;
-        openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
-      }
-    }
-
     const { data: openSubtasksRaw, error: openSubtasksError } = await supabase
       .from("tasks")
       .select("id,parent_task_id,title,status,priority,due_date,due_time,assignee_user_id")
@@ -653,6 +632,8 @@ export default async function TasksPage(props: {
 
       openSubtasks.forEach((subtask) => {
         if (!subtask.parent_task_id) return;
+        openSubtaskCountByTaskId[subtask.parent_task_id] =
+          (openSubtaskCountByTaskId[subtask.parent_task_id] || 0) + 1;
         if (!openSubtasksByParentId[subtask.parent_task_id]) {
           openSubtasksByParentId[subtask.parent_task_id] = [];
         }

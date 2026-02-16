@@ -206,11 +206,31 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  const { data: personalSections } = await supabase
+  const personalSectionsPromise = supabase
     .from("personal_sections")
     .select("id,title,owner_id,sort_order")
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
+  const personalPagesWithSortPromise = supabase
+    .from("personal_pages")
+    .select("id,title,owner_id,section_id,updated_at,sort_order")
+    .order("section_id", { ascending: true, nullsFirst: true })
+    .order("sort_order", { ascending: true })
+    .order("updated_at", { ascending: false });
+  const myMembershipsPromise = supabase
+    .from("chat_conversation_members")
+    .select("conversation_id,last_read_at")
+    .eq("user_id", user.id);
+
+  const [
+    { data: personalSections },
+    { data: personalPagesWithSortRaw, error: personalPagesWithSortError },
+    { data: myMembershipsRaw, error: myMembershipsError },
+  ] = await Promise.all([
+    personalSectionsPromise,
+    personalPagesWithSortPromise,
+    myMembershipsPromise,
+  ]);
 
   let personalPages: Array<{
     id: string;
@@ -220,12 +240,6 @@ export default async function AppLayout({
     updated_at: string | null;
     sort_order?: number | null;
   }> = [];
-  const { data: personalPagesWithSortRaw, error: personalPagesWithSortError } = await supabase
-    .from("personal_pages")
-    .select("id,title,owner_id,section_id,updated_at,sort_order")
-    .order("section_id", { ascending: true, nullsFirst: true })
-    .order("sort_order", { ascending: true })
-    .order("updated_at", { ascending: false });
 
   if (personalPagesWithSortError && isMissingColumnError(personalPagesWithSortError)) {
     const { data: fallbackPagesRaw } = await supabase
@@ -238,11 +252,6 @@ export default async function AppLayout({
   }
 
   let unreadChatCount = 0;
-  const { data: myMembershipsRaw, error: myMembershipsError } = await supabase
-    .from("chat_conversation_members")
-    .select("conversation_id,last_read_at")
-    .eq("user_id", user.id);
-
   if (!myMembershipsError && (myMembershipsRaw || []).length) {
     const myMemberships = (myMembershipsRaw || []) as Array<{
       conversation_id: string;

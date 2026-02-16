@@ -53,15 +53,10 @@ export default async function NotesPage(props: {
   const dateFrom = (searchParams?.date_from || "").trim();
   const dateTo = (searchParams?.date_to || "").trim();
 
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true });
-
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
+  const [{ data: clients }, { data: users }] = await Promise.all([
+    supabase.from("clients").select("id,name").order("name", { ascending: true }),
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+  ]);
 
   let supportsNotePages = true;
 
@@ -145,26 +140,8 @@ export default async function NotesPage(props: {
   }
 
 
-  const lastEditorIds = supportsNotePages
-    ? Array.from(
-        new Set(
-          (notes || [])
-            .map((note) => note.last_edited_by_user_id || note.user_id)
-            .filter(Boolean)
-        )
-      )
-    : [];
-
-  const { data: editorUsers } =
-    supportsNotePages && lastEditorIds.length
-      ? await supabase
-          .from("users")
-          .select("id,full_name,email")
-          .in("id", lastEditorIds)
-      : { data: [] as EditorUserRow[] };
-
   const editorMap = new Map<string, string>(
-    ((editorUsers || []) as EditorUserRow[]).map((user) => [
+    ((users || []) as EditorUserRow[]).map((user) => [
       user.id,
       user.full_name || user.email || "Unknown user",
     ])

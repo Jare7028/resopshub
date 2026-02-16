@@ -193,10 +193,16 @@ export default async function FormsPage(props: {
     create: buildFormsUrl("create"),
   };
 
-  let formsQuery = supabase
-    .from("forms")
-    .select("id,title,description,status,created_at,updated_at")
-    .order("updated_at", { ascending: false });
+  let formsQuery = supabase.from("forms").select("id,title,description,status,created_at,updated_at");
+
+  if (sortKey === "title" || sortKey === "status") {
+    formsQuery = formsQuery.order(sortKey, { ascending: sortDir === "asc" });
+  } else if (sortKey === "updated_at") {
+    formsQuery = formsQuery.order("updated_at", { ascending: sortDir === "asc" });
+  } else {
+    // Keep a deterministic default order when open submission count sort is selected.
+    formsQuery = formsQuery.order("updated_at", { ascending: false });
+  }
 
   if (selectedStatuses.length) {
     formsQuery = formsQuery.in("status", selectedStatuses);
@@ -227,7 +233,7 @@ export default async function FormsPage(props: {
   if (formIds.length) {
     const { data: submissions } = await supabase
       .from("form_submissions")
-      .select("form_id,status")
+      .select("form_id")
       .in("form_id", formIds)
       .not("status", "in", "(completed,rejected)");
     (submissions || []).forEach((row) => {
@@ -236,29 +242,21 @@ export default async function FormsPage(props: {
     });
   }
 
-  const tableRows = forms
-    .map((form) => ({
-      id: form.id,
-      title: form.title,
-      description: form.description,
-      status: normalizeFormStatus(form.status),
-      created_at: form.created_at,
-      updated_at: form.updated_at,
-      openSubmissions: submissionCounts.get(form.id) || 0,
-    }))
-    .sort((a, b) => {
-      let result = 0;
-      if (sortKey === "title") {
-        result = a.title.toLowerCase().localeCompare(b.title.toLowerCase());
-      } else if (sortKey === "status") {
-        result = a.status.localeCompare(b.status);
-      } else if (sortKey === "open_submissions") {
-        result = a.openSubmissions - b.openSubmissions;
-      } else {
-        result = a.updated_at.localeCompare(b.updated_at);
-      }
+  const tableRows = forms.map((form) => ({
+    id: form.id,
+    title: form.title,
+    description: form.description,
+    status: normalizeFormStatus(form.status),
+    created_at: form.created_at,
+    updated_at: form.updated_at,
+    openSubmissions: submissionCounts.get(form.id) || 0,
+  }));
+  if (sortKey === "open_submissions") {
+    tableRows.sort((a, b) => {
+      const result = a.openSubmissions - b.openSubmissions;
       return sortDir === "asc" ? result : -result;
     });
+  }
 
   const { data: taskTemplatesRaw, error: taskTemplatesError } = await supabase
     .from("task_templates")

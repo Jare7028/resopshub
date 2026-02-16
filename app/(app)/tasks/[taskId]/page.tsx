@@ -214,18 +214,14 @@ export default async function TaskDetailPage(props: {
     return relation?.name ?? fallback;
   };
 
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true });
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id,name,client_id,clients(name)")
-    .order("name", { ascending: true });
+  const [{ data: users }, { data: clients }, { data: projects }] = await Promise.all([
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+    supabase.from("clients").select("id,name").order("name", { ascending: true }),
+    supabase
+      .from("projects")
+      .select("id,name,client_id,clients(name)")
+      .order("name", { ascending: true }),
+  ]);
 
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
@@ -391,14 +387,13 @@ export default async function TaskDetailPage(props: {
   if (subtaskIds.length) {
     const { data: subsubtasksRaw, error: subsubtasksError } = await supabase
       .from("tasks")
-      .select("parent_task_id,status")
-      .in("parent_task_id", subtaskIds);
+      .select("parent_task_id")
+      .in("parent_task_id", subtaskIds)
+      .not("status", "in", "(completed,cancelled)");
     if (!subsubtasksError) {
       (subsubtasksRaw || []).forEach((row) => {
         const parentId = row.parent_task_id;
-        const status = row.status || "";
         if (!parentId) return;
-        if (status === "completed" || status === "cancelled") return;
         openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
       });
     }

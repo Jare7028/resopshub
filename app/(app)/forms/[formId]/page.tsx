@@ -183,7 +183,12 @@ export default async function FormDetailPage(props: {
 
   const formFields = parseFields(form.fields);
 
-  const [{ data: templateLinksRaw, error: templateLinksError }, { data: submissionsRaw }, { data: users }, { data: taskTemplatesRaw, error: taskTemplatesError }, { data: manualActionsRaw, error: manualActionsError }] = await Promise.all([
+  const [
+    { data: templateLinksRaw, error: templateLinksError },
+    { data: submissionsRaw },
+    { data: taskTemplatesRaw, error: taskTemplatesError },
+    { data: manualActionsRaw, error: manualActionsError },
+  ] = await Promise.all([
     supabase
       .from("form_submission_task_templates")
       .select("id,task_template_id,enabled,position")
@@ -192,10 +197,9 @@ export default async function FormDetailPage(props: {
       .order("created_at", { ascending: true }),
     supabase
       .from("form_submissions")
-      .select("id,status,values_json,submitted_by,created_at,updated_at")
+      .select("id,status,submitted_by,created_at")
       .eq("form_id", formId)
       .order("created_at", { ascending: false }),
-    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
     supabase.from("task_templates").select("id,name,title").order("name", { ascending: true }),
     supabase
       .from("form_submission_actions")
@@ -234,11 +238,21 @@ export default async function FormDetailPage(props: {
   const submissions = (submissionsRaw || []) as Array<{
     id: string;
     status: string | null;
-    values_json: Record<string, unknown> | null;
     submitted_by: string | null;
     created_at: string;
-    updated_at: string;
   }>;
+
+  const submissionUserIds = Array.from(
+    new Set(submissions.map((submission) => submission.submitted_by).filter(Boolean))
+  ) as string[];
+  const { data: users } = submissionUserIds.length
+    ? await supabase
+        .from("users")
+        .select("id,full_name,email")
+        .in("id", submissionUserIds)
+    : {
+        data: [] as Array<{ id: string; full_name: string | null; email: string | null }>,
+      };
 
   const userMap = new Map<string, string>();
   (users || []).forEach((user) => {
