@@ -529,6 +529,7 @@ export default async function SettingsPage(props: {
         due_time: dueTime || null,
         recurrence_frequency: null,
         recurrence_lead_days: 7,
+        created_by: authData.user.id,
       })
       .select("id")
       .single();
@@ -849,6 +850,7 @@ export default async function SettingsPage(props: {
         name,
         description: description || null,
         status,
+        created_by: authData.user.id,
       })
       .select("id")
       .single();
