@@ -11,3 +11,13 @@ export function isSupabaseMissingTableError(error: MaybePostgrestError): boolean
   return msg.includes("schema cache") && msg.includes("could not find the table");
 }
 
+// PostgREST returns this when an RPC function is missing.
+// Example: "Could not find the function public.my_rpc() in the schema cache"
+export function isSupabaseMissingFunctionError(error: MaybePostgrestError): boolean {
+  const code = String((error as { code?: string } | null | undefined)?.code || "");
+  if (code === "PGRST202") return true;
+
+  const message = String((error as { message?: string } | null | undefined)?.message || "");
+  const msg = message.toLowerCase();
+  return msg.includes("schema cache") && msg.includes("could not find the function");
+}

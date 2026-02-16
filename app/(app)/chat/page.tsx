@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
+import { withPerfTiming } from "@/lib/perf";
 import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
 import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
 import ChatPageClient from "./ChatPageClient";
@@ -144,13 +148,6 @@ export default async function ChatPage(props: {
 
   const myMemberships = (myMembershipsRaw || []) as ConversationMemberRow[];
   const myConversationIds = myMemberships.map((row) => row.conversation_id).filter(Boolean);
-  const myLastReadByConversationId = myMemberships.reduce<Record<string, string | null>>(
-    (acc, row) => {
-      acc[row.conversation_id] = row.last_read_at || null;
-      return acc;
-    },
-    {}
-  );
 
   const { data: conversationsRaw } = myConversationIds.length
     ? await supabase
@@ -339,28 +336,55 @@ export default async function ChatPage(props: {
     })),
   } as const;
 
-  const unreadEntries = await Promise.all(
-    myConversationIds.map(async (conversationId) => {
-      const lastReadAt = myLastReadByConversationId[conversationId];
-      let query = supabase
-        .from("chat_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("conversation_id", conversationId)
-        .neq("sender_id", currentUserId);
-      if (lastReadAt) {
-        query = query.gt("created_at", lastReadAt);
-      }
-      const { count } = await query;
-      return [conversationId, count || 0] as const;
-    })
+  const initialUnreadByConversationId: Record<string, number> = {};
+  const { data: unreadRowsRaw, error: unreadRowsError } = await withPerfTiming(
+    "chat.page.unread.rpc",
+    () => supabase.rpc("chat_unread_counts")
   );
-  const initialUnreadByConversationId = unreadEntries.reduce<Record<string, number>>(
-    (acc, [conversationId, count]) => {
-      acc[conversationId] = count;
+
+  if (!unreadRowsError) {
+    const unreadByConversationId = ((unreadRowsRaw || []) as Array<{
+      conversation_id: string;
+      unread_count: number | null;
+    }>).reduce<Record<string, number>>((acc, row) => {
+      acc[row.conversation_id] = Number(row.unread_count || 0);
       return acc;
-    },
-    {}
-  );
+    }, {});
+    myConversationIds.forEach((conversationId) => {
+      initialUnreadByConversationId[conversationId] = unreadByConversationId[conversationId] || 0;
+    });
+  } else if (isSupabaseMissingFunctionError(unreadRowsError)) {
+    // Fallback for environments that haven't applied sql/chat_unread_counts.sql yet.
+    const myLastReadByConversationId = myMemberships.reduce<Record<string, string | null>>(
+      (acc, row) => {
+        acc[row.conversation_id] = row.last_read_at || null;
+        return acc;
+      },
+      {}
+    );
+    const unreadEntries = await Promise.all(
+      myConversationIds.map(async (conversationId) => {
+        const lastReadAt = myLastReadByConversationId[conversationId];
+        let query = supabase
+          .from("chat_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("conversation_id", conversationId)
+          .neq("sender_id", currentUserId);
+        if (lastReadAt) {
+          query = query.gt("created_at", lastReadAt);
+        }
+        const { count } = await query;
+        return [conversationId, count || 0] as const;
+      })
+    );
+    unreadEntries.forEach(([conversationId, count]) => {
+      initialUnreadByConversationId[conversationId] = count;
+    });
+  } else {
+    myConversationIds.forEach((conversationId) => {
+      initialUnreadByConversationId[conversationId] = 0;
+    });
+  }
 
   return (
     <div className="-mx-6 -my-8 h-[calc(100vh-73px)]">

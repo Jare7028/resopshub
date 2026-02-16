@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
 
 export default function ChatNavLink({
   initialUnreadCount,
@@ -22,6 +23,25 @@ export default function ChatNavLink({
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
 
   const refreshUnreadCount = useCallback(async () => {
+    const { data: unreadRowsRaw, error: unreadRowsError } = await supabase.rpc(
+      "chat_unread_counts"
+    );
+
+    if (!unreadRowsError) {
+      const total = ((unreadRowsRaw || []) as Array<{ unread_count: number | null }>).reduce(
+        (sum, row) => sum + Number(row.unread_count || 0),
+        0
+      );
+      setUnreadCount(total);
+      return;
+    }
+
+    if (!isSupabaseMissingFunctionError(unreadRowsError)) {
+      setUnreadCount(0);
+      return;
+    }
+
+    // Fallback for environments that haven't applied sql/chat_unread_counts.sql yet.
     const { data: membershipsRaw, error: membershipsError } = await supabase
       .from("chat_conversation_members")
       .select("conversation_id,last_read_at")

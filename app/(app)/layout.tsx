@@ -2,7 +2,11 @@ import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
+import { withPerfTiming } from "@/lib/perf";
 import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
@@ -231,19 +235,13 @@ export default async function AppLayout({
     .order("section_id", { ascending: true, nullsFirst: true })
     .order("sort_order", { ascending: true })
     .order("updated_at", { ascending: false });
-  const myMembershipsPromise = supabase
-    .from("chat_conversation_members")
-    .select("conversation_id,last_read_at")
-    .eq("user_id", user.id);
 
   const [
     { data: personalSections },
     { data: personalPagesWithSortRaw, error: personalPagesWithSortError },
-    { data: myMembershipsRaw, error: myMembershipsError },
   ] = await Promise.all([
     personalSectionsPromise,
     personalPagesWithSortPromise,
-    myMembershipsPromise,
   ]);
 
   let personalPages: Array<{
@@ -266,41 +264,52 @@ export default async function AppLayout({
   }
 
   let unreadChatCount = 0;
-  if (!myMembershipsError && (myMembershipsRaw || []).length) {
-    const myMemberships = (myMembershipsRaw || []) as Array<{
-      conversation_id: string;
-      last_read_at: string | null;
-    }>;
-    const conversationIds = myMemberships
-      .map((row) => row.conversation_id)
-      .filter(Boolean);
-    const lastReadByConversationId = myMemberships.reduce<Record<string, string | null>>(
-      (acc, row) => {
-        acc[row.conversation_id] = row.last_read_at || null;
-        return acc;
-      },
-      {}
-    );
+  const { data: unreadRowsRaw, error: unreadRowsError } = await withPerfTiming(
+    "layout.chat_unread.rpc",
+    () => supabase.rpc(
+      "chat_unread_counts"
+    )
+  );
 
-    const unreadCounts = await Promise.all(
-      conversationIds.map(async (conversationId) => {
-        const lastReadAt = lastReadByConversationId[conversationId];
-        let query = supabase
-          .from("chat_messages")
-          .select("id", { count: "exact", head: true })
-          .eq("conversation_id", conversationId)
-          .neq("sender_id", user.id);
-        if (lastReadAt) {
-          query = query.gt("created_at", lastReadAt);
-        }
-        const { count } = await query;
-        return count || 0;
-      })
+  if (!unreadRowsError) {
+    unreadChatCount = ((unreadRowsRaw || []) as Array<{ unread_count: number | null }>).reduce(
+      (sum, row) => sum + Number(row.unread_count || 0),
+      0
     );
+  } else if (isSupabaseMissingFunctionError(unreadRowsError)) {
+    // Fallback for environments that haven't applied sql/chat_unread_counts.sql yet.
+    const { data: myMembershipsRaw, error: myMembershipsError } = await supabase
+      .from("chat_conversation_members")
+      .select("conversation_id,last_read_at")
+      .eq("user_id", user.id);
 
-    unreadChatCount = unreadCounts.reduce((sum, count) => sum + count, 0);
-  } else if (myMembershipsError && !isSupabaseMissingTableError(myMembershipsError)) {
-    unreadChatCount = 0;
+    if (!myMembershipsError && (myMembershipsRaw || []).length) {
+      const myMemberships = (myMembershipsRaw || []) as Array<{
+        conversation_id: string;
+        last_read_at: string | null;
+      }>;
+
+      const unreadCounts = await Promise.all(
+        myMemberships.map(async (membership) => {
+          let query = supabase
+            .from("chat_messages")
+            .select("id", { count: "exact", head: true })
+            .eq("conversation_id", membership.conversation_id)
+            .neq("sender_id", user.id);
+          if (membership.last_read_at) {
+            query = query.gt("created_at", membership.last_read_at);
+          }
+          const { count } = await query;
+          return count || 0;
+        })
+      );
+
+      unreadChatCount = unreadCounts.reduce((sum, count) => sum + count, 0);
+    } else if (myMembershipsError && !isSupabaseMissingTableError(myMembershipsError)) {
+      console.error("[layout.chat.unread.fallback]", myMembershipsError.message);
+    }
+  } else if (!isSupabaseMissingTableError(unreadRowsError)) {
+    console.error("[layout.chat.unread.rpc]", unreadRowsError.message);
   }
 
   return (
