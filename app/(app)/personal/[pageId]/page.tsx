@@ -735,30 +735,13 @@ export default async function PersonalPage(props: {
       .single();
 
     if (error && isMissingColumnError(error)) {
-      const { error: fallbackError } = await supabase.from("notes").insert({
-        client_id: clientId,
-        project_id: null,
-        content: contentText,
-        visibility,
-        user_id: user.id,
-      });
-
-      if (fallbackError) {
-        const sp = new URLSearchParams();
-        sp.set("tab", "notes");
-        sp.set("error", fallbackError.message);
-        redirect(`/personal/${pageId}?${sp.toString()}`);
-      }
-
-      revalidatePath(`/clients/${clientId}/notes`);
-      revalidatePath(`/clients/${clientId}`);
-      revalidatePath(`/personal/${pageId}`);
-      {
-        const sp = new URLSearchParams();
-        sp.set("tab", "notes");
-        sp.set("success", "Linked to client note");
-        redirect(`/personal/${pageId}?${sp.toString()}`);
-      }
+      const sp = new URLSearchParams();
+      sp.set("tab", "notes");
+      sp.set(
+        "error",
+        "Linked notes require sql/client_notes_linked_personal_pages.sql in Supabase."
+      );
+      redirect(`/personal/${pageId}?${sp.toString()}`);
     }
 
     if (error || !note) {

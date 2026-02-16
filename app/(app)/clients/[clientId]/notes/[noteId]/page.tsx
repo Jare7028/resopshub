@@ -63,17 +63,29 @@ export default async function ClientNotePage(props: {
   }
 
   const linkedPersonalPageId = note.source_personal_page_id || null;
+  const { data: linkedPersonalPage } = linkedPersonalPageId
+    ? await supabase
+        .from("personal_pages")
+        .select("id,title,content,updated_at,last_edited_at,last_edited_by_user_id")
+        .eq("id", linkedPersonalPageId)
+        .maybeSingle()
+    : { data: null };
+  const linkedPersonalPageMissing = Boolean(linkedPersonalPageId && !linkedPersonalPage);
+  const resolvedTitle = linkedPersonalPage?.title || note.title || "Untitled";
 
   const initialContent =
-    note.content_json ?? plainTextToTiptapDoc(note.content || "");
+    linkedPersonalPage?.content ?? note.content_json ?? plainTextToTiptapDoc(note.content || "");
 
-  const lastEditedAtLabel = note.last_edited_at
-    ? new Date(note.last_edited_at).toLocaleString("en-US")
-    : note.created_at
-    ? new Date(note.created_at).toLocaleString("en-US")
+  const resolvedLastEditedAt = linkedPersonalPage?.last_edited_at || linkedPersonalPage?.updated_at
+    || note.last_edited_at
+    || note.created_at;
+
+  const lastEditedAtLabel = resolvedLastEditedAt
+    ? new Date(resolvedLastEditedAt).toLocaleString("en-US")
     : null;
 
-  const lastEditorId = note.last_edited_by_user_id || note.user_id || null;
+  const lastEditorId =
+    linkedPersonalPage?.last_edited_by_user_id || note.last_edited_by_user_id || note.user_id || null;
   const { data: lastEditor } = lastEditorId
     ? await supabase
         .from("users")
@@ -100,6 +112,24 @@ export default async function ClientNotePage(props: {
     const editorId = authData.user?.id ?? null;
     const now = new Date().toISOString();
 
+    if (linkedPersonalPageId) {
+      const { error: linkedPageError } = await supabase
+        .from("personal_pages")
+        .update({
+          title,
+          updated_at: now,
+          last_edited_at: now,
+          last_edited_by_user_id: editorId,
+        })
+        .eq("id", linkedPersonalPageId);
+
+      if (linkedPageError) {
+        redirect(
+          `/clients/${clientId}/notes/${noteId}?error=${encodeURIComponent(linkedPageError.message)}`
+        );
+      }
+    }
+
     const { error } = await supabase
       .from("notes")
       .update({
@@ -113,22 +143,6 @@ export default async function ClientNotePage(props: {
 
     if (error) {
       redirect(`/clients/${clientId}/notes/${noteId}?error=${encodeURIComponent(error.message)}`);
-    }
-
-    if (linkedPersonalPageId) {
-      const { error: linkedPageSyncError } = await supabase
-        .from("personal_pages")
-        .update({
-          title,
-          updated_at: now,
-          last_edited_at: now,
-          last_edited_by_user_id: editorId,
-        })
-        .eq("id", linkedPersonalPageId);
-
-      if (linkedPageSyncError && !isMissingColumnError(linkedPageSyncError)) {
-        console.error("[clientNotes.updateNoteDetails.personal.syncTitle]", linkedPageSyncError.message);
-      }
     }
 
     revalidatePath(`/clients/${clientId}/notes/${noteId}`);
@@ -169,7 +183,7 @@ export default async function ClientNotePage(props: {
           <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Client note
           </p>
-          <h1 className="text-2xl font-semibold text-slate-900">{note.title}</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">{resolvedTitle}</h1>
           <p className="text-sm text-slate-600">
             <Link href={`/clients/${clientId}`} className="hover:underline">
               {client.name}
@@ -179,13 +193,21 @@ export default async function ClientNotePage(props: {
               Notes
             </Link>
           </p>
+          {linkedPersonalPageId ? (
+            <p className="text-xs text-slate-500">
+              Linked personal page:{" "}
+              <Link href={`/personal/${linkedPersonalPageId}`} className="font-semibold hover:underline">
+                Open in Personal
+              </Link>
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-col items-end gap-3">
           <form action={updateNoteDetails} className="flex flex-wrap items-end gap-2">
             <input
               name="title"
-              defaultValue={note.title || ""}
+              defaultValue={resolvedTitle}
               className="min-w-[240px] rounded-md border border-slate-300 px-3 py-2 text-sm"
               placeholder="Note title"
               required
@@ -211,7 +233,7 @@ export default async function ClientNotePage(props: {
 
           <form action={deleteNote}>
             <ConfirmDelete
-              name={note.title || "this"}
+              name={resolvedTitle || "this"}
               itemType="Note"
               triggerLabel="Delete note"
               confirmLabel="Confirm delete"
@@ -230,6 +252,11 @@ export default async function ClientNotePage(props: {
       {searchParams?.success ? (
         <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
           {searchParams.success}
+        </p>
+      ) : null}
+      {linkedPersonalPageMissing ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          This note is linked to a personal page, but that page is not accessible. Showing cached note content.
         </p>
       ) : null}
 

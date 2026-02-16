@@ -985,7 +985,12 @@ const NoteShape = TiptapNode.create({
       };
 
       const commitNodeAttrs = (next: NoteShapeAttrs) => {
-        const pos = typeof getPos === "function" ? getPos() : null;
+        const pos = resolveNodePositionByType(
+          editor,
+          typeof getPos === "function" ? getPos : undefined,
+          dom,
+          "noteShape"
+        );
         if (typeof pos !== "number") {
           return;
         }
@@ -1030,6 +1035,7 @@ const NoteShape = TiptapNode.create({
           clientY: startEvent.clientY,
         };
         let liveAttrs = startState.attrs;
+        let finished = false;
 
         const handleMove = (moveEvent: PointerEvent) => {
           moveEvent.preventDefault();
@@ -1037,10 +1043,22 @@ const NoteShape = TiptapNode.create({
           applyToDom(liveAttrs);
         };
 
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === "hidden") {
+            finish();
+          }
+        };
+
         const finish = () => {
+          if (finished) {
+            return;
+          }
+          finished = true;
           window.removeEventListener("pointermove", handleMove);
           window.removeEventListener("pointerup", handleUp);
           window.removeEventListener("pointercancel", handleUp);
+          window.removeEventListener("blur", handleUp);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
           if (pointerTarget) {
             try {
               pointerTarget.releasePointerCapture(pointerId);
@@ -1056,6 +1074,8 @@ const NoteShape = TiptapNode.create({
         window.addEventListener("pointermove", handleMove);
         window.addEventListener("pointerup", handleUp);
         window.addEventListener("pointercancel", handleUp);
+        window.addEventListener("blur", handleUp);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
 
         applyToDom(startState.attrs);
 
@@ -1084,6 +1104,7 @@ const NoteShape = TiptapNode.create({
           clientY: startEvent.clientY,
         };
         let liveAttrs = startState.attrs;
+        let finished = false;
 
         const handleMove = (moveEvent: MouseEvent) => {
           moveEvent.preventDefault();
@@ -1091,9 +1112,21 @@ const NoteShape = TiptapNode.create({
           applyToDom(liveAttrs);
         };
 
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === "hidden") {
+            finish();
+          }
+        };
+
         const finish = () => {
+          if (finished) {
+            return;
+          }
+          finished = true;
           window.removeEventListener("mousemove", handleMove);
           window.removeEventListener("mouseup", handleUp);
+          window.removeEventListener("blur", handleUp);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
           commitNodeAttrs(liveAttrs);
         };
 
@@ -1101,6 +1134,8 @@ const NoteShape = TiptapNode.create({
 
         window.addEventListener("mousemove", handleMove);
         window.addEventListener("mouseup", handleUp);
+        window.addEventListener("blur", handleUp);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
 
         applyToDom(startState.attrs);
       };
@@ -1290,7 +1325,12 @@ const NoteTextBox = TiptapNode.create({
       };
 
       const commitNodeAttrs = (next: NoteTextBoxAttrs) => {
-        const pos = typeof getPos === "function" ? getPos() : null;
+        const pos = resolveNodePositionByType(
+          editor,
+          typeof getPos === "function" ? getPos : undefined,
+          dom,
+          "noteTextBox"
+        );
         if (typeof pos !== "number") {
           return;
         }
@@ -1337,6 +1377,7 @@ const NoteTextBox = TiptapNode.create({
           clientY: startEvent.clientY,
         };
         let liveAttrs = startState.attrs;
+        let finished = false;
 
         const handleMove = (moveEvent: PointerEvent) => {
           moveEvent.preventDefault();
@@ -1344,10 +1385,22 @@ const NoteTextBox = TiptapNode.create({
           applyToDom(liveAttrs);
         };
 
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === "hidden") {
+            finish();
+          }
+        };
+
         const finish = () => {
+          if (finished) {
+            return;
+          }
+          finished = true;
           window.removeEventListener("pointermove", handleMove);
           window.removeEventListener("pointerup", handleUp);
           window.removeEventListener("pointercancel", handleUp);
+          window.removeEventListener("blur", handleUp);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
           if (pointerTarget) {
             try {
               pointerTarget.releasePointerCapture(pointerId);
@@ -1363,6 +1416,8 @@ const NoteTextBox = TiptapNode.create({
         window.addEventListener("pointermove", handleMove);
         window.addEventListener("pointerup", handleUp);
         window.addEventListener("pointercancel", handleUp);
+        window.addEventListener("blur", handleUp);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
 
         applyToDom(startState.attrs);
       };
@@ -1389,6 +1444,7 @@ const NoteTextBox = TiptapNode.create({
           clientY: startEvent.clientY,
         };
         let liveAttrs = startState.attrs;
+        let finished = false;
 
         const handleMove = (moveEvent: MouseEvent) => {
           moveEvent.preventDefault();
@@ -1396,9 +1452,21 @@ const NoteTextBox = TiptapNode.create({
           applyToDom(liveAttrs);
         };
 
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === "hidden") {
+            finish();
+          }
+        };
+
         const finish = () => {
+          if (finished) {
+            return;
+          }
+          finished = true;
           window.removeEventListener("mousemove", handleMove);
           window.removeEventListener("mouseup", handleUp);
+          window.removeEventListener("blur", handleUp);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
           commitNodeAttrs(liveAttrs);
         };
 
@@ -1406,6 +1474,8 @@ const NoteTextBox = TiptapNode.create({
 
         window.addEventListener("mousemove", handleMove);
         window.addEventListener("mouseup", handleUp);
+        window.addEventListener("blur", handleUp);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
 
         applyToDom(startState.attrs);
       };
@@ -1791,6 +1861,53 @@ function isOverlayNodeTypeName(name: string): name is OverlayNodeType {
   return name === "noteShape" || name === "noteTextBox";
 }
 
+function resolveNodePositionByType(
+  editor: Editor,
+  getPos: (() => number | undefined) | undefined,
+  dom: HTMLElement,
+  nodeType: OverlayNodeType
+) {
+  const resolveFromRawPos = (rawPos: number | null | undefined) => {
+    if (typeof rawPos !== "number" || Number.isNaN(rawPos)) {
+      return null;
+    }
+
+    const docSize = editor.state.doc.content.size;
+    const safePos = Math.max(0, Math.min(rawPos, docSize));
+    const directNode = editor.state.doc.nodeAt(safePos);
+    if (directNode && directNode.type.name === nodeType) {
+      return safePos;
+    }
+
+    const resolvedPos = editor.state.doc.resolve(safePos);
+    for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
+      const node = resolvedPos.node(depth);
+      if (node.type.name === nodeType) {
+        return resolvedPos.before(depth);
+      }
+    }
+
+    return null;
+  };
+
+  if (typeof getPos === "function") {
+    try {
+      const pos = resolveFromRawPos(getPos());
+      if (typeof pos === "number") {
+        return pos;
+      }
+    } catch {
+      // Fall back to DOM-based lookup when NodeView position is stale.
+    }
+  }
+
+  try {
+    return resolveFromRawPos(editor.view.posAtDOM(dom, 0));
+  } catch {
+    return null;
+  }
+}
+
 function resolveOverlayNodeFromContextMenuTarget(
   editor: Editor,
   target: Element | null,
@@ -1951,6 +2068,26 @@ export default function NoteEditorClient({
   const [saveError, setSaveError] = useState("");
   const [defaultFontFamilyLabel, setDefaultFontFamilyLabel] = useState("Arial");
   const [defaultFontSizeLabel, setDefaultFontSizeLabel] = useState("14");
+
+  const flushPendingSave = useCallback(() => {
+    if (!saveTimer.current) {
+      return;
+    }
+    clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+
+    const currentEditor = editorRef.current;
+    if (!currentEditor) {
+      return;
+    }
+
+    const json = currentEditor.getJSON();
+    void onSave(entityId, json).catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : "Unable to save your changes.";
+      console.error("[noteEditor.save.flush]", message);
+    });
+  }, [entityId, onSave]);
 
   const [taskCreator, setTaskCreator] = useState<{
     open: boolean;
@@ -2611,6 +2748,7 @@ export default function NoteEditorClient({
       }
       const json = editor.getJSON();
       saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
         startTransition(() => {
           void onSave(entityId, json).catch((error: unknown) => {
             const message =
@@ -2658,9 +2796,7 @@ export default function NoteEditorClient({
 
   useEffect(() => {
     return () => {
-      if (saveTimer.current) {
-        clearTimeout(saveTimer.current);
-      }
+      flushPendingSave();
       if (taskHoverOpenTimerRef.current) {
         clearTimeout(taskHoverOpenTimerRef.current);
       }
@@ -2674,7 +2810,23 @@ export default function NoteEditorClient({
         mentionFetchAbortRef.current.abort();
       }
     };
-  }, []);
+  }, [flushPendingSave]);
+
+  useEffect(() => {
+    const handlePageHide = () => flushPendingSave();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushPendingSave();
+      }
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [flushPendingSave]);
 
   useEffect(() => {
     if (!taskCreator.open) {
