@@ -5,7 +5,7 @@ import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
 
-type EmployeeInfoColumnKind = "text" | "number" | "dropdown" | "formula";
+type EmployeeInfoColumnKind = "text" | "number" | "date" | "dropdown" | "formula";
 
 export default function AddColumnPopover({
   formulaSuggestions,
@@ -50,6 +50,7 @@ export default function AddColumnPopover({
           >
             <option value="text">Text</option>
             <option value="number">Number</option>
+            <option value="date">Date</option>
             <option value="dropdown">Dropdown</option>
             <option value="formula">Formula</option>
           </select>

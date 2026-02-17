@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -27,7 +28,7 @@ type EmployeeInfoColumnRow = {
   id: string;
   key: string;
   label: string;
-  column_kind: "text" | "dropdown" | "formula" | "number";
+  column_kind: "text" | "dropdown" | "formula" | "number" | "date";
   formula: string | null;
   options_json: unknown;
   position: number;
@@ -38,6 +39,8 @@ type EmployeeInfoValueRow = {
   option_value: string | null;
 };
 
+const EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY = "employee_info_visible_fields_v1";
+
 function parseOptionsJson(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
   return value
@@ -47,6 +50,13 @@ function parseOptionsJson(value: unknown) {
 
 function formatOptionsInput(value: unknown) {
   return parseOptionsJson(value).join(", ");
+}
+
+function toDateInputValue(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
 }
 
 function ColumnEditPanel({
@@ -166,6 +176,7 @@ function ColumnEditPanel({
           >
             <option value="text">Text</option>
             <option value="number">Number</option>
+            <option value="date">Date</option>
             <option value="dropdown">Dropdown</option>
             <option value="formula">Formula</option>
           </select>
@@ -241,6 +252,79 @@ export default function EmployeeInfoTable({
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newFullName, setNewFullName] = useState("");
   const [newClientId, setNewClientId] = useState("");
+  const [isFieldCustomizerOpen, setIsFieldCustomizerOpen] = useState(false);
+  const [showClientColumn, setShowClientColumn] = useState(true);
+  const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() => columns.map((c) => c.id));
+  const hasLoadedVisibilityRef = useRef(false);
+  const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
+
+  const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => visibleColumnIdSet.has(column.id)),
+    [columns, visibleColumnIdSet]
+  );
+  const columnIndexById = useMemo(() => {
+    const indexById: Record<string, number> = {};
+    columns.forEach((column, index) => {
+      indexById[column.id] = index;
+    });
+    return indexById;
+  }, [columns]);
+
+  useEffect(() => {
+    if (hasLoadedVisibilityRef.current) return;
+    hasLoadedVisibilityRef.current = true;
+    if (typeof window === "undefined") return;
+
+    const knownColumnIds = new Set(columns.map((column) => column.id));
+    try {
+      const raw = window.localStorage.getItem(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        show_client_column?: boolean;
+        visible_column_ids?: string[];
+      };
+      if (typeof parsed.show_client_column === "boolean") {
+        setShowClientColumn(parsed.show_client_column);
+      }
+      if (Array.isArray(parsed.visible_column_ids)) {
+        const normalized = parsed.visible_column_ids.filter((id) => knownColumnIds.has(String(id)));
+        setVisibleColumnIds(normalized);
+      }
+    } catch {
+      // Ignore invalid persisted preferences.
+    }
+  }, [columns]);
+
+  useEffect(() => {
+    setVisibleColumnIds((previous) => {
+      const previousVisibleSet = new Set(previous);
+      const previouslyKnownColumnIds = knownColumnIdsRef.current;
+      const next = previous.filter((columnId) => columns.some((column) => column.id === columnId));
+      columns.forEach((column) => {
+        if (!previouslyKnownColumnIds.has(column.id) && !previousVisibleSet.has(column.id)) {
+          next.push(column.id);
+        }
+      });
+      knownColumnIdsRef.current = new Set(columns.map((column) => column.id));
+      return next;
+    });
+  }, [columns]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY,
+        JSON.stringify({
+          show_client_column: showClientColumn,
+          visible_column_ids: visibleColumnIds,
+        })
+      );
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  }, [showClientColumn, visibleColumnIds]);
 
   const submitChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const form = event.currentTarget.form;
@@ -257,192 +341,307 @@ export default function EmployeeInfoTable({
     }
   };
 
+  const toggleColumnVisibility = (columnId: string) => {
+    setVisibleColumnIds((previous) => {
+      if (previous.includes(columnId)) {
+        return previous.filter((id) => id !== columnId);
+      }
+      return [...previous, columnId];
+    });
+  };
+
+  const showAllFields = () => {
+    setShowClientColumn(true);
+    setVisibleColumnIds(columns.map((column) => column.id));
+  };
+
   return (
-    <div
-      className="overflow-x-auto"
-      onMouseDown={preventMiddleClickAutoscroll}
-      onAuxClick={preventMiddleClickAutoscroll}
-    >
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="sticky left-0 top-0 z-40 border-r border-slate-200 bg-slate-50 px-4 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <span>Full Name</span>
-                <button
-                  type="button"
-                  aria-label="Add employee row"
-                  title="Add employee row"
-                  onClick={() => setIsAddingRow(true)}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
+    <div>
+      <div className="flex items-center justify-end border-b border-slate-200 px-4 py-3">
+        <details
+          className="relative"
+          open={isFieldCustomizerOpen}
+          onToggle={(event) => setIsFieldCustomizerOpen(event.currentTarget.open)}
+        >
+          <summary className="inline-flex h-9 cursor-pointer list-none items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden">
+            Customize fields
+          </summary>
+          <div className="absolute right-0 z-30 mt-2 w-72 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+            <p className="mb-2 text-[11px] text-slate-500">Choose which columns are visible.</p>
+            <label className="mb-1 flex items-center gap-2 rounded px-1 py-1 text-xs text-slate-700 hover:bg-slate-50">
+              <input
+                type="checkbox"
+                checked={showClientColumn}
+                onChange={(event) => setShowClientColumn(event.currentTarget.checked)}
+              />
+              <span>Client</span>
+            </label>
+            <div className="max-h-56 overflow-auto">
+              {columns.map((column) => (
+                <label
+                  key={column.id}
+                  className="mb-1 flex items-center gap-2 rounded px-1 py-1 text-xs text-slate-700 hover:bg-slate-50"
                 >
-                  +
-                </button>
-              </div>
-            </th>
-            <th className="sticky top-0 z-30 bg-slate-50 px-4 py-3">Client</th>
-            {columns.map((column, index) => (
-              <th key={column.id} className="sticky top-0 z-30 bg-slate-50 px-4 py-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex flex-col gap-0.5">
-                    <span>{column.label}</span>
-                  </div>
-                  {isAdmin ? (
-                    <ColumnEditPanel
-                      column={column}
-                      columnIndex={index}
-                      totalColumns={columns.length}
-                      formulaSuggestions={formulaSuggestions}
-                      onUpdateColumn={onUpdateColumn}
-                      onDeleteColumn={onDeleteColumn}
-                      onMoveColumn={onMoveColumn}
-                    />
-                  ) : null}
-                </div>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200 bg-white">
-          {isAddingRow ? (
-            <tr className="bg-slate-50/80">
-              <td className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/80 px-4 py-3">
-                <form id={createRecordFormId} action={onCreateRecord} />
-                <div className="flex items-center gap-2">
                   <input
-                    form={createRecordFormId}
-                    name="full_name"
-                    value={newFullName}
-                    placeholder="Add employee full name"
-                    aria-label="Add employee full name"
-                    className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                    onChange={(event) => setNewFullName(event.currentTarget.value)}
-                    autoFocus
-                    required
+                    type="checkbox"
+                    checked={visibleColumnIdSet.has(column.id)}
+                    onChange={() => toggleColumnVisibility(column.id)}
                   />
-                  <button
-                    type="submit"
-                    form={createRecordFormId}
-                    disabled={!newFullName.trim()}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Save
-                  </button>
+                  <span>{column.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={showAllFields}
+              >
+                Show all
+              </button>
+              <button
+                type="button"
+                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={() => setIsFieldCustomizerOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div
+        className="overflow-x-auto"
+        onMouseDown={preventMiddleClickAutoscroll}
+        onAuxClick={preventMiddleClickAutoscroll}
+      >
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="sticky left-0 top-0 z-40 border-r border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Full Name</span>
                   <button
                     type="button"
-                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                    onClick={() => {
-                      setIsAddingRow(false);
-                      setNewFullName("");
-                      setNewClientId("");
-                    }}
+                    aria-label="Add employee row"
+                    title="Add employee row"
+                    onClick={() => setIsAddingRow(true)}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
                   >
-                    Cancel
+                    +
                   </button>
                 </div>
-              </td>
-              <td className="px-4 py-3">
-                <select
-                  form={createRecordFormId}
-                  name="client_id"
-                  value={newClientId}
-                  aria-label="New employee client"
-                  className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                  onChange={(event) => setNewClientId(event.currentTarget.value)}
-                >
-                  <option value="">Client (N/A)</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              {columns.map((column) => (
-                <td key={`new-record-${column.id}`} className="px-4 py-3 text-xs text-slate-400">
-                  {column.column_kind === "formula" ? "auto" : "-"}
-                </td>
+              </th>
+              {showClientColumn ? (
+                <th className="sticky top-0 z-30 bg-slate-50 px-4 py-3">Client</th>
+              ) : null}
+              {visibleColumns.map((column) => (
+                <th key={column.id} className="sticky top-0 z-30 bg-slate-50 px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span>{column.label}</span>
+                    </div>
+                    {isAdmin ? (
+                      <ColumnEditPanel
+                        column={column}
+                        columnIndex={columnIndexById[column.id] || 0}
+                        totalColumns={columns.length}
+                        formulaSuggestions={formulaSuggestions}
+                        onUpdateColumn={onUpdateColumn}
+                        onDeleteColumn={onDeleteColumn}
+                        onMoveColumn={onMoveColumn}
+                      />
+                    ) : null}
+                  </div>
+                </th>
               ))}
             </tr>
-          ) : null}
-
-          {records.length ? (
-            records.map((record) => {
-              const valuesByColumnId = valuesByRecordId[record.id] || {};
-              const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
-              return (
-                <tr key={record.id}>
-                  <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3">
-                    <form>
-                      <input type="hidden" name="record_id" value={record.id} />
-                      <input type="hidden" name="base_field" value="full_name" />
-                      <input
-                        name="value"
-                        defaultValue={record.full_name}
-                        aria-label="Full name"
-                        className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                        onChange={submitChange}
-                      />
-                    </form>
-                  </td>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {isAddingRow ? (
+              <tr className="bg-slate-50/80">
+                <td className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/80 px-4 py-3">
+                  <form id={createRecordFormId} action={onCreateRecord} />
+                  <div className="flex items-center gap-2">
+                    <input
+                      form={createRecordFormId}
+                      name="full_name"
+                      value={newFullName}
+                      placeholder="Add employee full name"
+                      aria-label="Add employee full name"
+                      className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                      onChange={(event) => setNewFullName(event.currentTarget.value)}
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="submit"
+                      form={createRecordFormId}
+                      disabled={!newFullName.trim()}
+                      className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                      onClick={() => {
+                        setIsAddingRow(false);
+                        setNewFullName("");
+                        setNewClientId("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </td>
+                {showClientColumn ? (
                   <td className="px-4 py-3">
-                    <form>
-                      <input type="hidden" name="record_id" value={record.id} />
-                      <input type="hidden" name="base_field" value="client_id" />
-                      <select
-                        name="value"
-                        defaultValue={record.client_id || ""}
-                        aria-label="Client"
-                        className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                        onChange={submitChange}
-                      >
-                        <option value="">N/A</option>
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.name}
-                          </option>
-                        ))}
-                      </select>
-                    </form>
+                    <select
+                      form={createRecordFormId}
+                      name="client_id"
+                      value={newClientId}
+                      aria-label="New employee client"
+                      className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                      onChange={(event) => setNewClientId(event.currentTarget.value)}
+                    >
+                      <option value="">Client (N/A)</option>
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
                   </td>
-                  {columns.map((column) => {
-                    if (column.column_kind === "formula") {
-                      return (
-                        <td key={column.id} className="px-4 py-3 text-slate-700">
-                          {formulasByColumnId[column.id] || "-"}
-                        </td>
-                      );
-                    }
+                ) : null}
+                {visibleColumns.map((column) => (
+                  <td key={`new-record-${column.id}`} className="px-4 py-3 text-xs text-slate-400">
+                    {column.column_kind === "formula" ? "auto" : "-"}
+                  </td>
+                ))}
+              </tr>
+            ) : null}
 
-                    const valueRow = valuesByColumnId[column.id];
-                    if (column.column_kind === "dropdown") {
-                      const options = parseOptionsJson(column.options_json);
-                      return (
-                        <td key={column.id} className="px-4 py-3">
-                          <form>
-                            <input type="hidden" name="record_id" value={record.id} />
-                            <input type="hidden" name="column_id" value={column.id} />
-                            <input type="hidden" name="column_kind" value={column.column_kind} />
-                            <select
-                              name="value"
-                              defaultValue={valueRow?.option_value || ""}
-                              aria-label={column.label}
-                              className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                              onChange={submitChange}
-                            >
-                              <option value="">N/A</option>
-                              {options.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </form>
-                        </td>
-                      );
-                    }
+            {records.length ? (
+              records.map((record) => {
+                const valuesByColumnId = valuesByRecordId[record.id] || {};
+                const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
+                return (
+                  <tr key={record.id}>
+                    <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3">
+                      <form>
+                        <input type="hidden" name="record_id" value={record.id} />
+                        <input type="hidden" name="base_field" value="full_name" />
+                        <input
+                          name="value"
+                          defaultValue={record.full_name}
+                          aria-label="Full name"
+                          className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                          onChange={submitChange}
+                        />
+                      </form>
+                    </td>
+                    {showClientColumn ? (
+                      <td className="px-4 py-3">
+                        <form>
+                          <input type="hidden" name="record_id" value={record.id} />
+                          <input type="hidden" name="base_field" value="client_id" />
+                          <select
+                            name="value"
+                            defaultValue={record.client_id || ""}
+                            aria-label="Client"
+                            className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                            onChange={submitChange}
+                          >
+                            <option value="">N/A</option>
+                            {clients.map((client) => (
+                              <option key={client.id} value={client.id}>
+                                {client.name}
+                              </option>
+                            ))}
+                          </select>
+                        </form>
+                      </td>
+                    ) : null}
+                    {visibleColumns.map((column) => {
+                      if (column.column_kind === "formula") {
+                        return (
+                          <td key={column.id} className="px-4 py-3 text-slate-700">
+                            {formulasByColumnId[column.id] || "-"}
+                          </td>
+                        );
+                      }
 
-                    if (column.column_kind === "number") {
+                      const valueRow = valuesByColumnId[column.id];
+                      if (column.column_kind === "dropdown") {
+                        const options = parseOptionsJson(column.options_json);
+                        return (
+                          <td key={column.id} className="px-4 py-3">
+                            <form>
+                              <input type="hidden" name="record_id" value={record.id} />
+                              <input type="hidden" name="column_id" value={column.id} />
+                              <input type="hidden" name="column_kind" value={column.column_kind} />
+                              <select
+                                name="value"
+                                defaultValue={valueRow?.option_value || ""}
+                                aria-label={column.label}
+                                className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                                onChange={submitChange}
+                              >
+                                <option value="">N/A</option>
+                                {options.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </form>
+                          </td>
+                        );
+                      }
+
+                      if (column.column_kind === "number") {
+                        return (
+                          <td key={column.id} className="px-4 py-3">
+                            <form>
+                              <input type="hidden" name="record_id" value={record.id} />
+                              <input type="hidden" name="column_id" value={column.id} />
+                              <input type="hidden" name="column_kind" value={column.column_kind} />
+                              <input
+                                type="number"
+                                step="any"
+                                inputMode="decimal"
+                                name="value"
+                                defaultValue={valueRow?.text_value || ""}
+                                aria-label={column.label}
+                                className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                                onChange={submitChange}
+                              />
+                            </form>
+                          </td>
+                        );
+                      }
+
+                      if (column.column_kind === "date") {
+                        return (
+                          <td key={column.id} className="px-4 py-3">
+                            <form>
+                              <input type="hidden" name="record_id" value={record.id} />
+                              <input type="hidden" name="column_id" value={column.id} />
+                              <input type="hidden" name="column_kind" value={column.column_kind} />
+                              <input
+                                type="date"
+                                name="value"
+                                defaultValue={toDateInputValue(valueRow?.text_value)}
+                                aria-label={column.label}
+                                className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                                onChange={submitChange}
+                              />
+                            </form>
+                          </td>
+                        );
+                      }
+
                       return (
                         <td key={column.id} className="px-4 py-3">
                           <form>
@@ -450,9 +649,6 @@ export default function EmployeeInfoTable({
                             <input type="hidden" name="column_id" value={column.id} />
                             <input type="hidden" name="column_kind" value={column.column_kind} />
                             <input
-                              type="number"
-                              step="any"
-                              inputMode="decimal"
                               name="value"
                               defaultValue={valueRow?.text_value || ""}
                               aria-label={column.label}
@@ -462,37 +658,23 @@ export default function EmployeeInfoTable({
                           </form>
                         </td>
                       );
-                    }
-
-                    return (
-                      <td key={column.id} className="px-4 py-3">
-                        <form>
-                          <input type="hidden" name="record_id" value={record.id} />
-                          <input type="hidden" name="column_id" value={column.id} />
-                          <input type="hidden" name="column_kind" value={column.column_kind} />
-                          <input
-                            name="value"
-                            defaultValue={valueRow?.text_value || ""}
-                            aria-label={column.label}
-                            className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                            onChange={submitChange}
-                          />
-                        </form>
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })
-          ) : (
-            <tr>
-              <td className="px-4 py-6 text-slate-500" colSpan={2 + columns.length}>
-                No employee records yet.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                    })}
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td
+                  className="px-4 py-6 text-slate-500"
+                  colSpan={1 + (showClientColumn ? 1 : 0) + visibleColumns.length}
+                >
+                  No employee records yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

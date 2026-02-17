@@ -24,7 +24,7 @@ type EmployeeInfoColumnRow = {
   id: string;
   key: string;
   label: string;
-  column_kind: "text" | "dropdown" | "formula" | "number";
+  column_kind: "text" | "dropdown" | "formula" | "number" | "date";
   formula: string | null;
   options_json: unknown;
   position: number;
@@ -67,6 +67,22 @@ function normalizeNumberCellValue(rawValue: string) {
   if (!normalized) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? String(parsed) : null;
+}
+
+function normalizeDateCellValue(rawValue: string) {
+  const normalized = String(rawValue || "").trim();
+  if (!normalized) return null;
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const isValid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+  return isValid ? normalized : null;
 }
 
 function buildFormulaSuggestions(columns: EmployeeInfoColumnRow[]) {
@@ -388,7 +404,11 @@ export default async function EmployeeInfoPage(props: {
     if (columnKind === "formula") return { ok: true };
 
     const normalizedValue =
-      columnKind === "number" ? normalizeNumberCellValue(value) : value;
+      columnKind === "number"
+        ? normalizeNumberCellValue(value)
+        : columnKind === "date"
+        ? normalizeDateCellValue(value)
+        : value;
     if (!normalizedValue) {
       const { error } = await supabase
         .from("employee_info_values")
@@ -602,6 +622,28 @@ export default async function EmployeeInfoPage(props: {
             ? valueRows
                 .map((row) => {
                   const normalizedValue = normalizeNumberCellValue(
+                    String(row.text_value || row.option_value || "")
+                  );
+                  if (!normalizedValue) return null;
+                  return {
+                    record_id: row.record_id,
+                    column_id: columnId,
+                    text_value: normalizedValue,
+                    option_value: null,
+                    updated_at: now,
+                  };
+                })
+                .filter((row): row is {
+                  record_id: string;
+                  column_id: string;
+                  text_value: string;
+                  option_value: null;
+                  updated_at: string;
+                } => Boolean(row))
+            : kind === "date"
+            ? valueRows
+                .map((row) => {
+                  const normalizedValue = normalizeDateCellValue(
                     String(row.text_value || row.option_value || "")
                   );
                   if (!normalizedValue) return null;

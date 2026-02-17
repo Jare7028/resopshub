@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { evaluateEmployeeFormula, formatFormulaResult } from "./employeeInfo";
+import {
+  evaluateEmployeeFormula,
+  formatFormulaResult,
+  normalizeEmployeeInfoColumnKind,
+} from "./employeeInfo";
+
+describe("normalizeEmployeeInfoColumnKind", () => {
+  it("accepts date as a valid employee info column kind", () => {
+    expect(normalizeEmployeeInfoColumnKind("date")).toBe("date");
+  });
+});
 
 describe("evaluateEmployeeFormula", () => {
   it("keeps arithmetic formulas working with named references", () => {

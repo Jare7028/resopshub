@@ -1,6 +1,6 @@
 import FormulaParser from "fast-formula-parser";
 
-export const EMPLOYEE_INFO_COLUMN_KINDS = ["text", "dropdown", "formula", "number"] as const;
+export const EMPLOYEE_INFO_COLUMN_KINDS = ["text", "dropdown", "formula", "number", "date"] as const;
 export type EmployeeInfoColumnKind = (typeof EMPLOYEE_INFO_COLUMN_KINDS)[number];
 
 export function isEmployeeInfoColumnKind(value: string): value is EmployeeInfoColumnKind {
