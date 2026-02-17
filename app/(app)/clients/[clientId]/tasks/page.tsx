@@ -333,29 +333,41 @@ export default async function ClientTasksPage(props: {
   if (taskIdsForSubtaskCounts.length) {
     const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await supabase
       .from("tasks")
-      .select("parent_task_id,status")
-      .in("parent_task_id", taskIdsForSubtaskCounts);
+      .select("parent_task_id")
+      .in("parent_task_id", taskIdsForSubtaskCounts)
+      .not("status", "in", "(completed,cancelled)");
 
     if (!subtasksForCountsError) {
       const subtasksForCounts = (subtasksForCountsRaw || []) as Array<{
         parent_task_id: string | null;
-        status: string | null;
       }>;
       for (const row of subtasksForCounts) {
         const parentId = row.parent_task_id;
-        const status = row.status || "";
         if (!parentId) continue;
-        if (status === "completed" || status === "cancelled") continue;
         openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
       }
     }
   }
-  const taskTemplatesFromTasksResponse = await supabase
-    .from("tasks")
-    .select("id,title,status,priority,due_time,recurrence_frequency,recurrence_lead_days")
-    .eq("status", "template")
-    .is("parent_task_id", null)
-    .order("title", { ascending: true });
+  const taskTemplatesFromTasksResponse =
+    createMode === "template"
+      ? await supabase
+          .from("tasks")
+          .select("id,title,status,priority,due_time,recurrence_frequency,recurrence_lead_days")
+          .eq("status", "template")
+          .is("parent_task_id", null)
+          .order("title", { ascending: true })
+      : {
+          data: [] as Array<{
+            id: string;
+            title: string;
+            status: string;
+            priority: string;
+            due_time: string | null;
+            recurrence_frequency: string | null;
+            recurrence_lead_days: number | null;
+          }>,
+          error: null,
+        };
   const taskTemplatesFromTasksError = isTemplateStatusEnumError(
     taskTemplatesFromTasksResponse.error
   )

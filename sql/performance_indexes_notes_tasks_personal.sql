@@ -28,6 +28,19 @@ create index if not exists idx_tasks_parent_due_date
 create index if not exists idx_tasks_status_parent_title
   on public.tasks(status, parent_task_id, title);
 
+create index if not exists idx_tasks_root_project_created_at
+  on public.tasks(project_id, created_at desc)
+  where parent_task_id is null;
+
+create index if not exists idx_tasks_root_project_open
+  on public.tasks(project_id)
+  where parent_task_id is null
+    and status not in ('completed', 'cancelled');
+
+create index if not exists idx_tasks_root_client_created_at
+  on public.tasks(client_id, created_at desc)
+  where parent_task_id is null;
+
 create index if not exists idx_notes_user_last_edited_at
   on public.notes(user_id, last_edited_at desc);
 

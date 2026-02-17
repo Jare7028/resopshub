@@ -547,29 +547,29 @@ export default async function TasksPage(props: {
       .order("created_at", { ascending: false })
       .limit(MAX_TASK_ROWS);
 
-    const [primaryAssignedRows, assignedRows, watcherRows, createdByRows] = await Promise.all([
-      supabase
-        .from("tasks")
-        .select("id")
-        .in("assignee_user_id", assignmentUserIds)
-        .is("parent_task_id", null),
-      supabase.from("task_assignees").select("task_id").in("user_id", assignmentUserIds),
-      includeWatching
+    const [directVisibilityRows, assignedRows, watcherRows] = await Promise.all([
+      assignmentUserIds.length
+        ? supabase
+            .from("tasks")
+            .select("id")
+            .is("parent_task_id", null)
+            .or(
+              `assignee_user_id.in.(${assignmentUserIds.join(",")}),created_by_user_id.in.(${assignmentUserIds.join(",")})`
+            )
+        : Promise.resolve({ data: [] as Array<{ id: string | null }> }),
+      assignmentUserIds.length
+        ? supabase.from("task_assignees").select("task_id").in("user_id", assignmentUserIds)
+        : Promise.resolve({ data: [] as Array<{ task_id: string | null }> }),
+      includeWatching && assignmentUserIds.length
         ? supabase.from("task_watchers").select("task_id").in("user_id", assignmentUserIds)
         : Promise.resolve({ data: [] as Array<{ task_id: string | null }> }),
-      supabase
-        .from("tasks")
-        .select("id")
-        .in("created_by_user_id", assignmentUserIds)
-        .is("parent_task_id", null),
     ]);
 
     const allowedTaskIds = Array.from(
       new Set([
-        ...(primaryAssignedRows.data || []).map((row) => row.id).filter(Boolean),
+        ...(directVisibilityRows.data || []).map((row) => row.id).filter(Boolean),
         ...(assignedRows.data || []).map((row) => row.task_id).filter(Boolean),
         ...(watcherRows.data || []).map((row) => row.task_id).filter(Boolean),
-        ...(createdByRows.data || []).map((row) => row.id).filter(Boolean),
       ])
     );
 

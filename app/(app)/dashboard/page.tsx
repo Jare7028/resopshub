@@ -440,15 +440,17 @@ export default async function DashboardPage(props: {
     string,
     { userId: string; userName: string; open: number; blocked: number; overdue: number; projects: number }
   >();
+  const userNameById = new Map<string, string>();
+  (users || []).forEach((user) => {
+    userNameById.set(user.id, user.full_name || user.email || "Unknown");
+  });
+  const projectIdsByUserId = new Map<string, Set<string>>();
 
   openTasks.forEach((task) => {
     const userId = task.assignee_user_id || "unassigned";
-    const userName =
-      task.assignee_user_id && users
-        ? users.find((user) => user.id === task.assignee_user_id)?.full_name ||
-          users.find((user) => user.id === task.assignee_user_id)?.email ||
-          "Unknown"
-        : "Unassigned";
+    const userName = task.assignee_user_id
+      ? userNameById.get(task.assignee_user_id) || "Unknown"
+      : "Unassigned";
 
     if (!userWorkloadMap.has(userId)) {
       userWorkloadMap.set(userId, {
@@ -471,16 +473,16 @@ export default async function DashboardPage(props: {
     if (task.due_date && task.due_date < todayIso) {
       entry.overdue += 1;
     }
+    if (task.project_id) {
+      if (!projectIdsByUserId.has(userId)) {
+        projectIdsByUserId.set(userId, new Set<string>());
+      }
+      projectIdsByUserId.get(userId)?.add(task.project_id);
+    }
   });
 
   userWorkloadMap.forEach((entry, key) => {
-    const projectIds = new Set(
-      openTasks
-        .filter((task) => (task.assignee_user_id || "unassigned") === key)
-        .map((task) => task.project_id)
-        .filter(Boolean)
-    );
-    entry.projects = projectIds.size;
+    entry.projects = projectIdsByUserId.get(key)?.size || 0;
   });
 
   const userWorkload = Array.from(userWorkloadMap.values()).sort(

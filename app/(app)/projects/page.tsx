@@ -376,10 +376,9 @@ export default async function ProjectsPage(props: {
 
   let assignedProjectIds: string[] = [];
   let watchedProjectIds: string[] = [];
-  let createdProjectIds: string[] = [];
 
   if (currentUserId) {
-    const [{ data: assignedRows }, { data: watcherRows }, { data: createdRows }] =
+    const [{ data: assignedRows }, { data: watcherRows }] =
       await Promise.all([
         supabase.from("project_users").select("project_id").eq("user_id", currentUserId),
         includeWatching
@@ -388,7 +387,6 @@ export default async function ProjectsPage(props: {
               .select("project_id")
               .eq("user_id", currentUserId)
           : Promise.resolve({ data: [] as Array<{ project_id: string | null }> }),
-        supabase.from("projects").select("id").eq("created_by_user_id", currentUserId),
       ]);
 
     assignedProjectIds = (assignedRows || [])
@@ -397,26 +395,22 @@ export default async function ProjectsPage(props: {
     watchedProjectIds = (watcherRows || [])
       .map((row) => row.project_id)
       .filter(Boolean) as string[];
-    createdProjectIds = (createdRows || [])
-      .map((row) => row.id)
-      .filter(Boolean) as string[];
   }
-
-  const allowedProjectIds = Array.from(
-    new Set([
-      ...assignedProjectIds,
-      ...watchedProjectIds,
-      ...createdProjectIds,
-    ])
-  );
 
   let request = supabase
     .from("projects")
     .select("id,name,status,start_date,end_date,created_at,client_id,clients(name)")
     .order("created_at", { ascending: false });
 
-  if (allowedProjectIds.length) {
-    request = request.in("id", allowedProjectIds);
+  if (currentUserId) {
+    const visibilityOrFilters: string[] = [`created_by_user_id.eq.${currentUserId}`];
+    if (assignedProjectIds.length) {
+      visibilityOrFilters.push(`id.in.(${assignedProjectIds.join(",")})`);
+    }
+    if (watchedProjectIds.length) {
+      visibilityOrFilters.push(`id.in.(${watchedProjectIds.join(",")})`);
+    }
+    request = request.or(visibilityOrFilters.join(","));
   } else {
     request = request.eq("id", "00000000-0000-0000-0000-000000000000");
   }
@@ -477,7 +471,8 @@ export default async function ProjectsPage(props: {
         "id,project_id,client_id,title,status,priority,start_date,due_date,due_time,parent_task_id,assignee_user_id,projects(name),clients(name)"
       )
       .in("project_id", projectIdsForCounts)
-      .is("parent_task_id", null);
+      .is("parent_task_id", null)
+      .not("status", "in", "(completed,cancelled)");
 
     if (!tasksForCountsError) {
       const tasksForCounts = (tasksForCountsRaw || []) as Array<{
@@ -510,9 +505,7 @@ export default async function ProjectsPage(props: {
       }
       for (const row of tasksForCounts) {
         const projectId = row.project_id;
-        const status = row.status || "";
         if (!projectId) continue;
-        if (status === "completed" || status === "cancelled") continue;
         openTaskCountByProjectId[projectId] = (openTaskCountByProjectId[projectId] || 0) + 1;
         if (!openTasksByProjectId[projectId]) {
           openTasksByProjectId[projectId] = [];
@@ -572,10 +565,16 @@ export default async function ProjectsPage(props: {
     status: string;
   };
 
-  const { data: projectTemplatesRaw, error: projectTemplatesError } = await supabase
-    .from("project_templates")
-    .select("id,name,description,status")
-    .order("name", { ascending: true });
+  const shouldLoadProjectTemplates = activeTab === "add" || createMode === "template";
+  const { data: projectTemplatesRaw, error: projectTemplatesError } = shouldLoadProjectTemplates
+    ? await supabase
+        .from("project_templates")
+        .select("id,name,description,status")
+        .order("name", { ascending: true })
+    : {
+        data: [] as ProjectTemplateRow[],
+        error: null,
+      };
 
   const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
   const templateOptions = projectTemplates.map((template) => ({

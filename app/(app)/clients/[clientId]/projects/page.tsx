@@ -172,20 +172,18 @@ export default async function ClientProjectsPage(props: {
   if (projectIdsForCounts.length) {
     const { data: tasksForCountsRaw, error: tasksForCountsError } = await supabase
       .from("tasks")
-      .select("project_id,status,parent_task_id")
+      .select("project_id,parent_task_id")
       .in("project_id", projectIdsForCounts)
-      .is("parent_task_id", null);
+      .is("parent_task_id", null)
+      .not("status", "in", "(completed,cancelled)");
 
     if (!tasksForCountsError) {
       const tasksForCounts = (tasksForCountsRaw || []) as Array<{
         project_id: string | null;
-        status: string | null;
       }>;
       for (const row of tasksForCounts) {
         const projectId = row.project_id;
-        const status = row.status || "";
         if (!projectId) continue;
-        if (status === "completed" || status === "cancelled") continue;
         openTaskCountByProjectId[projectId] = (openTaskCountByProjectId[projectId] || 0) + 1;
       }
     }
@@ -198,10 +196,16 @@ export default async function ClientProjectsPage(props: {
     status: string;
   };
 
-  const { data: projectTemplatesRaw, error: projectTemplatesError } = await supabase
-    .from("project_templates")
-    .select("id,name,description,status")
-    .order("name", { ascending: true });
+  const { data: projectTemplatesRaw, error: projectTemplatesError } =
+    createMode === "template"
+      ? await supabase
+          .from("project_templates")
+          .select("id,name,description,status")
+          .order("name", { ascending: true })
+      : {
+          data: [] as ProjectTemplateRow[],
+          error: null,
+        };
 
   const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
   const selectedTemplate =
