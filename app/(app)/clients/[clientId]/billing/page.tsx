@@ -1,4 +1,4 @@
-﻿import { notFound, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -24,6 +24,8 @@ import {
 } from "@/lib/employeeInfo";
 import RevenueChargesEditor from "./RevenueChargesEditor";
 import EmployeeMonthlyCostBreakdownPopover from "./EmployeeMonthlyCostBreakdownPopover";
+import EstimatedMonthlyRevenueBreakdownPopover from "./EstimatedMonthlyRevenueBreakdownPopover";
+import MonthlyCostSourcesEditor from "./MonthlyCostSourcesEditor";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -57,6 +59,7 @@ type BillingProfileRevenueRow = {
   hourly_rate: number | string | null;
   total_billable_hours: number | string | null;
   revenue_charge_items: unknown;
+  monthly_cost_items: unknown;
 };
 
 type BillingRevenueChargeMode = "per_user" | "monthly";
@@ -66,6 +69,27 @@ type BillingRevenueChargeItem = {
   label: string;
   amount: number;
   mode: BillingRevenueChargeMode;
+};
+
+type BillingMonthlyCostSourceKind = "employee_column" | "custom";
+type BillingMonthlyCostCustomMode = "per_user" | "monthly";
+
+type BillingMonthlyCostItem = {
+  id: string;
+  source: BillingMonthlyCostSourceKind;
+  column_id: string | null;
+  label: string;
+  amount: number;
+  mode: BillingMonthlyCostCustomMode;
+};
+
+type BillingMonthlyCostCustomBreakdownRow = {
+  id: string;
+  label: string;
+  mode: BillingMonthlyCostCustomMode;
+  amount: number;
+  quantity: number;
+  totalAmount: number;
 };
 
 type EmployeeMonthlyCostSummary = {
@@ -80,6 +104,7 @@ type EmployeeMonthlyCostSummary = {
     contributingRowCount: number;
     totalAmount: number;
   }>;
+  customBreakdownRows: BillingMonthlyCostCustomBreakdownRow[];
   isConfigured: boolean;
   hasMissingExchangeRate: boolean;
   errorMessage: string | null;
@@ -113,6 +138,16 @@ function isTotalMonthlyCostColumn(column: EmployeeInfoColumnRow) {
   return (
     toEmployeeInfoColumnKey(column.key) === expectedKey ||
     toEmployeeInfoColumnKey(column.label) === expectedKey
+  );
+}
+
+function isSupportedMonthlyCostSourceColumn(column: EmployeeInfoColumnRow) {
+  return (
+    column.column_kind === "formula" ||
+    column.column_kind === "currency" ||
+    column.column_kind === "number" ||
+    column.column_kind === "text" ||
+    column.column_kind === "dropdown"
   );
 }
 
@@ -164,6 +199,14 @@ function parseNonNegativeNumberInput(value: FormDataEntryValue | null, label: st
 }
 
 function normalizeBillingRevenueChargeMode(value: unknown): BillingRevenueChargeMode {
+  return String(value || "").trim().toLowerCase() === "per_user" ? "per_user" : "monthly";
+}
+
+function normalizeBillingMonthlyCostSource(value: unknown): BillingMonthlyCostSourceKind {
+  return String(value || "").trim().toLowerCase() === "custom" ? "custom" : "employee_column";
+}
+
+function normalizeBillingMonthlyCostMode(value: unknown): BillingMonthlyCostCustomMode {
   return String(value || "").trim().toLowerCase() === "per_user" ? "per_user" : "monthly";
 }
 
@@ -260,6 +303,168 @@ function parseRevenueChargeItemsInput(value: FormDataEntryValue | null) {
   return { value: normalized, error: null as string | null };
 }
 
+function parseBillingMonthlyCostItems(value: unknown): BillingMonthlyCostItem[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized: BillingMonthlyCostItem[] = [];
+  value.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object") return;
+
+    const row = entry as {
+      id?: unknown;
+      source?: unknown;
+      column_id?: unknown;
+      label?: unknown;
+      amount?: unknown;
+      mode?: unknown;
+    };
+
+    const idRaw = String(row.id || "").trim();
+    const source = normalizeBillingMonthlyCostSource(row.source);
+
+    if (source === "employee_column") {
+      const columnId = String(row.column_id || "").trim();
+      if (!columnId) return;
+
+      normalized.push({
+        id: idRaw || `cost_source_${index + 1}`,
+        source,
+        column_id: columnId,
+        label: String(row.label || "").trim(),
+        amount: 0,
+        mode: "monthly",
+      });
+      return;
+    }
+
+    const label = String(row.label || "").trim();
+    const amountRaw = String(row.amount ?? "")
+      .trim()
+      .replace(/,/g, "");
+    const amount = Number(amountRaw);
+    if (!label || !Number.isFinite(amount) || amount < 0) return;
+
+    normalized.push({
+      id: idRaw || `cost_source_${index + 1}`,
+      source: "custom",
+      column_id: null,
+      label,
+      amount,
+      mode: normalizeBillingMonthlyCostMode(row.mode),
+    });
+  });
+
+  return normalized;
+}
+
+function parseMonthlyCostItemsInput(
+  value: FormDataEntryValue | null,
+  availableColumnsById: Map<string, EmployeeInfoColumnRow>
+) {
+  const raw = String(value || "").trim();
+  if (!raw) return { value: [] as BillingMonthlyCostItem[], error: null as string | null };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { value: [] as BillingMonthlyCostItem[], error: "Monthly cost sources are invalid." };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { value: [] as BillingMonthlyCostItem[], error: "Monthly cost sources are invalid." };
+  }
+
+  const normalized: BillingMonthlyCostItem[] = [];
+  for (let index = 0; index < parsed.length; index += 1) {
+    const entry = parsed[index];
+    if (!entry || typeof entry !== "object") continue;
+
+    const row = entry as {
+      id?: unknown;
+      source?: unknown;
+      column_id?: unknown;
+      label?: unknown;
+      amount?: unknown;
+      mode?: unknown;
+    };
+
+    const idRaw = String(row.id || "").trim();
+    const source = normalizeBillingMonthlyCostSource(row.source);
+
+    if (source === "employee_column") {
+      const columnId = String(row.column_id || "").trim();
+      if (!columnId) {
+        return {
+          value: [] as BillingMonthlyCostItem[],
+          error: `Cost source ${index + 1} must select an Employee Info column.`,
+        };
+      }
+      const column = availableColumnsById.get(columnId);
+      if (!column) {
+        return {
+          value: [] as BillingMonthlyCostItem[],
+          error: `Cost source ${index + 1} references a column that no longer exists.`,
+        };
+      }
+      if (!isSupportedMonthlyCostSourceColumn(column)) {
+        return {
+          value: [] as BillingMonthlyCostItem[],
+          error: `"${column.label}" cannot be used as a monthly cost source.`,
+        };
+      }
+
+      normalized.push({
+        id: idRaw || `cost_source_${index + 1}`,
+        source: "employee_column",
+        column_id: columnId,
+        label: column.label,
+        amount: 0,
+        mode: "monthly",
+      });
+      continue;
+    }
+
+    const label = String(row.label || "").trim();
+    const amountRaw = String(row.amount ?? "")
+      .trim()
+      .replace(/,/g, "");
+
+    if (!label && !amountRaw) continue;
+    if (!label) {
+      return {
+        value: [] as BillingMonthlyCostItem[],
+        error: `Custom cost ${index + 1} needs a label.`,
+      };
+    }
+
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount)) {
+      return {
+        value: [] as BillingMonthlyCostItem[],
+        error: `Custom cost "${label}" must have a valid amount.`,
+      };
+    }
+    if (amount < 0) {
+      return {
+        value: [] as BillingMonthlyCostItem[],
+        error: `Custom cost "${label}" cannot be negative.`,
+      };
+    }
+
+    normalized.push({
+      id: idRaw || `cost_source_${index + 1}`,
+      source: "custom",
+      column_id: null,
+      label,
+      amount,
+      mode: normalizeBillingMonthlyCostMode(row.mode),
+    });
+  }
+
+  return { value: normalized, error: null as string | null };
+}
+
 function formatPercent(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "-";
   const rounded = value.toFixed(1).replace(/\.0$/, "");
@@ -316,38 +521,55 @@ export default async function ClientBillingPage(props: {
 
   let { data: billingProfileRaw, error: billingProfileError } = await supabase
     .from("billing_profiles")
-    .select("id,currency,hourly_rate,total_billable_hours,revenue_charge_items")
+    .select("id,currency,hourly_rate,total_billable_hours,revenue_charge_items,monthly_cost_items")
     .eq("client_id", clientId)
     .maybeSingle();
 
   if (isSupabaseMissingColumnError(billingProfileError)) {
     billingRevenueColumnsMissing = true;
-    const fallbackProfile = await supabase
+    const fallbackProfileWithCharges = await supabase
       .from("billing_profiles")
+      .select("id,currency,hourly_rate,total_billable_hours,revenue_charge_items")
+      .eq("client_id", clientId)
+      .maybeSingle();
+    if (isSupabaseMissingColumnError(fallbackProfileWithCharges.error)) {
+      const fallbackProfile = await supabase
+        .from("billing_profiles")
       .select("id,currency,hourly_rate,total_billable_hours")
       .eq("client_id", clientId)
       .maybeSingle();
-    if (isSupabaseMissingColumnError(fallbackProfile.error)) {
-      const fallbackProfileMinimal = await supabase
-        .from("billing_profiles")
-        .select("id,currency")
-        .eq("client_id", clientId)
-        .maybeSingle();
-      billingProfileError = fallbackProfileMinimal.error;
-      billingProfileRaw = fallbackProfileMinimal.data
-        ? {
-            ...fallbackProfileMinimal.data,
-            hourly_rate: null,
-            total_billable_hours: null,
-            revenue_charge_items: [],
-          }
-        : null;
+      if (isSupabaseMissingColumnError(fallbackProfile.error)) {
+        const fallbackProfileMinimal = await supabase
+          .from("billing_profiles")
+          .select("id,currency")
+          .eq("client_id", clientId)
+          .maybeSingle();
+        billingProfileError = fallbackProfileMinimal.error;
+        billingProfileRaw = fallbackProfileMinimal.data
+          ? {
+              ...fallbackProfileMinimal.data,
+              hourly_rate: null,
+              total_billable_hours: null,
+              revenue_charge_items: [],
+              monthly_cost_items: [],
+            }
+          : null;
+      } else {
+        billingProfileError = fallbackProfile.error;
+        billingProfileRaw = fallbackProfile.data
+          ? {
+              ...fallbackProfile.data,
+              revenue_charge_items: [],
+              monthly_cost_items: [],
+            }
+          : null;
+      }
     } else {
-      billingProfileError = fallbackProfile.error;
-      billingProfileRaw = fallbackProfile.data
+      billingProfileError = fallbackProfileWithCharges.error;
+      billingProfileRaw = fallbackProfileWithCharges.data
         ? {
-            ...fallbackProfile.data,
-            revenue_charge_items: [],
+            ...fallbackProfileWithCharges.data,
+            monthly_cost_items: [],
           }
         : null;
     }
@@ -371,10 +593,13 @@ export default async function ClientBillingPage(props: {
     contributingRowCount: 0,
     roleColumnLabel: null,
     breakdownRows: [],
+    customBreakdownRows: [],
     isConfigured: false,
     hasMissingExchangeRate: false,
     errorMessage: null,
   };
+  let employeeColumnsForBilling: EmployeeInfoColumnRow[] = [];
+  let monthlyCostItems = parseBillingMonthlyCostItems(billingProfile?.monthly_cost_items);
 
   const { data: employeeRecordsRaw, error: employeeRecordsError } = await supabase
     .from("employee_info_records")
@@ -422,7 +647,62 @@ export default async function ClientBillingPage(props: {
       const employeeColumns = ((employeeColumnsRaw || []) as EmployeeInfoColumnRow[]).filter((row) =>
         hasStringId(row)
       );
-      const monthlyCostColumn = employeeColumns.find(isTotalMonthlyCostColumn);
+      employeeColumnsForBilling = employeeColumns;
+
+      const legacyMonthlyCostColumn = employeeColumns.find(isTotalMonthlyCostColumn);
+      if (
+        !monthlyCostItems.length &&
+        legacyMonthlyCostColumn &&
+        isSupportedMonthlyCostSourceColumn(legacyMonthlyCostColumn)
+      ) {
+        monthlyCostItems = [
+          {
+            id: "legacy_total_monthly_cost",
+            source: "employee_column",
+            column_id: legacyMonthlyCostColumn.id,
+            label: legacyMonthlyCostColumn.label,
+            amount: 0,
+            mode: "monthly",
+          },
+        ];
+      }
+
+      const employeeColumnById = new Map(employeeColumns.map((column) => [column.id, column]));
+      const employeeSourceItems = monthlyCostItems
+        .filter((item) => item.source === "employee_column" && !!item.column_id)
+        .map((item) => ({
+          item,
+          column: item.column_id ? employeeColumnById.get(item.column_id) || null : null,
+        }))
+        .filter(
+          (
+            entry
+          ): entry is {
+            item: BillingMonthlyCostItem;
+            column: EmployeeInfoColumnRow;
+          } => !!entry.column && isSupportedMonthlyCostSourceColumn(entry.column)
+        );
+      const customCostItems = monthlyCostItems.filter((item) => item.source === "custom");
+      employeeMonthlyCostSummary.customBreakdownRows = customCostItems.map((item, index) => {
+        const safeAmount = Number.isFinite(item.amount) && item.amount >= 0 ? item.amount : 0;
+        const quantity = item.mode === "per_user" ? employeeMonthlyCostSummary.clientRowCount : 1;
+        const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+        return {
+          id: item.id || `custom_cost_${index + 1}`,
+          label: item.label || `Custom cost ${index + 1}`,
+          mode: item.mode,
+          amount: safeAmount,
+          quantity: item.mode === "per_user" ? safeQuantity : 1,
+          totalAmount: safeAmount * (item.mode === "per_user" ? safeQuantity : 1),
+        };
+      });
+      employeeMonthlyCostSummary.customBreakdownRows.forEach((row) => {
+        employeeMonthlyCostSummary.amount += row.totalAmount;
+        employeeMonthlyCostSummary.contributingRowCount += row.mode === "per_user" ? row.quantity : 1;
+      });
+      employeeMonthlyCostSummary.isConfigured =
+        employeeSourceItems.length > 0 || customCostItems.length > 0;
+
       const roleBreakdownColumn =
         employeeColumns
           .map((column) => ({
@@ -438,35 +718,42 @@ export default async function ClientBillingPage(props: {
         employeeMonthlyCostSummary.roleColumnLabel = roleBreakdownColumn.label;
       }
 
-      if (monthlyCostColumn) {
-        employeeMonthlyCostSummary.isConfigured = true;
+      const roleBreakdownMap = new Map<
+        string,
+        {
+          roleLabel: string;
+          employeeCount: number;
+          contributingRowCount: number;
+          totalAmount: number;
+        }
+      >();
+      const employeeRecordIds = employeeRecords.map((row) => row.id).filter(Boolean);
+      let valuesByRecordId: ReturnType<typeof buildEmployeeInfoValueMap> = {};
 
-        const employeeRecordIds = employeeRecords.map((row) => row.id).filter(Boolean);
+      if (employeeRecordIds.length && (employeeSourceItems.length > 0 || roleBreakdownColumn !== null)) {
         let employeeValuesRaw: EmployeeInfoValueRow[] = [];
         let employeeValuesError: { message?: string; code?: string } | null = null;
-        if (employeeRecordIds.length) {
-          const employeeValuesResult = await supabase
-            .from("employee_info_values")
-            .select("record_id,column_id,text_value,option_value,money_currency_code")
-            .in("record_id", employeeRecordIds);
-          employeeValuesRaw = (employeeValuesResult.data || []) as EmployeeInfoValueRow[];
-          employeeValuesError = employeeValuesResult.error;
+        const employeeValuesResult = await supabase
+          .from("employee_info_values")
+          .select("record_id,column_id,text_value,option_value,money_currency_code")
+          .in("record_id", employeeRecordIds);
+        employeeValuesRaw = (employeeValuesResult.data || []) as EmployeeInfoValueRow[];
+        employeeValuesError = employeeValuesResult.error;
 
-          if (isSupabaseMissingColumnError(employeeValuesError)) {
-            const fallbackValuesResult = await supabase
-              .from("employee_info_values")
-              .select("record_id,column_id,text_value,option_value")
-              .in("record_id", employeeRecordIds);
-            employeeValuesError = fallbackValuesResult.error;
-            employeeValuesRaw = ((fallbackValuesResult.data || []) as Array<
-              Omit<EmployeeInfoValueRow, "money_currency_code">
-            >)
-              .filter((row) => !!row && !!row.record_id && !!row.column_id)
-              .map((row) => ({
-                ...row,
-                money_currency_code: null,
-              }));
-          }
+        if (isSupabaseMissingColumnError(employeeValuesError)) {
+          const fallbackValuesResult = await supabase
+            .from("employee_info_values")
+            .select("record_id,column_id,text_value,option_value")
+            .in("record_id", employeeRecordIds);
+          employeeValuesError = fallbackValuesResult.error;
+          employeeValuesRaw = ((fallbackValuesResult.data || []) as Array<
+            Omit<EmployeeInfoValueRow, "money_currency_code">
+          >)
+            .filter((row) => !!row && !!row.record_id && !!row.column_id)
+            .map((row) => ({
+              ...row,
+              money_currency_code: null,
+            }));
         }
 
         if (employeeValuesError && !isSupabaseMissingTableError(employeeValuesError)) {
@@ -475,286 +762,316 @@ export default async function ClientBillingPage(props: {
           const employeeValueRows = (
             isSupabaseMissingTableError(employeeValuesError) ? [] : employeeValuesRaw || []
           ) as EmployeeInfoValueRow[];
-          const valuesByRecordId = buildEmployeeInfoValueMap(employeeValueRows);
+          valuesByRecordId = buildEmployeeInfoValueMap(employeeValueRows);
+        }
+      }
 
-          const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
-            .from("employee_info_exchange_rates")
-            .select("base_currency_code,quote_currency_code,rate,effective_month_start")
-            .order("effective_month_start", { ascending: false });
+      const monthStart = `${new Date().toISOString().slice(0, 7)}-01`;
+      let exchangeRateMap = buildEmployeeInfoExchangeRateMap([], monthStart);
+      if (!employeeMonthlyCostSummary.errorMessage && employeeSourceItems.length > 0) {
+        const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
+          .from("employee_info_exchange_rates")
+          .select("base_currency_code,quote_currency_code,rate,effective_month_start")
+          .order("effective_month_start", { ascending: false });
 
-          if (exchangeRateError && !isSupabaseMissingTableError(exchangeRateError)) {
-            employeeMonthlyCostSummary.errorMessage = `Could not load Employee Info exchange rates (${exchangeRateError.message}).`;
-          } else {
-            const exchangeRateRows = (
-              isSupabaseMissingTableError(exchangeRateError) ? [] : exchangeRateRowsRaw || []
-            ) as EmployeeInfoExchangeRateRow[];
-            const monthStart = `${new Date().toISOString().slice(0, 7)}-01`;
-            const exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, monthStart);
+        if (exchangeRateError && !isSupabaseMissingTableError(exchangeRateError)) {
+          employeeMonthlyCostSummary.errorMessage = `Could not load Employee Info exchange rates (${exchangeRateError.message}).`;
+        } else {
+          const exchangeRateRows = (
+            isSupabaseMissingTableError(exchangeRateError) ? [] : exchangeRateRowsRaw || []
+          ) as EmployeeInfoExchangeRateRow[];
+          exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, monthStart);
+        }
+      }
 
-            const namedReferenceToDisplayIndex: Record<string, number> = {};
-            const registerReference = (token: string, displayIndex: number) => {
-              const cleaned = String(token || "").trim().toLowerCase();
-              if (!cleaned) return;
-              if (namedReferenceToDisplayIndex[cleaned] !== undefined) return;
-              namedReferenceToDisplayIndex[cleaned] = displayIndex;
-            };
+      const namedReferenceToDisplayIndex: Record<string, number> = {};
+      const registerReference = (token: string, displayIndex: number) => {
+        const cleaned = String(token || "").trim().toLowerCase();
+        if (!cleaned) return;
+        if (namedReferenceToDisplayIndex[cleaned] !== undefined) return;
+        namedReferenceToDisplayIndex[cleaned] = displayIndex;
+      };
 
-            registerReference("A", 0);
-            registerReference("full_name", 0);
-            registerReference("fullname", 0);
-            registerReference("B", 1);
-            registerReference("client", 1);
-            employeeColumns.forEach((column, index) => {
-              const displayIndex = index + 2;
-              registerReference(column.key, displayIndex);
-              registerReference(toEmployeeInfoColumnKey(column.label), displayIndex);
-              registerReference(columnIndexToLetter(displayIndex), displayIndex);
-            });
+      registerReference("A", 0);
+      registerReference("full_name", 0);
+      registerReference("fullname", 0);
+      registerReference("B", 1);
+      registerReference("client", 1);
+      employeeColumns.forEach((column, index) => {
+        const displayIndex = index + 2;
+        registerReference(column.key, displayIndex);
+        registerReference(toEmployeeInfoColumnKey(column.label), displayIndex);
+        registerReference(columnIndexToLetter(displayIndex), displayIndex);
+      });
 
-            const resolveFormulaTargetCurrencyCode = (column: EmployeeInfoColumnRow) => {
-              const formulaMode = normalizeEmployeeInfoFormulaCurrencyMode(
-                column.formula_currency_mode
+      const resolveFormulaTargetCurrencyCode = (column: EmployeeInfoColumnRow) => {
+        const formulaMode = normalizeEmployeeInfoFormulaCurrencyMode(column.formula_currency_mode);
+        if (formulaMode === "fixed") {
+          return normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+        }
+        return billingCurrencyCode;
+      };
+
+      const columnDisplayIndexById = new Map(
+        employeeColumns.map((column, index) => [column.id, index + 2])
+      );
+      const canEvaluateEmployeeColumnCosts =
+        !employeeMonthlyCostSummary.errorMessage && employeeSourceItems.length > 0;
+
+      employeeRecords.forEach((record) => {
+        const valuesByColumnId = valuesByRecordId[record.id] || {};
+        const roleSourceValue = roleBreakdownColumn ? valuesByColumnId[roleBreakdownColumn.id] : null;
+        const roleLabel = String(
+          roleBreakdownColumn?.column_kind === "dropdown"
+            ? roleSourceValue?.option_value
+            : roleSourceValue?.text_value
+        ).trim() || "Unspecified role";
+        const roleEntry = roleBreakdownMap.get(roleLabel) || {
+          roleLabel,
+          employeeCount: 0,
+          contributingRowCount: 0,
+          totalAmount: 0,
+        };
+        roleEntry.employeeCount += 1;
+
+        if (canEvaluateEmployeeColumnCosts) {
+          const resolveDisplayIndexValue = (
+            displayIndex: number,
+            visiting: Set<number>,
+            targetCurrencyCode: EmployeeInfoCurrencyCode,
+            onMissingExchangeRate: () => void,
+            onCurrencyOperand: () => void
+          ): unknown => {
+            if (displayIndex === 0) return record.full_name;
+            if (displayIndex === 1) return record.client_id === clientRecordId ? clientName : "";
+
+            const dynamicIndex = displayIndex - 2;
+            if (dynamicIndex < 0 || dynamicIndex >= employeeColumns.length) return "";
+            const dynamicColumn = employeeColumns[dynamicIndex];
+
+            if (dynamicColumn.column_kind === "formula") {
+              if (visiting.has(displayIndex)) return 0;
+              visiting.add(displayIndex);
+              const nestedValue = evaluateEmployeeFormula(
+                dynamicColumn.formula,
+                (refIndex) =>
+                  resolveDisplayIndexValue(
+                    refIndex,
+                    new Set(visiting),
+                    targetCurrencyCode,
+                    onMissingExchangeRate,
+                    onCurrencyOperand
+                  ),
+                (reference) =>
+                  resolveNamedReferenceValue(
+                    reference,
+                    new Set(visiting),
+                    targetCurrencyCode,
+                    onMissingExchangeRate,
+                    onCurrencyOperand
+                  )
               );
-              if (formulaMode === "fixed") {
-                return normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+              visiting.delete(displayIndex);
+              return nestedValue ?? 0;
+            }
+
+            const cellValue = valuesByColumnId[dynamicColumn.id];
+            if (!cellValue) return "";
+            if (dynamicColumn.column_kind === "dropdown") return cellValue.option_value || "";
+
+            if (dynamicColumn.column_kind === "currency") {
+              onCurrencyOperand();
+              const sourceAmount = parseNumericCellValue(cellValue.text_value);
+              if (!Number.isFinite(sourceAmount)) return 0;
+              const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+                cellValue.money_currency_code ||
+                  parseEmployeeInfoCurrencyCodeFromOptions(dynamicColumn.options_json)
+              );
+              const convertedAmount = convertEmployeeInfoCurrencyAmount({
+                amount: sourceAmount,
+                fromCurrencyCode: sourceCurrencyCode,
+                toCurrencyCode: targetCurrencyCode,
+                exchangeRateMap,
+              });
+              if (convertedAmount === null) {
+                onMissingExchangeRate();
+                return 0;
               }
-              return billingCurrencyCode;
-            };
+              return convertedAmount;
+            }
 
-            const monthlyCostDisplayIndex =
-              employeeColumns.findIndex((column) => column.id === monthlyCostColumn.id) + 2;
-            const roleBreakdownMap = new Map<
-              string,
-              {
-                roleLabel: string;
-                employeeCount: number;
-                contributingRowCount: number;
-                totalAmount: number;
+            return cellValue.text_value || "";
+          };
+
+          const resolveNamedReferenceValue = (
+            reference: string,
+            visiting: Set<number>,
+            targetCurrencyCode: EmployeeInfoCurrencyCode,
+            onMissingExchangeRate: () => void,
+            onCurrencyOperand: () => void
+          ) => {
+            const displayIndex =
+              namedReferenceToDisplayIndex[String(reference || "").trim().toLowerCase()];
+            if (displayIndex === undefined) return undefined;
+            return resolveDisplayIndexValue(
+              displayIndex,
+              visiting,
+              targetCurrencyCode,
+              onMissingExchangeRate,
+              onCurrencyOperand
+            );
+          };
+
+          const resolveEmployeeColumnAmount = (targetColumn: EmployeeInfoColumnRow) => {
+            let amountToAdd: number | null = null;
+
+            if (targetColumn.column_kind === "formula") {
+              const formulaTargetCurrencyCode = resolveFormulaTargetCurrencyCode(targetColumn);
+              const targetDisplayIndex = columnDisplayIndexById.get(targetColumn.id) || 2;
+              let hasMissingExchangeRate = false;
+              let hasCurrencyOperand = false;
+              const evaluated = evaluateEmployeeFormula(
+                targetColumn.formula,
+                (refIndex) =>
+                  resolveDisplayIndexValue(
+                    refIndex,
+                    new Set([targetDisplayIndex]),
+                    formulaTargetCurrencyCode,
+                    () => {
+                      hasMissingExchangeRate = true;
+                    },
+                    () => {
+                      hasCurrencyOperand = true;
+                    }
+                  ),
+                (reference) =>
+                  resolveNamedReferenceValue(
+                    reference,
+                    new Set([targetDisplayIndex]),
+                    formulaTargetCurrencyCode,
+                    () => {
+                      hasMissingExchangeRate = true;
+                    },
+                    () => {
+                      hasCurrencyOperand = true;
+                    }
+                  )
+              );
+              if (hasMissingExchangeRate) {
+                employeeMonthlyCostSummary.hasMissingExchangeRate = true;
+                return null;
               }
-            >();
 
-            employeeRecords.forEach((record) => {
-              const valuesByColumnId = valuesByRecordId[record.id] || {};
-              const roleSourceValue = roleBreakdownColumn
-                ? valuesByColumnId[roleBreakdownColumn.id]
-                : null;
-              const roleLabel = String(
-                roleBreakdownColumn?.column_kind === "dropdown"
-                  ? roleSourceValue?.option_value
-                  : roleSourceValue?.text_value
-              ).trim() || "Unspecified role";
-              const roleEntry = roleBreakdownMap.get(roleLabel) || {
-                roleLabel,
-                employeeCount: 0,
-                contributingRowCount: 0,
-                totalAmount: 0,
-              };
-              roleEntry.employeeCount += 1;
-              roleBreakdownMap.set(roleLabel, roleEntry);
-
-              const resolveDisplayIndexValue = (
-                displayIndex: number,
-                visiting: Set<number>,
-                targetCurrencyCode: EmployeeInfoCurrencyCode,
-                onMissingExchangeRate: () => void,
-                onCurrencyOperand: () => void
-              ): unknown => {
-                if (displayIndex === 0) return record.full_name;
-                if (displayIndex === 1) return record.client_id === clientRecordId ? clientName : "";
-
-                const dynamicIndex = displayIndex - 2;
-                if (dynamicIndex < 0 || dynamicIndex >= employeeColumns.length) return "";
-                const dynamicColumn = employeeColumns[dynamicIndex];
-
-                if (dynamicColumn.column_kind === "formula") {
-                  if (visiting.has(displayIndex)) return 0;
-                  visiting.add(displayIndex);
-                  const nestedValue = evaluateEmployeeFormula(
-                    dynamicColumn.formula,
-                    (refIndex) =>
-                      resolveDisplayIndexValue(
-                        refIndex,
-                        new Set(visiting),
-                        targetCurrencyCode,
-                        onMissingExchangeRate,
-                        onCurrencyOperand
-                      ),
-                    (reference) =>
-                      resolveNamedReferenceValue(
-                        reference,
-                        new Set(visiting),
-                        targetCurrencyCode,
-                        onMissingExchangeRate,
-                        onCurrencyOperand
-                      )
-                  );
-                  visiting.delete(displayIndex);
-                  return nestedValue ?? 0;
-                }
-
-                const cellValue = valuesByColumnId[dynamicColumn.id];
-                if (!cellValue) return "";
-                if (dynamicColumn.column_kind === "dropdown") return cellValue.option_value || "";
-
-                if (dynamicColumn.column_kind === "currency") {
-                  onCurrencyOperand();
-                  const sourceAmount = Number(cellValue.text_value);
-                  if (!Number.isFinite(sourceAmount)) return 0;
-                  const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
-                    cellValue.money_currency_code ||
-                      parseEmployeeInfoCurrencyCodeFromOptions(dynamicColumn.options_json)
-                  );
-                  const convertedAmount = convertEmployeeInfoCurrencyAmount({
-                    amount: sourceAmount,
-                    fromCurrencyCode: sourceCurrencyCode,
-                    toCurrencyCode: targetCurrencyCode,
-                    exchangeRateMap,
-                  });
-                  if (convertedAmount === null) {
-                    onMissingExchangeRate();
-                    return 0;
-                  }
-                  return convertedAmount;
-                }
-
-                return cellValue.text_value || "";
-              };
-
-              const resolveNamedReferenceValue = (
-                reference: string,
-                visiting: Set<number>,
-                targetCurrencyCode: EmployeeInfoCurrencyCode,
-                onMissingExchangeRate: () => void,
-                onCurrencyOperand: () => void
-              ) => {
-                const displayIndex =
-                  namedReferenceToDisplayIndex[String(reference || "").trim().toLowerCase()];
-                if (displayIndex === undefined) return undefined;
-                return resolveDisplayIndexValue(
-                  displayIndex,
-                  visiting,
-                  targetCurrencyCode,
-                  onMissingExchangeRate,
-                  onCurrencyOperand
-                );
-              };
-
-              let amountToAdd: number | null = null;
-              if (monthlyCostColumn.column_kind === "formula") {
-                const formulaTargetCurrencyCode = resolveFormulaTargetCurrencyCode(monthlyCostColumn);
-                let hasMissingExchangeRate = false;
-                let hasCurrencyOperand = false;
-                const evaluated = evaluateEmployeeFormula(
-                  monthlyCostColumn.formula,
-                  (refIndex) =>
-                    resolveDisplayIndexValue(
-                      refIndex,
-                      new Set([monthlyCostDisplayIndex]),
-                      formulaTargetCurrencyCode,
-                      () => {
-                        hasMissingExchangeRate = true;
-                      },
-                      () => {
-                        hasCurrencyOperand = true;
-                      }
-                    ),
-                  (reference) =>
-                    resolveNamedReferenceValue(
-                      reference,
-                      new Set([monthlyCostDisplayIndex]),
-                      formulaTargetCurrencyCode,
-                      () => {
-                        hasMissingExchangeRate = true;
-                      },
-                      () => {
-                        hasCurrencyOperand = true;
-                      }
-                    )
-                );
-                if (hasMissingExchangeRate) {
-                  employeeMonthlyCostSummary.hasMissingExchangeRate = true;
-                  return;
-                }
-
-                const numericEvaluated = toFormulaNumber(evaluated);
-                if (!Number.isFinite(numericEvaluated)) return;
-                if (!hasCurrencyOperand || formulaTargetCurrencyCode === billingCurrencyCode) {
-                  amountToAdd = numericEvaluated;
-                } else {
-                  const convertedAmount = convertEmployeeInfoCurrencyAmount({
-                    amount: numericEvaluated,
-                    fromCurrencyCode: formulaTargetCurrencyCode,
-                    toCurrencyCode: billingCurrencyCode,
-                    exchangeRateMap,
-                  });
-                  if (convertedAmount === null) {
-                    employeeMonthlyCostSummary.hasMissingExchangeRate = true;
-                    return;
-                  }
-                  amountToAdd = convertedAmount;
-                }
-              } else if (monthlyCostColumn.column_kind === "currency") {
-                const value = valuesByColumnId[monthlyCostColumn.id];
-                if (!value?.text_value) return;
-                const sourceAmount = parseNumericCellValue(value.text_value);
-                if (!Number.isFinite(sourceAmount)) return;
-                const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
-                  value.money_currency_code ||
-                    parseEmployeeInfoCurrencyCodeFromOptions(monthlyCostColumn.options_json)
-                );
+              const numericEvaluated = toFormulaNumber(evaluated);
+              if (!Number.isFinite(numericEvaluated)) return null;
+              if (!hasCurrencyOperand || formulaTargetCurrencyCode === billingCurrencyCode) {
+                amountToAdd = numericEvaluated;
+              } else {
                 const convertedAmount = convertEmployeeInfoCurrencyAmount({
-                  amount: sourceAmount,
-                  fromCurrencyCode: sourceCurrencyCode,
+                  amount: numericEvaluated,
+                  fromCurrencyCode: formulaTargetCurrencyCode,
                   toCurrencyCode: billingCurrencyCode,
                   exchangeRateMap,
                 });
                 if (convertedAmount === null) {
                   employeeMonthlyCostSummary.hasMissingExchangeRate = true;
-                  return;
+                  return null;
                 }
                 amountToAdd = convertedAmount;
-              } else if (monthlyCostColumn.column_kind === "dropdown") {
-                amountToAdd = parseNumericCellValue(valuesByColumnId[monthlyCostColumn.id]?.option_value);
-              } else {
-                amountToAdd = parseNumericCellValue(valuesByColumnId[monthlyCostColumn.id]?.text_value);
               }
-
-              if (amountToAdd === null || !Number.isFinite(amountToAdd)) return;
-              employeeMonthlyCostSummary.amount += amountToAdd;
-              employeeMonthlyCostSummary.contributingRowCount += 1;
-              roleEntry.contributingRowCount += 1;
-              roleEntry.totalAmount += amountToAdd;
-              roleBreakdownMap.set(roleLabel, roleEntry);
-            });
-
-            employeeMonthlyCostSummary.breakdownRows = Array.from(roleBreakdownMap.values()).sort(
-              (left, right) => {
-                if (right.employeeCount !== left.employeeCount) {
-                  return right.employeeCount - left.employeeCount;
-                }
-                if (right.totalAmount !== left.totalAmount) {
-                  return right.totalAmount - left.totalAmount;
-                }
-                return left.roleLabel.localeCompare(right.roleLabel);
+            } else if (targetColumn.column_kind === "currency") {
+              const value = valuesByColumnId[targetColumn.id];
+              if (!value?.text_value) return null;
+              const sourceAmount = parseNumericCellValue(value.text_value);
+              if (!Number.isFinite(sourceAmount)) return null;
+              const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+                value.money_currency_code ||
+                  parseEmployeeInfoCurrencyCodeFromOptions(targetColumn.options_json)
+              );
+              const convertedAmount = convertEmployeeInfoCurrencyAmount({
+                amount: sourceAmount,
+                fromCurrencyCode: sourceCurrencyCode,
+                toCurrencyCode: billingCurrencyCode,
+                exchangeRateMap,
+              });
+              if (convertedAmount === null) {
+                employeeMonthlyCostSummary.hasMissingExchangeRate = true;
+                return null;
               }
-            );
-          }
+              amountToAdd = convertedAmount;
+            } else if (targetColumn.column_kind === "dropdown") {
+              amountToAdd = parseNumericCellValue(valuesByColumnId[targetColumn.id]?.option_value);
+            } else {
+              amountToAdd = parseNumericCellValue(valuesByColumnId[targetColumn.id]?.text_value);
+            }
+
+            if (amountToAdd === null || !Number.isFinite(amountToAdd)) return null;
+            return amountToAdd;
+          };
+
+          employeeSourceItems.forEach(({ column }) => {
+            const amountToAdd = resolveEmployeeColumnAmount(column);
+            if (amountToAdd === null || !Number.isFinite(amountToAdd)) return;
+            employeeMonthlyCostSummary.amount += amountToAdd;
+            employeeMonthlyCostSummary.contributingRowCount += 1;
+            roleEntry.contributingRowCount += 1;
+            roleEntry.totalAmount += amountToAdd;
+          });
         }
-      }
+
+        roleBreakdownMap.set(roleLabel, roleEntry);
+      });
+
+      employeeMonthlyCostSummary.customBreakdownRows.forEach((customRow) => {
+        if (customRow.mode !== "per_user") return;
+        roleBreakdownMap.forEach((roleEntry, roleLabel) => {
+          if (!roleEntry.employeeCount) return;
+          roleEntry.contributingRowCount += roleEntry.employeeCount;
+          roleEntry.totalAmount += customRow.amount * roleEntry.employeeCount;
+          roleBreakdownMap.set(roleLabel, roleEntry);
+        });
+      });
+
+      employeeMonthlyCostSummary.breakdownRows = Array.from(roleBreakdownMap.values()).sort(
+        (left, right) => {
+          if (right.employeeCount !== left.employeeCount) {
+            return right.employeeCount - left.employeeCount;
+          }
+          if (right.totalAmount !== left.totalAmount) {
+            return right.totalAmount - left.totalAmount;
+          }
+          return left.roleLabel.localeCompare(right.roleLabel);
+        }
+      );
     }
   }
-
   const hourlyRate = toFiniteNumber(billingProfile?.hourly_rate) ?? 0;
   const totalBillableHours = toFiniteNumber(billingProfile?.total_billable_hours) ?? 0;
   const revenueChargeItems = parseBillingRevenueChargeItems(billingProfile?.revenue_charge_items);
-  const additionalMonthlyRevenue = revenueChargeItems.reduce((sum, charge) => {
+  const baseMonthlyRevenue = hourlyRate * totalBillableHours;
+  const revenueBreakdownRows = revenueChargeItems.map((charge) => {
     const quantity = charge.mode === "per_user" ? employeeMonthlyCostSummary.clientRowCount : 1;
-    return sum + charge.amount * quantity;
-  }, 0);
-  const estimatedMonthlyRevenue = hourlyRate * totalBillableHours + additionalMonthlyRevenue;
+    return {
+      id: charge.id,
+      label: charge.label,
+      mode: charge.mode,
+      amount: charge.amount,
+      quantity,
+      totalAmount: charge.amount * quantity,
+    };
+  });
+  const additionalMonthlyRevenue = revenueBreakdownRows.reduce((sum, row) => sum + row.totalAmount, 0);
+  const estimatedMonthlyRevenue = baseMonthlyRevenue + additionalMonthlyRevenue;
   const estimatedMonthlyMargin = estimatedMonthlyRevenue - employeeMonthlyCostSummary.amount;
   const estimatedMonthlyMarginPercent =
     estimatedMonthlyRevenue > 0 ? (estimatedMonthlyMargin / estimatedMonthlyRevenue) * 100 : null;
+  const monthlyCostSourceColumns = employeeColumnsForBilling
+    .filter(isSupportedMonthlyCostSourceColumn)
+    .map((column) => ({
+      id: column.id,
+      label: column.label,
+      column_kind: column.column_kind as "text" | "dropdown" | "formula" | "number" | "currency",
+    }));
 
   async function saveRevenueModel(formData: FormData) {
     "use server";
@@ -796,6 +1113,13 @@ export default async function ClientBillingPage(props: {
     if (totalBillableHoursValue.error) {
       redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(totalBillableHoursValue.error)}`);
     }
+    const monthlyCostItemsValue = parseMonthlyCostItemsInput(
+      formData.get("monthly_cost_items_json"),
+      new Map(employeeColumnsForBilling.map((column) => [column.id, column]))
+    );
+    if (monthlyCostItemsValue.error) {
+      redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(monthlyCostItemsValue.error)}`);
+    }
     const revenueChargeItemsValue = parseRevenueChargeItemsInput(
       formData.get("revenue_charge_items_json")
     );
@@ -810,6 +1134,7 @@ export default async function ClientBillingPage(props: {
       currency,
       hourly_rate: hourlyRateValue.value,
       total_billable_hours: totalBillableHoursValue.value,
+      monthly_cost_items: monthlyCostItemsValue.value,
       revenue_charge_items: revenueChargeItemsValue.value,
       display_name: clientName,
     };
@@ -869,7 +1194,7 @@ export default async function ClientBillingPage(props: {
             <EmployeeMonthlyCostBreakdownPopover
               currencyCode={employeeMonthlyCostSummary.currencyCode}
               rows={employeeMonthlyCostSummary.breakdownRows}
-              totalAmount={employeeMonthlyCostSummary.amount}
+              customRows={employeeMonthlyCostSummary.customBreakdownRows}
               clientRowCount={employeeMonthlyCostSummary.clientRowCount}
               contributingRowCount={employeeMonthlyCostSummary.contributingRowCount}
               roleColumnLabel={employeeMonthlyCostSummary.roleColumnLabel}
@@ -882,15 +1207,26 @@ export default async function ClientBillingPage(props: {
             )}
           </p>
           <p className="mt-2 text-sm text-slate-600">
-            From {employeeMonthlyCostSummary.contributingRowCount} populated entries across{" "}
+            From {employeeMonthlyCostSummary.contributingRowCount} configured contributions across{" "}
             {employeeMonthlyCostSummary.clientRowCount} employee rows.
           </p>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Estimated monthly revenue
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Estimated monthly revenue
+            </p>
+            <EstimatedMonthlyRevenueBreakdownPopover
+              currencyCode={billingCurrencyCode}
+              hourlyRate={hourlyRate}
+              totalBillableHours={totalBillableHours}
+              baseRevenue={baseMonthlyRevenue}
+              employeeCount={employeeMonthlyCostSummary.clientRowCount}
+              rows={revenueBreakdownRows}
+              totalAmount={estimatedMonthlyRevenue}
+            />
+          </div>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
             {formatEmployeeInfoCurrencyAmount(estimatedMonthlyRevenue, billingCurrencyCode)}
           </p>
@@ -1015,6 +1351,15 @@ export default async function ClientBillingPage(props: {
             </div>
           </div>
 
+          <MonthlyCostSourcesEditor
+            name="monthly_cost_items_json"
+            initialItems={monthlyCostItems}
+            employeeColumns={monthlyCostSourceColumns}
+            currencyCode={billingCurrencyCode}
+            employeeCount={employeeMonthlyCostSummary.clientRowCount}
+            disabled={!canEditBilling}
+          />
+
           <RevenueChargesEditor
             name="revenue_charge_items_json"
             initialItems={revenueChargeItems}
@@ -1037,4 +1382,5 @@ export default async function ClientBillingPage(props: {
     </div>
   );
 }
+
 

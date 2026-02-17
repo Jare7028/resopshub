@@ -10,6 +10,15 @@ type EmployeeMonthlyCostBreakdownRow = {
   totalAmount: number;
 };
 
+type EmployeeMonthlyCostCustomBreakdownRow = {
+  id: string;
+  label: string;
+  mode: "per_user" | "monthly";
+  amount: number;
+  quantity: number;
+  totalAmount: number;
+};
+
 function formatRoleLabel(label: string, count: number) {
   const normalized = String(label || "").trim();
   if (!normalized) return count === 1 ? "employee" : "employees";
@@ -27,14 +36,14 @@ function formatRoleLabel(label: string, count: number) {
 export default function EmployeeMonthlyCostBreakdownPopover({
   currencyCode,
   rows,
-  totalAmount,
+  customRows,
   clientRowCount,
   contributingRowCount,
   roleColumnLabel,
 }: {
   currencyCode: EmployeeInfoCurrencyCode;
   rows: EmployeeMonthlyCostBreakdownRow[];
-  totalAmount: number;
+  customRows: EmployeeMonthlyCostCustomBreakdownRow[];
   clientRowCount: number;
   contributingRowCount: number;
   roleColumnLabel: string | null;
@@ -65,7 +74,10 @@ export default function EmployeeMonthlyCostBreakdownPopover({
       .join(", ");
   }, [clientRowCount, rows]);
 
-  const totalAveragePerEmployee = clientRowCount > 0 ? totalAmount / clientRowCount : 0;
+  const roleRowsTotal = rows.reduce((sum, row) => sum + row.totalAmount, 0);
+  const roleRowsContributingCount = rows.reduce((sum, row) => sum + row.contributingRowCount, 0);
+  const roleAveragePerEmployee = clientRowCount > 0 ? roleRowsTotal / clientRowCount : 0;
+  const customMonthlyTotal = customRows.reduce((sum, row) => sum + row.totalAmount, 0);
 
   return (
     <>
@@ -167,13 +179,13 @@ export default function EmployeeMonthlyCostBreakdownPopover({
                           {clientRowCount}
                         </td>
                         <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900">
-                          {contributingRowCount}
+                          {roleRowsContributingCount}
                         </td>
                         <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900">
-                          {formatEmployeeInfoCurrencyAmount(totalAmount, currencyCode)}
+                          {formatEmployeeInfoCurrencyAmount(roleRowsTotal, currencyCode)}
                         </td>
                         <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900">
-                          {formatEmployeeInfoCurrencyAmount(totalAveragePerEmployee, currencyCode)}
+                          {formatEmployeeInfoCurrencyAmount(roleAveragePerEmployee, currencyCode)}
                         </td>
                       </tr>
                     </tfoot>
@@ -184,6 +196,52 @@ export default function EmployeeMonthlyCostBreakdownPopover({
                   No role/position values found yet for this client.
                 </p>
               )}
+
+              {customRows.length ? (
+                <div className="overflow-x-auto rounded-md border border-slate-200">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Custom cost item</th>
+                        <th className="px-3 py-2">Apply as</th>
+                        <th className="px-3 py-2 text-right">Rate</th>
+                        <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2 text-right">Monthly total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {customRows.map((row) => (
+                        <tr key={row.id}>
+                          <td className="px-3 py-2 text-slate-800">{row.label}</td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {row.mode === "per_user" ? "Per user" : "Fixed monthly"}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-700">
+                            {formatEmployeeInfoCurrencyAmount(row.amount, currencyCode)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-700">{row.quantity}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                            {formatEmployeeInfoCurrencyAmount(row.totalAmount, currencyCode)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t border-slate-200 bg-slate-50">
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600"
+                        >
+                          Custom costs total
+                        </td>
+                        <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900">
+                          {formatEmployeeInfoCurrencyAmount(customMonthlyTotal, currencyCode)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : null}
             </div>
           </section>
         </div>

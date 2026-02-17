@@ -17,6 +17,9 @@ alter table if exists public.billing_profiles
   add column if not exists revenue_charge_items jsonb not null default '[]'::jsonb;
 
 alter table if exists public.billing_profiles
+  add column if not exists monthly_cost_items jsonb not null default '[]'::jsonb;
+
+alter table if exists public.billing_profiles
   drop constraint if exists billing_profiles_hourly_rate_non_negative;
 
 alter table if exists public.billing_profiles
@@ -43,3 +46,10 @@ alter table if exists public.billing_profiles
 alter table if exists public.billing_profiles
   add constraint billing_profiles_revenue_charge_items_is_array
   check (jsonb_typeof(revenue_charge_items) = 'array');
+
+alter table if exists public.billing_profiles
+  drop constraint if exists billing_profiles_monthly_cost_items_is_array;
+
+alter table if exists public.billing_profiles
+  add constraint billing_profiles_monthly_cost_items_is_array
+  check (jsonb_typeof(monthly_cost_items) = 'array');
