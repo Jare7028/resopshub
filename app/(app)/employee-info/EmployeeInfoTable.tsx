@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type ChangeEvent } from "react";
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
@@ -62,9 +62,52 @@ function ColumnEditPanel({
   const [columnKind, setColumnKind] = useState<EmployeeInfoColumnRow["column_kind"]>(
     column.column_kind
   );
+  const detailsRef = useRef<HTMLDetailsElement | null>(null);
+  const updateFormRef = useRef<HTMLFormElement | null>(null);
+  const initialLabel = column.label;
+  const initialKind = column.column_kind;
+  const initialDropdownOptions = formatOptionsInput(column.options_json);
+  const initialFormula = column.formula || "";
+
+  useEffect(() => {
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      const details = detailsRef.current;
+      const updateForm = updateFormRef.current;
+      if (!details?.open || !updateForm) return;
+
+      const target = event.target as Node | null;
+      if (target && details.contains(target)) return;
+
+      const formData = new FormData(updateForm);
+      const nextLabel = String(formData.get("label") || "");
+      const nextKind = String(formData.get("column_kind") || "");
+      const nextDropdownOptions = String(formData.get("dropdown_options") || "");
+      const nextFormula = String(formData.get("formula") || "");
+
+      const hasChanges =
+        nextLabel !== initialLabel ||
+        nextKind !== initialKind ||
+        nextDropdownOptions !== initialDropdownOptions ||
+        nextFormula !== initialFormula;
+
+      if (hasChanges) {
+        if (!updateForm.reportValidity()) {
+          return;
+        }
+        updateForm.requestSubmit();
+      }
+
+      details.open = false;
+    };
+
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+    };
+  }, [initialDropdownOptions, initialFormula, initialKind, initialLabel]);
 
   return (
-    <details className="relative shrink-0">
+    <details ref={detailsRef} className="relative shrink-0">
       <summary
         className="flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold tracking-normal text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
         aria-label={`Edit ${column.label}`}
@@ -97,7 +140,7 @@ function ColumnEditPanel({
             </button>
           </form>
         </div>
-        <form action={onUpdateColumn} className="grid gap-2">
+        <form ref={updateFormRef} action={onUpdateColumn} className="grid gap-2">
           <input type="hidden" name="column_id" value={column.id} />
           <input
             name="label"
