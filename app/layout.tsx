@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
+import GlobalLoadingIndicator from "./GlobalLoadingIndicator";
 
 export const metadata: Metadata = {
   title: "ResOpsHub",
@@ -14,6 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen overflow-x-hidden bg-white text-slate-900">
+        <Suspense fallback={null}>
+          <GlobalLoadingIndicator />
+        </Suspense>
         {children}
       </body>
     </html>
