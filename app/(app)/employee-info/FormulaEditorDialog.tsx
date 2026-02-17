@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import FormulaAutocompleteInput, { type FormulaSuggestion } from "./FormulaAutocompleteInput";
 
 export default function FormulaEditorDialog({
@@ -18,6 +19,12 @@ export default function FormulaEditorDialog({
   onClose: () => void;
   suggestions: FormulaSuggestion[];
 }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const handleEscape = (event: KeyboardEvent) => {
@@ -30,11 +37,11 @@ export default function FormulaEditorDialog({
     return () => document.removeEventListener("keydown", handleEscape);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  const content = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/35 p-4"
       onMouseDown={onClose}
     >
       <div
@@ -67,4 +74,6 @@ export default function FormulaEditorDialog({
       </div>
     </div>
   );
+
+  return createPortal(content, document.body);
 }
