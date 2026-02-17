@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEmployeeInfoExchangeRateMap,
+  convertEmployeeInfoCurrencyAmount,
   evaluateEmployeeFormula,
+  formatEmployeeInfoCurrencyAmount,
   formatFormulaResult,
   getEmployeeInfoCurrencySymbol,
   normalizeEmployeeInfoColumnKind,
   normalizeEmployeeInfoCurrencyCode,
+  normalizeEmployeeInfoDisplayCurrencyCode,
+  normalizeEmployeeInfoFormulaCurrencyMode,
   parseEmployeeInfoCurrencyCodeFromOptions,
+  parseEmployeeInfoCurrencyInput,
 } from "./employeeInfo";
 
 describe("normalizeEmployeeInfoColumnKind", () => {
@@ -31,8 +37,72 @@ describe("employee info currency helpers", () => {
 
   it("maps currency symbols", () => {
     expect(getEmployeeInfoCurrencySymbol("USD")).toBe("$");
-    expect(getEmployeeInfoCurrencySymbol("GBP")).toBe("£");
+    expect(getEmployeeInfoCurrencySymbol("GBP")).toBe("\u00A3");
     expect(getEmployeeInfoCurrencySymbol("MUR")).toBe("Rs");
+  });
+
+  it("normalizes display currency values", () => {
+    expect(normalizeEmployeeInfoDisplayCurrencyCode("usd")).toBe("USD");
+    expect(normalizeEmployeeInfoDisplayCurrencyCode("original")).toBe("ORIGINAL");
+    expect(normalizeEmployeeInfoDisplayCurrencyCode("bad")).toBe("ORIGINAL");
+  });
+
+  it("normalizes formula currency mode values", () => {
+    expect(normalizeEmployeeInfoFormulaCurrencyMode("fixed")).toBe("fixed");
+    expect(normalizeEmployeeInfoFormulaCurrencyMode("display")).toBe("display");
+    expect(normalizeEmployeeInfoFormulaCurrencyMode("bad")).toBe("display");
+  });
+
+  it("parses typed currency symbols and amount values", () => {
+    expect(parseEmployeeInfoCurrencyInput("\u00A310", "USD")).toEqual({
+      amountText: "10",
+      currencyCode: "GBP",
+    });
+    expect(parseEmployeeInfoCurrencyInput("Rs 1500", "USD")).toEqual({
+      amountText: "1500",
+      currencyCode: "MUR",
+    });
+    expect(parseEmployeeInfoCurrencyInput("$5", "MUR")).toEqual({
+      amountText: "5",
+      currencyCode: "USD",
+    });
+  });
+
+  it("formats currency amounts for display", () => {
+    expect(formatEmployeeInfoCurrencyAmount(10, "USD")).toBe("$10");
+    expect(formatEmployeeInfoCurrencyAmount(10, "GBP")).toBe("\u00A310");
+    expect(formatEmployeeInfoCurrencyAmount(10, "MUR")).toBe("Rs 10");
+  });
+
+  it("builds rate maps and converts amounts", () => {
+    const rateMap = buildEmployeeInfoExchangeRateMap(
+      [
+        {
+          base_currency_code: "USD",
+          quote_currency_code: "MUR",
+          rate: "45",
+          effective_month_start: "2026-02-01",
+        },
+      ],
+      "2026-02-01"
+    );
+
+    expect(
+      convertEmployeeInfoCurrencyAmount({
+        amount: 10,
+        fromCurrencyCode: "USD",
+        toCurrencyCode: "MUR",
+        exchangeRateMap: rateMap,
+      })
+    ).toBe(450);
+    expect(
+      convertEmployeeInfoCurrencyAmount({
+        amount: 450,
+        fromCurrencyCode: "MUR",
+        toCurrencyCode: "USD",
+        exchangeRateMap: rateMap,
+      })
+    ).toBeCloseTo(10);
   });
 });
 
@@ -52,7 +122,9 @@ describe("evaluateEmployeeFormula", () => {
   });
 
   it("supports bare letter references without row numbers", () => {
-    const result = evaluateEmployeeFormula("=A + B", (index) => (index === 0 ? 2 : index === 1 ? 3 : 0));
+    const result = evaluateEmployeeFormula("=A + B", (index) =>
+      index === 0 ? 2 : index === 1 ? 3 : 0
+    );
     expect(result).toBe(5);
   });
 
@@ -71,7 +143,7 @@ describe("evaluateEmployeeFormula", () => {
     expect(result).toBe(500);
   });
 
-  it("supports shorthand comparisons like client = \"A\" OR \"B\"", () => {
+  it('supports shorthand comparisons like client = "A" OR "B"', () => {
     const matchResult = evaluateEmployeeFormula(
       '=IF(client = "Resolvable" OR "Dusk", 500, 0)',
       () => 0,

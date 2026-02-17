@@ -21,6 +21,10 @@ create table if not exists public.employee_info_columns (
   label text not null,
   column_kind text not null check (column_kind in ('text', 'dropdown', 'formula', 'number', 'date', 'currency')),
   formula text,
+  formula_currency_mode text not null default 'display'
+    check (formula_currency_mode in ('display', 'fixed')),
+  formula_currency_code text not null default 'USD'
+    check (formula_currency_code in ('USD', 'GBP', 'MUR')),
   options_json jsonb not null default '[]'::jsonb,
   position integer not null default 0,
   created_by_user_id uuid references public.users(id) on delete set null,
@@ -38,6 +42,7 @@ create table if not exists public.employee_info_values (
   column_id uuid not null references public.employee_info_columns(id) on delete cascade,
   text_value text,
   option_value text,
+  money_currency_code text check (money_currency_code in ('USD', 'GBP', 'MUR')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (record_id, column_id),
@@ -53,6 +58,24 @@ create index if not exists employee_info_values_record_idx
 
 create index if not exists employee_info_values_column_idx
   on public.employee_info_values(column_id);
+
+create table if not exists public.employee_info_exchange_rates (
+  id uuid primary key default gen_random_uuid(),
+  base_currency_code text not null check (base_currency_code in ('USD', 'GBP', 'MUR')),
+  quote_currency_code text not null check (quote_currency_code in ('USD', 'GBP', 'MUR')),
+  rate numeric(18,8) not null check (rate > 0),
+  effective_month_start date not null,
+  source text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint employee_info_exchange_rates_pair_not_same
+    check (base_currency_code <> quote_currency_code),
+  constraint employee_info_exchange_rates_unique_pair_month
+    unique (base_currency_code, quote_currency_code, effective_month_start)
+);
+
+create index if not exists employee_info_exchange_rates_effective_month_idx
+  on public.employee_info_exchange_rates(effective_month_start desc, base_currency_code, quote_currency_code);
 
 create table if not exists public.employee_info_access_users (
   user_id uuid primary key references public.users(id) on delete cascade,
@@ -83,6 +106,7 @@ grant execute on function public.can_access_employee_info() to anon, authenticat
 alter table public.employee_info_records enable row level security;
 alter table public.employee_info_columns enable row level security;
 alter table public.employee_info_values enable row level security;
+alter table public.employee_info_exchange_rates enable row level security;
 alter table public.employee_info_access_users enable row level security;
 
 drop policy if exists employee_info_records_select on public.employee_info_records;
@@ -207,6 +231,35 @@ create policy employee_info_values_delete
     )
   );
 
+drop policy if exists employee_info_exchange_rates_select on public.employee_info_exchange_rates;
+create policy employee_info_exchange_rates_select
+  on public.employee_info_exchange_rates
+  for select
+  to authenticated
+  using (public.can_access_employee_info());
+
+drop policy if exists employee_info_exchange_rates_insert on public.employee_info_exchange_rates;
+create policy employee_info_exchange_rates_insert
+  on public.employee_info_exchange_rates
+  for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists employee_info_exchange_rates_update on public.employee_info_exchange_rates;
+create policy employee_info_exchange_rates_update
+  on public.employee_info_exchange_rates
+  for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists employee_info_exchange_rates_delete on public.employee_info_exchange_rates;
+create policy employee_info_exchange_rates_delete
+  on public.employee_info_exchange_rates
+  for delete
+  to authenticated
+  using (public.is_admin());
+
 drop policy if exists employee_info_access_users_select on public.employee_info_access_users;
 create policy employee_info_access_users_select
   on public.employee_info_access_users
@@ -231,4 +284,5 @@ create policy employee_info_access_users_delete
 grant select, insert, update, delete on table public.employee_info_records to authenticated;
 grant select, insert, update, delete on table public.employee_info_columns to authenticated;
 grant select, insert, update, delete on table public.employee_info_values to authenticated;
+grant select, insert, update, delete on table public.employee_info_exchange_rates to authenticated;
 grant select, insert, delete on table public.employee_info_access_users to authenticated;

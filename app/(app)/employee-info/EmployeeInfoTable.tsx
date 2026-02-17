@@ -19,10 +19,15 @@ import {
 } from "./employeeInfoVisibility";
 import {
   EMPLOYEE_INFO_CURRENCY_CODES,
+  EMPLOYEE_INFO_FORMULA_CURRENCY_MODES,
+  formatEmployeeInfoCurrencyAmount,
   getEmployeeInfoCurrencySymbol,
   normalizeEmployeeInfoCurrencyCode,
+  normalizeEmployeeInfoFormulaCurrencyMode,
   parseEmployeeInfoCurrencyCodeFromOptions,
   type EmployeeInfoCurrencyCode,
+  type EmployeeInfoDisplayCurrencyCode,
+  type EmployeeInfoFormulaCurrencyMode,
 } from "@/lib/employeeInfo";
 
 type ClientRow = {
@@ -42,6 +47,8 @@ type EmployeeInfoColumnRow = {
   label: string;
   column_kind: "text" | "dropdown" | "formula" | "number" | "date" | "currency";
   formula: string | null;
+  formula_currency_mode: "display" | "fixed";
+  formula_currency_code: "USD" | "GBP" | "MUR";
   options_json: unknown;
   position: number;
 };
@@ -49,10 +56,11 @@ type EmployeeInfoColumnRow = {
 type EmployeeInfoValueRow = {
   text_value: string | null;
   option_value: string | null;
+  money_currency_code: string | null;
 };
 const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "USD ($)",
-  GBP: "GBP (£)",
+  GBP: "GBP (\u00A3)",
   MUR: "MUR (Rs)",
 };
 
@@ -97,6 +105,13 @@ function ColumnEditPanel({
   const [currencyCode, setCurrencyCode] = useState<EmployeeInfoCurrencyCode>(() =>
     parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
   );
+  const [formulaCurrencyMode, setFormulaCurrencyMode] =
+    useState<EmployeeInfoFormulaCurrencyMode>(() =>
+      normalizeEmployeeInfoFormulaCurrencyMode(column.formula_currency_mode)
+    );
+  const [formulaCurrencyCode, setFormulaCurrencyCode] = useState<EmployeeInfoCurrencyCode>(() =>
+    normalizeEmployeeInfoCurrencyCode(column.formula_currency_code)
+  );
   const detailsRef = useRef<HTMLDetailsElement | null>(null);
   const updateFormRef = useRef<HTMLFormElement | null>(null);
   const initialLabel = column.label;
@@ -104,6 +119,10 @@ function ColumnEditPanel({
   const initialDropdownOptions = formatOptionsInput(column.options_json);
   const initialFormula = column.formula || "";
   const initialCurrencyCode = parseEmployeeInfoCurrencyCodeFromOptions(column.options_json);
+  const initialFormulaCurrencyMode = normalizeEmployeeInfoFormulaCurrencyMode(
+    column.formula_currency_mode
+  );
+  const initialFormulaCurrencyCode = normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
 
   useEffect(() => {
     const onDocumentMouseDown = (event: globalThis.MouseEvent) => {
@@ -122,13 +141,24 @@ function ColumnEditPanel({
       const nextCurrencyCode = normalizeEmployeeInfoCurrencyCode(
         String(formData.get("currency_code") || "")
       );
+      const nextFormulaCurrencyMode = normalizeEmployeeInfoFormulaCurrencyMode(
+        String(formData.get("formula_currency_mode") || "")
+      );
+      const nextFormulaCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+        String(formData.get("formula_currency_code") || "")
+      );
+      const shouldCompareFormulaCurrencyCode =
+        nextKind === "formula" &&
+        (nextFormulaCurrencyMode === "fixed" || initialFormulaCurrencyMode === "fixed");
 
       const hasChanges =
         nextLabel !== initialLabel ||
         nextKind !== initialKind ||
         nextDropdownOptions !== initialDropdownOptions ||
         nextFormula !== initialFormula ||
-        nextCurrencyCode !== initialCurrencyCode;
+        nextCurrencyCode !== initialCurrencyCode ||
+        nextFormulaCurrencyMode !== initialFormulaCurrencyMode ||
+        (shouldCompareFormulaCurrencyCode && nextFormulaCurrencyCode !== initialFormulaCurrencyCode);
 
       if (hasChanges) {
         if (!updateForm.reportValidity()) {
@@ -144,7 +174,15 @@ function ColumnEditPanel({
     return () => {
       document.removeEventListener("mousedown", onDocumentMouseDown);
     };
-  }, [initialCurrencyCode, initialDropdownOptions, initialFormula, initialKind, initialLabel]);
+  }, [
+    initialCurrencyCode,
+    initialDropdownOptions,
+    initialFormula,
+    initialFormulaCurrencyCode,
+    initialFormulaCurrencyMode,
+    initialKind,
+    initialLabel,
+  ]);
 
   return (
     <details ref={detailsRef} className="relative shrink-0">
@@ -230,14 +268,50 @@ function ColumnEditPanel({
             />
           ) : null}
           {columnKind === "formula" ? (
-            <FormulaAutocompleteInput
-              name="formula"
-              defaultValue={column.formula || ""}
-              placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
-              className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-              required
-              suggestions={formulaSuggestions}
-            />
+            <>
+              <FormulaAutocompleteInput
+                name="formula"
+                defaultValue={column.formula || ""}
+                placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
+                className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                required
+                suggestions={formulaSuggestions}
+              />
+              <select
+                name="formula_currency_mode"
+                value={formulaCurrencyMode}
+                onChange={(event) =>
+                  setFormulaCurrencyMode(
+                    normalizeEmployeeInfoFormulaCurrencyMode(event.currentTarget.value)
+                  )
+                }
+                className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+              >
+                {EMPLOYEE_INFO_FORMULA_CURRENCY_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode === "display" ? "Follow display currency" : "Fixed currency"}
+                  </option>
+                ))}
+              </select>
+              {formulaCurrencyMode === "fixed" ? (
+                <select
+                  name="formula_currency_code"
+                  value={formulaCurrencyCode}
+                  onChange={(event) =>
+                    setFormulaCurrencyCode(
+                      normalizeEmployeeInfoCurrencyCode(event.currentTarget.value)
+                    )
+                  }
+                  className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                >
+                  {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      {currencyLabelByCode[code]}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </>
           ) : null}
           <button
             type="submit"
@@ -266,6 +340,8 @@ export default function EmployeeInfoTable({
   columns,
   valuesByRecordId,
   formulaValueByRecordIdAndColumnId,
+  currencyDisplayValueByRecordIdAndColumnId,
+  displayCurrency,
   isAdmin,
   formulaSuggestions,
   onCreateRecord,
@@ -279,6 +355,8 @@ export default function EmployeeInfoTable({
   columns: EmployeeInfoColumnRow[];
   valuesByRecordId: Record<string, Record<string, EmployeeInfoValueRow>>;
   formulaValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
+  currencyDisplayValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
+  displayCurrency: EmployeeInfoDisplayCurrencyCode;
   isAdmin: boolean;
   formulaSuggestions: FormulaSuggestion[];
   onCreateRecord: (formData: FormData) => Promise<void> | void;
@@ -621,27 +699,60 @@ export default function EmployeeInfoTable({
                     }
 
                     if (column.column_kind === "currency") {
-                      const currencyCode = parseEmployeeInfoCurrencyCodeFromOptions(column.options_json);
-                      const currencySymbol = getEmployeeInfoCurrencySymbol(currencyCode);
-                      const currencyPrefix = currencyCode === "MUR" ? `${currencySymbol} ` : currencySymbol;
+                      const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+                        valueRow?.money_currency_code ||
+                          parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
+                      );
+                      if (displayCurrency !== "ORIGINAL") {
+                        const convertedDisplayValue =
+                          currencyDisplayValueByRecordIdAndColumnId[record.id]?.[column.id] || "";
+                        const sourceDisplayValue = formatEmployeeInfoCurrencyAmount(
+                          valueRow?.text_value,
+                          sourceCurrencyCode
+                        );
+
+                        return (
+                          <td key={column.id} className="px-4 py-3 text-slate-700">
+                            <div className="min-w-[12rem]">
+                              <div>{convertedDisplayValue || "-"}</div>
+                              {sourceDisplayValue ? (
+                                <p className="text-[11px] text-slate-500">
+                                  Source: {sourceDisplayValue}
+                                </p>
+                              ) : null}
+                            </div>
+                          </td>
+                        );
+                      }
+
                       return (
                         <td key={column.id} className="px-4 py-3">
                           <form>
                             <input type="hidden" name="record_id" value={record.id} />
                             <input type="hidden" name="column_id" value={column.id} />
                             <input type="hidden" name="column_kind" value={column.column_kind} />
-                            <div className="relative min-w-[12rem]">
-                              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-slate-500">
-                                {currencyPrefix}
-                              </span>
+                            <div className="flex min-w-[12rem] items-center gap-2">
+                              <select
+                                name="currency_code"
+                                defaultValue={sourceCurrencyCode}
+                                aria-label={`${column.label} currency`}
+                                className="h-[34px] rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700"
+                                onChange={submitChange}
+                              >
+                                {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                                  <option key={code} value={code}>
+                                    {code}
+                                  </option>
+                                ))}
+                              </select>
                               <input
-                                type="number"
-                                step="any"
+                                type="text"
                                 inputMode="decimal"
                                 name="value"
                                 defaultValue={valueRow?.text_value || ""}
+                                placeholder={getEmployeeInfoCurrencySymbol(sourceCurrencyCode)}
                                 aria-label={column.label}
-                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 pl-10 text-sm text-slate-700"
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
                                 onChange={submitChange}
                               />
                             </div>

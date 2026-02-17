@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
 import {
+  buildEmployeeInfoExchangeRateMap,
   columnIndexToLetter,
+  convertEmployeeInfoCurrencyAmount,
   evaluateEmployeeFormula,
+  formatEmployeeInfoCurrencyAmount,
   formatFormulaResult,
-  getEmployeeInfoCurrencySymbol,
+  normalizeEmployeeInfoCurrencyCode,
+  normalizeEmployeeInfoDisplayCurrencyCode,
+  normalizeEmployeeInfoFormulaCurrencyMode,
   parseEmployeeInfoCurrencyCodeFromOptions,
   toEmployeeInfoColumnKey,
+  type EmployeeInfoCurrencyCode,
+  type EmployeeInfoDisplayCurrencyCode,
+  type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
+import { isSupabaseMissingColumnError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type EmployeeInfoRecordRow = {
@@ -22,6 +31,8 @@ type EmployeeInfoColumnRow = {
   label: string;
   column_kind: "text" | "dropdown" | "formula" | "number" | "date" | "currency";
   formula: string | null;
+  formula_currency_mode: "display" | "fixed";
+  formula_currency_code: "USD" | "GBP" | "MUR";
   options_json: unknown;
   position: number;
 };
@@ -31,6 +42,7 @@ type EmployeeInfoValueRow = {
   column_id: string;
   text_value: string | null;
   option_value: string | null;
+  money_currency_code: string | null;
 };
 
 function csvEscape(value: unknown) {
@@ -41,14 +53,21 @@ function csvEscape(value: unknown) {
 
 function buildValueMap(
   rows: EmployeeInfoValueRow[]
-): Record<string, Record<string, { text_value: string | null; option_value: string | null }>> {
+): Record<
+  string,
+  Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+> {
   return rows.reduce<
-    Record<string, Record<string, { text_value: string | null; option_value: string | null }>>
+    Record<
+      string,
+      Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+    >
   >((acc, row) => {
     if (!acc[row.record_id]) acc[row.record_id] = {};
     acc[row.record_id][row.column_id] = {
       text_value: row.text_value,
       option_value: row.option_value,
+      money_currency_code: row.money_currency_code,
     };
     return acc;
   }, {});
@@ -57,11 +76,29 @@ function buildValueMap(
 function buildFormulaValueMap(args: {
   records: EmployeeInfoRecordRow[];
   columns: EmployeeInfoColumnRow[];
-  valueMap: Record<string, Record<string, { text_value: string | null; option_value: string | null }>>;
+  valueMap: Record<
+    string,
+    Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+  >;
   clientNameById: Record<string, string>;
+  exchangeRateRows: EmployeeInfoExchangeRateRow[];
+  displayCurrency: EmployeeInfoDisplayCurrencyCode;
 }) {
-  const { records, columns, valueMap, clientNameById } = args;
+  const { records, columns, valueMap, clientNameById, exchangeRateRows, displayCurrency } = args;
+  const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+  const exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, monthStart);
   const result: Record<string, Record<string, string>> = {};
+
+  const resolveFormulaTargetCurrencyCode = (column: EmployeeInfoColumnRow) => {
+    const formulaMode = normalizeEmployeeInfoFormulaCurrencyMode(column.formula_currency_mode);
+    if (formulaMode === "fixed") {
+      return normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+    }
+    if (displayCurrency !== "ORIGINAL") {
+      return normalizeEmployeeInfoCurrencyCode(displayCurrency);
+    }
+    return normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+  };
 
   records.forEach((record) => {
     result[record.id] = {};
@@ -88,7 +125,13 @@ function buildFormulaValueMap(args: {
       registerReference(columnIndexToLetter(displayIndex), displayIndex);
     });
 
-    const resolveDisplayIndexValue = (displayIndex: number, visiting: Set<number>): unknown => {
+    const resolveDisplayIndexValue = (
+      displayIndex: number,
+      visiting: Set<number>,
+      targetCurrencyCode: EmployeeInfoCurrencyCode,
+      onMissingExchangeRate: () => void,
+      onCurrencyOperand: () => void
+    ): unknown => {
       if (displayIndex === 0) return record.full_name;
       if (displayIndex === 1) return record.client_id ? clientNameById[record.client_id] || "" : "";
 
@@ -101,8 +144,22 @@ function buildFormulaValueMap(args: {
         visiting.add(displayIndex);
         const nested = evaluateEmployeeFormula(
           column.formula,
-          (refIndex) => resolveDisplayIndexValue(refIndex, new Set(visiting)),
-          (reference) => resolveNamedReferenceValue(reference, new Set(visiting))
+          (refIndex) =>
+            resolveDisplayIndexValue(
+              refIndex,
+              new Set(visiting),
+              targetCurrencyCode,
+              onMissingExchangeRate,
+              onCurrencyOperand
+            ),
+          (reference) =>
+            resolveNamedReferenceValue(
+              reference,
+              new Set(visiting),
+              targetCurrencyCode,
+              onMissingExchangeRate,
+              onCurrencyOperand
+            )
         );
         visiting.delete(displayIndex);
         return nested ?? 0;
@@ -110,23 +167,90 @@ function buildFormulaValueMap(args: {
 
       const value = valuesByColumnId[column.id];
       if (!value) return "";
-      return column.column_kind === "dropdown" ? value.option_value || "" : value.text_value || "";
+      if (column.column_kind === "dropdown") return value.option_value || "";
+      if (column.column_kind === "currency") {
+        onCurrencyOperand();
+        const sourceAmount = Number(value.text_value);
+        if (!Number.isFinite(sourceAmount)) return 0;
+        const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+          value.money_currency_code || parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
+        );
+        const convertedAmount = convertEmployeeInfoCurrencyAmount({
+          amount: sourceAmount,
+          fromCurrencyCode: sourceCurrencyCode,
+          toCurrencyCode: targetCurrencyCode,
+          exchangeRateMap,
+        });
+        if (convertedAmount === null) {
+          onMissingExchangeRate();
+          return 0;
+        }
+        return convertedAmount;
+      }
+      return value.text_value || "";
     };
 
-    const resolveNamedReferenceValue = (reference: string, visiting: Set<number>) => {
+    const resolveNamedReferenceValue = (
+      reference: string,
+      visiting: Set<number>,
+      targetCurrencyCode: EmployeeInfoCurrencyCode,
+      onMissingExchangeRate: () => void,
+      onCurrencyOperand: () => void
+    ) => {
       const displayIndex = namedReferenceToDisplayIndex[String(reference || "").trim().toLowerCase()];
       if (displayIndex === undefined) return undefined;
-      return resolveDisplayIndexValue(displayIndex, visiting);
+      return resolveDisplayIndexValue(
+        displayIndex,
+        visiting,
+        targetCurrencyCode,
+        onMissingExchangeRate,
+        onCurrencyOperand
+      );
     };
 
     columns.forEach((column, index) => {
       if (column.column_kind !== "formula") return;
       const displayIndex = index + 2;
+      const formulaTargetCurrencyCode = resolveFormulaTargetCurrencyCode(column);
+      let hasMissingExchangeRate = false;
+      let hasCurrencyOperand = false;
+      const markMissingExchangeRate = () => {
+        hasMissingExchangeRate = true;
+      };
+      const markCurrencyOperand = () => {
+        hasCurrencyOperand = true;
+      };
+
       const evaluated = evaluateEmployeeFormula(
         column.formula,
-        (refIndex) => resolveDisplayIndexValue(refIndex, new Set([displayIndex])),
-        (reference) => resolveNamedReferenceValue(reference, new Set([displayIndex]))
+        (refIndex) =>
+          resolveDisplayIndexValue(
+            refIndex,
+            new Set([displayIndex]),
+            formulaTargetCurrencyCode,
+            markMissingExchangeRate,
+            markCurrencyOperand
+          ),
+        (reference) =>
+          resolveNamedReferenceValue(
+            reference,
+            new Set([displayIndex]),
+            formulaTargetCurrencyCode,
+            markMissingExchangeRate,
+            markCurrencyOperand
+          )
       );
+      if (hasMissingExchangeRate) {
+        result[record.id][column.id] = "#FX!";
+        return;
+      }
+      if (typeof evaluated === "number" && Number.isFinite(evaluated) && hasCurrencyOperand) {
+        result[record.id][column.id] = formatEmployeeInfoCurrencyAmount(
+          evaluated,
+          formulaTargetCurrencyCode
+        );
+        return;
+      }
       result[record.id][column.id] = formatFormulaResult(evaluated);
     });
   });
@@ -134,7 +258,61 @@ function buildFormulaValueMap(args: {
   return result;
 }
 
-export async function GET() {
+function buildCurrencyDisplayValueMap(args: {
+  records: EmployeeInfoRecordRow[];
+  columns: EmployeeInfoColumnRow[];
+  valueMap: Record<
+    string,
+    Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+  >;
+  exchangeRateRows: EmployeeInfoExchangeRateRow[];
+  displayCurrency: EmployeeInfoDisplayCurrencyCode;
+}) {
+  const { records, columns, valueMap, exchangeRateRows, displayCurrency } = args;
+  if (displayCurrency === "ORIGINAL") return {};
+
+  const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+  const exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, monthStart);
+  const targetCurrencyCode = normalizeEmployeeInfoCurrencyCode(displayCurrency);
+  const result: Record<string, Record<string, string>> = {};
+
+  records.forEach((record) => {
+    const valuesByColumnId = valueMap[record.id] || {};
+    result[record.id] = {};
+
+    columns.forEach((column) => {
+      if (column.column_kind !== "currency") return;
+      const value = valuesByColumnId[column.id];
+      if (!value?.text_value) return;
+
+      const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+        value.money_currency_code || parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
+      );
+      const convertedAmount = convertEmployeeInfoCurrencyAmount({
+        amount: value.text_value,
+        fromCurrencyCode: sourceCurrencyCode,
+        toCurrencyCode: targetCurrencyCode,
+        exchangeRateMap,
+      });
+      if (convertedAmount === null) {
+        result[record.id][column.id] = "#FX!";
+        return;
+      }
+      result[record.id][column.id] = formatEmployeeInfoCurrencyAmount(
+        convertedAmount,
+        targetCurrencyCode
+      );
+    });
+  });
+
+  return result;
+}
+
+export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const displayCurrency = normalizeEmployeeInfoDisplayCurrencyCode(
+    requestUrl.searchParams.get("display_currency")
+  );
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const authUserId = authData.user?.id;
@@ -162,19 +340,31 @@ export async function GET() {
     }
   }
 
-  const [{ data: clientsRaw }, { data: recordsRaw, error: recordsError }, { data: columnsRaw, error: columnsError }] =
-    await Promise.all([
-      supabase.from("clients").select("id,name"),
-      supabase
-        .from("employee_info_records")
-        .select("id,full_name,client_id,created_at")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("employee_info_columns")
-        .select("id,key,label,column_kind,formula,options_json,position")
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-    ]);
+  const { data: clientsRaw } = await supabase.from("clients").select("id,name");
+  const { data: recordsRaw, error: recordsError } = await supabase
+    .from("employee_info_records")
+    .select("id,full_name,client_id,created_at")
+    .order("created_at", { ascending: false });
+  let { data: columnsRaw, error: columnsError } = await supabase
+    .from("employee_info_columns")
+    .select(
+      "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
+    )
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (isSupabaseMissingColumnError(columnsError)) {
+    const fallbackColumns = await supabase
+      .from("employee_info_columns")
+      .select("id,key,label,column_kind,formula,options_json,position")
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    columnsError = fallbackColumns.error;
+    columnsRaw = (fallbackColumns.data || []).map((column) => ({
+      ...column,
+      formula_currency_mode: "display",
+      formula_currency_code: "USD",
+    }));
+  }
 
   if (recordsError) {
     return NextResponse.json({ error: recordsError.message }, { status: 400 });
@@ -188,16 +378,41 @@ export async function GET() {
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
 
   const recordIds = records.map((row) => row.id).filter(Boolean);
-  const { data: valuesRaw, error: valuesError } = recordIds.length
-    ? await supabase
+  let valuesRaw: EmployeeInfoValueRow[] = [];
+  let valuesError: { message?: string; code?: string } | null = null;
+  if (recordIds.length) {
+    const valuesResult = await supabase
+      .from("employee_info_values")
+      .select("record_id,column_id,text_value,option_value,money_currency_code")
+      .in("record_id", recordIds);
+    valuesRaw = (valuesResult.data || []) as EmployeeInfoValueRow[];
+    valuesError = valuesResult.error;
+    if (isSupabaseMissingColumnError(valuesError)) {
+      const fallbackValuesResult = await supabase
         .from("employee_info_values")
         .select("record_id,column_id,text_value,option_value")
-        .in("record_id", recordIds)
-    : { data: [] as EmployeeInfoValueRow[], error: null };
+        .in("record_id", recordIds);
+      valuesError = fallbackValuesResult.error;
+      valuesRaw = ((fallbackValuesResult.data || []) as Array<
+        Omit<EmployeeInfoValueRow, "money_currency_code">
+      >).map((row) => ({
+        ...row,
+        money_currency_code: null,
+      }));
+    }
+  }
 
   if (valuesError) {
     return NextResponse.json({ error: valuesError.message }, { status: 400 });
   }
+
+  const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
+    .from("employee_info_exchange_rates")
+    .select("base_currency_code,quote_currency_code,rate,effective_month_start")
+    .order("effective_month_start", { ascending: false });
+  const exchangeRateRows = (
+    isSupabaseMissingTableError(exchangeRateError) ? [] : exchangeRateRowsRaw || []
+  ) as EmployeeInfoExchangeRateRow[];
 
   const valuesByRecordId = buildValueMap((valuesRaw || []) as EmployeeInfoValueRow[]);
   const clientNameById = clients.reduce<Record<string, string>>((acc, client) => {
@@ -209,6 +424,15 @@ export async function GET() {
     columns,
     valueMap: valuesByRecordId,
     clientNameById,
+    exchangeRateRows,
+    displayCurrency,
+  });
+  const currencyDisplayValueByRecordIdAndColumnId = buildCurrencyDisplayValueMap({
+    records,
+    columns,
+    valueMap: valuesByRecordId,
+    exchangeRateRows,
+    displayCurrency,
   });
 
   const headers = ["Full Name", "Client", ...columns.map((column) => column.label)];
@@ -235,15 +459,19 @@ export async function GET() {
         return;
       }
       if (column.column_kind === "currency") {
-        const amount = String(value.text_value || "").trim();
-        if (!amount) {
+        const sourceAmount = String(value.text_value || "").trim();
+        if (!sourceAmount) {
           rowValues.push("");
           return;
         }
-        const currencyCode = parseEmployeeInfoCurrencyCodeFromOptions(column.options_json);
-        const symbol = getEmployeeInfoCurrencySymbol(currencyCode);
-        const prefix = currencyCode === "MUR" ? `${symbol} ` : symbol;
-        rowValues.push(`${prefix}${amount}`);
+        if (displayCurrency !== "ORIGINAL") {
+          rowValues.push(currencyDisplayValueByRecordIdAndColumnId[record.id]?.[column.id] || "");
+          return;
+        }
+        const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+          value.money_currency_code || parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
+        );
+        rowValues.push(formatEmployeeInfoCurrencyAmount(sourceAmount, sourceCurrencyCode));
         return;
       }
       rowValues.push(value.text_value || "");

@@ -1,18 +1,29 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { isSupabaseMissingColumnError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
 import AddColumnPopover from "./AddColumnPopover";
 import CustomizeFieldsPopover from "./CustomizeFieldsPopover";
+import CurrencyDisplaySelect from "./CurrencyDisplaySelect";
 import type { FormulaSuggestion } from "./FormulaAutocompleteInput";
 import {
+  buildEmployeeInfoExchangeRateMap,
   columnIndexToLetter,
+  convertEmployeeInfoCurrencyAmount,
   evaluateEmployeeFormula,
+  formatEmployeeInfoCurrencyAmount,
   formatFormulaResult,
   normalizeEmployeeInfoCurrencyCode,
+  normalizeEmployeeInfoDisplayCurrencyCode,
+  normalizeEmployeeInfoFormulaCurrencyMode,
   normalizeEmployeeInfoColumnKind,
+  parseEmployeeInfoCurrencyCodeFromOptions,
+  parseEmployeeInfoCurrencyInput,
   toEmployeeInfoColumnKey,
+  type EmployeeInfoCurrencyCode,
+  type EmployeeInfoDisplayCurrencyCode,
+  type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
 
 type EmployeeInfoRecordRow = {
@@ -28,6 +39,8 @@ type EmployeeInfoColumnRow = {
   label: string;
   column_kind: "text" | "dropdown" | "formula" | "number" | "date" | "currency";
   formula: string | null;
+  formula_currency_mode: "display" | "fixed";
+  formula_currency_code: "USD" | "GBP" | "MUR";
   options_json: unknown;
   position: number;
 };
@@ -37,6 +50,7 @@ type EmployeeInfoValueRow = {
   column_id: string;
   text_value: string | null;
   option_value: string | null;
+  money_currency_code: string | null;
 };
 
 type UserRow = {
@@ -46,10 +60,17 @@ type UserRow = {
   role: string | null;
 };
 
-function buildEmployeeInfoUrl(params?: { error?: string; success?: string }) {
+function buildEmployeeInfoUrl(params?: {
+  error?: string;
+  success?: string;
+  displayCurrency?: EmployeeInfoDisplayCurrencyCode;
+}) {
   const sp = new URLSearchParams();
   if (params?.error) sp.set("error", params.error);
   if (params?.success) sp.set("success", params.success);
+  if (params?.displayCurrency && params.displayCurrency !== "ORIGINAL") {
+    sp.set("display_currency", params.displayCurrency);
+  }
   const qs = sp.toString();
   return qs ? `/employee-info?${qs}` : "/employee-info";
 }
@@ -85,10 +106,6 @@ function normalizeDateCellValue(rawValue: string) {
     date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day;
   return isValid ? normalized : null;
-}
-
-function normalizeCurrencyCellValue(rawValue: string) {
-  return normalizeNumberCellValue(rawValue);
 }
 
 function buildFormulaSuggestions(columns: EmployeeInfoColumnRow[]) {
@@ -131,14 +148,21 @@ function buildFormulaSuggestions(columns: EmployeeInfoColumnRow[]) {
 
 function buildValueMap(
   rows: EmployeeInfoValueRow[]
-): Record<string, Record<string, { text_value: string | null; option_value: string | null }>> {
+): Record<
+  string,
+  Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+> {
   return rows.reduce<
-    Record<string, Record<string, { text_value: string | null; option_value: string | null }>>
+    Record<
+      string,
+      Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+    >
   >((acc, row) => {
     if (!acc[row.record_id]) acc[row.record_id] = {};
     acc[row.record_id][row.column_id] = {
       text_value: row.text_value,
       option_value: row.option_value,
+      money_currency_code: row.money_currency_code,
     };
     return acc;
   }, {});
@@ -147,12 +171,30 @@ function buildValueMap(
 function buildFormulaValueMap(args: {
   records: EmployeeInfoRecordRow[];
   columns: EmployeeInfoColumnRow[];
-  valueMap: Record<string, Record<string, { text_value: string | null; option_value: string | null }>>;
+  valueMap: Record<
+    string,
+    Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+  >;
   clientNameById: Record<string, string>;
+  exchangeRateRows: EmployeeInfoExchangeRateRow[];
+  displayCurrency: EmployeeInfoDisplayCurrencyCode;
 }) {
-  const { records, columns, valueMap, clientNameById } = args;
+  const { records, columns, valueMap, clientNameById, exchangeRateRows, displayCurrency } = args;
+  const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+  const exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, monthStart);
 
   const result: Record<string, Record<string, string>> = {};
+
+  const resolveFormulaTargetCurrencyCode = (column: EmployeeInfoColumnRow) => {
+    const formulaMode = normalizeEmployeeInfoFormulaCurrencyMode(column.formula_currency_mode);
+    if (formulaMode === "fixed") {
+      return normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+    }
+    if (displayCurrency !== "ORIGINAL") {
+      return normalizeEmployeeInfoCurrencyCode(displayCurrency);
+    }
+    return normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+  };
 
   records.forEach((record) => {
     result[record.id] = {};
@@ -180,7 +222,13 @@ function buildFormulaValueMap(args: {
       registerReference(columnIndexToLetter(displayIndex), displayIndex);
     });
 
-    const resolveDisplayIndexValue = (displayIndex: number, visiting: Set<number>): unknown => {
+    const resolveDisplayIndexValue = (
+      displayIndex: number,
+      visiting: Set<number>,
+      targetCurrencyCode: EmployeeInfoCurrencyCode,
+      onMissingExchangeRate: () => void,
+      onCurrencyOperand: () => void
+    ): unknown => {
       if (displayIndex === 0) return record.full_name;
       if (displayIndex === 1) return record.client_id ? clientNameById[record.client_id] || "" : "";
 
@@ -193,8 +241,22 @@ function buildFormulaValueMap(args: {
         visiting.add(displayIndex);
         const nested = evaluateEmployeeFormula(
           column.formula,
-          (refIndex) => resolveDisplayIndexValue(refIndex, new Set(visiting)),
-          (reference) => resolveNamedReferenceValue(reference, new Set(visiting))
+          (refIndex) =>
+            resolveDisplayIndexValue(
+              refIndex,
+              new Set(visiting),
+              targetCurrencyCode,
+              onMissingExchangeRate,
+              onCurrencyOperand
+            ),
+          (reference) =>
+            resolveNamedReferenceValue(
+              reference,
+              new Set(visiting),
+              targetCurrencyCode,
+              onMissingExchangeRate,
+              onCurrencyOperand
+            )
         );
         visiting.delete(displayIndex);
         return nested ?? 0;
@@ -202,23 +264,95 @@ function buildFormulaValueMap(args: {
 
       const value = valuesByColumnId[column.id];
       if (!value) return "";
-      return column.column_kind === "dropdown" ? value.option_value || "" : value.text_value || "";
+      if (column.column_kind === "dropdown") return value.option_value || "";
+
+      if (column.column_kind === "currency") {
+        onCurrencyOperand();
+        const sourceAmount = Number(value.text_value);
+        if (!Number.isFinite(sourceAmount)) return 0;
+        const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+          value.money_currency_code || parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
+        );
+        const convertedAmount = convertEmployeeInfoCurrencyAmount({
+          amount: sourceAmount,
+          fromCurrencyCode: sourceCurrencyCode,
+          toCurrencyCode: targetCurrencyCode,
+          exchangeRateMap,
+        });
+        if (convertedAmount === null) {
+          onMissingExchangeRate();
+          return 0;
+        }
+        return convertedAmount;
+      }
+
+      return value.text_value || "";
     };
 
-    const resolveNamedReferenceValue = (reference: string, visiting: Set<number>) => {
+    const resolveNamedReferenceValue = (
+      reference: string,
+      visiting: Set<number>,
+      targetCurrencyCode: EmployeeInfoCurrencyCode,
+      onMissingExchangeRate: () => void,
+      onCurrencyOperand: () => void
+    ) => {
       const displayIndex = namedReferenceToDisplayIndex[String(reference || "").trim().toLowerCase()];
       if (displayIndex === undefined) return undefined;
-      return resolveDisplayIndexValue(displayIndex, visiting);
+      return resolveDisplayIndexValue(
+        displayIndex,
+        visiting,
+        targetCurrencyCode,
+        onMissingExchangeRate,
+        onCurrencyOperand
+      );
     };
 
     columns.forEach((column, index) => {
       if (column.column_kind !== "formula") return;
       const displayIndex = index + 2;
+      const formulaTargetCurrencyCode = resolveFormulaTargetCurrencyCode(column);
+      let hasMissingExchangeRate = false;
+      let hasCurrencyOperand = false;
+      const markMissingExchangeRate = () => {
+        hasMissingExchangeRate = true;
+      };
+      const markCurrencyOperand = () => {
+        hasCurrencyOperand = true;
+      };
+
       const evaluated = evaluateEmployeeFormula(
         column.formula,
-        (refIndex) => resolveDisplayIndexValue(refIndex, new Set([displayIndex])),
-        (reference) => resolveNamedReferenceValue(reference, new Set([displayIndex]))
+        (refIndex) =>
+          resolveDisplayIndexValue(
+            refIndex,
+            new Set([displayIndex]),
+            formulaTargetCurrencyCode,
+            markMissingExchangeRate,
+            markCurrencyOperand
+          ),
+        (reference) =>
+          resolveNamedReferenceValue(
+            reference,
+            new Set([displayIndex]),
+            formulaTargetCurrencyCode,
+            markMissingExchangeRate,
+            markCurrencyOperand
+          )
       );
+
+      if (hasMissingExchangeRate) {
+        result[record.id][column.id] = "#FX!";
+        return;
+      }
+
+      if (typeof evaluated === "number" && Number.isFinite(evaluated) && hasCurrencyOperand) {
+        result[record.id][column.id] = formatEmployeeInfoCurrencyAmount(
+          evaluated,
+          formulaTargetCurrencyCode
+        );
+        return;
+      }
+
       result[record.id][column.id] = formatFormulaResult(evaluated);
     });
   });
@@ -226,10 +360,61 @@ function buildFormulaValueMap(args: {
   return result;
 }
 
+function buildCurrencyDisplayValueMap(args: {
+  records: EmployeeInfoRecordRow[];
+  columns: EmployeeInfoColumnRow[];
+  valueMap: Record<
+    string,
+    Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+  >;
+  exchangeRateRows: EmployeeInfoExchangeRateRow[];
+  displayCurrency: EmployeeInfoDisplayCurrencyCode;
+}) {
+  const { records, columns, valueMap, exchangeRateRows, displayCurrency } = args;
+  if (displayCurrency === "ORIGINAL") return {};
+
+  const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+  const exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, monthStart);
+  const result: Record<string, Record<string, string>> = {};
+  const targetCurrencyCode = normalizeEmployeeInfoCurrencyCode(displayCurrency);
+
+  records.forEach((record) => {
+    const valuesByColumnId = valueMap[record.id] || {};
+    result[record.id] = {};
+
+    columns.forEach((column) => {
+      if (column.column_kind !== "currency") return;
+      const value = valuesByColumnId[column.id];
+      if (!value?.text_value) return;
+
+      const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+        value.money_currency_code || parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
+      );
+      const convertedAmount = convertEmployeeInfoCurrencyAmount({
+        amount: value.text_value,
+        fromCurrencyCode: sourceCurrencyCode,
+        toCurrencyCode: targetCurrencyCode,
+        exchangeRateMap,
+      });
+      if (convertedAmount === null) {
+        result[record.id][column.id] = "#FX!";
+        return;
+      }
+      result[record.id][column.id] = formatEmployeeInfoCurrencyAmount(
+        convertedAmount,
+        targetCurrencyCode
+      );
+    });
+  });
+
+  return result;
+}
+
 export default async function EmployeeInfoPage(props: {
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; display_currency?: string }>;
 }) {
   const searchParams = await props.searchParams;
+  const displayCurrency = normalizeEmployeeInfoDisplayCurrencyCode(searchParams?.display_currency);
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const authUserId = authData.user?.id;
@@ -280,18 +465,32 @@ export default async function EmployeeInfoPage(props: {
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
   const users = (usersRaw || []) as UserRow[];
 
-  const [{ data: recordsRaw, error: recordsError }, { data: columnsRaw, error: columnsError }] =
-    await Promise.all([
-      supabase
-        .from("employee_info_records")
-        .select("id,full_name,client_id,created_at")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("employee_info_columns")
-        .select("id,key,label,column_kind,formula,options_json,position")
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-    ]);
+  const { data: recordsRaw, error: recordsError } = await supabase
+    .from("employee_info_records")
+    .select("id,full_name,client_id,created_at")
+    .order("created_at", { ascending: false });
+
+  let { data: columnsRaw, error: columnsError } = await supabase
+    .from("employee_info_columns")
+    .select(
+      "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
+    )
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (isSupabaseMissingColumnError(columnsError)) {
+    const fallbackColumns = await supabase
+      .from("employee_info_columns")
+      .select("id,key,label,column_kind,formula,options_json,position")
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    columnsError = fallbackColumns.error;
+    columnsRaw = (fallbackColumns.data || []).map((column) => ({
+      ...column,
+      formula_currency_mode: "display",
+      formula_currency_code: "USD",
+    }));
+  }
 
   if (isSupabaseMissingTableError(recordsError) || isSupabaseMissingTableError(columnsError)) {
     return (
@@ -315,15 +514,40 @@ export default async function EmployeeInfoPage(props: {
   const formulaSuggestions = buildFormulaSuggestions(columns);
 
   const recordIds = records.map((row) => row.id).filter(Boolean);
-  const { data: valuesRaw, error: valuesError } = recordIds.length
-    ? await supabase
+  let valuesRaw: EmployeeInfoValueRow[] = [];
+  let valuesError: { message?: string; code?: string } | null = null;
+  if (recordIds.length) {
+    const valuesResult = await supabase
+      .from("employee_info_values")
+      .select("record_id,column_id,text_value,option_value,money_currency_code")
+      .in("record_id", recordIds);
+    valuesRaw = (valuesResult.data || []) as EmployeeInfoValueRow[];
+    valuesError = valuesResult.error;
+
+    if (isSupabaseMissingColumnError(valuesError)) {
+      const fallbackValuesResult = await supabase
         .from("employee_info_values")
         .select("record_id,column_id,text_value,option_value")
-        .in("record_id", recordIds)
-    : { data: [] as EmployeeInfoValueRow[], error: null };
+        .in("record_id", recordIds);
+      valuesError = fallbackValuesResult.error;
+      valuesRaw = ((fallbackValuesResult.data || []) as Array<
+        Omit<EmployeeInfoValueRow, "money_currency_code">
+      >).map((row) => ({
+        ...row,
+        money_currency_code: null,
+      }));
+    }
+  }
 
   const valueRows = (isSupabaseMissingTableError(valuesError) ? [] : valuesRaw || []) as EmployeeInfoValueRow[];
   const valuesByRecordId = buildValueMap(valueRows);
+  const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
+    .from("employee_info_exchange_rates")
+    .select("base_currency_code,quote_currency_code,rate,effective_month_start")
+    .order("effective_month_start", { ascending: false });
+  const exchangeRateRows = (
+    isSupabaseMissingTableError(exchangeRateError) ? [] : exchangeRateRowsRaw || []
+  ) as EmployeeInfoExchangeRateRow[];
 
   const clientNameById = clients.reduce<Record<string, string>>((acc, client) => {
     acc[client.id] = client.name;
@@ -334,6 +558,15 @@ export default async function EmployeeInfoPage(props: {
     columns,
     valueMap: valuesByRecordId,
     clientNameById,
+    exchangeRateRows,
+    displayCurrency,
+  });
+  const currencyDisplayValueByRecordIdAndColumnId = buildCurrencyDisplayValueMap({
+    records,
+    columns,
+    valueMap: valuesByRecordId,
+    exchangeRateRows,
+    displayCurrency,
   });
 
   const { data: allowedUsersRaw } = isAdmin
@@ -382,6 +615,9 @@ export default async function EmployeeInfoPage(props: {
     const columnId = String(formData.get("column_id") || "").trim();
     const columnKind = normalizeEmployeeInfoColumnKind(String(formData.get("column_kind") || ""));
     const value = String(formData.get("value") || "").trim();
+    const submittedCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+      String(formData.get("currency_code") || "")
+    );
 
     if (!recordId) return { ok: false, error: "Missing record id" };
 
@@ -409,14 +645,22 @@ export default async function EmployeeInfoPage(props: {
     if (!columnId) return { ok: false, error: "Missing column id" };
     if (columnKind === "formula") return { ok: true };
 
+    const parsedCurrencyInput =
+      columnKind === "currency"
+        ? parseEmployeeInfoCurrencyInput(value, submittedCurrencyCode)
+        : null;
     const normalizedValue =
       columnKind === "number"
         ? normalizeNumberCellValue(value)
         : columnKind === "currency"
-        ? normalizeCurrencyCellValue(value)
+        ? parsedCurrencyInput?.amountText || null
         : columnKind === "date"
         ? normalizeDateCellValue(value)
         : value;
+    const normalizedMoneyCurrencyCode =
+      columnKind === "currency"
+        ? normalizeEmployeeInfoCurrencyCode(parsedCurrencyInput?.currencyCode || submittedCurrencyCode)
+        : null;
     if (!normalizedValue) {
       const { error } = await supabase
         .from("employee_info_values")
@@ -435,6 +679,7 @@ export default async function EmployeeInfoPage(props: {
             column_id: columnId,
             option_value: normalizedValue,
             text_value: null,
+            money_currency_code: null,
             updated_at: new Date().toISOString(),
           }
         : {
@@ -442,6 +687,7 @@ export default async function EmployeeInfoPage(props: {
             column_id: columnId,
             text_value: normalizedValue,
             option_value: null,
+            money_currency_code: normalizedMoneyCurrencyCode,
             updated_at: new Date().toISOString(),
           };
 
@@ -476,6 +722,12 @@ export default async function EmployeeInfoPage(props: {
     const formula = String(formData.get("formula") || "").trim();
     const currencyCode = normalizeEmployeeInfoCurrencyCode(
       String(formData.get("currency_code") || "")
+    );
+    const formulaCurrencyMode = normalizeEmployeeInfoFormulaCurrencyMode(
+      String(formData.get("formula_currency_mode") || "")
+    );
+    const formulaCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+      String(formData.get("formula_currency_code") || "")
     );
 
     if (!label) {
@@ -512,6 +764,8 @@ export default async function EmployeeInfoPage(props: {
       label,
       column_kind: kind,
       formula: kind === "formula" ? formula : null,
+      formula_currency_mode: kind === "formula" ? formulaCurrencyMode : "display",
+      formula_currency_code: kind === "formula" ? formulaCurrencyCode : "USD",
       options_json:
         kind === "dropdown"
           ? toOptionsJson(optionsRaw)
@@ -556,6 +810,12 @@ export default async function EmployeeInfoPage(props: {
     const currencyCode = normalizeEmployeeInfoCurrencyCode(
       String(formData.get("currency_code") || "")
     );
+    const formulaCurrencyMode = normalizeEmployeeInfoFormulaCurrencyMode(
+      String(formData.get("formula_currency_mode") || "")
+    );
+    const formulaCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+      String(formData.get("formula_currency_code") || "")
+    );
 
     if (!columnId) {
       redirect(buildEmployeeInfoUrl({ error: "Column id is required" }));
@@ -588,6 +848,8 @@ export default async function EmployeeInfoPage(props: {
         label,
         column_kind: kind,
         formula: kind === "formula" ? formula : null,
+        formula_currency_mode: kind === "formula" ? formulaCurrencyMode : "display",
+        formula_currency_code: kind === "formula" ? formulaCurrencyCode : "USD",
         options_json:
           kind === "dropdown"
             ? toOptionsJson(optionsRaw)
@@ -604,7 +866,7 @@ export default async function EmployeeInfoPage(props: {
     if (existingColumn.column_kind !== kind) {
       const { data: existingValueRows, error: existingValuesError } = await supabase
         .from("employee_info_values")
-        .select("record_id,text_value,option_value")
+        .select("record_id,text_value,option_value,money_currency_code")
         .eq("column_id", columnId);
       if (existingValuesError) {
         redirect(buildEmployeeInfoUrl({ error: existingValuesError.message }));
@@ -632,6 +894,7 @@ export default async function EmployeeInfoPage(props: {
                     column_id: columnId,
                     option_value: normalizedValue,
                     text_value: null,
+                    money_currency_code: null,
                     updated_at: now,
                   };
                 })
@@ -640,6 +903,7 @@ export default async function EmployeeInfoPage(props: {
                   column_id: string;
                   option_value: string;
                   text_value: null;
+                  money_currency_code: null;
                   updated_at: string;
                 } => Boolean(row))
             : kind === "number"
@@ -654,6 +918,7 @@ export default async function EmployeeInfoPage(props: {
                     column_id: columnId,
                     text_value: normalizedValue,
                     option_value: null,
+                    money_currency_code: null,
                     updated_at: now,
                   };
                 })
@@ -662,20 +927,25 @@ export default async function EmployeeInfoPage(props: {
                   column_id: string;
                   text_value: string;
                   option_value: null;
+                  money_currency_code: null;
                   updated_at: string;
                 } => Boolean(row))
             : kind === "currency"
             ? valueRows
                 .map((row) => {
-                  const normalizedValue = normalizeCurrencyCellValue(
-                    String(row.text_value || row.option_value || "")
+                  const parsedCurrencyInput = parseEmployeeInfoCurrencyInput(
+                    String(row.text_value || row.option_value || ""),
+                    normalizeEmployeeInfoCurrencyCode(row.money_currency_code || currencyCode)
                   );
-                  if (!normalizedValue) return null;
+                  if (!parsedCurrencyInput.amountText) return null;
                   return {
                     record_id: row.record_id,
                     column_id: columnId,
-                    text_value: normalizedValue,
+                    text_value: parsedCurrencyInput.amountText,
                     option_value: null,
+                    money_currency_code: normalizeEmployeeInfoCurrencyCode(
+                      parsedCurrencyInput.currencyCode || currencyCode
+                    ),
                     updated_at: now,
                   };
                 })
@@ -684,6 +954,7 @@ export default async function EmployeeInfoPage(props: {
                   column_id: string;
                   text_value: string;
                   option_value: null;
+                  money_currency_code: EmployeeInfoCurrencyCode;
                   updated_at: string;
                 } => Boolean(row))
             : kind === "date"
@@ -698,6 +969,7 @@ export default async function EmployeeInfoPage(props: {
                     column_id: columnId,
                     text_value: normalizedValue,
                     option_value: null,
+                    money_currency_code: null,
                     updated_at: now,
                   };
                 })
@@ -706,6 +978,7 @@ export default async function EmployeeInfoPage(props: {
                   column_id: string;
                   text_value: string;
                   option_value: null;
+                  money_currency_code: null;
                   updated_at: string;
                 } => Boolean(row))
             : valueRows
@@ -717,6 +990,7 @@ export default async function EmployeeInfoPage(props: {
                     column_id: columnId,
                     text_value: normalizedValue,
                     option_value: null,
+                    money_currency_code: null,
                     updated_at: now,
                   };
                 })
@@ -725,6 +999,7 @@ export default async function EmployeeInfoPage(props: {
                   column_id: string;
                   text_value: string;
                   option_value: null;
+                  money_currency_code: null;
                   updated_at: string;
                 } => Boolean(row));
 
@@ -987,11 +1262,18 @@ export default async function EmployeeInfoPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-          <CustomizeFieldsPopover columns={columns} />
+          <div className="flex items-center gap-2">
+            <CustomizeFieldsPopover columns={columns} />
+            <CurrencyDisplaySelect value={displayCurrency} />
+          </div>
           {isAdmin ? (
             <div className="flex items-center gap-2">
               <a
-                href="/employee-info/export"
+                href={
+                  displayCurrency === "ORIGINAL"
+                    ? "/employee-info/export"
+                    : `/employee-info/export?display_currency=${displayCurrency}`
+                }
                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                 aria-label="Export employee info to Excel"
                 title="Export to Excel"
@@ -1025,6 +1307,8 @@ export default async function EmployeeInfoPage(props: {
           columns={columns}
           valuesByRecordId={valuesByRecordId}
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
+          currencyDisplayValueByRecordIdAndColumnId={currencyDisplayValueByRecordIdAndColumnId}
+          displayCurrency={displayCurrency}
           isAdmin={isAdmin}
           formulaSuggestions={formulaSuggestions}
           onCreateRecord={createRecord}

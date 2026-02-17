@@ -21,3 +21,14 @@ export function isSupabaseMissingFunctionError(error: MaybePostgrestError): bool
   const msg = message.toLowerCase();
   return msg.includes("schema cache") && msg.includes("could not find the function");
 }
+
+// PostgREST returns this when a selected/filtered column does not exist in schema cache.
+// Example: "Could not find the 'foo' column of 'bar' in the schema cache"
+export function isSupabaseMissingColumnError(error: MaybePostgrestError): boolean {
+  const code = String((error as { code?: string } | null | undefined)?.code || "");
+  if (code === "PGRST204") return true;
+
+  const message = String((error as { message?: string } | null | undefined)?.message || "");
+  const msg = message.toLowerCase();
+  return msg.includes("schema cache") && msg.includes("could not find") && msg.includes("column");
+}

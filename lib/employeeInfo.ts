@@ -13,11 +13,49 @@ export type EmployeeInfoColumnKind = (typeof EMPLOYEE_INFO_COLUMN_KINDS)[number]
 export const EMPLOYEE_INFO_CURRENCY_CODES = ["USD", "GBP", "MUR"] as const;
 export type EmployeeInfoCurrencyCode = (typeof EMPLOYEE_INFO_CURRENCY_CODES)[number];
 
+export const EMPLOYEE_INFO_DISPLAY_CURRENCY_CODES = [
+  "ORIGINAL",
+  ...EMPLOYEE_INFO_CURRENCY_CODES,
+] as const;
+export type EmployeeInfoDisplayCurrencyCode =
+  (typeof EMPLOYEE_INFO_DISPLAY_CURRENCY_CODES)[number];
+
+export const EMPLOYEE_INFO_FORMULA_CURRENCY_MODES = ["display", "fixed"] as const;
+export type EmployeeInfoFormulaCurrencyMode =
+  (typeof EMPLOYEE_INFO_FORMULA_CURRENCY_MODES)[number];
+
 const EMPLOYEE_INFO_CURRENCY_SYMBOL_BY_CODE: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "$",
-  GBP: "£",
+  GBP: "\u00A3",
   MUR: "Rs",
 };
+
+export type EmployeeInfoExchangeRateRow = {
+  base_currency_code: string;
+  quote_currency_code: string;
+  rate: string | number;
+  effective_month_start: string;
+};
+
+export type EmployeeInfoExchangeRateMapEntry = {
+  rate: number;
+  effectiveMonthStart: string;
+};
+
+export type EmployeeInfoExchangeRateMap = Record<string, EmployeeInfoExchangeRateMapEntry>;
+
+function buildExchangeRateKey(baseCurrencyCode: string, quoteCurrencyCode: string) {
+  const baseCode = normalizeEmployeeInfoCurrencyCode(baseCurrencyCode);
+  const quoteCode = normalizeEmployeeInfoCurrencyCode(quoteCurrencyCode);
+  return `${baseCode}->${quoteCode}`;
+}
+
+function toMonthStartString(value: Date | string | null | undefined) {
+  const raw = value instanceof Date ? value.toISOString().slice(0, 10) : String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${match[1]}-${match[2]}-01`;
+}
 
 export function isEmployeeInfoColumnKind(value: string): value is EmployeeInfoColumnKind {
   return (EMPLOYEE_INFO_COLUMN_KINDS as readonly string[]).includes(value);
@@ -31,11 +69,43 @@ export function isEmployeeInfoCurrencyCode(value: string): value is EmployeeInfo
   return (EMPLOYEE_INFO_CURRENCY_CODES as readonly string[]).includes(value);
 }
 
-export function normalizeEmployeeInfoCurrencyCode(value: string | null | undefined): EmployeeInfoCurrencyCode {
+export function normalizeEmployeeInfoCurrencyCode(
+  value: string | null | undefined
+): EmployeeInfoCurrencyCode {
   const normalized = String(value || "")
     .trim()
     .toUpperCase();
   return isEmployeeInfoCurrencyCode(normalized) ? normalized : "USD";
+}
+
+export function isEmployeeInfoDisplayCurrencyCode(
+  value: string
+): value is EmployeeInfoDisplayCurrencyCode {
+  return (EMPLOYEE_INFO_DISPLAY_CURRENCY_CODES as readonly string[]).includes(value);
+}
+
+export function normalizeEmployeeInfoDisplayCurrencyCode(
+  value: string | null | undefined
+): EmployeeInfoDisplayCurrencyCode {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase();
+  return isEmployeeInfoDisplayCurrencyCode(normalized) ? normalized : "ORIGINAL";
+}
+
+export function isEmployeeInfoFormulaCurrencyMode(
+  value: string
+): value is EmployeeInfoFormulaCurrencyMode {
+  return (EMPLOYEE_INFO_FORMULA_CURRENCY_MODES as readonly string[]).includes(value);
+}
+
+export function normalizeEmployeeInfoFormulaCurrencyMode(
+  value: string | null | undefined
+): EmployeeInfoFormulaCurrencyMode {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return isEmployeeInfoFormulaCurrencyMode(normalized) ? normalized : "display";
 }
 
 export function parseEmployeeInfoCurrencyCodeFromOptions(options: unknown): EmployeeInfoCurrencyCode {
@@ -56,6 +126,131 @@ export function getEmployeeInfoCurrencySymbol(
 ) {
   const normalizedCode = normalizeEmployeeInfoCurrencyCode(String(code || ""));
   return EMPLOYEE_INFO_CURRENCY_SYMBOL_BY_CODE[normalizedCode];
+}
+
+export function parseEmployeeInfoCurrencyInput(
+  rawValue: string | null | undefined,
+  fallbackCurrencyCode?: EmployeeInfoCurrencyCode | string | null
+) {
+  let normalized = String(rawValue || "").trim();
+  const fallbackCode = normalizeEmployeeInfoCurrencyCode(String(fallbackCurrencyCode || ""));
+  if (!normalized) {
+    return { amountText: null as string | null, currencyCode: fallbackCode };
+  }
+
+  let detectedCurrencyCode: EmployeeInfoCurrencyCode | null = null;
+  const prefixPatterns: Array<{ code: EmployeeInfoCurrencyCode; pattern: RegExp }> = [
+    { code: "USD", pattern: /^\s*(?:USD|\$)\s*/i },
+    { code: "GBP", pattern: /^\s*(?:GBP|\u00A3|\u00C2\u00A3)\s*/i },
+    { code: "MUR", pattern: /^\s*(?:MUR|RS\.?|RUPEES?)\s*/i },
+  ];
+
+  prefixPatterns.forEach((entry) => {
+    if (detectedCurrencyCode) return;
+    if (!entry.pattern.test(normalized)) return;
+    detectedCurrencyCode = entry.code;
+    normalized = normalized.replace(entry.pattern, "");
+  });
+
+  normalized = normalized.replace(/,/g, "").trim();
+  if (!normalized) {
+    return {
+      amountText: null as string | null,
+      currencyCode: detectedCurrencyCode || fallbackCode,
+    };
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return {
+      amountText: null as string | null,
+      currencyCode: detectedCurrencyCode || fallbackCode,
+    };
+  }
+
+  return {
+    amountText: String(parsed),
+    currencyCode: detectedCurrencyCode || fallbackCode,
+  };
+}
+
+export function formatEmployeeInfoCurrencyAmount(
+  amount: number | string | null | undefined,
+  currencyCode: EmployeeInfoCurrencyCode | string | null | undefined
+) {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount)) return "";
+  const normalizedCode = normalizeEmployeeInfoCurrencyCode(String(currencyCode || ""));
+  const symbol = getEmployeeInfoCurrencySymbol(normalizedCode);
+  const valueText = Number.isInteger(numericAmount)
+    ? String(numericAmount)
+    : numericAmount.toFixed(2).replace(/\.?0+$/, "");
+  return normalizedCode === "MUR" ? `${symbol} ${valueText}` : `${symbol}${valueText}`;
+}
+
+export function buildEmployeeInfoExchangeRateMap(
+  rows: EmployeeInfoExchangeRateRow[],
+  asOfMonthStart: Date | string | null | undefined
+) {
+  const effectiveUpperBound = toMonthStartString(asOfMonthStart) || "9999-12-01";
+  const map: EmployeeInfoExchangeRateMap = {};
+
+  rows.forEach((row) => {
+    const baseCurrencyCode = normalizeEmployeeInfoCurrencyCode(row.base_currency_code);
+    const quoteCurrencyCode = normalizeEmployeeInfoCurrencyCode(row.quote_currency_code);
+    if (baseCurrencyCode === quoteCurrencyCode) return;
+
+    const rate = Number(row.rate);
+    if (!Number.isFinite(rate) || rate <= 0) return;
+
+    const effectiveMonthStart = toMonthStartString(row.effective_month_start);
+    if (!effectiveMonthStart || effectiveMonthStart > effectiveUpperBound) return;
+
+    const key = buildExchangeRateKey(baseCurrencyCode, quoteCurrencyCode);
+    const existing = map[key];
+    if (!existing || effectiveMonthStart > existing.effectiveMonthStart) {
+      map[key] = { rate, effectiveMonthStart };
+    }
+  });
+
+  return map;
+}
+
+export function resolveEmployeeInfoExchangeRate(
+  exchangeRateMap: EmployeeInfoExchangeRateMap,
+  fromCurrencyCode: EmployeeInfoCurrencyCode | string,
+  toCurrencyCode: EmployeeInfoCurrencyCode | string
+) {
+  const fromCode = normalizeEmployeeInfoCurrencyCode(fromCurrencyCode);
+  const toCode = normalizeEmployeeInfoCurrencyCode(toCurrencyCode);
+  if (fromCode === toCode) return 1;
+
+  const direct = exchangeRateMap[buildExchangeRateKey(fromCode, toCode)];
+  if (direct && Number.isFinite(direct.rate) && direct.rate > 0) return direct.rate;
+
+  const inverse = exchangeRateMap[buildExchangeRateKey(toCode, fromCode)];
+  if (inverse && Number.isFinite(inverse.rate) && inverse.rate > 0) return 1 / inverse.rate;
+
+  return null;
+}
+
+export function convertEmployeeInfoCurrencyAmount(args: {
+  amount: number | string | null | undefined;
+  fromCurrencyCode: EmployeeInfoCurrencyCode | string;
+  toCurrencyCode: EmployeeInfoCurrencyCode | string;
+  exchangeRateMap: EmployeeInfoExchangeRateMap;
+}) {
+  const { amount, fromCurrencyCode, toCurrencyCode, exchangeRateMap } = args;
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount)) return null;
+
+  const exchangeRate = resolveEmployeeInfoExchangeRate(
+    exchangeRateMap,
+    fromCurrencyCode,
+    toCurrencyCode
+  );
+  if (exchangeRate === null) return null;
+  return numericAmount * exchangeRate;
 }
 
 export function toEmployeeInfoColumnKey(label: string) {

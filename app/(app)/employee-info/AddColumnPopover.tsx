@@ -6,14 +6,17 @@ import FormulaAutocompleteInput, {
 } from "./FormulaAutocompleteInput";
 import {
   EMPLOYEE_INFO_CURRENCY_CODES,
+  EMPLOYEE_INFO_FORMULA_CURRENCY_MODES,
   normalizeEmployeeInfoCurrencyCode,
+  normalizeEmployeeInfoFormulaCurrencyMode,
   type EmployeeInfoCurrencyCode,
+  type EmployeeInfoFormulaCurrencyMode,
 } from "@/lib/employeeInfo";
 
 type EmployeeInfoColumnKind = "text" | "number" | "date" | "currency" | "dropdown" | "formula";
 const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "USD ($)",
-  GBP: "GBP (£)",
+  GBP: "GBP (\u00A3)",
   MUR: "MUR (Rs)",
 };
 
@@ -26,6 +29,9 @@ export default function AddColumnPopover({
 }) {
   const [columnKind, setColumnKind] = useState<EmployeeInfoColumnKind>("text");
   const [currencyCode, setCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
+  const [formulaCurrencyMode, setFormulaCurrencyMode] =
+    useState<EmployeeInfoFormulaCurrencyMode>("display");
+  const [formulaCurrencyCode, setFormulaCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
 
   return (
     <details className="relative">
@@ -91,14 +97,50 @@ export default function AddColumnPopover({
             />
           ) : null}
           {columnKind === "formula" ? (
-            <FormulaAutocompleteInput
-              name="formula"
-              defaultValue=""
-              placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
-              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-              required
-              suggestions={formulaSuggestions}
-            />
+            <>
+              <FormulaAutocompleteInput
+                name="formula"
+                defaultValue=""
+                placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+                required
+                suggestions={formulaSuggestions}
+              />
+              <select
+                name="formula_currency_mode"
+                value={formulaCurrencyMode}
+                onChange={(event) =>
+                  setFormulaCurrencyMode(
+                    normalizeEmployeeInfoFormulaCurrencyMode(event.currentTarget.value)
+                  )
+                }
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+              >
+                {EMPLOYEE_INFO_FORMULA_CURRENCY_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode === "display"
+                      ? "Formula currency: follow display switch"
+                      : "Formula currency: fixed"}
+                  </option>
+                ))}
+              </select>
+              {formulaCurrencyMode === "fixed" ? (
+                <select
+                  name="formula_currency_code"
+                  value={formulaCurrencyCode}
+                  onChange={(event) =>
+                    setFormulaCurrencyCode(normalizeEmployeeInfoCurrencyCode(event.currentTarget.value))
+                  }
+                  className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+                >
+                  {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      {currencyLabelByCode[code]}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </>
           ) : null}
           <button
             type="submit"
