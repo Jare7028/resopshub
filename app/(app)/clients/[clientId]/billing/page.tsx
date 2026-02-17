@@ -4,6 +4,7 @@ import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingColumnError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
+  EMPLOYEE_INFO_CURRENCY_CODES,
   buildEmployeeInfoExchangeRateMap,
   columnIndexToLetter,
   convertEmployeeInfoCurrencyAmount,
@@ -17,8 +18,6 @@ import {
   type EmployeeInfoCurrencyCode,
   type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
-
-const statusOptions = ["pending", "approved", "paid", "void"] as const;
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -44,6 +43,15 @@ type EmployeeInfoValueRow = {
   text_value: string | null;
   option_value: string | null;
   money_currency_code: string | null;
+};
+
+type BillingProfileRevenueRow = {
+  id: string;
+  currency: string | null;
+  hourly_rate: number | string | null;
+  breaks_billable: boolean | null;
+  total_billable_hours: number | string | null;
+  other_monthly_charges: number | string | null;
 };
 
 type EmployeeMonthlyCostSummary = {
@@ -95,6 +103,33 @@ function parseNumericCellValue(value: string | null | undefined) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function toFiniteNumber(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function parseNonNegativeNumberInput(value: FormDataEntryValue | null, label: string) {
+  const raw = String(value || "")
+    .trim()
+    .replace(/,/g, "");
+  if (!raw) return { value: null as number | null, error: null as string | null };
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) {
+    return { value: null as number | null, error: `${label} must be a valid number` };
+  }
+  if (numeric < 0) {
+    return { value: null as number | null, error: `${label} cannot be negative` };
+  }
+  return { value: numeric, error: null as string | null };
+}
+
+function formatPercent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "-";
+  const rounded = value.toFixed(1).replace(/\.0$/, "");
+  return `${rounded}%`;
+}
+
 export default async function ClientBillingPage(props: {
   params: Promise<{ clientId: string }>;
   searchParams?: Promise<{ error?: string; success?: string }>;
@@ -112,12 +147,49 @@ export default async function ClientBillingPage(props: {
   if (!client) {
     notFound();
   }
+  const clientName = client.name;
+  const clientRecordId = client.id;
 
-  const { data: billingProfile } = await supabase
+  let billingProfile: BillingProfileRevenueRow | null = null;
+  let billingProfileErrorMessage: string | null = null;
+  let billingRevenueColumnsMissing = false;
+  let billingProfilesTableMissing = false;
+
+  let { data: billingProfileRaw, error: billingProfileError } = await supabase
     .from("billing_profiles")
-    .select("id,display_name,billing_address,currency,tax_id,payment_terms,default_rate")
+    .select("id,currency,hourly_rate,breaks_billable,total_billable_hours,other_monthly_charges")
     .eq("client_id", clientId)
     .maybeSingle();
+
+  if (isSupabaseMissingColumnError(billingProfileError)) {
+    billingRevenueColumnsMissing = true;
+    const fallbackProfile = await supabase
+      .from("billing_profiles")
+      .select("id,currency")
+      .eq("client_id", clientId)
+      .maybeSingle();
+    billingProfileError = fallbackProfile.error;
+    billingProfileRaw = fallbackProfile.data
+      ? {
+          ...fallbackProfile.data,
+          hourly_rate: null,
+          breaks_billable: true,
+          total_billable_hours: null,
+          other_monthly_charges: null,
+        }
+      : null;
+  }
+
+  if (isSupabaseMissingTableError(billingProfileError)) {
+    billingProfilesTableMissing = true;
+    billingProfile = null;
+  } else if (billingProfileError) {
+    billingProfileErrorMessage = `Could not load billing profile (${billingProfileError.message}).`;
+    billingProfile = null;
+  } else {
+    billingProfile = (billingProfileRaw || null) as BillingProfileRevenueRow | null;
+  }
+
   const billingCurrencyCode = normalizeEmployeeInfoCurrencyCode(billingProfile?.currency || "USD");
   const employeeMonthlyCostSummary: EmployeeMonthlyCostSummary = {
     amount: 0,
@@ -266,7 +338,7 @@ export default async function ClientBillingPage(props: {
                 onCurrencyOperand: () => void
               ): unknown => {
                 if (displayIndex === 0) return record.full_name;
-                if (displayIndex === 1) return record.client_id === client.id ? client.name : "";
+                if (displayIndex === 1) return record.client_id === clientRecordId ? clientName : "";
 
                 const dynamicIndex = displayIndex - 2;
                 if (dynamicIndex < 0 || dynamicIndex >= employeeColumns.length) return "";
@@ -435,89 +507,99 @@ export default async function ClientBillingPage(props: {
     }
   }
 
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id,name")
-    .eq("client_id", clientId)
-    .order("created_at", { ascending: false });
+  const hourlyRate = toFiniteNumber(billingProfile?.hourly_rate) ?? 0;
+  const totalBillableHours = toFiniteNumber(billingProfile?.total_billable_hours) ?? 0;
+  const otherMonthlyCharges = toFiniteNumber(billingProfile?.other_monthly_charges) ?? 0;
+  const breaksBillable = billingProfile?.breaks_billable ?? true;
+  const estimatedMonthlyRevenue = hourlyRate * totalBillableHours + otherMonthlyCharges;
+  const estimatedMonthlyMargin = estimatedMonthlyRevenue - employeeMonthlyCostSummary.amount;
+  const estimatedMonthlyMarginPercent =
+    estimatedMonthlyRevenue > 0 ? (estimatedMonthlyMargin / estimatedMonthlyRevenue) * 100 : null;
 
-  const { data: records } = await supabase
-    .from("billing_records")
-    .select("id,invoice_number,amount,status,due_date,projects(name)")
-    .eq("client_id", clientId)
-    .order("created_at", { ascending: false });
-
-  async function saveBillingProfile(formData: FormData) {
+  async function saveRevenueModel(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const displayName = String(formData.get("display_name") || "").trim();
-    const billingAddress = String(formData.get("billing_address") || "").trim();
-    const currency = String(formData.get("currency") || "USD").trim();
-    const taxId = String(formData.get("tax_id") || "").trim();
-    const paymentTerms = String(formData.get("payment_terms") || "").trim();
-    const defaultRate = String(formData.get("default_rate") || "").trim();
 
-    if (!displayName) {
-      redirect(`/clients/${clientId}/billing?error=Billing%20profile%20name%20is%20required`);
+    if (billingProfilesTableMissing) {
+      redirect(
+        `/clients/${clientId}/billing?error=${encodeURIComponent(
+          "Billing table is missing. Set up billing_profiles first."
+        )}`
+      );
+    }
+
+    if (billingRevenueColumnsMissing) {
+      redirect(
+        `/clients/${clientId}/billing?error=${encodeURIComponent(
+          "Run sql/client_billing_revenue_fields.sql before saving revenue fields."
+        )}`
+      );
+    }
+
+    const currency = normalizeEmployeeInfoCurrencyCode(String(formData.get("currency") || "USD"));
+    const breaksBillableValue = String(formData.get("breaks_billable") || "true") === "true";
+    const hourlyRateValue = parseNonNegativeNumberInput(formData.get("hourly_rate"), "Hourly rate");
+    if (hourlyRateValue.error) {
+      redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(hourlyRateValue.error)}`);
+    }
+    const totalBillableHoursValue = parseNonNegativeNumberInput(
+      formData.get("total_billable_hours"),
+      "Total billable hours"
+    );
+    if (totalBillableHoursValue.error) {
+      redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(totalBillableHoursValue.error)}`);
+    }
+    const otherMonthlyChargesValue = parseNonNegativeNumberInput(
+      formData.get("other_monthly_charges"),
+      "Other monthly charges"
+    );
+    if (otherMonthlyChargesValue.error) {
+      redirect(
+        `/clients/${clientId}/billing?error=${encodeURIComponent(otherMonthlyChargesValue.error)}`
+      );
     }
 
     const payload = {
       client_id: clientId,
-      display_name: displayName,
-      billing_address: billingAddress || null,
       currency,
-      tax_id: taxId || null,
-      payment_terms: paymentTerms || null,
-      default_rate: defaultRate ? Number(defaultRate) : null,
+      hourly_rate: hourlyRateValue.value,
+      breaks_billable: breaksBillableValue,
+      total_billable_hours: totalBillableHoursValue.value,
+      other_monthly_charges: otherMonthlyChargesValue.value,
+      display_name: clientName,
     };
 
-    const { error } = billingProfile
+    const { error } = billingProfile?.id
       ? await supabase.from("billing_profiles").update(payload).eq("id", billingProfile.id)
       : await supabase.from("billing_profiles").insert(payload);
 
     if (error) {
+      if (isSupabaseMissingColumnError(error)) {
+        redirect(
+          `/clients/${clientId}/billing?error=${encodeURIComponent(
+            "Run sql/client_billing_revenue_fields.sql before saving revenue fields."
+          )}`
+        );
+      }
+      if (isSupabaseMissingTableError(error)) {
+        redirect(
+          `/clients/${clientId}/billing?error=${encodeURIComponent(
+            "Billing table is missing. Set up billing_profiles first."
+          )}`
+        );
+      }
       redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(error.message)}`);
     }
 
     revalidatePath(`/clients/${clientId}/billing`);
-    redirect(`/clients/${clientId}/billing?success=Saved`);
-  }
-
-  async function createBillingRecord(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const invoiceNumber = String(formData.get("invoice_number") || "").trim();
-    const amount = Number(formData.get("amount") || 0);
-    const status = String(formData.get("status") || "pending");
-    const dueDate = String(formData.get("due_date") || "");
-    const projectId = String(formData.get("project_id") || "");
-
-    if (!amount) {
-      redirect(`/clients/${clientId}/billing?error=Amount%20is%20required`);
-    }
-
-    const { error } = await supabase.from("billing_records").insert({
-      client_id: clientId,
-      billing_profile_id: billingProfile?.id || null,
-      invoice_number: invoiceNumber || null,
-      amount,
-      status,
-      due_date: dueDate || null,
-      project_id: projectId || null,
-    });
-
-    if (error) {
-      redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(error.message)}`);
-    }
-
-    revalidatePath(`/clients/${clientId}/billing`);
+    redirect(`/clients/${clientId}/billing?success=Revenue%20model%20saved`);
   }
 
   return (
     <div className="space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold text-slate-900">
-          {client.name} · Billing
+          {clientName} - Billing
         </h1>
         <ClientTabs clientId={clientId} active="billing" />
       </section>
@@ -533,227 +615,175 @@ export default async function ClientBillingPage(props: {
         </p>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Employee monthly cost</h2>
-        {employeeMonthlyCostSummary.errorMessage ? (
-          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {employeeMonthlyCostSummary.errorMessage}
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-white p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Employee monthly cost
           </p>
-        ) : !employeeMonthlyCostSummary.isConfigured ? (
-          <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-            Add a <code>TOTAL MONTHLY COST</code> column in Employee Info to populate this total.
+          <p className="mt-2 text-3xl font-semibold text-slate-900">
+            {formatEmployeeInfoCurrencyAmount(
+              employeeMonthlyCostSummary.amount,
+              employeeMonthlyCostSummary.currencyCode
+            )}
           </p>
-        ) : (
-          <div className="mt-4 space-y-2">
-            <p className="text-3xl font-semibold text-slate-900">
-              {formatEmployeeInfoCurrencyAmount(
-                employeeMonthlyCostSummary.amount,
-                employeeMonthlyCostSummary.currencyCode
-              )}
-            </p>
-            <p className="text-sm text-slate-600">
-              Summed from {employeeMonthlyCostSummary.contributingRowCount} populated values across{" "}
-              {employeeMonthlyCostSummary.clientRowCount} employee rows assigned to this client.
-            </p>
-            {employeeMonthlyCostSummary.hasMissingExchangeRate ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Some rows were skipped due to missing FX rates (<code>#FX!</code>). Add rates in
-                Employee Info exchange rates.
-              </p>
-            ) : null}
-          </div>
-        )}
+          <p className="mt-2 text-sm text-slate-600">
+            From {employeeMonthlyCostSummary.contributingRowCount} populated entries across{" "}
+            {employeeMonthlyCostSummary.clientRowCount} employee rows.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Estimated monthly revenue
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">
+            {formatEmployeeInfoCurrencyAmount(estimatedMonthlyRevenue, billingCurrencyCode)}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">
+            {formatEmployeeInfoCurrencyAmount(hourlyRate, billingCurrencyCode)} x{" "}
+            {totalBillableHours.toFixed(2).replace(/\.?0+$/, "")}h +{" "}
+            {formatEmployeeInfoCurrencyAmount(otherMonthlyCharges, billingCurrencyCode)}
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Estimated gross margin
+          </p>
+          <p
+            className={`mt-2 text-3xl font-semibold ${
+              estimatedMonthlyMargin < 0 ? "text-red-700" : "text-slate-900"
+            }`}
+          >
+            {formatEmployeeInfoCurrencyAmount(estimatedMonthlyMargin, billingCurrencyCode)}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">{formatPercent(estimatedMonthlyMarginPercent)}</p>
+        </div>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Billing profile</h2>
-        <form action={saveBillingProfile} className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="display_name">
-              Display name
-            </label>
-            <input
-              id="display_name"
-              name="display_name"
-              defaultValue={billingProfile?.display_name || client.name}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              required
-            />
-          </div>
+        <h2 className="text-lg font-semibold text-slate-900">Revenue model</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Store the billing assumptions used to estimate monthly revenue for this client.
+        </p>
+
+        {billingProfileErrorMessage ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            {billingProfileErrorMessage}
+          </p>
+        ) : null}
+        {billingRevenueColumnsMissing ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Run <code>sql/client_billing_revenue_fields.sql</code> to enable revenue fields.
+          </p>
+        ) : null}
+        {employeeMonthlyCostSummary.errorMessage ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            {employeeMonthlyCostSummary.errorMessage}
+          </p>
+        ) : null}
+        {employeeMonthlyCostSummary.hasMissingExchangeRate ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Some employee rows were skipped due to missing FX rates (<code>#FX!</code>).
+          </p>
+        ) : null}
+
+        <form action={saveRevenueModel} className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700" htmlFor="currency">
               Currency
             </label>
-            <input
+            <select
               id="currency"
               name="currency"
-              defaultValue={billingProfile?.currency || "USD"}
+              defaultValue={billingCurrencyCode}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
+            >
+              {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="space-y-2 md:col-span-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="billing_address">
-              Billing address
-            </label>
-            <textarea
-              id="billing_address"
-              name="billing_address"
-              rows={3}
-              defaultValue={billingProfile?.billing_address || ""}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
+
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="tax_id">
-              Tax ID
+            <label className="text-sm font-medium text-slate-700" htmlFor="hourly_rate">
+              Hourly rate
             </label>
             <input
-              id="tax_id"
-              name="tax_id"
-              defaultValue={billingProfile?.tax_id || ""}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="payment_terms">
-              Payment terms
-            </label>
-            <input
-              id="payment_terms"
-              name="payment_terms"
-              defaultValue={billingProfile?.payment_terms || ""}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="default_rate">
-              Default rate
-            </label>
-            <input
-              id="default_rate"
-              name="default_rate"
+              id="hourly_rate"
+              name="hourly_rate"
               type="number"
               step="0.01"
-              defaultValue={billingProfile?.default_rate ?? ""}
+              min="0"
+              defaultValue={toFiniteNumber(billingProfile?.hourly_rate) ?? ""}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              placeholder="0.00"
             />
           </div>
-          <div className="md:col-span-2">
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700" htmlFor="total_billable_hours">
+              Total billable hours
+            </label>
+            <input
+              id="total_billable_hours"
+              name="total_billable_hours"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={toFiniteNumber(billingProfile?.total_billable_hours) ?? ""}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              placeholder="0"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700" htmlFor="other_monthly_charges">
+              Other monthly charges
+            </label>
+            <input
+              id="other_monthly_charges"
+              name="other_monthly_charges"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={toFiniteNumber(billingProfile?.other_monthly_charges) ?? ""}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              placeholder="0.00"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700" htmlFor="breaks_billable">
+              Are breaks billable?
+            </label>
+            <select
+              id="breaks_billable"
+              name="breaks_billable"
+              defaultValue={breaksBillable ? "true" : "false"}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-2 xl:col-span-5">
             <button
               type="submit"
-              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
             >
-              Save billing profile
+              Save revenue model
             </button>
           </div>
         </form>
-      </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Add billing record</h2>
-        <form action={createBillingRecord} className="mt-4 grid gap-4 md:grid-cols-5">
-          <input
-            name="invoice_number"
-            placeholder="Invoice #"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            name="amount"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Amount"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            required
-          />
-          <select
-            name="status"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue="pending"
-          >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            name="due_date"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <select
-            name="project_id"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            defaultValue=""
-          >
-            <option value="">Project (optional)</option>
-            {projects?.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-          >
-            Create billing record
-          </button>
-        </form>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Billing records</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-6 py-3">Invoice</th>
-                <th className="px-6 py-3">Project</th>
-                <th className="px-6 py-3">Amount</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records?.length ? (
-                records.map((record) => (
-                  <tr key={record.id} className="border-t border-slate-200">
-                    <td className="px-6 py-3 font-medium text-slate-900">
-                      {record.invoice_number || "-"}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {(() => {
-                        const project = Array.isArray(record.projects)
-                          ? record.projects[0]
-                          : record.projects;
-                        return project?.name ?? "-";
-                      })()}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      ${record.amount?.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">{record.status}</td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {record.due_date
-                        ? new Date(record.due_date).toLocaleDateString("en-US")
-                        : "-"}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={5}>
-                    No billing records yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <p className="mt-4 text-xs text-slate-500">
+          If breaks are not billable, enter net billable hours (excluding breaks) in total billable
+          hours.
+        </p>
       </section>
     </div>
   );
