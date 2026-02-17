@@ -415,6 +415,7 @@ export default async function EmployeeInfoPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const displayCurrency = normalizeEmployeeInfoDisplayCurrencyCode(searchParams?.display_currency);
+  const exportNonce = Date.now().toString();
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const authUserId = authData.user?.id;
@@ -1271,8 +1272,8 @@ export default async function EmployeeInfoPage(props: {
               <a
                 href={
                   displayCurrency === "ORIGINAL"
-                    ? "/employee-info/export"
-                    : `/employee-info/export?display_currency=${displayCurrency}`
+                    ? `/employee-info/export?ts=${exportNonce}`
+                    : `/employee-info/export?display_currency=${displayCurrency}&ts=${exportNonce}`
                 }
                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                 aria-label="Export employee info to Excel"

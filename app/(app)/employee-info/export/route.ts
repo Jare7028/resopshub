@@ -18,6 +18,9 @@ import {
 import { isSupabaseMissingColumnError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type EmployeeInfoRecordRow = {
   id: string;
   full_name: string;
@@ -488,6 +491,9 @@ export async function GET(request: Request) {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename=\"${fileName}\"`,
       "Cache-Control": "no-store",
+      Pragma: "no-cache",
+      Expires: "0",
+      Vary: "Cookie",
     },
   });
 }
