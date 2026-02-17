@@ -104,6 +104,35 @@ describe("employee info currency helpers", () => {
       })
     ).toBeCloseTo(10);
   });
+
+  it("supports two-hop conversion through another currency", () => {
+    const rateMap = buildEmployeeInfoExchangeRateMap(
+      [
+        {
+          base_currency_code: "USD",
+          quote_currency_code: "MUR",
+          rate: "45",
+          effective_month_start: "2026-02-01",
+        },
+        {
+          base_currency_code: "USD",
+          quote_currency_code: "GBP",
+          rate: "0.8",
+          effective_month_start: "2026-02-01",
+        },
+      ],
+      "2026-02-01"
+    );
+
+    expect(
+      convertEmployeeInfoCurrencyAmount({
+        amount: 90,
+        fromCurrencyCode: "MUR",
+        toCurrencyCode: "GBP",
+        exchangeRateMap: rateMap,
+      })
+    ).toBeCloseTo(1.6);
+  });
 });
 
 describe("evaluateEmployeeFormula", () => {

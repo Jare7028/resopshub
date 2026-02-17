@@ -221,15 +221,32 @@ export function resolveEmployeeInfoExchangeRate(
   fromCurrencyCode: EmployeeInfoCurrencyCode | string,
   toCurrencyCode: EmployeeInfoCurrencyCode | string
 ) {
+  const resolveDirectOrInverse = (fromCode: EmployeeInfoCurrencyCode, toCode: EmployeeInfoCurrencyCode) => {
+    const direct = exchangeRateMap[buildExchangeRateKey(fromCode, toCode)];
+    if (direct && Number.isFinite(direct.rate) && direct.rate > 0) return direct.rate;
+
+    const inverse = exchangeRateMap[buildExchangeRateKey(toCode, fromCode)];
+    if (inverse && Number.isFinite(inverse.rate) && inverse.rate > 0) return 1 / inverse.rate;
+
+    return null;
+  };
+
   const fromCode = normalizeEmployeeInfoCurrencyCode(fromCurrencyCode);
   const toCode = normalizeEmployeeInfoCurrencyCode(toCurrencyCode);
   if (fromCode === toCode) return 1;
 
-  const direct = exchangeRateMap[buildExchangeRateKey(fromCode, toCode)];
-  if (direct && Number.isFinite(direct.rate) && direct.rate > 0) return direct.rate;
+  const directOrInverse = resolveDirectOrInverse(fromCode, toCode);
+  if (directOrInverse !== null) return directOrInverse;
 
-  const inverse = exchangeRateMap[buildExchangeRateKey(toCode, fromCode)];
-  if (inverse && Number.isFinite(inverse.rate) && inverse.rate > 0) return 1 / inverse.rate;
+  // Allow two-hop conversion through any supported currency (e.g. MUR -> USD -> GBP).
+  for (const pivotCode of EMPLOYEE_INFO_CURRENCY_CODES) {
+    if (pivotCode === fromCode || pivotCode === toCode) continue;
+    const firstHop = resolveDirectOrInverse(fromCode, pivotCode);
+    if (firstHop === null) continue;
+    const secondHop = resolveDirectOrInverse(pivotCode, toCode);
+    if (secondHop === null) continue;
+    return firstHop * secondHop;
+  }
 
   return null;
 }
