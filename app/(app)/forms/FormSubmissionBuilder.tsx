@@ -1,15 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { normalizeFormFieldType, type FormField } from "./types";
+import {
+  doesFormFieldConditionMatch,
+  normalizeFormFieldType,
+  type FormField,
+} from "./types";
 
 type ValueMap = Record<string, string>;
 
 function shouldShowField(field: FormField, values: ValueMap) {
-  if (!field.condition?.fieldKey) return true;
-  const expected = String(field.condition.equals || "").trim().toLowerCase();
-  const actual = String(values[field.condition.fieldKey] || "").trim().toLowerCase();
-  return actual === expected;
+  return doesFormFieldConditionMatch(field.condition, values);
 }
 
 export default function FormSubmissionBuilder({

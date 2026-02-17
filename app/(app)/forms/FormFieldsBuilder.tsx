@@ -1,15 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildFieldKey, normalizeFormFieldType, type FormField } from "./types";
+import {
+  buildFieldKey,
+  conditionOperatorUsesValue,
+  formFieldConditionOperatorOptions,
+  formatFormLabel,
+  normalizeFormFieldCondition,
+  normalizeFormFieldConditionOperator,
+  normalizeFormFieldType,
+  type FormField,
+} from "./types";
 
-type BuilderFieldType = "text" | "number" | "date" | "select";
+type BuilderFieldType = "text" | "textarea" | "number" | "date" | "select" | "checkbox";
 
 const builderFieldTypes: Array<{ value: BuilderFieldType; label: string }> = [
   { value: "text", label: "Text" },
+  { value: "textarea", label: "Long text" },
   { value: "number", label: "Number" },
   { value: "date", label: "Date" },
   { value: "select", label: "Dropdown" },
+  { value: "checkbox", label: "Checkbox" },
 ];
 
 function createField(seed: number, type: BuilderFieldType = "text"): FormField {
@@ -26,6 +37,13 @@ function createField(seed: number, type: BuilderFieldType = "text"): FormField {
 
 function TypeIcon({ type }: { type: BuilderFieldType }) {
   const cls = "h-4 w-4 text-slate-500";
+  if (type === "textarea") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
+        <path d="M4 6h12M4 10h12M4 14h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
   if (type === "number") {
     return (
       <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
@@ -45,6 +63,14 @@ function TypeIcon({ type }: { type: BuilderFieldType }) {
     return (
       <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
         <path d="M7 6h8M7 10h8M7 14h8M4 6h.01M4 10h.01M4 14h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "checkbox") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
+        <rect x="3.5" y="3.5" width="13" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="m7 10 2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
@@ -72,13 +98,7 @@ export default function FormFieldsBuilder({
       type: normalizeFormFieldType(field.type),
       required: Boolean(field.required),
       options: Array.isArray(field.options) ? field.options.filter(Boolean) : [],
-      condition:
-        field.condition && field.condition.fieldKey
-          ? {
-              fieldKey: field.condition.fieldKey,
-              equals: field.condition.equals || "",
-            }
-          : null,
+      condition: normalizeFormFieldCondition(field.condition),
     }));
   }, [initialFields]);
 
@@ -168,9 +188,19 @@ export default function FormFieldsBuilder({
       ) : null}
 
       <div className="space-y-3">
-        {fields.map((field, index) => (
-          <div key={field.id} className="rounded-lg border border-slate-200 p-4">
-            <div className="grid gap-3 md:grid-cols-12">
+        {fields.map((field, index) => {
+          const conditionFieldOptions = fields
+            .filter((candidate, candidateIndex) => candidateIndex !== index && Boolean(candidate.key))
+            .map((candidate, candidateIndex) => ({
+              key: candidate.key,
+              label: candidate.label || formatFormLabel(candidate.key) || `Field ${candidateIndex + 1}`,
+            }));
+          const conditionOperator = normalizeFormFieldConditionOperator(field.condition?.operator);
+          const showConditionValue = conditionOperatorUsesValue(conditionOperator);
+
+          return (
+            <div key={field.id} className="rounded-lg border border-slate-200 p-4">
+              <div className="grid gap-3 md:grid-cols-12">
               <label className="md:col-span-5 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Label
                 <input
@@ -308,8 +338,8 @@ export default function FormFieldsBuilder({
                     />
                   </label>
                   <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Show only when field equals
-                    <input
+                    Show only when
+                    <select
                       value={field.condition?.fieldKey || ""}
                       onChange={(event) =>
                         updateField(index, (item) => ({
@@ -317,40 +347,84 @@ export default function FormFieldsBuilder({
                           condition: event.target.value
                             ? {
                                 fieldKey: event.target.value,
-                                equals: item.condition?.equals || "",
+                                operator: normalizeFormFieldConditionOperator(item.condition?.operator),
+                                value: conditionOperatorUsesValue(
+                                  normalizeFormFieldConditionOperator(item.condition?.operator)
+                                )
+                                  ? item.condition?.value || ""
+                                  : "",
                               }
                             : null,
                         }))
                       }
                       className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      placeholder="other_field_key"
-                    />
+                    >
+                      <option value="">Always show</option>
+                      {conditionFieldOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Expected value
-                    <input
-                      value={field.condition?.equals || ""}
+                    Condition
+                    <select
+                      value={conditionOperator}
                       onChange={(event) =>
                         updateField(index, (item) => ({
                           ...item,
                           condition: item.condition
                             ? {
                                 fieldKey: item.condition.fieldKey,
-                                equals: event.target.value,
+                                operator: normalizeFormFieldConditionOperator(event.target.value),
+                                value: conditionOperatorUsesValue(
+                                  normalizeFormFieldConditionOperator(event.target.value)
+                                )
+                                  ? item.condition.value || ""
+                                  : "",
                               }
                             : null,
                         }))
                       }
                       className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      placeholder="expected value"
                       disabled={!field.condition}
+                    >
+                      {formFieldConditionOperatorOptions.map((operator) => (
+                        <option key={operator} value={operator}>
+                          {formatFormLabel(operator)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Value
+                    <input
+                      value={field.condition?.value || ""}
+                      onChange={(event) =>
+                        updateField(index, (item) => ({
+                          ...item,
+                          condition:
+                            item.condition && conditionOperatorUsesValue(item.condition.operator)
+                              ? {
+                                  fieldKey: item.condition.fieldKey,
+                                  operator: item.condition.operator,
+                                  value: event.target.value,
+                                }
+                              : item.condition,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal disabled:bg-slate-100 disabled:text-slate-400"
+                      placeholder="Expected value"
+                      disabled={!field.condition || !showConditionValue}
                     />
                   </label>
                 </>
               ) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

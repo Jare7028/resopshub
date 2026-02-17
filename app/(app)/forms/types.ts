@@ -13,16 +13,26 @@ export const formFieldTypeOptions = [
   "select",
   "checkbox",
 ] as const;
+export const formFieldConditionOperatorOptions = [
+  "equals",
+  "not_equals",
+  "contains",
+  "not_contains",
+  "is_empty",
+  "is_not_empty",
+] as const;
 export const formActionPriorityOptions = ["low", "medium", "high", "critical"] as const;
 
 export type FormStatus = (typeof formStatusOptions)[number];
 export type FormSubmissionStatus = (typeof formSubmissionStatusOptions)[number];
 export type FormFieldType = (typeof formFieldTypeOptions)[number];
+export type FormFieldConditionOperator = (typeof formFieldConditionOperatorOptions)[number];
 export type FormActionPriority = (typeof formActionPriorityOptions)[number];
 
 export type FormFieldCondition = {
   fieldKey: string;
-  equals: string;
+  operator: FormFieldConditionOperator;
+  value: string;
 };
 
 export type FormField = {
@@ -85,6 +95,69 @@ export function buildFieldKey(label: string, fallback: string) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return fromLabel || fallback;
+}
+
+export function normalizeFormFieldConditionOperator(
+  value: string | null | undefined
+): FormFieldConditionOperator {
+  return formFieldConditionOperatorOptions.includes(
+    value as FormFieldConditionOperator
+  )
+    ? (value as FormFieldConditionOperator)
+    : "equals";
+}
+
+export function conditionOperatorUsesValue(operator: FormFieldConditionOperator) {
+  return operator !== "is_empty" && operator !== "is_not_empty";
+}
+
+export function normalizeFormFieldCondition(value: unknown): FormFieldCondition | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const fieldKey = String(row.fieldKey || "").trim();
+  if (!fieldKey) return null;
+
+  const operator = normalizeFormFieldConditionOperator(
+    String(row.operator || "").trim() ||
+      (Object.prototype.hasOwnProperty.call(row, "equals") ? "equals" : "")
+  );
+  const rawValue = String(
+    Object.prototype.hasOwnProperty.call(row, "value")
+      ? row.value || ""
+      : row.equals || ""
+  ).trim();
+  const normalizedValue = conditionOperatorUsesValue(operator) ? rawValue : "";
+
+  return {
+    fieldKey,
+    operator,
+    value: normalizedValue,
+  };
+}
+
+export function doesFormFieldConditionMatch(
+  condition: FormFieldCondition | null | undefined,
+  values: Record<string, string>
+) {
+  if (!condition?.fieldKey) return true;
+  const actual = String(values[condition.fieldKey] || "").trim().toLowerCase();
+  const expected = String(condition.value || "").trim().toLowerCase();
+
+  switch (condition.operator) {
+    case "not_equals":
+      return actual !== expected;
+    case "contains":
+      return expected ? actual.includes(expected) : true;
+    case "not_contains":
+      return expected ? !actual.includes(expected) : true;
+    case "is_empty":
+      return actual.length === 0;
+    case "is_not_empty":
+      return actual.length > 0;
+    case "equals":
+    default:
+      return actual === expected;
+  }
 }
 
 export function renderTemplate(template: string, values: Record<string, string>) {

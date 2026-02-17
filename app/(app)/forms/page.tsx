@@ -13,6 +13,7 @@ import FormsTabs, {
 import {
   buildFieldKey,
   formStatusOptions,
+  normalizeFormFieldCondition,
   normalizeFormFieldType,
   normalizeFormStatus,
   type FormField,
@@ -62,12 +63,7 @@ function parseFieldsJson(raw: string): FormField[] {
       const options = Array.isArray(row.options)
         ? row.options.map((v) => String(v || "").trim()).filter(Boolean)
         : [];
-      const condition = row.condition && typeof row.condition === "object"
-        ? {
-            fieldKey: String((row.condition as Record<string, unknown>).fieldKey || "").trim(),
-            equals: String((row.condition as Record<string, unknown>).equals || "").trim(),
-          }
-        : null;
+      const condition = normalizeFormFieldCondition(row.condition);
       return {
         id: String(row.id || `field_${index + 1}`),
         key,
@@ -75,7 +71,7 @@ function parseFieldsJson(raw: string): FormField[] {
         type: normalizeFormFieldType(String(row.type || "text")),
         required: Boolean(row.required),
         options,
-        condition: condition?.fieldKey ? condition : null,
+        condition,
       } satisfies FormField;
     })
     .filter(Boolean) as FormField[];
