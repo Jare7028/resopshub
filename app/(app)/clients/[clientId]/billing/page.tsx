@@ -76,6 +76,7 @@ function buildEmployeeInfoValueMap(
       Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
     >
   >((acc, row) => {
+    if (!row || !row.record_id || !row.column_id) return acc;
     if (!acc[row.record_id]) acc[row.record_id] = {};
     acc[row.record_id][row.column_id] = {
       text_value: row.text_value,
@@ -128,6 +129,15 @@ function formatPercent(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "-";
   const rounded = value.toFixed(1).replace(/\.0$/, "");
   return `${rounded}%`;
+}
+
+function hasStringId(value: unknown): value is { id: string } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    String((value as { id: string }).id).trim().length > 0
+  );
 }
 
 export default async function ClientBillingPage(props: {
@@ -226,11 +236,13 @@ export default async function ClientBillingPage(props: {
         .order("position", { ascending: true })
         .order("created_at", { ascending: true });
       employeeColumnsError = fallbackColumns.error;
-      employeeColumnsRaw = (fallbackColumns.data || []).map((column) => ({
-        ...column,
-        formula_currency_mode: "display",
-        formula_currency_code: "USD",
-      }));
+      employeeColumnsRaw = (fallbackColumns.data || [])
+        .filter((column) => hasStringId(column))
+        .map((column) => ({
+          ...column,
+          formula_currency_mode: "display",
+          formula_currency_code: "USD",
+        }));
     }
 
     if (isSupabaseMissingTableError(employeeColumnsError)) {
@@ -238,8 +250,12 @@ export default async function ClientBillingPage(props: {
     } else if (employeeColumnsError) {
       employeeMonthlyCostSummary.errorMessage = `Could not load Employee Info columns (${employeeColumnsError.message}).`;
     } else {
-      const employeeRecords = (employeeRecordsRaw || []) as EmployeeInfoRecordRow[];
-      const employeeColumns = (employeeColumnsRaw || []) as EmployeeInfoColumnRow[];
+      const employeeRecords = ((employeeRecordsRaw || []) as EmployeeInfoRecordRow[]).filter((row) =>
+        hasStringId(row)
+      );
+      const employeeColumns = ((employeeColumnsRaw || []) as EmployeeInfoColumnRow[]).filter((row) =>
+        hasStringId(row)
+      );
       const monthlyCostColumn = employeeColumns.find(isTotalMonthlyCostColumn);
 
       if (monthlyCostColumn) {
@@ -265,10 +281,12 @@ export default async function ClientBillingPage(props: {
             employeeValuesError = fallbackValuesResult.error;
             employeeValuesRaw = ((fallbackValuesResult.data || []) as Array<
               Omit<EmployeeInfoValueRow, "money_currency_code">
-            >).map((row) => ({
-              ...row,
-              money_currency_code: null,
-            }));
+            >)
+              .filter((row) => !!row && !!row.record_id && !!row.column_id)
+              .map((row) => ({
+                ...row,
+                money_currency_code: null,
+              }));
           }
         }
 
@@ -568,9 +586,9 @@ export default async function ClientBillingPage(props: {
       other_monthly_charges: otherMonthlyChargesValue.value,
       display_name: clientName,
     };
-
-    const { error } = billingProfile?.id
-      ? await supabase.from("billing_profiles").update(payload).eq("id", billingProfile.id)
+    const existingBillingProfileId = hasStringId(billingProfile) ? billingProfile.id : null;
+    const { error } = existingBillingProfileId
+      ? await supabase.from("billing_profiles").update(payload).eq("id", existingBillingProfileId)
       : await supabase.from("billing_profiles").insert(payload);
 
     if (error) {
