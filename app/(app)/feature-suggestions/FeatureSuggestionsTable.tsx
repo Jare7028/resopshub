@@ -110,9 +110,11 @@ function formatDateLabel(value: string | null | undefined) {
 function VoteControls({
   suggestion,
   onVote,
+  canEdit,
 }: {
   suggestion: SuggestionRow;
   onVote: (formData: FormData) => Promise<void>;
+  canEdit: boolean;
 }) {
   return (
     <form action={onVote} className="flex items-center justify-end gap-2">
@@ -126,6 +128,7 @@ function VoteControls({
         value="up"
         title="Upvote"
         aria-label={`Upvote ${suggestion.title}`}
+        disabled={!canEdit}
         className={`rounded-md px-2 py-1 text-xs font-semibold ${
           suggestion.userVote === 1
             ? "bg-slate-900 text-white"
@@ -142,6 +145,7 @@ function VoteControls({
         value="down"
         title="Downvote"
         aria-label={`Downvote ${suggestion.title}`}
+        disabled={!canEdit}
         className={`rounded-md px-2 py-1 text-xs font-semibold ${
           suggestion.userVote === -1
             ? "bg-slate-900 text-white"
@@ -171,6 +175,7 @@ export default function FeatureSuggestionsTable({
   onUpdateType,
   hasExplicitView = false,
   viewPreferenceScope = "feature-suggestions",
+  canEdit = true,
 }: {
   rows: SuggestionRow[];
   hideCompleted: boolean;
@@ -185,6 +190,7 @@ export default function FeatureSuggestionsTable({
   onUpdateType: (formData: FormData) => Promise<void> | void;
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
+  canEdit?: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -569,26 +575,28 @@ export default function FeatureSuggestionsTable({
                       <p className="truncate">{summarizeDescription(suggestion.details)}</p>
                     </td>
                     <td className="px-6 py-3">
-                      <FeatureSuggestionStatus
-                        suggestionId={suggestion.id}
-                        defaultStatus={suggestion.status}
-                        statusOptions={statusOptions}
-                        onUpdate={onUpdateStatus}
-                      />
-                    </td>
-                    <td className="px-6 py-3">
-                      <FeatureSuggestionType
-                        suggestionId={suggestion.id}
-                        defaultType={suggestion.type}
-                        typeOptions={typeOptions}
-                        onUpdate={onUpdateType}
-                      />
-                    </td>
-                    <td className="px-6 py-3">
-                      <VoteControls suggestion={suggestion} onVote={onVote} />
-                    </td>
-                  </tr>
-                ))
+                              <FeatureSuggestionStatus
+                                suggestionId={suggestion.id}
+                                defaultStatus={suggestion.status}
+                                statusOptions={statusOptions}
+                                onUpdate={onUpdateStatus}
+                                disabled={!canEdit}
+                              />
+                            </td>
+                            <td className="px-6 py-3">
+                              <FeatureSuggestionType
+                                suggestionId={suggestion.id}
+                                defaultType={suggestion.type}
+                                typeOptions={typeOptions}
+                                onUpdate={onUpdateType}
+                                disabled={!canEdit}
+                              />
+                            </td>
+                            <td className="px-6 py-3">
+                              <VoteControls suggestion={suggestion} onVote={onVote} canEdit={canEdit} />
+                            </td>
+                          </tr>
+                        ))
               ) : (
                 <tr>
                   <td className="px-6 py-6 text-sm text-slate-500" colSpan={5}>
@@ -691,15 +699,17 @@ export default function FeatureSuggestionsTable({
                                 defaultStatus={suggestion.status}
                                 statusOptions={statusOptions}
                                 onUpdate={onUpdateStatus}
+                                disabled={!canEdit}
                               />
                               <FeatureSuggestionType
                                 suggestionId={suggestion.id}
                                 defaultType={suggestion.type}
                                 typeOptions={typeOptions}
                                 onUpdate={onUpdateType}
+                                disabled={!canEdit}
                               />
                             </div>
-                            <VoteControls suggestion={suggestion} onVote={onVote} />
+                            <VoteControls suggestion={suggestion} onVote={onVote} canEdit={canEdit} />
                           </div>
                         ))
                       ) : (

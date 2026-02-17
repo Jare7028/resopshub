@@ -4,6 +4,11 @@ import {
   type SetAllCookies,
 } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
+import { isMutationMethod, pagePermissionKeyForPathname } from "@/lib/pagePermissions";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -39,7 +44,53 @@ export async function updateSession(request: NextRequest) {
     } as CookieOptions,
   });
 
-  await supabase.auth.getUser();
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData.user;
+
+  const pageKey = pagePermissionKeyForPathname(request.nextUrl.pathname);
+  if (!user || !pageKey) {
+    return response;
+  }
+
+  const canViewResult = await supabase.rpc("can_view_page", {
+    p_page_key: pageKey,
+  });
+  if (
+    canViewResult.error &&
+    !isSupabaseMissingFunctionError(canViewResult.error) &&
+    !isSupabaseMissingTableError(canViewResult.error)
+  ) {
+    console.error("[middleware.can_view_page]", canViewResult.error.message);
+    return NextResponse.json({ error: "Permission check failed." }, { status: 500 });
+  }
+
+  if (!canViewResult.error && canViewResult.data === false) {
+    if (pageKey !== "dashboard") {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/dashboard";
+      redirectUrl.searchParams.set("error", "No access to that page");
+      return NextResponse.redirect(redirectUrl);
+    }
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (isMutationMethod(request.method)) {
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: pageKey,
+    });
+    if (
+      canEditResult.error &&
+      !isSupabaseMissingFunctionError(canEditResult.error) &&
+      !isSupabaseMissingTableError(canEditResult.error)
+    ) {
+      console.error("[middleware.can_edit_page]", canEditResult.error.message);
+      return NextResponse.json({ error: "Permission check failed." }, { status: 500 });
+    }
+
+    if (!canEditResult.error && canEditResult.data === false) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
 
   return response;
 }

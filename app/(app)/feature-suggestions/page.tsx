@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
 import FeatureSuggestionsTable from "./FeatureSuggestionsTable";
 
 type SuggestionRow = {
@@ -87,6 +88,35 @@ export default async function FeatureSuggestionsPage(props: {
 
   if (!currentUser?.id) {
     redirect("/tasks?error=Missing%20user%20profile");
+  }
+
+  const [canViewResult, canEditResult] = await Promise.all([
+    supabase.rpc("can_view_page", { p_page_key: "feature_suggestions" }),
+    supabase.rpc("can_edit_page", { p_page_key: "feature_suggestions" }),
+  ]);
+
+  let canViewFeatureSuggestions = true;
+  let canEditFeatureSuggestions = true;
+  let featureSuggestionsPermissionErrorMessage: string | null = null;
+
+  if (canViewResult.error) {
+    if (!isSupabaseMissingFunctionError(canViewResult.error)) {
+      featureSuggestionsPermissionErrorMessage = `Could not verify page view permission (${canViewResult.error.message}).`;
+    }
+  } else {
+    canViewFeatureSuggestions = Boolean(canViewResult.data);
+  }
+
+  if (canEditResult.error) {
+    if (!isSupabaseMissingFunctionError(canEditResult.error)) {
+      featureSuggestionsPermissionErrorMessage = `Could not verify page edit permission (${canEditResult.error.message}).`;
+    }
+  } else {
+    canEditFeatureSuggestions = Boolean(canEditResult.data);
+  }
+
+  if (!canViewFeatureSuggestions) {
+    redirect("/dashboard?error=No%20access%20to%20Feature%20Suggestions");
   }
 
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
@@ -230,6 +260,15 @@ export default async function FeatureSuggestionsPage(props: {
     const details = String(formData.get("details") || "").trim();
     const type = String(formData.get("type") || "new_feature").trim();
 
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "feature_suggestions",
+    });
+    if (!canEditResult.error && !canEditResult.data) {
+      redirect(
+        `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=You%20only%20have%20view%20access%20to%20Feature%20Suggestions`
+      );
+    }
+
     if (!typeOptions.includes(type as (typeof typeOptions)[number])) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Invalid%20request%20type`);
     }
@@ -276,6 +315,15 @@ export default async function FeatureSuggestionsPage(props: {
     const suggestionId = String(formData.get("suggestion_id") || "").trim();
     const direction = String(formData.get("vote") || "up").trim().toLowerCase();
     const desiredValue = direction === "down" ? -1 : 1;
+
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "feature_suggestions",
+    });
+    if (!canEditResult.error && !canEditResult.data) {
+      redirect(
+        `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=You%20only%20have%20view%20access%20to%20Feature%20Suggestions`
+      );
+    }
 
     if (!suggestionId) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20suggestion%20id`);
@@ -348,6 +396,15 @@ export default async function FeatureSuggestionsPage(props: {
     const suggestionId = String(formData.get("suggestion_id") || "").trim();
     const status = String(formData.get("status") || "").trim();
 
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "feature_suggestions",
+    });
+    if (!canEditResult.error && !canEditResult.data) {
+      redirect(
+        `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=You%20only%20have%20view%20access%20to%20Feature%20Suggestions`
+      );
+    }
+
     if (!suggestionId || !status) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20status%20update`);
     }
@@ -382,6 +439,15 @@ export default async function FeatureSuggestionsPage(props: {
     const supabase = createSupabaseServerClient();
     const suggestionId = String(formData.get("suggestion_id") || "").trim();
     const type = String(formData.get("type") || "").trim();
+
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "feature_suggestions",
+    });
+    if (!canEditResult.error && !canEditResult.data) {
+      redirect(
+        `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=You%20only%20have%20view%20access%20to%20Feature%20Suggestions`
+      );
+    }
 
     if (!suggestionId || !type) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20type%20update`);
@@ -423,8 +489,16 @@ export default async function FeatureSuggestionsPage(props: {
         <p className="text-sm text-slate-600">Share ideas and vote on what should be built next.</p>
       </section>
 
-      {(searchParams?.error || searchParams?.success || suggestionsError) && (
+      {(searchParams?.error ||
+        searchParams?.success ||
+        suggestionsError ||
+        featureSuggestionsPermissionErrorMessage) && (
         <div className="space-y-2">
+          {featureSuggestionsPermissionErrorMessage ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+              {featureSuggestionsPermissionErrorMessage}
+            </p>
+          ) : null}
           {suggestionsError ? (
             <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
               {suggestionsError.message}
@@ -445,17 +519,24 @@ export default async function FeatureSuggestionsPage(props: {
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Submit a suggestion</h2>
+        {!canEditFeatureSuggestions ? (
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            You have view-only access to Feature Suggestions.
+          </p>
+        ) : null}
         <form action={createSuggestion} className="mt-4 grid gap-4">
           <input
             name="title"
             placeholder="Short title"
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            disabled={!canEditFeatureSuggestions}
             required
           />
           <select
             name="type"
             defaultValue="new_feature"
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            disabled={!canEditFeatureSuggestions}
           >
             <option value="bug">Bug</option>
             <option value="improvement">Improvement</option>
@@ -466,10 +547,12 @@ export default async function FeatureSuggestionsPage(props: {
             rows={4}
             placeholder="Describe the problem and ideal outcome."
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            disabled={!canEditFeatureSuggestions}
           />
           <button
             type="submit"
             className="w-fit rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            disabled={!canEditFeatureSuggestions}
           >
             Submit suggestion
           </button>
@@ -494,6 +577,7 @@ export default async function FeatureSuggestionsPage(props: {
         onUpdateType={updateType}
         hasExplicitView={hasExplicitView}
         viewPreferenceScope="feature-suggestions"
+        canEdit={canEditFeatureSuggestions}
       />
     </div>
   );

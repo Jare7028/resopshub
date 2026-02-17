@@ -608,3 +608,432 @@ grant select, insert, update, delete on table public.user_permission_grants to a
 -- 2) Client-scoped billing edit permission:
 -- insert into public.user_permission_grants (user_id, permission_key, scope_type, scope_id, created_by_user_id)
 -- values ('<member_user_uuid>', 'billing.edit', 'client', '<client_uuid>', public.current_app_user_id());
+
+-- 7) Simplified page-level permissions (no/view/edit) for all left-nav pages.
+-- Members default to edit on every page unless explicitly changed.
+-- Admins always have edit access to every page.
+
+-- Retire placeholder global permission key that has no active behavior.
+delete from public.permission_definitions
+where key = 'workspace.manage_settings';
+
+create table if not exists public.page_permissions (
+  key text primary key,
+  label text not null,
+  nav_href text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint page_permissions_key_not_blank check (length(trim(key)) > 0),
+  constraint page_permissions_label_not_blank check (length(trim(label)) > 0),
+  constraint page_permissions_nav_href_not_blank check (length(trim(nav_href)) > 0)
+);
+
+insert into public.page_permissions (key, label, nav_href, sort_order)
+values
+  ('dashboard', 'Dashboard', '/dashboard', 10),
+  ('clients', 'Clients', '/clients', 20),
+  ('projects', 'Projects', '/projects', 30),
+  ('tasks', 'Tasks', '/tasks', 40),
+  ('employee_info', 'Employee Info', '/employee-info', 50),
+  ('forms', 'Forms', '/forms', 60),
+  ('chat', 'Chat', '/chat', 70),
+  ('personal', 'Personal', '/personal', 80),
+  ('notes', 'Notes', '/notes', 90),
+  ('feature_suggestions', 'Feature Suggestions', '/feature-suggestions', 100),
+  ('help', 'Help & Walkthrough', '/help', 110),
+  ('settings', 'Settings', '/settings', 120)
+on conflict (key) do update
+set
+  label = excluded.label,
+  nav_href = excluded.nav_href,
+  sort_order = excluded.sort_order,
+  updated_at = now();
+
+create table if not exists public.user_page_permissions (
+  user_id uuid not null references public.users(id) on delete cascade,
+  page_key text not null references public.page_permissions(key) on delete cascade,
+  access_level text not null default 'edit',
+  updated_by_user_id uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, page_key),
+  constraint user_page_permissions_access_level_check
+    check (access_level in ('none', 'view', 'edit'))
+);
+
+create index if not exists user_page_permissions_page_lookup_idx
+  on public.user_page_permissions(page_key, access_level);
+
+insert into public.user_page_permissions (
+  user_id,
+  page_key,
+  access_level,
+  updated_by_user_id
+)
+select
+  u.id,
+  p.key,
+  'edit',
+  null::uuid
+from public.users u
+cross join public.page_permissions p
+where u.role::text = 'member'
+on conflict (user_id, page_key) do nothing;
+
+create or replace function public.seed_user_page_permissions_for_member()
+returns trigger
+language plpgsql
+security definer
+set search_path = 'public'
+as $$
+begin
+  if new.role::text = 'member' then
+    insert into public.user_page_permissions (
+      user_id,
+      page_key,
+      access_level,
+      updated_by_user_id
+    )
+    select
+      new.id,
+      p.key,
+      'edit',
+      null::uuid
+    from public.page_permissions p
+    on conflict (user_id, page_key) do nothing;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists users_seed_page_permissions on public.users;
+create trigger users_seed_page_permissions
+  after insert or update of role on public.users
+  for each row
+  execute function public.seed_user_page_permissions_for_member();
+
+create or replace function public.page_access_level(p_page_key text)
+returns text
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select case
+    when auth.uid() is null then 'none'
+    when public.is_admin() then 'edit'
+    else coalesce(
+      (
+        select upp.access_level
+        from public.user_page_permissions upp
+        where upp.user_id = public.current_app_user_id()
+          and upp.page_key = p_page_key
+        limit 1
+      ),
+      'edit'
+    )
+  end;
+$$;
+
+create or replace function public.can_view_page(p_page_key text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select public.page_access_level(p_page_key) in ('view', 'edit');
+$$;
+
+create or replace function public.can_edit_page(p_page_key text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select public.page_access_level(p_page_key) = 'edit';
+$$;
+
+grant execute on function public.page_access_level(text) to anon, authenticated;
+grant execute on function public.can_view_page(text) to anon, authenticated;
+grant execute on function public.can_edit_page(text) to anon, authenticated;
+
+alter table public.page_permissions enable row level security;
+alter table public.user_page_permissions enable row level security;
+
+drop policy if exists page_permissions_select on public.page_permissions;
+create policy page_permissions_select
+  on public.page_permissions
+  for select
+  to authenticated
+  using (auth.uid() is not null);
+
+drop policy if exists page_permissions_insert on public.page_permissions;
+create policy page_permissions_insert
+  on public.page_permissions
+  for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists page_permissions_update on public.page_permissions;
+create policy page_permissions_update
+  on public.page_permissions
+  for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists page_permissions_delete on public.page_permissions;
+create policy page_permissions_delete
+  on public.page_permissions
+  for delete
+  to authenticated
+  using (public.is_admin());
+
+drop policy if exists user_page_permissions_select on public.user_page_permissions;
+create policy user_page_permissions_select
+  on public.user_page_permissions
+  for select
+  to authenticated
+  using (
+    auth.uid() is not null
+    and (
+      public.is_admin()
+      or user_id = public.current_app_user_id()
+    )
+  );
+
+drop policy if exists user_page_permissions_insert on public.user_page_permissions;
+create policy user_page_permissions_insert
+  on public.user_page_permissions
+  for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists user_page_permissions_update on public.user_page_permissions;
+create policy user_page_permissions_update
+  on public.user_page_permissions
+  for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists user_page_permissions_delete on public.user_page_permissions;
+create policy user_page_permissions_delete
+  on public.user_page_permissions
+  for delete
+  to authenticated
+  using (public.is_admin());
+
+grant select, insert, update, delete on table public.page_permissions to authenticated;
+grant select, insert, update, delete on table public.user_page_permissions to authenticated;
+
+-- Override module helpers to use simple page access.
+create or replace function public.can_access_employee_info()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_view_page('employee_info');
+$$;
+
+create or replace function public.can_manage_employee_info_columns()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_edit_page('employee_info');
+$$;
+
+create or replace function public.can_manage_employee_info_access()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_edit_page('employee_info');
+$$;
+
+create or replace function public.can_manage_employee_info_fx()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_edit_page('employee_info');
+$$;
+
+create or replace function public.can_view_client_billing(client_uuid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null
+    and public.can_view_page('clients')
+    and public.can_access_client(client_uuid);
+$$;
+
+create or replace function public.can_edit_client_billing(client_uuid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null
+    and public.can_edit_page('clients')
+    and public.can_access_client(client_uuid);
+$$;
+
+create or replace function public.can_view_feature_suggestions()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_view_page('feature_suggestions');
+$$;
+
+create or replace function public.can_edit_feature_suggestions()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_edit_page('feature_suggestions');
+$$;
+
+grant execute on function public.can_access_employee_info() to anon, authenticated;
+grant execute on function public.can_manage_employee_info_columns() to anon, authenticated;
+grant execute on function public.can_manage_employee_info_access() to anon, authenticated;
+grant execute on function public.can_manage_employee_info_fx() to anon, authenticated;
+grant execute on function public.can_view_client_billing(uuid) to anon, authenticated;
+grant execute on function public.can_edit_client_billing(uuid) to anon, authenticated;
+grant execute on function public.can_view_feature_suggestions() to anon, authenticated;
+grant execute on function public.can_edit_feature_suggestions() to anon, authenticated;
+
+-- Feature suggestions now follow page-level view/edit access.
+do $$
+begin
+  if to_regclass('public.feature_suggestions') is not null then
+    execute 'alter table public.feature_suggestions enable row level security';
+
+    execute 'drop policy if exists feature_suggestions_select on public.feature_suggestions';
+    execute 'create policy feature_suggestions_select
+      on public.feature_suggestions
+      for select
+      to authenticated
+      using (public.can_view_feature_suggestions())';
+
+    execute 'drop policy if exists feature_suggestions_insert on public.feature_suggestions';
+    execute 'create policy feature_suggestions_insert
+      on public.feature_suggestions
+      for insert
+      to authenticated
+      with check (public.can_edit_feature_suggestions())';
+
+    execute 'drop policy if exists feature_suggestions_update on public.feature_suggestions';
+    execute 'create policy feature_suggestions_update
+      on public.feature_suggestions
+      for update
+      to authenticated
+      using (public.can_edit_feature_suggestions())
+      with check (public.can_edit_feature_suggestions())';
+
+    execute 'drop policy if exists feature_suggestions_delete on public.feature_suggestions';
+    execute 'create policy feature_suggestions_delete
+      on public.feature_suggestions
+      for delete
+      to authenticated
+      using (public.can_edit_feature_suggestions())';
+
+    execute 'grant select, insert, update, delete on table public.feature_suggestions to authenticated';
+  end if;
+
+  if to_regclass('public.feature_suggestion_votes') is not null then
+    execute 'alter table public.feature_suggestion_votes enable row level security';
+
+    execute 'drop policy if exists feature_suggestion_votes_select_authenticated on public.feature_suggestion_votes';
+    execute 'create policy feature_suggestion_votes_select_authenticated
+      on public.feature_suggestion_votes
+      for select
+      to authenticated
+      using (public.can_view_feature_suggestions())';
+
+    execute 'drop policy if exists feature_suggestion_votes_insert_own on public.feature_suggestion_votes';
+    execute 'create policy feature_suggestion_votes_insert_own
+      on public.feature_suggestion_votes
+      for insert
+      to authenticated
+      with check (
+        public.can_edit_feature_suggestions()
+        and user_id = public.current_app_user_id()
+        and value in (-1, 1)
+      )';
+
+    execute 'drop policy if exists feature_suggestion_votes_update_own on public.feature_suggestion_votes';
+    execute 'create policy feature_suggestion_votes_update_own
+      on public.feature_suggestion_votes
+      for update
+      to authenticated
+      using (
+        public.can_edit_feature_suggestions()
+        and user_id = public.current_app_user_id()
+      )
+      with check (
+        public.can_edit_feature_suggestions()
+        and user_id = public.current_app_user_id()
+        and value in (-1, 1)
+      )';
+
+    execute 'drop policy if exists feature_suggestion_votes_delete_own on public.feature_suggestion_votes';
+    execute 'create policy feature_suggestion_votes_delete_own
+      on public.feature_suggestion_votes
+      for delete
+      to authenticated
+      using (
+        public.can_edit_feature_suggestions()
+        and user_id = public.current_app_user_id()
+      )';
+
+    execute 'grant select, insert, update, delete on table public.feature_suggestion_votes to authenticated';
+  end if;
+
+  if to_regclass('public.feature_suggestion_comments') is not null then
+    execute 'alter table public.feature_suggestion_comments enable row level security';
+
+    execute 'drop policy if exists feature_suggestion_comments_select_all on public.feature_suggestion_comments';
+    execute 'create policy feature_suggestion_comments_select_all
+      on public.feature_suggestion_comments
+      for select
+      to authenticated
+      using (public.can_view_feature_suggestions())';
+
+    execute 'drop policy if exists feature_suggestion_comments_insert_own on public.feature_suggestion_comments';
+    execute 'drop policy if exists feature_suggestion_comments_insert_email on public.feature_suggestion_comments';
+    execute 'create policy feature_suggestion_comments_insert
+      on public.feature_suggestion_comments
+      for insert
+      to authenticated
+      with check (
+        public.can_edit_feature_suggestions()
+        and user_id = public.current_app_user_id()
+      )';
+
+    execute 'grant select, insert on table public.feature_suggestion_comments to authenticated';
+  end if;
+end
+$$;

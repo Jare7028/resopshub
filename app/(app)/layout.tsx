@@ -7,6 +7,7 @@ import {
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
+import { type PagePermissionKey } from "@/lib/pagePermissions";
 import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
@@ -29,6 +30,7 @@ type NavLink = {
   href: string;
   label: string;
   icon: NavIconName;
+  pageKey: PagePermissionKey;
 };
 
 function isMissingColumnError(error: unknown) {
@@ -142,24 +144,31 @@ function SidebarIcon({ name }: { name: NavIconName }) {
 }
 
 const baseNavLinks: NavLink[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-  { href: "/clients", label: "Clients", icon: "clients" },
-  { href: "/projects", label: "Projects", icon: "projects" },
-  { href: "/tasks", label: "Tasks", icon: "tasks" },
-  { href: "/employee-info", label: "Employee Info", icon: "employeeInfo" },
-  { href: "/forms", label: "Forms", icon: "forms" },
-  { href: "/chat", label: "Chat", icon: "chat" },
-  { href: "/personal", label: "Personal", icon: "personal" },
-  { href: "/notes", label: "Notes", icon: "notes" },
+  { href: "/dashboard", label: "Dashboard", icon: "dashboard", pageKey: "dashboard" },
+  { href: "/clients", label: "Clients", icon: "clients", pageKey: "clients" },
+  { href: "/projects", label: "Projects", icon: "projects", pageKey: "projects" },
+  { href: "/tasks", label: "Tasks", icon: "tasks", pageKey: "tasks" },
+  {
+    href: "/employee-info",
+    label: "Employee Info",
+    icon: "employeeInfo",
+    pageKey: "employee_info",
+  },
+  { href: "/forms", label: "Forms", icon: "forms", pageKey: "forms" },
+  { href: "/chat", label: "Chat", icon: "chat", pageKey: "chat" },
+  { href: "/personal", label: "Personal", icon: "personal", pageKey: "personal" },
+  { href: "/notes", label: "Notes", icon: "notes", pageKey: "notes" },
   {
     href: "/feature-suggestions",
     label: "Feature Suggestions",
     icon: "featureSuggestions",
+    pageKey: "feature_suggestions",
   },
   {
     href: "/help",
     label: "Help & Walkthrough",
     icon: "help",
+    pageKey: "help",
   },
 ];
 
@@ -177,6 +186,7 @@ export default async function AppLayout({
   }
 
   const email = user.email || "";
+  let currentProfile: { id: string; role: string; status: string } | null = null;
 
   if (email) {
     const { data: profile } = await supabase
@@ -224,10 +234,46 @@ export default async function AppLayout({
     } else if (profile.status === "disabled") {
       await supabase.auth.signOut();
       redirect("/login?error=Account%20disabled");
+    } else {
+      currentProfile = {
+        id: profile.id,
+        role: profile.role,
+        status: profile.status,
+      };
     }
   }
 
-  const navLinks = baseNavLinks;
+  let pagePermissionByKey = new Map<PagePermissionKey, "none" | "view" | "edit">();
+  if (currentProfile && currentProfile.role !== "admin") {
+    const { data: pagePermissionRows, error: pagePermissionError } = await supabase
+      .from("user_page_permissions")
+      .select("page_key,access_level")
+      .eq("user_id", currentProfile.id);
+
+    if (pagePermissionError) {
+      if (!isSupabaseMissingTableError(pagePermissionError)) {
+        console.error("[layout.user_page_permissions]", pagePermissionError.message);
+      }
+    } else {
+      const pagePermissions = (pagePermissionRows || []) as Array<{
+        page_key: PagePermissionKey;
+        access_level: "none" | "view" | "edit";
+      }>;
+      pagePermissionByKey = new Map(pagePermissions.map((row) => [row.page_key, row.access_level]));
+    }
+  }
+
+  const canViewPage = (pageKey: PagePermissionKey) => {
+    if (!currentProfile || currentProfile.role === "admin") {
+      return true;
+    }
+    const explicitAccess = pagePermissionByKey.get(pageKey);
+    return (explicitAccess || "edit") !== "none";
+  };
+
+  const navLinks = baseNavLinks.filter((link) => canViewPage(link.pageKey));
+  const canViewSettings = canViewPage("settings");
+  const canViewPersonal = canViewPage("personal");
 
   async function signOut() {
     "use server";
@@ -432,38 +478,42 @@ export default async function AppLayout({
                 )
               )}
             </div>
-            <div className="personal-nav-sections">
-              <PersonalNavSections
-                currentUserId={user.id}
-                sections={personalSections || []}
-                pages={personalPages || []}
-              />
-            </div>
+            {canViewPersonal ? (
+              <div className="personal-nav-sections">
+                <PersonalNavSections
+                  currentUserId={user.id}
+                  sections={personalSections || []}
+                  pages={personalPages || []}
+                />
+              </div>
+            ) : null}
           </nav>
 
-          <div className="px-3 pb-4">
-            <Link
-              href="/settings"
-              className="nav-item group flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-              aria-label="Settings"
-              title="Settings"
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-4 w-4"
+          {canViewSettings ? (
+            <div className="px-3 pb-4">
+              <Link
+                href="/settings"
+                className="nav-item group flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                aria-label="Settings"
+                title="Settings"
               >
-                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-                <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a8.8 8.8 0 0 0-1.7-1l-.4-2.7H9.1l-.4 2.7a8.8 8.8 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 13a7.9 7.9 0 0 0-.1 1 7.9 7.9 0 0 0 .1 1L2.5 16.6l2 3.4 2.5-1a8.8 8.8 0 0 0 1.7 1l.4 2.7h5.8l.4-2.7a8.8 8.8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 15Z" />
-              </svg>
-              <span className="nav-label">Settings</span>
-            </Link>
-          </div>
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                >
+                  <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                  <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a8.8 8.8 0 0 0-1.7-1l-.4-2.7H9.1l-.4 2.7a8.8 8.8 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 13a7.9 7.9 0 0 0-.1 1 7.9 7.9 0 0 0 .1 1L2.5 16.6l2 3.4 2.5-1a8.8 8.8 0 0 0 1.7 1l.4 2.7h5.8l.4-2.7a8.8 8.8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 15Z" />
+                </svg>
+                <span className="nav-label">Settings</span>
+              </Link>
+            </div>
+          ) : null}
         </aside>
 
         <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-0 transition-[padding] duration-200 md:pl-64 md:peer-checked/sidebar:pl-16">

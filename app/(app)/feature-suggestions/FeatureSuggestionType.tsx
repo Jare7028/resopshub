@@ -7,6 +7,7 @@ type FeatureSuggestionTypeProps = {
   defaultType: string;
   typeOptions: readonly string[];
   onUpdate: (formData: FormData) => Promise<unknown> | void;
+  disabled?: boolean;
 };
 
 export default function FeatureSuggestionType({
@@ -14,6 +15,7 @@ export default function FeatureSuggestionType({
   defaultType,
   typeOptions,
   onUpdate,
+  disabled = false,
 }: FeatureSuggestionTypeProps) {
   const [, startTransition] = useTransition();
 
@@ -40,6 +42,7 @@ export default function FeatureSuggestionType({
         name="type"
         defaultValue={defaultType}
         className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+        disabled={disabled}
         onChange={handleChange}
       >
         {typeOptions.map((type) => (
@@ -51,4 +54,3 @@ export default function FeatureSuggestionType({
     </form>
   );
 }
-

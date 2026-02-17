@@ -7,6 +7,7 @@ type FeatureSuggestionStatusProps = {
   defaultStatus: string;
   statusOptions: readonly string[];
   onUpdate: (formData: FormData) => Promise<unknown> | void;
+  disabled?: boolean;
 };
 
 export default function FeatureSuggestionStatus({
@@ -14,6 +15,7 @@ export default function FeatureSuggestionStatus({
   defaultStatus,
   statusOptions,
   onUpdate,
+  disabled = false,
 }: FeatureSuggestionStatusProps) {
   const [, startTransition] = useTransition();
 
@@ -40,6 +42,7 @@ export default function FeatureSuggestionStatus({
         name="status"
         defaultValue={defaultStatus}
         className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+        disabled={disabled}
         onChange={handleChange}
       >
         {statusOptions.map((status) => (
