@@ -57,8 +57,9 @@ export default function CustomizeFieldsPopover({
     persistEmployeeInfoVisibility({
       showClientColumn,
       visibleColumnIds,
+      knownColumnIds: columns.map((column) => column.id),
     });
-  }, [showClientColumn, visibleColumnIds]);
+  }, [columns, showClientColumn, visibleColumnIds]);
 
   const toggleColumnVisibility = (columnId: string) => {
     setVisibleColumnIds((previous) => {

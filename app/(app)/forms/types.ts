@@ -1,4 +1,5 @@
 export const formStatusOptions = ["draft", "active", "archived"] as const;
+export const formAccessLevelOptions = ["view", "edit"] as const;
 export const formSubmissionStatusOptions = [
   "open",
   "in_progress",
@@ -29,11 +30,17 @@ export const formFieldConditionModeOptions = ["all", "any"] as const;
 export const formActionPriorityOptions = ["low", "medium", "high", "critical"] as const;
 
 export type FormStatus = (typeof formStatusOptions)[number];
+export type FormAccessLevel = (typeof formAccessLevelOptions)[number];
 export type FormSubmissionStatus = (typeof formSubmissionStatusOptions)[number];
 export type FormFieldType = (typeof formFieldTypeOptions)[number];
 export type FormFieldConditionOperator = (typeof formFieldConditionOperatorOptions)[number];
 export type FormFieldConditionMode = (typeof formFieldConditionModeOptions)[number];
 export type FormActionPriority = (typeof formActionPriorityOptions)[number];
+
+export type FormAccessAssignment = {
+  user_id: string;
+  access_level: FormAccessLevel;
+};
 
 export type FormFieldCondition = {
   fieldKey: string;
@@ -70,6 +77,12 @@ export type FormAction = {
 
 export function normalizeFormStatus(value: string | null | undefined): FormStatus {
   return formStatusOptions.includes(value as FormStatus) ? (value as FormStatus) : "draft";
+}
+
+export function normalizeFormAccessLevel(value: string | null | undefined): FormAccessLevel {
+  return formAccessLevelOptions.includes(value as FormAccessLevel)
+    ? (value as FormAccessLevel)
+    : "view";
 }
 
 export function normalizeSubmissionStatus(

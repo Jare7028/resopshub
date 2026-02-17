@@ -4,12 +4,19 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import FormFieldsBuilder from "./FormFieldsBuilder";
 import FormTaskTemplatesBuilder from "./FormTaskTemplatesBuilder";
+import FormAccessBuilder from "./FormAccessBuilder";
 import { formStatusOptions } from "./types";
 
 type TaskTemplateOption = {
   id: string;
   name: string;
   title: string;
+};
+
+type UserOption = {
+  id: string;
+  label: string;
+  secondaryLabel?: string;
 };
 
 type AutoSaveResult = {
@@ -20,12 +27,16 @@ type AutoSaveResult = {
 
 export default function FormCreateAutosave({
   taskTemplates,
+  userOptions,
   taskTemplatesMissing,
+  formAccessSchemaMissing,
   returnTo,
   onAutoSave,
 }: {
   taskTemplates: TaskTemplateOption[];
+  userOptions: UserOption[];
   taskTemplatesMissing: boolean;
+  formAccessSchemaMissing: boolean;
   returnTo: string;
   onAutoSave: (formData: FormData) => Promise<AutoSaveResult>;
 }) {
@@ -87,6 +98,7 @@ export default function FormCreateAutosave({
       fields_json: String(formData.get("fields_json") || "[]"),
       task_template_ids_json: String(formData.get("task_template_ids_json") || "[]"),
       manual_tasks_json: String(formData.get("manual_tasks_json") || "[]"),
+      form_access_json: String(formData.get("form_access_json") || "[]"),
     });
 
     if (!force && payloadKey === lastPayloadRef.current) {
@@ -116,6 +128,7 @@ export default function FormCreateAutosave({
         fields_json: String(formData.get("fields_json") || "[]"),
         task_template_ids_json: String(formData.get("task_template_ids_json") || "[]"),
         manual_tasks_json: String(formData.get("manual_tasks_json") || "[]"),
+        form_access_json: String(formData.get("form_access_json") || "[]"),
       });
       setSavedAtLabel(formatSavedAt());
 
@@ -196,6 +209,13 @@ export default function FormCreateAutosave({
           initialManualTasks={[]}
           taskTemplates={taskTemplates}
         />
+        <FormAccessBuilder users={userOptions} initialAssignments={[]} />
+        {formAccessSchemaMissing ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Form user access is not set up yet. Run <code>sql/forms_form_permissions.sql</code> in
+            Supabase SQL editor.
+          </p>
+        ) : null}
         {taskTemplatesMissing ? (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             Task templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor.

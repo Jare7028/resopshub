@@ -13,10 +13,12 @@ import {
   buildFieldKey,
   ensureUniqueFormFieldKeys,
   formStatusOptions,
+  normalizeFormAccessLevel,
   normalizeFormFieldMetadata,
   normalizeFormFieldVisibility,
   normalizeFormFieldType,
   normalizeFormStatus,
+  type FormAccessAssignment,
   type FormField,
   type FormStatus,
 } from "./types";
@@ -105,6 +107,35 @@ type ManualTask = {
   title: string;
   description: string;
 };
+
+function parseFormAccessAssignmentsJson(raw: string): FormAccessAssignment[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const seen = new Set<string>();
+  return parsed
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const userId = String(row.user_id || "").trim();
+      if (!userId) return null;
+      return {
+        user_id: userId,
+        access_level: normalizeFormAccessLevel(String(row.access_level || "view")),
+      } satisfies FormAccessAssignment;
+    })
+    .filter((row): row is FormAccessAssignment => Boolean(row))
+    .filter((row) => {
+      if (seen.has(row.user_id)) return false;
+      seen.add(row.user_id);
+      return true;
+    });
+}
 
 function parseManualTasksJson(raw: string): ManualTask[] {
   let parsed: unknown;
@@ -275,6 +306,26 @@ export default async function FormsPage(props: {
     title: string;
   }>;
 
+  const { data: usersRaw, error: usersError } = await supabase
+    .from("users")
+    .select("id,full_name,email")
+    .order("full_name", { ascending: true });
+  const userOptions = (usersError ? [] : usersRaw || [])
+    .map((row) => ({
+      id: String((row as { id?: string }).id || "").trim(),
+      label:
+        String((row as { full_name?: string | null }).full_name || "").trim() ||
+        String((row as { email?: string | null }).email || "").trim(),
+      secondaryLabel: String((row as { email?: string | null }).email || "").trim(),
+    }))
+    .filter((row) => row.id && row.label);
+
+  const { error: formAccessSchemaError } = await supabase
+    .from("form_user_permissions")
+    .select("form_id")
+    .limit(1);
+  const formAccessSchemaMissing = isSupabaseMissingTableError(formAccessSchemaError);
+
   async function upsertFormDraft(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -288,6 +339,9 @@ export default async function FormsPage(props: {
     );
     const manualTasks = parseManualTasksJson(
       String(formData.get("manual_tasks_json") || "[]")
+    );
+    const formAccessAssignments = parseFormAccessAssignmentsJson(
+      String(formData.get("form_access_json") || "[]")
     );
 
     if (!title) {
@@ -399,6 +453,30 @@ export default async function FormsPage(props: {
       }
     }
 
+    const { error: clearAccessError } = await supabase
+      .from("form_user_permissions")
+      .delete()
+      .eq("form_id", targetFormId);
+    if (clearAccessError && !isSupabaseMissingTableError(clearAccessError)) {
+      return { ok: false, error: clearAccessError.message };
+    }
+
+    if (formAccessAssignments.length) {
+      const { error: accessInsertError } = await supabase
+        .from("form_user_permissions")
+        .upsert(
+          formAccessAssignments.map((assignment) => ({
+            form_id: targetFormId,
+            user_id: assignment.user_id,
+            access_level: assignment.access_level,
+          })),
+          { onConflict: "form_id,user_id" }
+        );
+      if (accessInsertError && !isSupabaseMissingTableError(accessInsertError)) {
+        return { ok: false, error: accessInsertError.message };
+      }
+    }
+
     revalidatePath("/forms");
     revalidatePath(`/forms/${targetFormId}`);
     return { ok: true, formId: targetFormId };
@@ -444,7 +522,9 @@ export default async function FormsPage(props: {
       {activeTab === "create" ? (
         <FormCreateAutosave
           taskTemplates={taskTemplates}
+          userOptions={userOptions}
           taskTemplatesMissing={isSupabaseMissingTableError(taskTemplatesError)}
+          formAccessSchemaMissing={formAccessSchemaMissing}
           returnTo={returnTo}
           onAutoSave={upsertFormDraft}
         />

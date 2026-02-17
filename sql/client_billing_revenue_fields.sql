@@ -14,6 +14,9 @@ alter table if exists public.billing_profiles
   add column if not exists other_monthly_charges numeric;
 
 alter table if exists public.billing_profiles
+  add column if not exists revenue_charge_items jsonb not null default '[]'::jsonb;
+
+alter table if exists public.billing_profiles
   drop constraint if exists billing_profiles_hourly_rate_non_negative;
 
 alter table if exists public.billing_profiles
@@ -33,3 +36,10 @@ alter table if exists public.billing_profiles
 alter table if exists public.billing_profiles
   add constraint billing_profiles_other_monthly_charges_non_negative
   check (other_monthly_charges is null or other_monthly_charges >= 0);
+
+alter table if exists public.billing_profiles
+  drop constraint if exists billing_profiles_revenue_charge_items_is_array;
+
+alter table if exists public.billing_profiles
+  add constraint billing_profiles_revenue_charge_items_is_array
+  check (jsonb_typeof(revenue_charge_items) = 'array');

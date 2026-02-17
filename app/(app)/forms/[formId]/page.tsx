@@ -5,23 +5,26 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
-import FormFieldsBuilder from "../FormFieldsBuilder";
-import FormTaskTemplatesBuilder from "../FormTaskTemplatesBuilder";
+import {
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import FormSubmissionBuilder from "../FormSubmissionBuilder";
+import FormConfigureAutosave from "../FormConfigureAutosave";
 import {
   buildFieldKey,
   doesFormFieldVisibilityMatch,
   ensureUniqueFormFieldKeys,
-  formStatusOptions,
   formatFormLabel,
   normalizeFormActionPriority,
+  normalizeFormAccessLevel,
   normalizeFormFieldMetadata,
   normalizeFormFieldVisibility,
   normalizeFormFieldType,
   normalizeFormStatus,
   renderTemplate,
   validateFormFieldValue,
+  type FormAccessAssignment,
   type FormField,
 } from "../types";
 
@@ -117,6 +120,35 @@ function parseTaskTemplateIdsJson(raw: string): string[] {
   );
 }
 
+function parseFormAccessAssignmentsJson(raw: string): FormAccessAssignment[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const seen = new Set<string>();
+  return parsed
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const userId = String(row.user_id || "").trim();
+      if (!userId) return null;
+      return {
+        user_id: userId,
+        access_level: normalizeFormAccessLevel(String(row.access_level || "view")),
+      } satisfies FormAccessAssignment;
+    })
+    .filter((row): row is FormAccessAssignment => Boolean(row))
+    .filter((row) => {
+      if (seen.has(row.user_id)) return false;
+      seen.add(row.user_id);
+      return true;
+    });
+}
+
 function formatDbError(
   context: string,
   error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
@@ -169,7 +201,7 @@ export default async function FormDetailPage(props: {
 
   const { data: currentUser } = await supabase
     .from("users")
-    .select("id")
+    .select("id,role")
     .eq("email", authEmail)
     .maybeSingle();
   if (!currentUser?.id) {
@@ -178,7 +210,7 @@ export default async function FormDetailPage(props: {
 
   const { data: form, error: formError } = await supabase
     .from("forms")
-    .select("id,title,description,status,fields,created_at,updated_at")
+    .select("id,title,description,status,fields,created_by,created_at,updated_at")
     .eq("id", formId)
     .maybeSingle();
   if (formError) {
@@ -188,6 +220,20 @@ export default async function FormDetailPage(props: {
     notFound();
   }
 
+  let canManageForm = true;
+  let formPermissionErrorMessage: string | null = null;
+  const canManageFormResult = await supabase.rpc("can_manage_form", {
+    form_uuid: formId,
+  });
+  if (isSupabaseMissingFunctionError(canManageFormResult.error)) {
+    canManageForm = true;
+  } else if (canManageFormResult.error) {
+    canManageForm = false;
+    formPermissionErrorMessage = `Could not verify form edit permission (${canManageFormResult.error.message}).`;
+  } else {
+    canManageForm = Boolean(canManageFormResult.data);
+  }
+
   const formFields = parseFields(form.fields);
 
   const [
@@ -195,6 +241,8 @@ export default async function FormDetailPage(props: {
     { data: submissionsRaw },
     { data: taskTemplatesRaw, error: taskTemplatesError },
     { data: manualActionsRaw, error: manualActionsError },
+    { data: formAccessRowsRaw, error: formAccessRowsError },
+    { data: workspaceUsersRaw, error: workspaceUsersError },
   ] = await Promise.all([
     supabase
       .from("form_submission_task_templates")
@@ -215,6 +263,11 @@ export default async function FormDetailPage(props: {
       .eq("enabled", true)
       .order("position", { ascending: true })
       .order("created_at", { ascending: true }),
+    supabase
+      .from("form_user_permissions")
+      .select("user_id,access_level")
+      .eq("form_id", formId),
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
   ]);
 
   const taskTemplateLinks = (templateLinksError
@@ -241,6 +294,28 @@ export default async function FormDetailPage(props: {
       (row as { task_description_template?: string | null }).task_description_template || ""
     ).trim(),
   })).filter((row) => row.title) as ManualTask[];
+
+  const formAccessSchemaMissing = isSupabaseMissingTableError(formAccessRowsError);
+  const formAccessAssignments = (
+    formAccessSchemaMissing ? [] : formAccessRowsRaw || []
+  ).map((row) => ({
+    user_id: String((row as { user_id?: string | null }).user_id || "").trim(),
+    access_level: normalizeFormAccessLevel(
+      String((row as { access_level?: string | null }).access_level || "view")
+    ),
+  })).filter((row) => row.user_id) as FormAccessAssignment[];
+
+  const workspaceUserOptions = ((workspaceUsersError ? [] : workspaceUsersRaw || []) as Array<{
+    id: string;
+    full_name: string | null;
+    email: string | null;
+  }>)
+    .map((user) => ({
+      id: String(user.id || "").trim(),
+      label: String(user.full_name || "").trim() || String(user.email || "").trim(),
+      secondaryLabel: String(user.email || "").trim(),
+    }))
+    .filter((user) => user.id && user.label);
 
   const submissions = (submissionsRaw || []) as Array<{
     id: string;
@@ -295,6 +370,7 @@ export default async function FormDetailPage(props: {
     configure: buildDetailUrl("configure"),
     create_submission: buildDetailUrl("create_submission"),
   };
+  const canConfigureForm = canManageForm;
 
   const filteredSubmissions = submissions.filter((submission) => {
     const status = String(submission.status || "open");
@@ -320,7 +396,7 @@ export default async function FormDetailPage(props: {
     return submissionSortDir === "asc" ? result : -result;
   });
 
-  async function saveForm(formData: FormData) {
+  async function saveFormDraft(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
     const title = String(formData.get("title") || "").trim();
@@ -329,6 +405,9 @@ export default async function FormDetailPage(props: {
     const fields = parseFieldsJson(String(formData.get("fields_json") || "[]"));
     const selectedTaskTemplateIds = parseTaskTemplateIdsJson(
       String(formData.get("task_template_ids_json") || "[]")
+    );
+    const formAccessAssignments = parseFormAccessAssignmentsJson(
+      String(formData.get("form_access_json") || "[]")
     );
     const manualTasks = (() => {
       let parsed: unknown;
@@ -349,19 +428,24 @@ export default async function FormDetailPage(props: {
         })
         .filter(Boolean) as Array<{ title: string; description: string }>;
     })();
-    const configureUrl = (extra?: { error?: string; success?: string }) => {
-      const sp = new URLSearchParams();
-      sp.set("return_to", returnTo);
-      sp.set("tab", "configure");
-      if (extra?.error) sp.set("error", extra.error);
-      if (extra?.success) sp.set("success", extra.success);
-      return `${detailPath}?${sp.toString()}`;
-    };
+
+    const canManageResult = await supabase.rpc("can_manage_form", {
+      form_uuid: formId,
+    });
+    if (!isSupabaseMissingFunctionError(canManageResult.error)) {
+      if (canManageResult.error || !canManageResult.data) {
+        return {
+          ok: false as const,
+          error: "You do not have permission to edit this form.",
+        };
+      }
+    }
+
     if (!title) {
-      redirect(configureUrl({ error: "Form title is required" }));
+      return { ok: false as const, error: "Form title is required" };
     }
     if (!fields.length) {
-      redirect(configureUrl({ error: "Add at least one field" }));
+      return { ok: false as const, error: "Add at least one field" };
     }
 
     const { error: updateError } = await supabase
@@ -373,18 +457,16 @@ export default async function FormDetailPage(props: {
         fields,
       })
       .eq("id", formId);
-
     if (updateError) {
-      redirect(configureUrl({ error: updateError.message }));
+      return { ok: false as const, error: updateError.message };
     }
 
     const { error: deleteError } = await supabase
       .from("form_submission_task_templates")
       .delete()
       .eq("form_id", formId);
-
-    if (deleteError) {
-      redirect(configureUrl({ error: deleteError.message }));
+    if (deleteError && !isSupabaseMissingTableError(deleteError)) {
+      return { ok: false as const, error: deleteError.message };
     }
 
     if (selectedTaskTemplateIds.length) {
@@ -398,9 +480,8 @@ export default async function FormDetailPage(props: {
             position: index,
           }))
         );
-
-      if (actionError) {
-        redirect(configureUrl({ error: actionError.message }));
+      if (actionError && !isSupabaseMissingTableError(actionError)) {
+        return { ok: false as const, error: actionError.message };
       }
     }
 
@@ -408,8 +489,8 @@ export default async function FormDetailPage(props: {
       .from("form_submission_actions")
       .delete()
       .eq("form_id", formId);
-    if (deleteActionsError) {
-      redirect(configureUrl({ error: deleteActionsError.message }));
+    if (deleteActionsError && !isSupabaseMissingTableError(deleteActionsError)) {
+      return { ok: false as const, error: deleteActionsError.message };
     }
 
     if (manualTasks.length) {
@@ -427,14 +508,38 @@ export default async function FormDetailPage(props: {
             position: index,
           }))
         );
-      if (manualTaskError) {
-        redirect(configureUrl({ error: manualTaskError.message }));
+      if (manualTaskError && !isSupabaseMissingTableError(manualTaskError)) {
+        return { ok: false as const, error: manualTaskError.message };
+      }
+    }
+
+    const { error: clearAccessError } = await supabase
+      .from("form_user_permissions")
+      .delete()
+      .eq("form_id", formId);
+    if (clearAccessError && !isSupabaseMissingTableError(clearAccessError)) {
+      return { ok: false as const, error: clearAccessError.message };
+    }
+
+    if (formAccessAssignments.length) {
+      const { error: upsertAccessError } = await supabase
+        .from("form_user_permissions")
+        .upsert(
+          formAccessAssignments.map((assignment) => ({
+            form_id: formId,
+            user_id: assignment.user_id,
+            access_level: assignment.access_level,
+          })),
+          { onConflict: "form_id,user_id" }
+        );
+      if (upsertAccessError && !isSupabaseMissingTableError(upsertAccessError)) {
+        return { ok: false as const, error: upsertAccessError.message };
       }
     }
 
     revalidatePath("/forms");
     revalidatePath(detailPath);
-    redirect(configureUrl({ success: "Form updated" }));
+    return { ok: true as const };
   }
 
   async function createSubmission(formData: FormData) {
@@ -841,16 +946,18 @@ export default async function FormDetailPage(props: {
         >
           Submissions
         </Link>
-        <Link
-          href={tabUrls.configure}
-          className={`rounded-md px-3 py-1.5 font-medium ${
-            activeTab === "configure"
-              ? "tab-active"
-              : "border border-slate-200 text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          Configure form
-        </Link>
+        {canConfigureForm ? (
+          <Link
+            href={tabUrls.configure}
+            className={`rounded-md px-3 py-1.5 font-medium ${
+              activeTab === "configure"
+                ? "tab-active"
+                : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            Configure form
+          </Link>
+        ) : null}
         <Link
           href={tabUrls.create_submission}
           className={`rounded-md px-3 py-1.5 font-medium ${
@@ -878,67 +985,36 @@ export default async function FormDetailPage(props: {
         </div>
       )}
 
+      {formPermissionErrorMessage ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          {formPermissionErrorMessage}
+        </p>
+      ) : null}
+
       {activeTab === "configure" ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Form configuration</h2>
-          </div>
-          <form action={saveForm} className="space-y-4 px-6 py-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Form title
-                <input
-                  name="title"
-                  required
-                  defaultValue={form.title}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                />
-              </label>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Status
-                <select
-                  name="status"
-                  defaultValue={normalizeFormStatus(form.status)}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                >
-                  {formStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {formatFormLabel(status)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Description
-              <textarea
-                name="description"
-                rows={3}
-                defaultValue={form.description || ""}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-              />
-            </label>
-            <FormFieldsBuilder initialFields={formFields} />
-            <FormTaskTemplatesBuilder
-              initialTemplateIds={selectedTaskTemplateIds}
-              initialManualTasks={manualTasks}
-              taskTemplates={taskTemplates}
-            />
-            {(isSupabaseMissingTableError(templateLinksError) ||
-              isSupabaseMissingTableError(taskTemplatesError)) ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-                Task templates are not set up yet. Run `sql/templates.sql` (and the latest forms
-                SQL migration) in Supabase SQL editor.
-              </p>
-            ) : null}
-            <button
-              type="submit"
-              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-            >
-              Save form
-            </button>
-          </form>
-        </section>
+        canConfigureForm ? (
+          <FormConfigureAutosave
+            initialTitle={form.title}
+            initialDescription={form.description || ""}
+            initialStatus={normalizeFormStatus(form.status)}
+            initialFields={formFields}
+            initialTemplateIds={selectedTaskTemplateIds}
+            initialManualTasks={manualTasks}
+            taskTemplates={taskTemplates}
+            userOptions={workspaceUserOptions}
+            initialFormAccessAssignments={formAccessAssignments}
+            taskTemplatesMissing={
+              isSupabaseMissingTableError(templateLinksError) ||
+              isSupabaseMissingTableError(taskTemplatesError)
+            }
+            formAccessSchemaMissing={formAccessSchemaMissing}
+            onAutoSave={saveFormDraft}
+          />
+        ) : (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+            You can view this form, but only users with edit access can configure it.
+          </section>
+        )
       ) : null}
 
       {activeTab === "create_submission" ? (

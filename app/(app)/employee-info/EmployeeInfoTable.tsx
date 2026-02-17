@@ -18,7 +18,8 @@ import FormulaAutocompleteInput, {
 import FormulaEditorDialog from "./FormulaEditorDialog";
 import {
   EMPLOYEE_INFO_VISIBILITY_EVENT,
-  EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY,
+  persistEmployeeInfoVisibility,
+  readEmployeeInfoVisibility,
   type EmployeeInfoVisibilityState,
 } from "./employeeInfoVisibility";
 import {
@@ -528,26 +529,14 @@ export default function EmployeeInfoTable({
   useEffect(() => {
     if (hasLoadedVisibilityRef.current) return;
     hasLoadedVisibilityRef.current = true;
-    if (typeof window === "undefined") return;
-
     const knownColumnIds = new Set(columns.map((column) => column.id));
-    try {
-      const raw = window.localStorage.getItem(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as {
-        show_client_column?: boolean;
-        visible_column_ids?: string[];
-      };
-      if (typeof parsed.show_client_column === "boolean") {
-        setShowClientColumn(parsed.show_client_column);
-      }
-      if (Array.isArray(parsed.visible_column_ids)) {
-        const normalized = parsed.visible_column_ids.filter((id) => knownColumnIds.has(String(id)));
-        setVisibleColumnIds(normalized);
-      }
-    } catch {
-      // Ignore invalid persisted preferences.
-    }
+    const loaded = readEmployeeInfoVisibility(knownColumnIds, {
+      showClientColumn: true,
+      visibleColumnIds: columns.map((column) => column.id),
+    });
+
+    setShowClientColumn(loaded.showClientColumn);
+    setVisibleColumnIds(loaded.visibleColumnIds);
   }, [columns]);
 
   useEffect(() => {
@@ -566,19 +555,12 @@ export default function EmployeeInfoTable({
   }, [columns]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY,
-        JSON.stringify({
-          show_client_column: showClientColumn,
-          visible_column_ids: visibleColumnIds,
-        })
-      );
-    } catch {
-      // Ignore localStorage write failures.
-    }
-  }, [showClientColumn, visibleColumnIds]);
+    persistEmployeeInfoVisibility({
+      showClientColumn,
+      visibleColumnIds,
+      knownColumnIds: columns.map((column) => column.id),
+    });
+  }, [columns, showClientColumn, visibleColumnIds]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

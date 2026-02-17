@@ -22,6 +22,7 @@ import {
   type EmployeeInfoCurrencyCode,
   type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
+import RevenueChargesEditor from "./RevenueChargesEditor";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -53,9 +54,17 @@ type BillingProfileRevenueRow = {
   id: string;
   currency: string | null;
   hourly_rate: number | string | null;
-  breaks_billable: boolean | null;
   total_billable_hours: number | string | null;
-  other_monthly_charges: number | string | null;
+  revenue_charge_items: unknown;
+};
+
+type BillingRevenueChargeMode = "per_user" | "monthly";
+
+type BillingRevenueChargeItem = {
+  id: string;
+  label: string;
+  amount: number;
+  mode: BillingRevenueChargeMode;
 };
 
 type EmployeeMonthlyCostSummary = {
@@ -129,6 +138,103 @@ function parseNonNegativeNumberInput(value: FormDataEntryValue | null, label: st
   return { value: numeric, error: null as string | null };
 }
 
+function normalizeBillingRevenueChargeMode(value: unknown): BillingRevenueChargeMode {
+  return String(value || "").trim().toLowerCase() === "per_user" ? "per_user" : "monthly";
+}
+
+function parseBillingRevenueChargeItems(value: unknown): BillingRevenueChargeItem[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized: BillingRevenueChargeItem[] = [];
+  value.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object") return;
+    const row = entry as {
+      id?: unknown;
+      label?: unknown;
+      amount?: unknown;
+      mode?: unknown;
+    };
+    const label = String(row.label || "").trim();
+    const amountRaw = String(row.amount ?? "")
+      .trim()
+      .replace(/,/g, "");
+    const amount = Number(amountRaw);
+    if (!label || !Number.isFinite(amount) || amount < 0) return;
+
+    const idRaw = String(row.id || "").trim();
+    normalized.push({
+      id: idRaw || `charge_${index + 1}`,
+      label,
+      amount,
+      mode: normalizeBillingRevenueChargeMode(row.mode),
+    });
+  });
+
+  return normalized;
+}
+
+function parseRevenueChargeItemsInput(value: FormDataEntryValue | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return { value: [] as BillingRevenueChargeItem[], error: null as string | null };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { value: [] as BillingRevenueChargeItem[], error: "Additional charges are invalid." };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { value: [] as BillingRevenueChargeItem[], error: "Additional charges are invalid." };
+  }
+
+  const normalized: BillingRevenueChargeItem[] = [];
+  for (let index = 0; index < parsed.length; index += 1) {
+    const entry = parsed[index];
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as {
+      id?: unknown;
+      label?: unknown;
+      amount?: unknown;
+      mode?: unknown;
+    };
+
+    const label = String(row.label || "").trim();
+    const amountRaw = String(row.amount ?? "")
+      .trim()
+      .replace(/,/g, "");
+
+    if (!label && !amountRaw) continue;
+    if (!label) {
+      return { value: [] as BillingRevenueChargeItem[], error: `Charge ${index + 1} needs a label.` };
+    }
+
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount)) {
+      return {
+        value: [] as BillingRevenueChargeItem[],
+        error: `Charge "${label}" must have a valid amount.`,
+      };
+    }
+    if (amount < 0) {
+      return {
+        value: [] as BillingRevenueChargeItem[],
+        error: `Charge "${label}" cannot be negative.`,
+      };
+    }
+
+    const idRaw = String(row.id || "").trim();
+    normalized.push({
+      id: idRaw || `charge_${index + 1}`,
+      label,
+      amount,
+      mode: normalizeBillingRevenueChargeMode(row.mode),
+    });
+  }
+
+  return { value: normalized, error: null as string | null };
+}
+
 function formatPercent(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "-";
   const rounded = value.toFixed(1).replace(/\.0$/, "");
@@ -185,7 +291,7 @@ export default async function ClientBillingPage(props: {
 
   let { data: billingProfileRaw, error: billingProfileError } = await supabase
     .from("billing_profiles")
-    .select("id,currency,hourly_rate,breaks_billable,total_billable_hours,other_monthly_charges")
+    .select("id,currency,hourly_rate,total_billable_hours,revenue_charge_items")
     .eq("client_id", clientId)
     .maybeSingle();
 
@@ -193,19 +299,33 @@ export default async function ClientBillingPage(props: {
     billingRevenueColumnsMissing = true;
     const fallbackProfile = await supabase
       .from("billing_profiles")
-      .select("id,currency")
+      .select("id,currency,hourly_rate,total_billable_hours")
       .eq("client_id", clientId)
       .maybeSingle();
-    billingProfileError = fallbackProfile.error;
-    billingProfileRaw = fallbackProfile.data
-      ? {
-          ...fallbackProfile.data,
-          hourly_rate: null,
-          breaks_billable: true,
-          total_billable_hours: null,
-          other_monthly_charges: null,
-        }
-      : null;
+    if (isSupabaseMissingColumnError(fallbackProfile.error)) {
+      const fallbackProfileMinimal = await supabase
+        .from("billing_profiles")
+        .select("id,currency")
+        .eq("client_id", clientId)
+        .maybeSingle();
+      billingProfileError = fallbackProfileMinimal.error;
+      billingProfileRaw = fallbackProfileMinimal.data
+        ? {
+            ...fallbackProfileMinimal.data,
+            hourly_rate: null,
+            total_billable_hours: null,
+            revenue_charge_items: [],
+          }
+        : null;
+    } else {
+      billingProfileError = fallbackProfile.error;
+      billingProfileRaw = fallbackProfile.data
+        ? {
+            ...fallbackProfile.data,
+            revenue_charge_items: [],
+          }
+        : null;
+    }
   }
 
   if (isSupabaseMissingTableError(billingProfileError)) {
@@ -271,6 +391,7 @@ export default async function ClientBillingPage(props: {
       const employeeRecords = ((employeeRecordsRaw || []) as EmployeeInfoRecordRow[]).filter((row) =>
         hasStringId(row)
       );
+      employeeMonthlyCostSummary.clientRowCount = employeeRecords.length;
       const employeeColumns = ((employeeColumnsRaw || []) as EmployeeInfoColumnRow[]).filter((row) =>
         hasStringId(row)
       );
@@ -278,7 +399,6 @@ export default async function ClientBillingPage(props: {
 
       if (monthlyCostColumn) {
         employeeMonthlyCostSummary.isConfigured = true;
-        employeeMonthlyCostSummary.clientRowCount = employeeRecords.length;
 
         const employeeRecordIds = employeeRecords.map((row) => row.id).filter(Boolean);
         let employeeValuesRaw: EmployeeInfoValueRow[] = [];
@@ -545,9 +665,12 @@ export default async function ClientBillingPage(props: {
 
   const hourlyRate = toFiniteNumber(billingProfile?.hourly_rate) ?? 0;
   const totalBillableHours = toFiniteNumber(billingProfile?.total_billable_hours) ?? 0;
-  const otherMonthlyCharges = toFiniteNumber(billingProfile?.other_monthly_charges) ?? 0;
-  const breaksBillable = billingProfile?.breaks_billable ?? true;
-  const estimatedMonthlyRevenue = hourlyRate * totalBillableHours + otherMonthlyCharges;
+  const revenueChargeItems = parseBillingRevenueChargeItems(billingProfile?.revenue_charge_items);
+  const additionalMonthlyRevenue = revenueChargeItems.reduce((sum, charge) => {
+    const quantity = charge.mode === "per_user" ? employeeMonthlyCostSummary.clientRowCount : 1;
+    return sum + charge.amount * quantity;
+  }, 0);
+  const estimatedMonthlyRevenue = hourlyRate * totalBillableHours + additionalMonthlyRevenue;
   const estimatedMonthlyMargin = estimatedMonthlyRevenue - employeeMonthlyCostSummary.amount;
   const estimatedMonthlyMarginPercent =
     estimatedMonthlyRevenue > 0 ? (estimatedMonthlyMargin / estimatedMonthlyRevenue) * 100 : null;
@@ -581,7 +704,6 @@ export default async function ClientBillingPage(props: {
     }
 
     const currency = normalizeEmployeeInfoCurrencyCode(String(formData.get("currency") || "USD"));
-    const breaksBillableValue = String(formData.get("breaks_billable") || "true") === "true";
     const hourlyRateValue = parseNonNegativeNumberInput(formData.get("hourly_rate"), "Hourly rate");
     if (hourlyRateValue.error) {
       redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(hourlyRateValue.error)}`);
@@ -593,13 +715,12 @@ export default async function ClientBillingPage(props: {
     if (totalBillableHoursValue.error) {
       redirect(`/clients/${clientId}/billing?error=${encodeURIComponent(totalBillableHoursValue.error)}`);
     }
-    const otherMonthlyChargesValue = parseNonNegativeNumberInput(
-      formData.get("other_monthly_charges"),
-      "Other monthly charges"
+    const revenueChargeItemsValue = parseRevenueChargeItemsInput(
+      formData.get("revenue_charge_items_json")
     );
-    if (otherMonthlyChargesValue.error) {
+    if (revenueChargeItemsValue.error) {
       redirect(
-        `/clients/${clientId}/billing?error=${encodeURIComponent(otherMonthlyChargesValue.error)}`
+        `/clients/${clientId}/billing?error=${encodeURIComponent(revenueChargeItemsValue.error)}`
       );
     }
 
@@ -607,9 +728,8 @@ export default async function ClientBillingPage(props: {
       client_id: clientId,
       currency,
       hourly_rate: hourlyRateValue.value,
-      breaks_billable: breaksBillableValue,
       total_billable_hours: totalBillableHoursValue.value,
-      other_monthly_charges: otherMonthlyChargesValue.value,
+      revenue_charge_items: revenueChargeItemsValue.value,
       display_name: clientName,
     };
     const existingBillingProfileId = hasStringId(billingProfile) ? billingProfile.id : null;
@@ -686,7 +806,12 @@ export default async function ClientBillingPage(props: {
           <p className="mt-2 text-sm text-slate-600">
             {formatEmployeeInfoCurrencyAmount(hourlyRate, billingCurrencyCode)} x{" "}
             {totalBillableHours.toFixed(2).replace(/\.?0+$/, "")}h +{" "}
-            {formatEmployeeInfoCurrencyAmount(otherMonthlyCharges, billingCurrencyCode)}
+            {formatEmployeeInfoCurrencyAmount(additionalMonthlyRevenue, billingCurrencyCode)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {revenueChargeItems.length} custom charge
+            {revenueChargeItems.length === 1 ? "" : "s"}; per-user charges use{" "}
+            {employeeMonthlyCostSummary.clientRowCount} assigned employees.
           </p>
         </div>
 
@@ -743,94 +868,71 @@ export default async function ClientBillingPage(props: {
           </p>
         ) : null}
 
-        <form action={saveRevenueModel} className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="currency">
-              Currency
-            </label>
-            <select
-              id="currency"
-              name="currency"
-              defaultValue={billingCurrencyCode}
-              disabled={!canEditBilling}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
-                <option key={code} value={code}>
-                  {code}
-                </option>
-              ))}
-            </select>
+        <form action={saveRevenueModel} className="mt-6 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700" htmlFor="currency">
+                Currency
+              </label>
+              <select
+                id="currency"
+                name="currency"
+                defaultValue={billingCurrencyCode}
+                disabled={!canEditBilling}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700" htmlFor="hourly_rate">
+                Hourly rate
+              </label>
+              <input
+                id="hourly_rate"
+                name="hourly_rate"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={toFiniteNumber(billingProfile?.hourly_rate) ?? ""}
+                disabled={!canEditBilling}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                placeholder="0.00"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700" htmlFor="total_billable_hours">
+                Total billable hours
+              </label>
+              <input
+                id="total_billable_hours"
+                name="total_billable_hours"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={toFiniteNumber(billingProfile?.total_billable_hours) ?? ""}
+                disabled={!canEditBilling}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                placeholder="0"
+              />
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="hourly_rate">
-              Hourly rate
-            </label>
-            <input
-              id="hourly_rate"
-              name="hourly_rate"
-              type="number"
-              step="0.01"
-              min="0"
-              defaultValue={toFiniteNumber(billingProfile?.hourly_rate) ?? ""}
-              disabled={!canEditBilling}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              placeholder="0.00"
-            />
-          </div>
+          <RevenueChargesEditor
+            name="revenue_charge_items_json"
+            initialItems={revenueChargeItems}
+            currencyCode={billingCurrencyCode}
+            employeeCount={employeeMonthlyCostSummary.clientRowCount}
+            disabled={!canEditBilling}
+          />
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="total_billable_hours">
-              Total billable hours
-            </label>
-            <input
-              id="total_billable_hours"
-              name="total_billable_hours"
-              type="number"
-              step="0.01"
-              min="0"
-              defaultValue={toFiniteNumber(billingProfile?.total_billable_hours) ?? ""}
-              disabled={!canEditBilling}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              placeholder="0"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="other_monthly_charges">
-              Other monthly charges
-            </label>
-            <input
-              id="other_monthly_charges"
-              name="other_monthly_charges"
-              type="number"
-              step="0.01"
-              min="0"
-              defaultValue={toFiniteNumber(billingProfile?.other_monthly_charges) ?? ""}
-              disabled={!canEditBilling}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              placeholder="0.00"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="breaks_billable">
-              Are breaks billable?
-            </label>
-            <select
-              id="breaks_billable"
-              name="breaks_billable"
-              defaultValue={breaksBillable ? "true" : "false"}
-              disabled={!canEditBilling}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
-          </div>
-
-          <div className="md:col-span-2 xl:col-span-5">
+          <div>
             <button
               type="submit"
               disabled={!canEditBilling}
@@ -840,11 +942,6 @@ export default async function ClientBillingPage(props: {
             </button>
           </div>
         </form>
-
-        <p className="mt-4 text-xs text-slate-500">
-          If breaks are not billable, enter net billable hours (excluding breaks) in total billable
-          hours.
-        </p>
       </section>
     </div>
   );
