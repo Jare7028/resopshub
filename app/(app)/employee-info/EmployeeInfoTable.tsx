@@ -13,6 +13,11 @@ import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
 import {
+  EMPLOYEE_INFO_VISIBILITY_EVENT,
+  EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY,
+  type EmployeeInfoVisibilityState,
+} from "./employeeInfoVisibility";
+import {
   EMPLOYEE_INFO_CURRENCY_CODES,
   getEmployeeInfoCurrencySymbol,
   normalizeEmployeeInfoCurrencyCode,
@@ -45,8 +50,6 @@ type EmployeeInfoValueRow = {
   text_value: string | null;
   option_value: string | null;
 };
-
-const EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY = "employee_info_visible_fields_v1";
 const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "USD ($)",
   GBP: "GBP (£)",
@@ -289,7 +292,6 @@ export default function EmployeeInfoTable({
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newFullName, setNewFullName] = useState("");
   const [newClientId, setNewClientId] = useState("");
-  const [isFieldCustomizerOpen, setIsFieldCustomizerOpen] = useState(false);
   const [showClientColumn, setShowClientColumn] = useState(true);
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() => columns.map((c) => c.id));
   const hasLoadedVisibilityRef = useRef(false);
@@ -363,6 +365,33 @@ export default function EmployeeInfoTable({
     }
   }, [showClientColumn, visibleColumnIds]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onVisibilityUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<EmployeeInfoVisibilityState>;
+      const detail = customEvent.detail;
+      if (!detail) return;
+
+      const knownColumnIds = new Set(columns.map((column) => column.id));
+      const normalizedVisibleColumnIds = Array.from(
+        new Set(
+          (detail.visibleColumnIds || [])
+            .map((value) => String(value || "").trim())
+            .filter((value) => knownColumnIds.has(value))
+        )
+      );
+
+      setShowClientColumn(Boolean(detail.showClientColumn));
+      setVisibleColumnIds(normalizedVisibleColumnIds);
+    };
+
+    window.addEventListener(EMPLOYEE_INFO_VISIBILITY_EVENT, onVisibilityUpdated);
+    return () => {
+      window.removeEventListener(EMPLOYEE_INFO_VISIBILITY_EVENT, onVisibilityUpdated);
+    };
+  }, [columns]);
+
   const submitChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const form = event.currentTarget.form;
     if (!form) return;
@@ -378,81 +407,13 @@ export default function EmployeeInfoTable({
     }
   };
 
-  const toggleColumnVisibility = (columnId: string) => {
-    setVisibleColumnIds((previous) => {
-      if (previous.includes(columnId)) {
-        return previous.filter((id) => id !== columnId);
-      }
-      return [...previous, columnId];
-    });
-  };
-
-  const showAllFields = () => {
-    setShowClientColumn(true);
-    setVisibleColumnIds(columns.map((column) => column.id));
-  };
-
   return (
-    <div>
-      <div className="flex items-center justify-end border-b border-slate-200 px-4 py-3">
-        <details
-          className="relative"
-          open={isFieldCustomizerOpen}
-          onToggle={(event) => setIsFieldCustomizerOpen(event.currentTarget.open)}
-        >
-          <summary className="inline-flex h-9 cursor-pointer list-none items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden">
-            Customize fields
-          </summary>
-          <div className="absolute right-0 z-30 mt-2 w-72 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
-            <p className="mb-2 text-[11px] text-slate-500">Choose which columns are visible.</p>
-            <label className="mb-1 flex items-center gap-2 rounded px-1 py-1 text-xs text-slate-700 hover:bg-slate-50">
-              <input
-                type="checkbox"
-                checked={showClientColumn}
-                onChange={(event) => setShowClientColumn(event.currentTarget.checked)}
-              />
-              <span>Client</span>
-            </label>
-            <div className="max-h-56 overflow-auto">
-              {columns.map((column) => (
-                <label
-                  key={column.id}
-                  className="mb-1 flex items-center gap-2 rounded px-1 py-1 text-xs text-slate-700 hover:bg-slate-50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={visibleColumnIdSet.has(column.id)}
-                    onChange={() => toggleColumnVisibility(column.id)}
-                  />
-                  <span>{column.label}</span>
-                </label>
-              ))}
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                onClick={showAllFields}
-              >
-                Show all
-              </button>
-              <button
-                type="button"
-                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                onClick={() => setIsFieldCustomizerOpen(false)}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </details>
-      </div>
-      <div
-        className="overflow-x-auto"
-        onMouseDown={preventMiddleClickAutoscroll}
-        onAuxClick={preventMiddleClickAutoscroll}
-      >
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
+    <div
+      className="overflow-x-auto"
+      onMouseDown={preventMiddleClickAutoscroll}
+      onAuxClick={preventMiddleClickAutoscroll}
+    >
+      <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="sticky left-0 top-0 z-40 border-r border-slate-200 bg-slate-50 px-4 py-3">
@@ -742,6 +703,5 @@ export default function EmployeeInfoTable({
           </tbody>
         </table>
       </div>
-    </div>
   );
 }

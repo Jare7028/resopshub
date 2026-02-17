@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
 import AddColumnPopover from "./AddColumnPopover";
+import CustomizeFieldsPopover from "./CustomizeFieldsPopover";
 import type { FormulaSuggestion } from "./FormulaAutocompleteInput";
 import {
   columnIndexToLetter,
@@ -985,36 +986,39 @@ export default async function EmployeeInfoPage(props: {
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">
-        {isAdmin ? (
-          <div className="flex items-center justify-end gap-2 border-b border-slate-200 px-4 py-3">
-            <a
-              href="/employee-info/export"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-              aria-label="Export employee info to Excel"
-              title="Export to Excel"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-4 w-4"
-                aria-hidden="true"
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+          <CustomizeFieldsPopover columns={columns} />
+          {isAdmin ? (
+            <div className="flex items-center gap-2">
+              <a
+                href="/employee-info/export"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                aria-label="Export employee info to Excel"
+                title="Export to Excel"
               >
-                <path d="M12 3v12" />
-                <path d="m7 10 5 5 5-5" />
-                <path d="M5 21h14" />
-              </svg>
-            </a>
-            <AddColumnPopover
-              formulaSuggestions={formulaSuggestions}
-              onCreateColumn={createColumn}
-            />
-          </div>
-        ) : null}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                >
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+              </a>
+              <AddColumnPopover
+                formulaSuggestions={formulaSuggestions}
+                onCreateColumn={createColumn}
+              />
+            </div>
+          ) : null}
+        </div>
         <EmployeeInfoTable
           records={records}
           clients={clients}
