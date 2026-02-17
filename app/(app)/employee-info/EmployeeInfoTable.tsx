@@ -182,7 +182,7 @@ function ColumnEditPanel({
             <FormulaAutocompleteInput
               name="formula"
               defaultValue={column.formula || ""}
-              placeholder="Formula (e.g. =(C * D))"
+              placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
               className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
               required
               suggestions={formulaSuggestions}

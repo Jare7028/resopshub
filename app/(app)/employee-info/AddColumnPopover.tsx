@@ -27,8 +27,11 @@ export default function AddColumnPopover({
       </summary>
       <div className="absolute right-0 z-10 mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
         <p className="text-xs text-slate-500">
-          Formula columns support letters (A=Full Name, B=Client, C onward custom columns) and
-          column keys (for example <code>=salary + bonus</code>).
+          Formula columns support Excel-style functions (for example <code>SUM</code>,{" "}
+          <code>ROUND</code>, <code>IF</code>), plus letters (A=Full Name, B=Client, C onward
+          custom columns) and
+          column keys (for example <code>=salary + bonus</code> or{" "}
+          <code>=IF(OR(client=&quot;Resolvable&quot;,client=&quot;Dusk&quot;),500,0)</code>).
         </p>
         <form action={onCreateColumn} className="mt-3 grid gap-3">
           <input
@@ -62,7 +65,7 @@ export default function AddColumnPopover({
             <FormulaAutocompleteInput
               name="formula"
               defaultValue=""
-              placeholder="Formula (e.g. =(C * D))"
+              placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
               className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
               required
               suggestions={formulaSuggestions}

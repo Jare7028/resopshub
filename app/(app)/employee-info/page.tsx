@@ -86,6 +86,15 @@ function buildFormulaSuggestions(columns: EmployeeInfoColumnRow[]) {
   addSuggestion("B", "Client");
   addSuggestion("full_name", "Full Name");
   addSuggestion("client", "Client");
+  addSuggestion("IF(", "Conditional: IF(condition, value_if_true, value_if_false)");
+  addSuggestion("OR(", "Logical OR across multiple conditions");
+  addSuggestion("AND(", "Logical AND across multiple conditions");
+  addSuggestion("NOT(", "Logical NOT for a condition");
+  addSuggestion("SUM(", "Sum values or ranges");
+  addSuggestion("ROUND(", "Round a number to a set number of digits");
+  addSuggestion("MIN(", "Smallest value");
+  addSuggestion("MAX(", "Largest value");
+  addSuggestion("AVERAGE(", "Average value");
 
   columns.forEach((column, index) => {
     const displayIndex = index + 2;
