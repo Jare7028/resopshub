@@ -751,17 +751,20 @@ export default async function EmployeeInfoPage(props: {
     reorderedColumns[targetIndex] = temp;
 
     const now = new Date().toISOString();
-    const updates = reorderedColumns.map((column, index) => ({
-      id: column.id,
-      position: index + 1,
-      updated_at: now,
-    }));
-
-    const { error: updateError } = await supabase
-      .from("employee_info_columns")
-      .upsert(updates, { onConflict: "id" });
-    if (updateError) {
-      redirect(buildEmployeeInfoUrl({ error: updateError.message }));
+    const updateResults = await Promise.all(
+      reorderedColumns.map((column, index) =>
+        supabase
+          .from("employee_info_columns")
+          .update({
+            position: index + 1,
+            updated_at: now,
+          })
+          .eq("id", column.id)
+      )
+    );
+    const failedUpdate = updateResults.find((result) => result.error);
+    if (failedUpdate?.error) {
+      redirect(buildEmployeeInfoUrl({ error: failedUpdate.error.message }));
     }
 
     revalidatePath("/employee-info");
