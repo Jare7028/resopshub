@@ -1257,116 +1257,147 @@ export default async function ClientBillingPage(props: {
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Revenue model</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Store the billing assumptions used to estimate monthly revenue for this client.
-        </p>
-
+      <section className="space-y-4">
         {billingProfileErrorMessage ? (
-          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             {billingProfileErrorMessage}
           </p>
         ) : null}
         {billingRevenueColumnsMissing ? (
-          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             Run <code>sql/client_billing_revenue_fields.sql</code> to enable revenue fields.
           </p>
         ) : null}
         {employeeMonthlyCostSummary.errorMessage ? (
-          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             {employeeMonthlyCostSummary.errorMessage}
           </p>
         ) : null}
         {employeeMonthlyCostSummary.hasMissingExchangeRate ? (
-          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             Some employee rows were skipped due to missing FX rates (<code>#FX!</code>).
           </p>
         ) : null}
         {billingPermissionErrorMessage ? (
-          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             {billingPermissionErrorMessage}
           </p>
         ) : null}
         {!canEditBilling ? (
-          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             You can view this billing page, but only users with billing edit permission can save
             changes.
           </p>
         ) : null}
 
-        <form action={saveRevenueModel} className="mt-6 space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor="currency">
-                Currency
-              </label>
-              <select
-                id="currency"
-                name="currency"
-                defaultValue={billingCurrencyCode}
-                disabled={!canEditBilling}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+        <form action={saveRevenueModel} className="space-y-4">
+          <details open className="group rounded-lg border border-slate-200 bg-white">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Revenue model</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Store the billing assumptions used to estimate monthly revenue for this client.
+                </p>
+              </div>
+              <span
+                aria-hidden="true"
+                className="inline-block text-xs text-slate-500 transition-transform group-open:rotate-90"
               >
-                {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
-            </div>
+                &gt;
+              </span>
+            </summary>
+            <div className="space-y-4 border-t border-slate-200 px-5 py-5">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700" htmlFor="currency">
+                    Currency
+                  </label>
+                  <select
+                    id="currency"
+                    name="currency"
+                    defaultValue={billingCurrencyCode}
+                    disabled={!canEditBilling}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor="hourly_rate">
-                Hourly rate
-              </label>
-              <input
-                id="hourly_rate"
-                name="hourly_rate"
-                type="number"
-                step="0.01"
-                min="0"
-                defaultValue={toFiniteNumber(billingProfile?.hourly_rate) ?? ""}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700" htmlFor="hourly_rate">
+                    Hourly rate
+                  </label>
+                  <input
+                    id="hourly_rate"
+                    name="hourly_rate"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={toFiniteNumber(billingProfile?.hourly_rate) ?? ""}
+                    disabled={!canEditBilling}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700" htmlFor="total_billable_hours">
+                    Total billable hours
+                  </label>
+                  <input
+                    id="total_billable_hours"
+                    name="total_billable_hours"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={toFiniteNumber(billingProfile?.total_billable_hours) ?? ""}
+                    disabled={!canEditBilling}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              <RevenueChargesEditor
+                name="revenue_charge_items_json"
+                initialItems={revenueChargeItems}
+                currencyCode={billingCurrencyCode}
+                employeeCount={employeeMonthlyCostSummary.clientRowCount}
                 disabled={!canEditBilling}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder="0.00"
               />
             </div>
+          </details>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor="total_billable_hours">
-                Total billable hours
-              </label>
-              <input
-                id="total_billable_hours"
-                name="total_billable_hours"
-                type="number"
-                step="0.01"
-                min="0"
-                defaultValue={toFiniteNumber(billingProfile?.total_billable_hours) ?? ""}
+          <details open className="group rounded-lg border border-slate-200 bg-white">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Monthly costs</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Configure monthly cost sources separately from revenue assumptions.
+                </p>
+              </div>
+              <span
+                aria-hidden="true"
+                className="inline-block text-xs text-slate-500 transition-transform group-open:rotate-90"
+              >
+                &gt;
+              </span>
+            </summary>
+            <div className="border-t border-slate-200 px-5 py-5">
+              <MonthlyCostSourcesEditor
+                name="monthly_cost_items_json"
+                initialItems={monthlyCostItems}
+                employeeColumns={monthlyCostSourceColumns}
+                currencyCode={billingCurrencyCode}
+                employeeCount={employeeMonthlyCostSummary.clientRowCount}
                 disabled={!canEditBilling}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder="0"
               />
             </div>
-          </div>
-
-          <MonthlyCostSourcesEditor
-            name="monthly_cost_items_json"
-            initialItems={monthlyCostItems}
-            employeeColumns={monthlyCostSourceColumns}
-            currencyCode={billingCurrencyCode}
-            employeeCount={employeeMonthlyCostSummary.clientRowCount}
-            disabled={!canEditBilling}
-          />
-
-          <RevenueChargesEditor
-            name="revenue_charge_items_json"
-            initialItems={revenueChargeItems}
-            currencyCode={billingCurrencyCode}
-            employeeCount={employeeMonthlyCostSummary.clientRowCount}
-            disabled={!canEditBilling}
-          />
+          </details>
 
           <div>
             <button
@@ -1374,7 +1405,7 @@ export default async function ClientBillingPage(props: {
               disabled={!canEditBilling}
               className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Save revenue model
+              Save billing settings
             </button>
           </div>
         </form>

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam } from "@/lib/queryParams";
+import { isSupabaseMissingFunctionError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ClientsTable from "./ClientsTable";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
@@ -159,64 +160,87 @@ export default async function ClientsPage(props: {
   const clientIds = clients.map((client) => client.id).filter(Boolean);
 
   if (clientIds.length) {
-    const { data: employeeRecordsRaw, error: employeeRecordsError } = await supabase
-      .from("employee_info_records")
-      .select("id,client_id")
-      .in("client_id", clientIds);
-
-    const employeeRecords = employeeRecordsError
-      ? []
-      : ((employeeRecordsRaw || []) as Array<{ id: string; client_id: string | null }>);
-    const recordIds = employeeRecords.map((record) => record.id).filter(Boolean);
-    const clientIdByRecordId = employeeRecords.reduce<Record<string, string>>((acc, record) => {
-      if (!record.id || !record.client_id) return acc;
-      acc[record.id] = record.client_id;
-      return acc;
-    }, {});
-
-    const { data: employeeColumnsRaw, error: employeeColumnsError } = await supabase
-      .from("employee_info_columns")
-      .select("id,key,label,column_kind");
-    const employeeColumns = employeeColumnsError
-      ? []
-      : ((employeeColumnsRaw || []) as Array<{
-          id: string;
-          key: string;
-          label: string;
-          column_kind: string;
-        }>);
-    const leaveDateColumnIds = employeeColumns
-      .filter((column) => isLeaveDateColumn(column))
-      .map((column) => column.id);
-
-    const inactiveRecordIdSet = new Set<string>();
-    if (recordIds.length && leaveDateColumnIds.length) {
-      const { data: leaveValuesRaw, error: leaveValuesError } = await supabase
-        .from("employee_info_values")
-        .select("record_id,text_value,option_value,column_id")
-        .in("record_id", recordIds)
-        .in("column_id", leaveDateColumnIds);
-
-      if (!leaveValuesError) {
-        ((leaveValuesRaw || []) as Array<{
-          record_id: string;
-          text_value: string | null;
-          option_value: string | null;
-        }>).forEach((row) => {
-          const leaveDateValue = String(row.text_value || row.option_value || "").trim();
-          if (leaveDateValue) {
-            inactiveRecordIdSet.add(row.record_id);
-          }
-        });
-      }
-    }
-
-    recordIds.forEach((recordId) => {
-      if (inactiveRecordIdSet.has(recordId)) return;
-      const clientId = clientIdByRecordId[recordId];
-      if (!clientId) return;
-      activeEmployeeCountByClientId[clientId] = (activeEmployeeCountByClientId[clientId] || 0) + 1;
+    const rpcCountsResult = await supabase.rpc("client_active_employee_counts", {
+      p_client_ids: clientIds,
     });
+
+    const canUseFallback =
+      !rpcCountsResult.error ||
+      isSupabaseMissingFunctionError(rpcCountsResult.error) ||
+      isSupabaseMissingTableError(rpcCountsResult.error);
+
+    if (!rpcCountsResult.error) {
+      const rpcRows = (rpcCountsResult.data || []) as Array<{
+        client_id: string | null;
+        active_count: number | null;
+      }>;
+      rpcRows.forEach((row) => {
+        const clientId = String(row.client_id || "").trim();
+        if (!clientId) return;
+        const count = Number(row.active_count || 0);
+        activeEmployeeCountByClientId[clientId] = Number.isFinite(count) ? Math.max(0, count) : 0;
+      });
+    } else if (canUseFallback) {
+      const [employeeRecordsResult, employeeColumnsResult] = await Promise.all([
+        supabase.from("employee_info_records").select("id,client_id").in("client_id", clientIds),
+        supabase
+          .from("employee_info_columns")
+          .select("id,key,label,column_kind")
+          .eq("column_kind", "date"),
+      ]);
+
+      const employeeRecords = employeeRecordsResult.error
+        ? []
+        : ((employeeRecordsResult.data || []) as Array<{ id: string; client_id: string | null }>);
+      const employeeColumns = employeeColumnsResult.error
+        ? []
+        : ((employeeColumnsResult.data || []) as Array<{
+            id: string;
+            key: string;
+            label: string;
+            column_kind: string;
+          }>);
+
+      const recordIds = employeeRecords.map((record) => record.id).filter(Boolean);
+      const clientIdByRecordId = employeeRecords.reduce<Record<string, string>>((acc, record) => {
+        if (!record.id || !record.client_id) return acc;
+        acc[record.id] = record.client_id;
+        return acc;
+      }, {});
+      const leaveDateColumnIds = employeeColumns
+        .filter((column) => isLeaveDateColumn(column))
+        .map((column) => column.id);
+
+      const inactiveRecordIdSet = new Set<string>();
+      if (recordIds.length && leaveDateColumnIds.length) {
+        const { data: leaveValuesRaw, error: leaveValuesError } = await supabase
+          .from("employee_info_values")
+          .select("record_id,text_value,option_value,column_id")
+          .in("record_id", recordIds)
+          .in("column_id", leaveDateColumnIds)
+          .or("text_value.not.is.null,option_value.not.is.null");
+
+        if (!leaveValuesError) {
+          ((leaveValuesRaw || []) as Array<{
+            record_id: string;
+            text_value: string | null;
+            option_value: string | null;
+          }>).forEach((row) => {
+            const leaveDateValue = String(row.text_value || row.option_value || "").trim();
+            if (leaveDateValue) {
+              inactiveRecordIdSet.add(row.record_id);
+            }
+          });
+        }
+      }
+
+      recordIds.forEach((recordId) => {
+        if (inactiveRecordIdSet.has(recordId)) return;
+        const clientId = clientIdByRecordId[recordId];
+        if (!clientId) return;
+        activeEmployeeCountByClientId[clientId] = (activeEmployeeCountByClientId[clientId] || 0) + 1;
+      });
+    }
   }
 
   async function deleteClient(formData: FormData) {
