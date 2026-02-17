@@ -15,10 +15,12 @@ import {
   formStatusOptions,
   formatFormLabel,
   normalizeFormActionPriority,
+  normalizeFormFieldMetadata,
   normalizeFormFieldVisibility,
   normalizeFormFieldType,
   normalizeFormStatus,
   renderTemplate,
+  validateFormFieldValue,
   type FormField,
 } from "../types";
 
@@ -68,6 +70,7 @@ function parseFields(value: unknown): FormField[] {
       const key = buildFieldKey(String(row.key || ""), `field_${index + 1}`);
       if (!key) return null;
       const visibility = normalizeFormFieldVisibility(row);
+      const metadata = normalizeFormFieldMetadata(row);
       return {
         id: String(row.id || `field_${index + 1}`),
         key,
@@ -77,6 +80,11 @@ function parseFields(value: unknown): FormField[] {
         options: Array.isArray(row.options)
           ? row.options.map((entry) => String(entry || "").trim()).filter(Boolean)
           : [],
+        placeholder: metadata.placeholder,
+        helpText: metadata.helpText,
+        minValue: metadata.minValue,
+        maxValue: metadata.maxValue,
+        pattern: metadata.pattern,
         conditionMode: visibility.conditionMode,
         conditions: visibility.conditions,
         condition: visibility.condition,
@@ -496,7 +504,12 @@ export default async function FormDetailPage(props: {
     for (const field of visibleFields) {
       const value = rawValues[field.key] || "";
       if (field.required && !value) {
-        redirect(createSubmissionUrl({ error: `Required field missing: ${field.label}` }));
+        const fieldLabel = field.label || formatFormLabel(field.key);
+        redirect(createSubmissionUrl({ error: `Required field missing: ${fieldLabel}` }));
+      }
+      const validationError = validateFormFieldValue(field, value);
+      if (validationError) {
+        redirect(createSubmissionUrl({ error: validationError }));
       }
       values[field.key] = value;
     }

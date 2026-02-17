@@ -48,6 +48,11 @@ export type FormField = {
   type: FormFieldType;
   required: boolean;
   options?: string[];
+  placeholder?: string;
+  helpText?: string;
+  minValue?: string;
+  maxValue?: string;
+  pattern?: string;
   conditionMode?: FormFieldConditionMode;
   conditions?: FormFieldCondition[];
   condition?: FormFieldCondition | null;
@@ -185,6 +190,32 @@ export function normalizeFormFieldVisibility(value: unknown): {
   };
 }
 
+export function normalizeFormFieldMetadata(value: unknown): {
+  placeholder: string;
+  helpText: string;
+  minValue: string;
+  maxValue: string;
+  pattern: string;
+} {
+  if (!value || typeof value !== "object") {
+    return {
+      placeholder: "",
+      helpText: "",
+      minValue: "",
+      maxValue: "",
+      pattern: "",
+    };
+  }
+  const row = value as Record<string, unknown>;
+  return {
+    placeholder: String(row.placeholder || "").trim(),
+    helpText: String(row.helpText || row.helperText || "").trim(),
+    minValue: String(row.minValue || row.min || "").trim(),
+    maxValue: String(row.maxValue || row.max || "").trim(),
+    pattern: String(row.pattern || "").trim(),
+  };
+}
+
 export function doesFormFieldConditionMatch(
   condition: FormFieldCondition | null | undefined,
   values: Record<string, string>
@@ -253,6 +284,67 @@ export function doesFormFieldVisibilityMatch(
     return conditions.some((condition) => doesFormFieldConditionMatch(condition, values));
   }
   return conditions.every((condition) => doesFormFieldConditionMatch(condition, values));
+}
+
+export function validateFormFieldValue(
+  field: Pick<FormField, "type" | "label" | "key" | "minValue" | "maxValue" | "pattern">,
+  value: string
+) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  const label = field.label || formatFormLabel(field.key || "") || "Field";
+
+  if (field.type === "number") {
+    const numberValue = Number(normalized);
+    if (!Number.isFinite(numberValue)) {
+      return `${label} must be a valid number`;
+    }
+    if (field.minValue) {
+      const minValue = Number(field.minValue);
+      if (Number.isFinite(minValue) && numberValue < minValue) {
+        return `${label} must be at least ${field.minValue}`;
+      }
+    }
+    if (field.maxValue) {
+      const maxValue = Number(field.maxValue);
+      if (Number.isFinite(maxValue) && numberValue > maxValue) {
+        return `${label} must be at most ${field.maxValue}`;
+      }
+    }
+  }
+
+  if (field.type === "date") {
+    const dateValue = Date.parse(normalized);
+    if (!Number.isFinite(dateValue)) {
+      return `${label} must be a valid date`;
+    }
+    if (field.minValue) {
+      const minDate = Date.parse(field.minValue);
+      if (Number.isFinite(minDate) && dateValue < minDate) {
+        return `${label} must be on or after ${field.minValue}`;
+      }
+    }
+    if (field.maxValue) {
+      const maxDate = Date.parse(field.maxValue);
+      if (Number.isFinite(maxDate) && dateValue > maxDate) {
+        return `${label} must be on or before ${field.maxValue}`;
+      }
+    }
+  }
+
+  if (field.pattern) {
+    let expression: RegExp;
+    try {
+      expression = new RegExp(field.pattern);
+    } catch {
+      return `${label} has an invalid pattern rule`;
+    }
+    if (!expression.test(normalized)) {
+      return `${label} format is invalid`;
+    }
+  }
+
+  return null;
 }
 
 export function renderTemplate(template: string, values: Record<string, string>) {

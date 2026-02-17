@@ -10,6 +10,7 @@ import {
   formatFormLabel,
   normalizeFormFieldConditionMode,
   normalizeFormFieldConditionOperator,
+  normalizeFormFieldMetadata,
   normalizeFormFieldVisibility,
   normalizeFormFieldType,
   type FormFieldCondition,
@@ -35,6 +36,11 @@ function createField(seed: number, type: BuilderFieldType = "text"): FormField {
     type,
     required: false,
     options: [],
+    placeholder: "",
+    helpText: "",
+    minValue: "",
+    maxValue: "",
+    pattern: "",
     conditionMode: "all",
     conditions: [],
     condition: null,
@@ -98,6 +104,7 @@ export default function FormFieldsBuilder({
     if (!initialFields.length) return [createField(1)];
     return initialFields.map((field, index) => {
       const visibility = normalizeFormFieldVisibility(field);
+      const metadata = normalizeFormFieldMetadata(field);
       return {
         ...field,
         id: field.id || `field_${index + 1}`,
@@ -106,6 +113,11 @@ export default function FormFieldsBuilder({
         type: normalizeFormFieldType(field.type),
         required: Boolean(field.required),
         options: Array.isArray(field.options) ? field.options.filter(Boolean) : [],
+        placeholder: metadata.placeholder,
+        helpText: metadata.helpText,
+        minValue: metadata.minValue,
+        maxValue: metadata.maxValue,
+        pattern: metadata.pattern,
         conditionMode: visibility.conditionMode,
         conditions: visibility.conditions,
         condition: visibility.condition,
@@ -368,6 +380,84 @@ export default function FormFieldsBuilder({
                       placeholder="field_key"
                     />
                   </label>
+                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Placeholder
+                    <input
+                      value={field.placeholder || ""}
+                      onChange={(event) =>
+                        updateField(index, (item) => ({
+                          ...item,
+                          placeholder: event.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                      placeholder="e.g. Enter response"
+                    />
+                  </label>
+                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Help text
+                    <input
+                      value={field.helpText || ""}
+                      onChange={(event) =>
+                        updateField(index, (item) => ({
+                          ...item,
+                          helpText: event.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                      placeholder="Short guidance shown under label"
+                    />
+                  </label>
+                  {(field.type === "number" || field.type === "date") ? (
+                    <>
+                      <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Min value
+                        <input
+                          type={field.type === "date" ? "date" : "number"}
+                          value={field.minValue || ""}
+                          onChange={(event) =>
+                            updateField(index, (item) => ({
+                              ...item,
+                              minValue: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                          placeholder={field.type === "date" ? "YYYY-MM-DD" : "0"}
+                        />
+                      </label>
+                      <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Max value
+                        <input
+                          type={field.type === "date" ? "date" : "number"}
+                          value={field.maxValue || ""}
+                          onChange={(event) =>
+                            updateField(index, (item) => ({
+                              ...item,
+                              maxValue: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                          placeholder={field.type === "date" ? "YYYY-MM-DD" : "100"}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  {(field.type === "text" || field.type === "textarea") ? (
+                    <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Pattern (Regex)
+                      <input
+                        value={field.pattern || ""}
+                        onChange={(event) =>
+                          updateField(index, (item) => ({
+                            ...item,
+                            pattern: event.target.value,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                        placeholder="^[A-Z]{3}-[0-9]{4}$"
+                      />
+                    </label>
+                  ) : null}
                   <div className="md:col-span-8 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     <p>Visibility rules</p>
                     <div className="mt-1 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">

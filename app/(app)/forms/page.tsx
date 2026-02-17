@@ -13,6 +13,7 @@ import FormsTabs, {
 import {
   buildFieldKey,
   formStatusOptions,
+  normalizeFormFieldMetadata,
   normalizeFormFieldVisibility,
   normalizeFormFieldType,
   normalizeFormStatus,
@@ -64,6 +65,7 @@ function parseFieldsJson(raw: string): FormField[] {
         ? row.options.map((v) => String(v || "").trim()).filter(Boolean)
         : [];
       const visibility = normalizeFormFieldVisibility(row);
+      const metadata = normalizeFormFieldMetadata(row);
       return {
         id: String(row.id || `field_${index + 1}`),
         key,
@@ -71,6 +73,11 @@ function parseFieldsJson(raw: string): FormField[] {
         type: normalizeFormFieldType(String(row.type || "text")),
         required: Boolean(row.required),
         options,
+        placeholder: metadata.placeholder,
+        helpText: metadata.helpText,
+        minValue: metadata.minValue,
+        maxValue: metadata.maxValue,
+        pattern: metadata.pattern,
         conditionMode: visibility.conditionMode,
         conditions: visibility.conditions,
         condition: visibility.condition,

@@ -24,6 +24,11 @@ export default function FormSubmissionBuilder({
         ...field,
         type: normalizeFormFieldType(field.type),
         options: Array.isArray(field.options) ? field.options.filter(Boolean) : [],
+        placeholder: String(field.placeholder || "").trim(),
+        helpText: String(field.helpText || "").trim(),
+        minValue: String(field.minValue || "").trim(),
+        maxValue: String(field.maxValue || "").trim(),
+        pattern: String(field.pattern || "").trim(),
       })),
     [fields]
   );
@@ -50,9 +55,15 @@ export default function FormSubmissionBuilder({
               className="block text-xs font-semibold uppercase tracking-wide text-slate-600"
             >
               {field.label || field.key}
+              {field.helpText ? (
+                <span className="mt-1 block text-xs font-normal normal-case tracking-normal text-slate-500">
+                  {field.helpText}
+                </span>
+              ) : null}
               <textarea
                 {...commonProps}
                 rows={4}
+                placeholder={field.placeholder || undefined}
                 value={values[field.key] || ""}
                 onChange={(event) =>
                   setValues((current) => ({ ...current, [field.key]: event.target.value }))
@@ -69,6 +80,11 @@ export default function FormSubmissionBuilder({
               className="block text-xs font-semibold uppercase tracking-wide text-slate-600"
             >
               {field.label || field.key}
+              {field.helpText ? (
+                <span className="mt-1 block text-xs font-normal normal-case tracking-normal text-slate-500">
+                  {field.helpText}
+                </span>
+              ) : null}
               <select
                 {...commonProps}
                 value={values[field.key] || ""}
@@ -89,7 +105,7 @@ export default function FormSubmissionBuilder({
 
         if (field.type === "checkbox") {
           return (
-            <label key={field.id} className="text-sm text-slate-700">
+            <label key={field.id} className="block text-sm text-slate-700">
               <input
                 type="checkbox"
                 name={`field_${field.key}`}
@@ -104,6 +120,9 @@ export default function FormSubmissionBuilder({
                 className="mr-2"
               />
               {field.label || field.key}
+              {field.helpText ? (
+                <span className="mt-1 block text-xs text-slate-500">{field.helpText}</span>
+              ) : null}
             </label>
           );
         }
@@ -114,9 +133,18 @@ export default function FormSubmissionBuilder({
             className="block text-xs font-semibold uppercase tracking-wide text-slate-600"
           >
             {field.label || field.key}
+            {field.helpText ? (
+              <span className="mt-1 block text-xs font-normal normal-case tracking-normal text-slate-500">
+                {field.helpText}
+              </span>
+            ) : null}
             <input
               {...commonProps}
               type={field.type === "number" || field.type === "date" ? field.type : "text"}
+              placeholder={field.placeholder || undefined}
+              min={field.minValue || undefined}
+              max={field.maxValue || undefined}
+              pattern={field.pattern || undefined}
               value={values[field.key] || ""}
               onChange={(event) =>
                 setValues((current) => ({ ...current, [field.key]: event.target.value }))
