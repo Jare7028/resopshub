@@ -412,6 +412,160 @@ export default async function EmployeeInfoPage(props: {
     redirect(buildEmployeeInfoUrl({ success: "Column added" }));
   }
 
+  async function updateColumn(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) {
+      redirect("/login");
+    }
+
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", auth.user.email || "")
+      .maybeSingle();
+    if (currentUser?.role !== "admin") {
+      redirect(buildEmployeeInfoUrl({ error: "Only admins can edit columns" }));
+    }
+
+    const columnId = String(formData.get("column_id") || "").trim();
+    const label = String(formData.get("label") || "").trim();
+    const kind = normalizeEmployeeInfoColumnKind(String(formData.get("column_kind") || ""));
+    const optionsRaw = String(formData.get("dropdown_options") || "").trim();
+    const formula = String(formData.get("formula") || "").trim();
+
+    if (!columnId) {
+      redirect(buildEmployeeInfoUrl({ error: "Column id is required" }));
+    }
+    if (!label) {
+      redirect(buildEmployeeInfoUrl({ error: "Column label is required" }));
+    }
+    if (kind === "dropdown" && !optionsRaw) {
+      redirect(buildEmployeeInfoUrl({ error: "Dropdown options are required" }));
+    }
+    if (kind === "formula" && !formula) {
+      redirect(buildEmployeeInfoUrl({ error: "Formula is required" }));
+    }
+
+    const { data: existingColumn, error: existingColumnError } = await supabase
+      .from("employee_info_columns")
+      .select("id,column_kind")
+      .eq("id", columnId)
+      .maybeSingle();
+    if (existingColumnError) {
+      redirect(buildEmployeeInfoUrl({ error: existingColumnError.message }));
+    }
+    if (!existingColumn) {
+      redirect(buildEmployeeInfoUrl({ error: "Column not found" }));
+    }
+
+    const { error: updateColumnError } = await supabase
+      .from("employee_info_columns")
+      .update({
+        label,
+        column_kind: kind,
+        formula: kind === "formula" ? formula : null,
+        options_json: kind === "dropdown" ? toOptionsJson(optionsRaw) : [],
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", columnId);
+    if (updateColumnError) {
+      redirect(buildEmployeeInfoUrl({ error: updateColumnError.message }));
+    }
+
+    if (existingColumn.column_kind !== kind) {
+      const { data: existingValueRows, error: existingValuesError } = await supabase
+        .from("employee_info_values")
+        .select("record_id,text_value,option_value")
+        .eq("column_id", columnId);
+      if (existingValuesError) {
+        redirect(buildEmployeeInfoUrl({ error: existingValuesError.message }));
+      }
+
+      const valueRows = existingValueRows || [];
+      if (kind === "formula") {
+        const { error: deleteValuesError } = await supabase
+          .from("employee_info_values")
+          .delete()
+          .eq("column_id", columnId);
+        if (deleteValuesError) {
+          redirect(buildEmployeeInfoUrl({ error: deleteValuesError.message }));
+        }
+      } else {
+        const now = new Date().toISOString();
+        const payload =
+          kind === "dropdown"
+            ? valueRows
+                .map((row) => {
+                  const normalizedValue = String(row.option_value || row.text_value || "").trim();
+                  if (!normalizedValue) return null;
+                  return {
+                    record_id: row.record_id,
+                    column_id: columnId,
+                    option_value: normalizedValue,
+                    text_value: null,
+                    updated_at: now,
+                  };
+                })
+                .filter((row): row is {
+                  record_id: string;
+                  column_id: string;
+                  option_value: string;
+                  text_value: null;
+                  updated_at: string;
+                } => Boolean(row))
+            : valueRows
+                .map((row) => {
+                  const normalizedValue = String(row.text_value || row.option_value || "").trim();
+                  if (!normalizedValue) return null;
+                  return {
+                    record_id: row.record_id,
+                    column_id: columnId,
+                    text_value: normalizedValue,
+                    option_value: null,
+                    updated_at: now,
+                  };
+                })
+                .filter((row): row is {
+                  record_id: string;
+                  column_id: string;
+                  text_value: string;
+                  option_value: null;
+                  updated_at: string;
+                } => Boolean(row));
+
+        const recordIdsWithValues = new Set(payload.map((row) => row.record_id));
+        const recordIdsToDelete = valueRows
+          .map((row) => row.record_id)
+          .filter((recordId) => !recordIdsWithValues.has(recordId));
+
+        if (recordIdsToDelete.length) {
+          const { error: deleteValuesError } = await supabase
+            .from("employee_info_values")
+            .delete()
+            .eq("column_id", columnId)
+            .in("record_id", recordIdsToDelete);
+          if (deleteValuesError) {
+            redirect(buildEmployeeInfoUrl({ error: deleteValuesError.message }));
+          }
+        }
+
+        if (payload.length) {
+          const { error: upsertValuesError } = await supabase
+            .from("employee_info_values")
+            .upsert(payload, { onConflict: "record_id,column_id" });
+          if (upsertValuesError) {
+            redirect(buildEmployeeInfoUrl({ error: upsertValuesError.message }));
+          }
+        }
+      }
+    }
+
+    revalidatePath("/employee-info");
+    redirect(buildEmployeeInfoUrl({ success: "Column updated" }));
+  }
+
   async function updateAccessUsers(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -486,9 +640,15 @@ export default async function EmployeeInfoPage(props: {
 
       {isAdmin ? (
         <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
-          <details>
-            <summary className="cursor-pointer list-none text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Assign Users
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <span
+                aria-hidden="true"
+                className="inline-block text-[10px] transition-transform group-open:rotate-90"
+              >
+                &gt;
+              </span>
+              <span>Assign Users</span>
             </summary>
             <p className="mt-2 text-xs text-slate-500">
               Non-admin users must be selected here to access Employee Info.
@@ -582,10 +742,13 @@ export default async function EmployeeInfoPage(props: {
           columns={columns}
           valuesByRecordId={valuesByRecordId}
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
+          isAdmin={isAdmin}
           onCreateRecord={createRecord}
           onUpdateCell={updateCell}
+          onUpdateColumn={updateColumn}
         />
       </section>
     </div>
   );
 }
+
