@@ -363,24 +363,7 @@ export default function FormFieldsBuilder({
 
               {openAdvancedByFieldId[field.id] ? (
                 <>
-                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Key
-                    <input
-                      value={field.key}
-                      onChange={(event) =>
-                        updateField(index, (item) => ({
-                          ...item,
-                          key: event.target.value
-                            .toLowerCase()
-                            .replace(/[^a-z0-9_]/g, "_")
-                            .replace(/^_+|_+$/g, ""),
-                        }))
-                      }
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      placeholder="field_key"
-                    />
-                  </label>
-                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <label className="md:col-span-6 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     Placeholder
                     <input
                       value={field.placeholder || ""}
@@ -394,7 +377,7 @@ export default function FormFieldsBuilder({
                       placeholder="e.g. Enter response"
                     />
                   </label>
-                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <label className="md:col-span-6 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     Help text
                     <input
                       value={field.helpText || ""}
@@ -458,7 +441,7 @@ export default function FormFieldsBuilder({
                       />
                     </label>
                   ) : null}
-                  <div className="md:col-span-8 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <div className="md:col-span-12 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     <p>Visibility rules</p>
                     <div className="mt-1 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
