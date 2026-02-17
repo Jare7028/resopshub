@@ -29,6 +29,12 @@ import {
   type EmployeeInfoDisplayCurrencyCode,
   type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
+import {
+  isEmployeeInfoRecordVisible,
+  parseEmployeeInfoRoleValuesInput,
+  toEmployeeInfoVisibilityRule,
+  type EmployeeInfoVisibilityRuleRow,
+} from "@/lib/employeeInfoVisibilityRules";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -57,6 +63,11 @@ type EmployeeInfoValueRow = {
   money_currency_code: string | null;
 };
 
+type EmployeeInfoValuesByRecordId = Record<
+  string,
+  Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+>;
+
 type UserRow = {
   id: string;
   full_name: string | null;
@@ -68,6 +79,8 @@ type EmployeeInfoActionResult = {
   ok: boolean;
   error?: string;
 };
+
+type EmployeeInfoRoleValueLookup = Record<string, string>;
 
 function buildEmployeeInfoUrl(params?: {
   error?: string;
@@ -155,18 +168,8 @@ function buildFormulaSuggestions(columns: EmployeeInfoColumnRow[]) {
   return suggestions;
 }
 
-function buildValueMap(
-  rows: EmployeeInfoValueRow[]
-): Record<
-  string,
-  Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
-> {
-  return rows.reduce<
-    Record<
-      string,
-      Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
-    >
-  >((acc, row) => {
+function buildValueMap(rows: EmployeeInfoValueRow[]): EmployeeInfoValuesByRecordId {
+  return rows.reduce<EmployeeInfoValuesByRecordId>((acc, row) => {
     if (!acc[row.record_id]) acc[row.record_id] = {};
     acc[row.record_id][row.column_id] = {
       text_value: row.text_value,
@@ -175,6 +178,104 @@ function buildValueMap(
     };
     return acc;
   }, {});
+}
+
+function normalizeUuidList(values: string[]) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value || "").trim())
+        .filter((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
+    )
+  );
+}
+
+function buildRoleValueLookup(args: {
+  records: EmployeeInfoRecordRow[];
+  valuesByRecordId: EmployeeInfoValuesByRecordId;
+  roleColumnId: string | null;
+}) {
+  const { records, valuesByRecordId, roleColumnId } = args;
+  if (!roleColumnId) return {} as EmployeeInfoRoleValueLookup;
+
+  return records.reduce<EmployeeInfoRoleValueLookup>((acc, record) => {
+    const roleCell = valuesByRecordId[record.id]?.[roleColumnId];
+    acc[record.id] = roleCell?.option_value || roleCell?.text_value || "";
+    return acc;
+  }, {});
+}
+
+function filterRecordsByVisibilityRule(args: {
+  records: EmployeeInfoRecordRow[];
+  valuesByRecordId: EmployeeInfoValuesByRecordId;
+  ruleRow: EmployeeInfoVisibilityRuleRow | null;
+}) {
+  const { records, valuesByRecordId, ruleRow } = args;
+  const rule = toEmployeeInfoVisibilityRule(ruleRow);
+  if (!rule.enabled) return records;
+
+  const roleValueByRecordId = buildRoleValueLookup({
+    records,
+    valuesByRecordId,
+    roleColumnId: rule.roleColumnId,
+  });
+
+  return records.filter((record) =>
+    isEmployeeInfoRecordVisible({
+      rule,
+      clientId: record.client_id,
+      roleValue: roleValueByRecordId[record.id] || "",
+    })
+  );
+}
+
+function buildRoleValueSuggestions(args: {
+  records: EmployeeInfoRecordRow[];
+  valuesByRecordId: EmployeeInfoValuesByRecordId;
+  roleColumnId: string | null;
+}) {
+  const { records, valuesByRecordId, roleColumnId } = args;
+  if (!roleColumnId) return [] as string[];
+
+  return Array.from(
+    new Set(
+      records
+        .map((record) => {
+          const value = valuesByRecordId[record.id]?.[roleColumnId];
+          return String(value?.option_value || value?.text_value || "").trim();
+        })
+        .filter(Boolean)
+    )
+  );
+}
+
+async function readVisibilityRuleForUser(args: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  userId: string;
+}) {
+  const { supabase, userId } = args;
+  const result = await supabase
+    .from("employee_info_visibility_rules")
+    .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (isSupabaseMissingTableError(result.error)) {
+    return { tableMissing: true, ruleRow: null as EmployeeInfoVisibilityRuleRow | null, error: null };
+  }
+  if (result.error) {
+    return {
+      tableMissing: false,
+      ruleRow: null as EmployeeInfoVisibilityRuleRow | null,
+      error: result.error.message,
+    };
+  }
+
+  return {
+    tableMissing: false,
+    ruleRow: (result.data || null) as EmployeeInfoVisibilityRuleRow | null,
+    error: null,
+  };
 }
 
 function buildFormulaValueMap(args: {
@@ -493,17 +594,28 @@ export default async function EmployeeInfoPage(props: {
     }
   }
 
-  const [{ data: clientsRaw }, { data: usersRaw }] = await Promise.all([
+  const [{ data: clientsRaw }, { data: usersRaw }, viewerVisibilityRuleResult] = await Promise.all([
     supabase.from("clients").select("id,name").order("name", { ascending: true }),
     supabase.from("users").select("id,full_name,email,role").order("full_name", { ascending: true }),
+    readVisibilityRuleForUser({ supabase, userId: currentAppUserId }),
   ]);
+  if (viewerVisibilityRuleResult.error) {
+    redirect(buildEmployeeInfoUrl({ error: viewerVisibilityRuleResult.error }));
+  }
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
   const users = (usersRaw || []) as UserRow[];
+  const viewerVisibilityRuleRow = viewerVisibilityRuleResult.ruleRow;
+  const viewerVisibilityTableMissing = viewerVisibilityRuleResult.tableMissing;
+  const viewerVisibilityRule = toEmployeeInfoVisibilityRule(viewerVisibilityRuleRow);
 
-  const { data: recordsRaw, error: recordsError } = await supabase
+  let recordsQuery = supabase
     .from("employee_info_records")
     .select("id,full_name,client_id,created_at")
     .order("created_at", { ascending: false });
+  if (viewerVisibilityRule.enabled && viewerVisibilityRule.allowedClientIds.length) {
+    recordsQuery = recordsQuery.in("client_id", viewerVisibilityRule.allowedClientIds);
+  }
+  const { data: recordsRaw, error: recordsError } = await recordsQuery;
 
   let { data: columnsRaw, error: columnsError } = await supabase
     .from("employee_info_columns")
@@ -576,6 +688,11 @@ export default async function EmployeeInfoPage(props: {
 
   const valueRows = (isSupabaseMissingTableError(valuesError) ? [] : valuesRaw || []) as EmployeeInfoValueRow[];
   const valuesByRecordId = buildValueMap(valueRows);
+  const visibleRecords = filterRecordsByVisibilityRule({
+    records,
+    valuesByRecordId,
+    ruleRow: viewerVisibilityRuleRow,
+  });
   const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
     .from("employee_info_exchange_rates")
     .select("base_currency_code,quote_currency_code,rate,effective_month_start")
@@ -589,7 +706,7 @@ export default async function EmployeeInfoPage(props: {
     return acc;
   }, {});
   const formulaValueByRecordIdAndColumnId = buildFormulaValueMap({
-    records,
+    records: visibleRecords,
     columns,
     valueMap: valuesByRecordId,
     clientNameById,
@@ -597,12 +714,40 @@ export default async function EmployeeInfoPage(props: {
     displayCurrency,
   });
   const currencyDisplayValueByRecordIdAndColumnId = buildCurrencyDisplayValueMap({
-    records,
+    records: visibleRecords,
     columns,
     valueMap: valuesByRecordId,
     exchangeRateRows,
     displayCurrency,
   });
+
+  const roleValueSuggestionsByColumnId = columns.reduce<Record<string, string[]>>((acc, column) => {
+    if (column.column_kind === "formula") return acc;
+    acc[column.id] = buildRoleValueSuggestions({
+      records,
+      valuesByRecordId,
+      roleColumnId: column.id,
+    });
+    return acc;
+  }, {});
+
+  let visibilityRuleRowsByUserId = new Map<string, EmployeeInfoVisibilityRuleRow>();
+  let visibilityRulesLoadError: string | null = null;
+  if (canManageAccess && !viewerVisibilityTableMissing) {
+    const visibilityRulesResult = await supabase
+      .from("employee_info_visibility_rules")
+      .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values");
+    if (visibilityRulesResult.error) {
+      visibilityRulesLoadError = visibilityRulesResult.error.message;
+    } else {
+      visibilityRuleRowsByUserId = new Map(
+        ((visibilityRulesResult.data || []) as EmployeeInfoVisibilityRuleRow[]).map((row) => [
+          row.user_id,
+          row,
+        ])
+      );
+    }
+  }
 
   const { data: allowedUsersRaw } = canManageAccess
     ? await supabase.from("employee_info_access_users").select("user_id")
@@ -628,11 +773,30 @@ export default async function EmployeeInfoPage(props: {
       .select("id")
       .eq("email", auth.user.email || "")
       .maybeSingle();
+    const actorUserId = currentUser?.id || auth.user.id;
+    const visibilityRuleResult = await readVisibilityRuleForUser({
+      supabase,
+      userId: actorUserId,
+    });
+    if (visibilityRuleResult.error) {
+      return { ok: false, error: visibilityRuleResult.error };
+    }
+    const visibilityRule = toEmployeeInfoVisibilityRule(visibilityRuleResult.ruleRow);
+    if (
+      visibilityRule.enabled &&
+      visibilityRule.allowedClientIds.length &&
+      (!clientId || !visibilityRule.allowedClientIds.includes(clientId))
+    ) {
+      return {
+        ok: false,
+        error: "You can only create employee records for clients included in your visibility scope.",
+      };
+    }
 
     const { error } = await supabase.from("employee_info_records").insert({
       full_name: fullName,
       client_id: clientId || null,
-      created_by_user_id: currentUser?.id || auth.user.id,
+      created_by_user_id: actorUserId,
     });
     if (error) {
       return { ok: false, error: error.message };
@@ -644,6 +808,10 @@ export default async function EmployeeInfoPage(props: {
   async function updateCell(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) {
+      redirect("/login");
+    }
     const recordId = String(formData.get("record_id") || "").trim();
     const baseField = String(formData.get("base_field") || "").trim();
     const columnId = String(formData.get("column_id") || "").trim();
@@ -655,8 +823,63 @@ export default async function EmployeeInfoPage(props: {
 
     if (!recordId) return { ok: false, error: "Missing record id" };
 
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", auth.user.email || "")
+      .maybeSingle();
+    const actorUserId = currentUser?.id || auth.user.id;
+    const visibilityRuleResult = await readVisibilityRuleForUser({
+      supabase,
+      userId: actorUserId,
+    });
+    if (visibilityRuleResult.error) return { ok: false, error: visibilityRuleResult.error };
+    const visibilityRule = toEmployeeInfoVisibilityRule(visibilityRuleResult.ruleRow);
+
+    const { data: recordRow, error: recordError } = await supabase
+      .from("employee_info_records")
+      .select("id,client_id")
+      .eq("id", recordId)
+      .maybeSingle();
+    if (recordError) return { ok: false, error: recordError.message };
+    if (!recordRow) return { ok: false, error: "Employee record not found" };
+
+    let cachedRoleValue: string | null = null;
+    const resolveCurrentRoleValue = async () => {
+      if (
+        !visibilityRule.enabled ||
+        !visibilityRule.roleColumnId ||
+        !visibilityRule.allowedRoleTokens.length
+      ) {
+        return "";
+      }
+      if (cachedRoleValue !== null) return cachedRoleValue;
+      const { data: roleValueRow, error: roleValueError } = await supabase
+        .from("employee_info_values")
+        .select("text_value,option_value")
+        .eq("record_id", recordId)
+        .eq("column_id", visibilityRule.roleColumnId)
+        .maybeSingle();
+      if (roleValueError) {
+        return "";
+      }
+      cachedRoleValue = roleValueRow?.option_value || roleValueRow?.text_value || "";
+      return cachedRoleValue;
+    };
+
     if (baseField === "full_name") {
       if (!value) return { ok: false, error: "Full name is required" };
+      const allowed = isEmployeeInfoRecordVisible({
+        rule: visibilityRule,
+        clientId: recordRow.client_id || null,
+        roleValue: await resolveCurrentRoleValue(),
+      });
+      if (!allowed) {
+        return {
+          ok: false,
+          error: "You do not have permission to edit this employee record based on visibility rules.",
+        };
+      }
       const { error } = await supabase
         .from("employee_info_records")
         .update({ full_name: value, updated_at: new Date().toISOString() })
@@ -666,6 +889,18 @@ export default async function EmployeeInfoPage(props: {
     }
 
     if (baseField === "client_id") {
+      const allowed = isEmployeeInfoRecordVisible({
+        rule: visibilityRule,
+        clientId: value || null,
+        roleValue: await resolveCurrentRoleValue(),
+      });
+      if (!allowed) {
+        return {
+          ok: false,
+          error:
+            "You do not have permission to move this employee to the selected client based on visibility rules.",
+        };
+      }
       const { error } = await supabase
         .from("employee_info_records")
         .update({ client_id: value || null, updated_at: new Date().toISOString() })
@@ -693,6 +928,26 @@ export default async function EmployeeInfoPage(props: {
       columnKind === "currency"
         ? normalizeEmployeeInfoCurrencyCode(parsedCurrencyInput?.currencyCode || submittedCurrencyCode)
         : null;
+
+    const effectiveRoleValue =
+      visibilityRule.enabled &&
+      visibilityRule.roleColumnId &&
+      visibilityRule.allowedRoleTokens.length &&
+      columnId === visibilityRule.roleColumnId
+        ? normalizedValue || ""
+        : await resolveCurrentRoleValue();
+    const allowed = isEmployeeInfoRecordVisible({
+      rule: visibilityRule,
+      clientId: recordRow.client_id || null,
+      roleValue: effectiveRoleValue,
+    });
+    if (!allowed) {
+      return {
+        ok: false,
+        error: "You do not have permission to edit this employee record based on visibility rules.",
+      };
+    }
+
     if (!normalizedValue) {
       const { error } = await supabase
         .from("employee_info_values")
@@ -1257,6 +1512,176 @@ export default async function EmployeeInfoPage(props: {
     redirect(buildEmployeeInfoUrl({ success: "Access users updated" }));
   }
 
+  async function updateVisibilityRule(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) {
+      redirect("/login");
+    }
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", auth.user.email || "")
+      .maybeSingle();
+    let canManageAccess = currentUser?.role === "admin";
+    const canManageAccessResult = await supabase.rpc("can_manage_employee_info_access");
+    if (!isSupabaseMissingFunctionError(canManageAccessResult.error)) {
+      if (canManageAccessResult.error) {
+        redirect(buildEmployeeInfoUrl({ error: canManageAccessResult.error.message }));
+      }
+      canManageAccess = Boolean(canManageAccessResult.data);
+    }
+    if (!canManageAccess) {
+      redirect(buildEmployeeInfoUrl({ error: "Only authorized users can update visibility rules" }));
+    }
+
+    const targetUserId = String(formData.get("user_id") || "").trim();
+    if (!targetUserId) {
+      redirect(buildEmployeeInfoUrl({ error: "User is required for visibility rule updates" }));
+    }
+
+    const enabled = String(formData.get("enabled") || "") === "on";
+    const allowedClientIds = normalizeUuidList(
+      formData.getAll("allowed_client_ids").map((value) => String(value || ""))
+    );
+    const roleColumnId = String(formData.get("role_column_id") || "").trim() || null;
+    const allowedRoleValues = parseEmployeeInfoRoleValuesInput(
+      String(formData.get("allowed_role_values") || "")
+    );
+
+    if (!enabled) {
+      const { error: clearError } = await supabase
+        .from("employee_info_visibility_rules")
+        .delete()
+        .eq("user_id", targetUserId);
+      if (clearError) {
+        if (isSupabaseMissingTableError(clearError)) {
+          redirect(
+            buildEmployeeInfoUrl({
+              error:
+                "Visibility rules table is missing. Run sql/employee_info_visibility_rules.sql first.",
+            })
+          );
+        }
+        redirect(buildEmployeeInfoUrl({ error: clearError.message }));
+      }
+
+      revalidatePath("/employee-info");
+      redirect(buildEmployeeInfoUrl({ success: "Visibility rule cleared" }));
+    }
+
+    if (!roleColumnId && allowedRoleValues.length) {
+      redirect(
+        buildEmployeeInfoUrl({
+          error: "Select a role column before setting allowed role values.",
+        })
+      );
+    }
+
+    if (roleColumnId) {
+      const { data: roleColumn, error: roleColumnError } = await supabase
+        .from("employee_info_columns")
+        .select("id,column_kind")
+        .eq("id", roleColumnId)
+        .maybeSingle();
+      if (roleColumnError) {
+        redirect(buildEmployeeInfoUrl({ error: roleColumnError.message }));
+      }
+      if (!roleColumn) {
+        redirect(buildEmployeeInfoUrl({ error: "Selected role column does not exist" }));
+      }
+      if (roleColumn.column_kind === "formula") {
+        redirect(buildEmployeeInfoUrl({ error: "Formula columns cannot be used for role filtering" }));
+      }
+    }
+
+    const { error: upsertError } = await supabase.from("employee_info_visibility_rules").upsert(
+      {
+        user_id: targetUserId,
+        enabled: true,
+        allowed_client_ids: allowedClientIds,
+        role_column_id: roleColumnId,
+        allowed_role_values: allowedRoleValues,
+        created_by_user_id: currentUser?.id || auth.user.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
+    if (upsertError) {
+      if (isSupabaseMissingTableError(upsertError)) {
+        redirect(
+          buildEmployeeInfoUrl({
+            error:
+              "Visibility rules table is missing. Run sql/employee_info_visibility_rules.sql first.",
+          })
+        );
+      }
+      redirect(buildEmployeeInfoUrl({ error: upsertError.message }));
+    }
+
+    revalidatePath("/employee-info");
+    redirect(buildEmployeeInfoUrl({ success: "Visibility rule updated" }));
+  }
+
+  async function clearVisibilityRule(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) {
+      redirect("/login");
+    }
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", auth.user.email || "")
+      .maybeSingle();
+    let canManageAccess = currentUser?.role === "admin";
+    const canManageAccessResult = await supabase.rpc("can_manage_employee_info_access");
+    if (!isSupabaseMissingFunctionError(canManageAccessResult.error)) {
+      if (canManageAccessResult.error) {
+        redirect(buildEmployeeInfoUrl({ error: canManageAccessResult.error.message }));
+      }
+      canManageAccess = Boolean(canManageAccessResult.data);
+    }
+    if (!canManageAccess) {
+      redirect(buildEmployeeInfoUrl({ error: "Only authorized users can clear visibility rules" }));
+    }
+
+    const targetUserId = String(formData.get("user_id") || "").trim();
+    if (!targetUserId) {
+      redirect(buildEmployeeInfoUrl({ error: "User is required for visibility rule clear" }));
+    }
+
+    const { error: clearError } = await supabase
+      .from("employee_info_visibility_rules")
+      .delete()
+      .eq("user_id", targetUserId);
+    if (clearError) {
+      if (isSupabaseMissingTableError(clearError)) {
+        redirect(
+          buildEmployeeInfoUrl({
+            error:
+              "Visibility rules table is missing. Run sql/employee_info_visibility_rules.sql first.",
+          })
+        );
+      }
+      redirect(buildEmployeeInfoUrl({ error: clearError.message }));
+    }
+
+    revalidatePath("/employee-info");
+    redirect(buildEmployeeInfoUrl({ success: "Visibility rule cleared" }));
+  }
+
+  const viewerAllowedClientNames = viewerVisibilityRule.allowedClientIds
+    .map((clientId) => clientNameById[clientId] || "")
+    .filter(Boolean);
+  const viewerRoleColumnLabel =
+    columns.find((column) => column.id === viewerVisibilityRule.roleColumnId)?.label || "";
+  const viewerAllowedRoleValues = ((viewerVisibilityRuleRow?.allowed_role_values || []) as string[])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -1280,6 +1705,22 @@ export default async function EmployeeInfoPage(props: {
           ) : null}
         </div>
       )}
+
+      {viewerVisibilityRule.enabled ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          <p className="font-semibold uppercase tracking-wide">Scoped view is active</p>
+          <p className="mt-1">
+            {viewerAllowedClientNames.length
+              ? `Clients: ${viewerAllowedClientNames.join(", ")}.`
+              : "Clients: all."}{" "}
+            {viewerRoleColumnLabel
+              ? viewerAllowedRoleValues.length
+                ? `Role filter (${viewerRoleColumnLabel}): ${viewerAllowedRoleValues.join(", ")}.`
+                : `Role filter column (${viewerRoleColumnLabel}) is set, but no role values are limited.`
+              : "Role filter: none."}
+          </p>
+        </div>
+      ) : null}
 
       {canManageAccess ? (
         <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
@@ -1322,6 +1763,142 @@ export default async function EmployeeInfoPage(props: {
                 Save access users
               </button>
             </form>
+          </details>
+
+          <details className="group mt-4">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <span
+                aria-hidden="true"
+                className="inline-block text-[10px] transition-transform group-open:rotate-90"
+              >
+                &gt;
+              </span>
+              <span>Visibility Rules</span>
+            </summary>
+            <p className="mt-2 text-xs text-slate-500">
+              Restrict each user to selected clients and/or selected role values in one role column.
+            </p>
+
+            {viewerVisibilityTableMissing ? (
+              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Run <code>sql/employee_info_visibility_rules.sql</code> in Supabase SQL editor to
+                enable per-user visibility rules.
+              </p>
+            ) : visibilityRulesLoadError ? (
+              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                Failed to load visibility rules: {visibilityRulesLoadError}
+              </p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {users
+                  .filter((user) => user.role !== "admin")
+                  .map((user) => {
+                    const ruleRow = visibilityRuleRowsByUserId.get(user.id) || null;
+                    const rule = toEmployeeInfoVisibilityRule(ruleRow);
+                    const selectedRoleColumnId = String(ruleRow?.role_column_id || "");
+                    const selectedClientIds = (ruleRow?.allowed_client_ids || []) as string[];
+                    const selectedRoleValuesText = ((ruleRow?.allowed_role_values || []) as string[]).join(
+                      ", "
+                    );
+                    const roleValueHints =
+                      roleValueSuggestionsByColumnId[selectedRoleColumnId] || [];
+                    return (
+                      <form
+                        key={user.id}
+                        action={updateVisibilityRule}
+                        className="rounded-md border border-slate-200 bg-slate-50/70 p-3"
+                      >
+                        <input type="hidden" name="user_id" value={user.id} />
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-slate-800">
+                            {user.full_name || user.email || "Unnamed user"}
+                          </p>
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                            <input type="checkbox" name="enabled" defaultChecked={rule.enabled} />
+                            Enable rule
+                          </label>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Allowed clients
+                            <select
+                              name="allowed_client_ids"
+                              defaultValue={selectedClientIds}
+                              multiple
+                              className="min-h-[110px] rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-normal text-slate-700"
+                            >
+                              {clients.map((client) => (
+                                <option key={client.id} value={client.id}>
+                                  {client.name}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="font-normal normal-case tracking-normal text-slate-500">
+                              Leave empty to allow all clients.
+                            </span>
+                          </label>
+
+                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Role column
+                            <select
+                              name="role_column_id"
+                              defaultValue={selectedRoleColumnId}
+                              className="h-11 rounded-md border border-slate-300 bg-white px-2 text-sm font-normal text-slate-700"
+                            >
+                              <option value="">No role filter</option>
+                              {columns
+                                .filter((column) => column.column_kind !== "formula")
+                                .map((column) => (
+                                  <option key={column.id} value={column.id}>
+                                    {column.label}
+                                  </option>
+                                ))}
+                            </select>
+                            <span className="font-normal normal-case tracking-normal text-slate-500">
+                              Choose the column that stores employee role.
+                            </span>
+                          </label>
+
+                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Allowed role values
+                            <input
+                              name="allowed_role_values"
+                              defaultValue={selectedRoleValuesText}
+                              placeholder="Agent, Team Leader"
+                              className="h-11 rounded-md border border-slate-300 bg-white px-2 text-sm font-normal text-slate-700"
+                            />
+                            <span className="font-normal normal-case tracking-normal text-slate-500">
+                              Comma separated. Leave blank to allow all role values.
+                            </span>
+                            {roleValueHints.length ? (
+                              <span className="font-normal normal-case tracking-normal text-slate-500">
+                                Current values: {roleValueHints.join(", ")}
+                              </span>
+                            ) : null}
+                          </label>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="submit"
+                            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            Save rule
+                          </button>
+                          <button
+                            type="submit"
+                            formAction={clearVisibilityRule}
+                            className="h-10 rounded-md border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 hover:bg-red-100"
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      </form>
+                    );
+                  })}
+              </div>
+            )}
           </details>
         </section>
       ) : null}
@@ -1368,7 +1945,7 @@ export default async function EmployeeInfoPage(props: {
           </div>
         </div>
         <EmployeeInfoTable
-          records={records}
+          records={visibleRecords}
           clients={clients}
           columns={columns}
           valuesByRecordId={valuesByRecordId}

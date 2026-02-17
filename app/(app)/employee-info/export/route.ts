@@ -21,6 +21,11 @@ import {
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  isEmployeeInfoRecordVisible,
+  toEmployeeInfoVisibilityRule,
+  type EmployeeInfoVisibilityRuleRow,
+} from "@/lib/employeeInfoVisibilityRules";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,24 +57,19 @@ type EmployeeInfoValueRow = {
   money_currency_code: string | null;
 };
 
+type EmployeeInfoValuesByRecordId = Record<
+  string,
+  Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
+>;
+
 function csvEscape(value: unknown) {
   const text = String(value ?? "");
   if (!/["\n,\r]/.test(text)) return text;
   return `"${text.replace(/"/g, "\"\"")}"`;
 }
 
-function buildValueMap(
-  rows: EmployeeInfoValueRow[]
-): Record<
-  string,
-  Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
-> {
-  return rows.reduce<
-    Record<
-      string,
-      Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
-    >
-  >((acc, row) => {
+function buildValueMap(rows: EmployeeInfoValueRow[]): EmployeeInfoValuesByRecordId {
+  return rows.reduce<EmployeeInfoValuesByRecordId>((acc, row) => {
     if (!acc[row.record_id]) acc[row.record_id] = {};
     acc[row.record_id][row.column_id] = {
       text_value: row.text_value,
@@ -78,6 +78,45 @@ function buildValueMap(
     };
     return acc;
   }, {});
+}
+
+function buildRoleValueLookup(args: {
+  records: EmployeeInfoRecordRow[];
+  valuesByRecordId: EmployeeInfoValuesByRecordId;
+  roleColumnId: string | null;
+}) {
+  const { records, valuesByRecordId, roleColumnId } = args;
+  if (!roleColumnId) return {} as Record<string, string>;
+
+  return records.reduce<Record<string, string>>((acc, record) => {
+    const roleCell = valuesByRecordId[record.id]?.[roleColumnId];
+    acc[record.id] = roleCell?.option_value || roleCell?.text_value || "";
+    return acc;
+  }, {});
+}
+
+function filterRecordsByVisibilityRule(args: {
+  records: EmployeeInfoRecordRow[];
+  valuesByRecordId: EmployeeInfoValuesByRecordId;
+  ruleRow: EmployeeInfoVisibilityRuleRow | null;
+}) {
+  const { records, valuesByRecordId, ruleRow } = args;
+  const rule = toEmployeeInfoVisibilityRule(ruleRow);
+  if (!rule.enabled) return records;
+
+  const roleValueByRecordId = buildRoleValueLookup({
+    records,
+    valuesByRecordId,
+    roleColumnId: rule.roleColumnId,
+  });
+
+  return records.filter((record) =>
+    isEmployeeInfoRecordVisible({
+      rule,
+      clientId: record.client_id,
+      roleValue: roleValueByRecordId[record.id] || "",
+    })
+  );
 }
 
 function buildFormulaValueMap(args: {
@@ -353,11 +392,28 @@ export async function GET(request: Request) {
     }
   }
 
+  const visibilityRuleResult = await supabase
+    .from("employee_info_visibility_rules")
+    .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values")
+    .eq("user_id", currentAppUserId)
+    .maybeSingle();
+  if (visibilityRuleResult.error && !isSupabaseMissingTableError(visibilityRuleResult.error)) {
+    return NextResponse.json({ error: visibilityRuleResult.error.message }, { status: 400 });
+  }
+  const viewerRuleRow = isSupabaseMissingTableError(visibilityRuleResult.error)
+    ? null
+    : ((visibilityRuleResult.data || null) as EmployeeInfoVisibilityRuleRow | null);
+  const viewerRule = toEmployeeInfoVisibilityRule(viewerRuleRow);
+
   const { data: clientsRaw } = await supabase.from("clients").select("id,name");
-  const { data: recordsRaw, error: recordsError } = await supabase
+  let recordsQuery = supabase
     .from("employee_info_records")
     .select("id,full_name,client_id,created_at")
     .order("created_at", { ascending: false });
+  if (viewerRule.enabled && viewerRule.allowedClientIds.length) {
+    recordsQuery = recordsQuery.in("client_id", viewerRule.allowedClientIds);
+  }
+  const { data: recordsRaw, error: recordsError } = await recordsQuery;
   let { data: columnsRaw, error: columnsError } = await supabase
     .from("employee_info_columns")
     .select(
@@ -428,12 +484,17 @@ export async function GET(request: Request) {
   ) as EmployeeInfoExchangeRateRow[];
 
   const valuesByRecordId = buildValueMap((valuesRaw || []) as EmployeeInfoValueRow[]);
+  const visibleRecords = filterRecordsByVisibilityRule({
+    records,
+    valuesByRecordId,
+    ruleRow: viewerRuleRow,
+  });
   const clientNameById = clients.reduce<Record<string, string>>((acc, client) => {
     acc[client.id] = client.name;
     return acc;
   }, {});
   const formulaValueByRecordIdAndColumnId = buildFormulaValueMap({
-    records,
+    records: visibleRecords,
     columns,
     valueMap: valuesByRecordId,
     clientNameById,
@@ -441,7 +502,7 @@ export async function GET(request: Request) {
     displayCurrency,
   });
   const currencyDisplayValueByRecordIdAndColumnId = buildCurrencyDisplayValueMap({
-    records,
+    records: visibleRecords,
     columns,
     valueMap: valuesByRecordId,
     exchangeRateRows,
@@ -449,7 +510,7 @@ export async function GET(request: Request) {
   });
 
   const headers = ["Full Name", "Client", ...columns.map((column) => column.label)];
-  const rows = records.map((record) => {
+  const rows = visibleRecords.map((record) => {
     const valuesByColumnId = valuesByRecordId[record.id] || {};
     const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
     const rowValues: string[] = [
