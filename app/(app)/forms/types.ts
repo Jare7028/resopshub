@@ -146,7 +146,7 @@ export function normalizeFormFieldCondition(value: unknown): FormFieldCondition 
     Object.prototype.hasOwnProperty.call(row, "value")
       ? row.value || ""
       : row.equals || ""
-  ).trim();
+  );
   const normalizedValue = conditionOperatorUsesValue(operator) ? rawValue : "";
 
   return {
