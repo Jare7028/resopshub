@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type ChangeEvent } from "react";
+import { useState, useTransition, type ChangeEvent } from "react";
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
@@ -31,12 +31,6 @@ type EmployeeInfoValueRow = {
   option_value: string | null;
 };
 
-type DraftRecordRow = {
-  id: string;
-  fullName: string;
-  clientId: string;
-};
-
 function parseOptionsJson(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
   return value
@@ -46,10 +40,6 @@ function parseOptionsJson(value: unknown) {
 
 function formatOptionsInput(value: unknown) {
   return parseOptionsJson(value).join(", ");
-}
-
-function isDraftRowBlank(row: DraftRecordRow) {
-  return !row.fullName.trim() && !row.clientId.trim();
 }
 
 function ColumnEditPanel({
@@ -197,10 +187,10 @@ export default function EmployeeInfoTable({
   onMoveColumn: (formData: FormData) => Promise<void> | void;
 }) {
   const [, startTransition] = useTransition();
-  const nextDraftIdRef = useRef(1);
-  const [draftRows, setDraftRows] = useState<DraftRecordRow[]>([
-    { id: "draft-0", fullName: "", clientId: "" },
-  ]);
+  const createRecordFormId = "employee-info-create-record-form";
+  const [isAddingRow, setIsAddingRow] = useState(false);
+  const [newFullName, setNewFullName] = useState("");
+  const [newClientId, setNewClientId] = useState("");
 
   const submitChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const form = event.currentTarget.form;
@@ -211,52 +201,24 @@ export default function EmployeeInfoTable({
     });
   };
 
-  const createDraftRow = (): DraftRecordRow => {
-    const nextId = `draft-${nextDraftIdRef.current}`;
-    nextDraftIdRef.current += 1;
-    return { id: nextId, fullName: "", clientId: "" };
-  };
-
-  const ensureTrailingBlankRow = (rows: DraftRecordRow[]) => {
-    let nextRows = [...rows];
-    if (!nextRows.length) {
-      nextRows = [createDraftRow()];
-    }
-
-    if (!isDraftRowBlank(nextRows[nextRows.length - 1])) {
-      nextRows.push(createDraftRow());
-    }
-
-    while (
-      nextRows.length > 1 &&
-      isDraftRowBlank(nextRows[nextRows.length - 1]) &&
-      isDraftRowBlank(nextRows[nextRows.length - 2])
-    ) {
-      nextRows.pop();
-    }
-
-    return nextRows;
-  };
-
-  const updateDraftRow = (
-    rowId: string,
-    field: "fullName" | "clientId",
-    value: string
-  ) => {
-    setDraftRows((previousRows) =>
-      ensureTrailingBlankRow(
-        previousRows.map((row) => (row.id === rowId ? { ...row, [field]: value } : row))
-      )
-    );
-  };
-
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
           <tr>
             <th className="sticky left-0 top-0 z-40 border-r border-slate-200 bg-slate-50 px-4 py-3">
-              Full Name
+              <div className="flex items-center justify-between gap-2">
+                <span>Full Name</span>
+                <button
+                  type="button"
+                  aria-label="Add employee row"
+                  title="Add employee row"
+                  onClick={() => setIsAddingRow(true)}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  +
+                </button>
+              </div>
             </th>
             <th className="sticky top-0 z-30 bg-slate-50 px-4 py-3">Client</th>
             {columns.map((column, index) => (
@@ -286,64 +248,67 @@ export default function EmployeeInfoTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 bg-white">
-          {draftRows.map((draftRow, index) => {
-            const createRecordFormId = `employee-info-create-record-form-${draftRow.id}`;
-            const isBlank = !draftRow.fullName.trim();
-            return (
-              <tr key={draftRow.id} className="bg-slate-50/80">
-                <td className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/80 px-4 py-3">
-                  <form id={createRecordFormId} action={onCreateRecord} />
-                  <div className="flex items-center gap-2">
-                    <input
-                      form={createRecordFormId}
-                      name="full_name"
-                      value={draftRow.fullName}
-                      placeholder={index === 0 ? "Add employee full name" : "Full name"}
-                      aria-label={index === 0 ? "Add employee full name" : "Employee full name"}
-                      className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                      onChange={(event) =>
-                        updateDraftRow(draftRow.id, "fullName", event.currentTarget.value)
-                      }
-                    />
-                    <button
-                      type="submit"
-                      form={createRecordFormId}
-                      disabled={isBlank}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-                      aria-label="Add employee"
-                      title="Add employee"
-                    >
-                      +
-                    </button>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <select
+          {isAddingRow ? (
+            <tr className="bg-slate-50/80">
+              <td className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/80 px-4 py-3">
+                <form id={createRecordFormId} action={onCreateRecord} />
+                <div className="flex items-center gap-2">
+                  <input
                     form={createRecordFormId}
-                    name="client_id"
-                    value={draftRow.clientId}
-                    aria-label="New employee client"
-                    className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                    onChange={(event) =>
-                      updateDraftRow(draftRow.id, "clientId", event.currentTarget.value)
-                    }
+                    name="full_name"
+                    value={newFullName}
+                    placeholder="Add employee full name"
+                    aria-label="Add employee full name"
+                    className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                    onChange={(event) => setNewFullName(event.currentTarget.value)}
+                    autoFocus
+                    required
+                  />
+                  <button
+                    type="submit"
+                    form={createRecordFormId}
+                    disabled={!newFullName.trim()}
+                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    <option value="">Client (N/A)</option>
-                    {clients.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.name}
-                      </option>
-                    ))}
-                  </select>
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    onClick={() => {
+                      setIsAddingRow(false);
+                      setNewFullName("");
+                      setNewClientId("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                <select
+                  form={createRecordFormId}
+                  name="client_id"
+                  value={newClientId}
+                  aria-label="New employee client"
+                  className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                  onChange={(event) => setNewClientId(event.currentTarget.value)}
+                >
+                  <option value="">Client (N/A)</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              </td>
+              {columns.map((column) => (
+                <td key={`new-record-${column.id}`} className="px-4 py-3 text-xs text-slate-400">
+                  {column.column_kind === "formula" ? "auto" : "-"}
                 </td>
-                {columns.map((column) => (
-                  <td key={`new-record-${draftRow.id}-${column.id}`} className="px-4 py-3 text-xs text-slate-400">
-                    {column.column_kind === "formula" ? "auto" : "-"}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
+              ))}
+            </tr>
+          ) : null}
 
           {records.length ? (
             records.map((record) => {
