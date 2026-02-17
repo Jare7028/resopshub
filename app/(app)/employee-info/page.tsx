@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
 import {
+  columnIndexToLetter,
   evaluateEmployeeFormula,
   formatFormulaResult,
   normalizeEmployeeInfoColumnKind,
@@ -21,7 +22,7 @@ type EmployeeInfoColumnRow = {
   id: string;
   key: string;
   label: string;
-  column_kind: "text" | "dropdown" | "formula";
+  column_kind: "text" | "dropdown" | "formula" | "number";
   formula: string | null;
   options_json: unknown;
   position: number;
@@ -41,6 +42,11 @@ type UserRow = {
   role: string | null;
 };
 
+type FormulaSuggestion = {
+  token: string;
+  label: string;
+};
+
 function buildEmployeeInfoUrl(params?: { error?: string; success?: string }) {
   const sp = new URLSearchParams();
   if (params?.error) sp.set("error", params.error);
@@ -55,6 +61,44 @@ function toOptionsJson(raw: string) {
     .map((item) => item.trim())
     .filter(Boolean);
   return Array.from(new Set(options));
+}
+
+function normalizeNumberCellValue(rawValue: string) {
+  const normalized = String(rawValue || "")
+    .trim()
+    .replace(/,/g, "");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? String(parsed) : null;
+}
+
+function buildFormulaSuggestions(columns: EmployeeInfoColumnRow[]) {
+  const suggestions: FormulaSuggestion[] = [];
+  const seen = new Set<string>();
+
+  const addSuggestion = (token: string, label: string) => {
+    const cleaned = String(token || "").trim();
+    if (!cleaned) return;
+    const signature = cleaned.toLowerCase();
+    if (seen.has(signature)) return;
+    seen.add(signature);
+    suggestions.push({ token: cleaned, label });
+  };
+
+  addSuggestion("A", "Full Name");
+  addSuggestion("B", "Client");
+  addSuggestion("full_name", "Full Name");
+  addSuggestion("client", "Client");
+
+  columns.forEach((column, index) => {
+    const displayIndex = index + 2;
+    const letter = columnIndexToLetter(displayIndex);
+    addSuggestion(letter, `${column.label} (${letter})`);
+    addSuggestion(column.key, `${column.label} (${column.key})`);
+    addSuggestion(toEmployeeInfoColumnKey(column.label), `${column.label} (label key)`);
+  });
+
+  return suggestions;
 }
 
 function buildValueMap(
@@ -86,6 +130,27 @@ function buildFormulaValueMap(args: {
     result[record.id] = {};
     const columnByDisplayIndex = columns;
     const valuesByColumnId = valueMap[record.id] || {};
+    const namedReferenceToDisplayIndex: Record<string, number> = {};
+
+    const registerReference = (token: string, displayIndex: number) => {
+      const cleaned = String(token || "").trim().toLowerCase();
+      if (!cleaned) return;
+      if (namedReferenceToDisplayIndex[cleaned] !== undefined) return;
+      namedReferenceToDisplayIndex[cleaned] = displayIndex;
+    };
+
+    registerReference("A", 0);
+    registerReference("full_name", 0);
+    registerReference("fullname", 0);
+    registerReference("B", 1);
+    registerReference("client", 1);
+
+    columns.forEach((column, index) => {
+      const displayIndex = index + 2;
+      registerReference(column.key, displayIndex);
+      registerReference(toEmployeeInfoColumnKey(column.label), displayIndex);
+      registerReference(columnIndexToLetter(displayIndex), displayIndex);
+    });
 
     const resolveDisplayIndexValue = (displayIndex: number, visiting: Set<number>): unknown => {
       if (displayIndex === 0) return record.full_name;
@@ -98,8 +163,10 @@ function buildFormulaValueMap(args: {
       if (column.column_kind === "formula") {
         if (visiting.has(displayIndex)) return 0;
         visiting.add(displayIndex);
-        const nested = evaluateEmployeeFormula(column.formula, (refIndex) =>
-          resolveDisplayIndexValue(refIndex, new Set(visiting))
+        const nested = evaluateEmployeeFormula(
+          column.formula,
+          (refIndex) => resolveDisplayIndexValue(refIndex, new Set(visiting)),
+          (reference) => resolveNamedReferenceValue(reference, new Set(visiting))
         );
         visiting.delete(displayIndex);
         return nested ?? 0;
@@ -110,11 +177,19 @@ function buildFormulaValueMap(args: {
       return column.column_kind === "dropdown" ? value.option_value || "" : value.text_value || "";
     };
 
+    const resolveNamedReferenceValue = (reference: string, visiting: Set<number>) => {
+      const displayIndex = namedReferenceToDisplayIndex[String(reference || "").trim().toLowerCase()];
+      if (displayIndex === undefined) return undefined;
+      return resolveDisplayIndexValue(displayIndex, visiting);
+    };
+
     columns.forEach((column, index) => {
       if (column.column_kind !== "formula") return;
       const displayIndex = index + 2;
-      const evaluated = evaluateEmployeeFormula(column.formula, (refIndex) =>
-        resolveDisplayIndexValue(refIndex, new Set([displayIndex]))
+      const evaluated = evaluateEmployeeFormula(
+        column.formula,
+        (refIndex) => resolveDisplayIndexValue(refIndex, new Set([displayIndex])),
+        (reference) => resolveNamedReferenceValue(reference, new Set([displayIndex]))
       );
       result[record.id][column.id] = formatFormulaResult(evaluated);
     });
@@ -209,6 +284,8 @@ export default async function EmployeeInfoPage(props: {
 
   const records = (recordsRaw || []) as EmployeeInfoRecordRow[];
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
+  const formulaSuggestionListId = "employee-info-formula-suggestions";
+  const formulaSuggestions = buildFormulaSuggestions(columns);
 
   const recordIds = records.map((row) => row.id).filter(Boolean);
   const { data: valuesRaw, error: valuesError } = recordIds.length
@@ -305,7 +382,8 @@ export default async function EmployeeInfoPage(props: {
     if (!columnId) return { ok: false, error: "Missing column id" };
     if (columnKind === "formula") return { ok: true };
 
-    const normalizedValue = columnKind === "dropdown" ? value : value;
+    const normalizedValue =
+      columnKind === "number" ? normalizeNumberCellValue(value) : value;
     if (!normalizedValue) {
       const { error } = await supabase
         .from("employee_info_values")
@@ -515,6 +593,28 @@ export default async function EmployeeInfoPage(props: {
                   text_value: null;
                   updated_at: string;
                 } => Boolean(row))
+            : kind === "number"
+            ? valueRows
+                .map((row) => {
+                  const normalizedValue = normalizeNumberCellValue(
+                    String(row.text_value || row.option_value || "")
+                  );
+                  if (!normalizedValue) return null;
+                  return {
+                    record_id: row.record_id,
+                    column_id: columnId,
+                    text_value: normalizedValue,
+                    option_value: null,
+                    updated_at: now,
+                  };
+                })
+                .filter((row): row is {
+                  record_id: string;
+                  column_id: string;
+                  text_value: string;
+                  option_value: null;
+                  updated_at: string;
+                } => Boolean(row))
             : valueRows
                 .map((row) => {
                   const normalizedValue = String(row.text_value || row.option_value || "").trim();
@@ -696,8 +796,8 @@ export default async function EmployeeInfoPage(props: {
               </summary>
               <div className="absolute right-0 z-10 mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
                 <p className="text-xs text-slate-500">
-                  Formula columns support spreadsheet-style letters (A=Full Name, B=Client, C onward
-                  are your custom columns). Example: <code>=(C * D)</code>.
+                  Formula columns support letters (A=Full Name, B=Client, C onward custom columns)
+                  and column keys (for example <code>=salary + bonus</code>).
                 </p>
                 <form action={createColumn} className="mt-3 grid gap-3">
                   <input
@@ -712,6 +812,7 @@ export default async function EmployeeInfoPage(props: {
                     className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
                   >
                     <option value="text">Text</option>
+                    <option value="number">Number</option>
                     <option value="dropdown">Dropdown</option>
                     <option value="formula">Formula</option>
                   </select>
@@ -723,6 +824,7 @@ export default async function EmployeeInfoPage(props: {
                   <input
                     name="formula"
                     placeholder="Formula (e.g. =(C * D))"
+                    list={formulaSuggestionListId}
                     className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
                   />
                   <button
@@ -732,6 +834,15 @@ export default async function EmployeeInfoPage(props: {
                     Add column
                   </button>
                 </form>
+                <datalist id={formulaSuggestionListId}>
+                  {formulaSuggestions.map((suggestion) => (
+                    <option
+                      key={suggestion.token}
+                      value={`=${suggestion.token}`}
+                      label={suggestion.label}
+                    />
+                  ))}
+                </datalist>
               </div>
             </details>
           </div>
@@ -743,6 +854,7 @@ export default async function EmployeeInfoPage(props: {
           valuesByRecordId={valuesByRecordId}
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
           isAdmin={isAdmin}
+          formulaSuggestionListId={formulaSuggestionListId}
           onCreateRecord={createRecord}
           onUpdateCell={updateCell}
           onUpdateColumn={updateColumn}

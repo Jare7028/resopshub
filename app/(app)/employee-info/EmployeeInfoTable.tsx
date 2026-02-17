@@ -17,7 +17,7 @@ type EmployeeInfoColumnRow = {
   id: string;
   key: string;
   label: string;
-  column_kind: "text" | "dropdown" | "formula";
+  column_kind: "text" | "dropdown" | "formula" | "number";
   formula: string | null;
   options_json: unknown;
   position: number;
@@ -56,6 +56,7 @@ export default function EmployeeInfoTable({
   valuesByRecordId,
   formulaValueByRecordIdAndColumnId,
   isAdmin,
+  formulaSuggestionListId,
   onCreateRecord,
   onUpdateCell,
   onUpdateColumn,
@@ -66,6 +67,7 @@ export default function EmployeeInfoTable({
   valuesByRecordId: Record<string, Record<string, EmployeeInfoValueRow>>;
   formulaValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
   isAdmin: boolean;
+  formulaSuggestionListId: string;
   onCreateRecord: (formData: FormData) => Promise<void> | void;
   onUpdateCell: (formData: FormData) => Promise<unknown> | void;
   onUpdateColumn: (formData: FormData) => Promise<void> | void;
@@ -166,6 +168,7 @@ export default function EmployeeInfoTable({
                             className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
                           >
                             <option value="text">Text</option>
+                            <option value="number">Number</option>
                             <option value="dropdown">Dropdown</option>
                             <option value="formula">Formula</option>
                           </select>
@@ -179,6 +182,7 @@ export default function EmployeeInfoTable({
                             name="formula"
                             defaultValue={column.formula || ""}
                             placeholder="Formula (e.g. =(C * D))"
+                            list={formulaSuggestionListId}
                             className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
                           />
                           <button
@@ -327,6 +331,28 @@ export default function EmployeeInfoTable({
                                 </option>
                               ))}
                             </select>
+                          </form>
+                        </td>
+                      );
+                    }
+
+                    if (column.column_kind === "number") {
+                      return (
+                        <td key={column.id} className="px-4 py-3">
+                          <form>
+                            <input type="hidden" name="record_id" value={record.id} />
+                            <input type="hidden" name="column_id" value={column.id} />
+                            <input type="hidden" name="column_kind" value={column.column_kind} />
+                            <input
+                              type="number"
+                              step="any"
+                              inputMode="decimal"
+                              name="value"
+                              defaultValue={valueRow?.text_value || ""}
+                              aria-label={column.label}
+                              className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                              onChange={submitChange}
+                            />
                           </form>
                         </td>
                       );

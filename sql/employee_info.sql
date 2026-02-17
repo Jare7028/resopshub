@@ -19,7 +19,7 @@ create table if not exists public.employee_info_columns (
   id uuid primary key default gen_random_uuid(),
   key text not null unique,
   label text not null,
-  column_kind text not null check (column_kind in ('text', 'dropdown', 'formula')),
+  column_kind text not null check (column_kind in ('text', 'dropdown', 'formula', 'number')),
   formula text,
   options_json jsonb not null default '[]'::jsonb,
   position integer not null default 0,
@@ -232,4 +232,3 @@ grant select, insert, update, delete on table public.employee_info_records to au
 grant select, insert, update, delete on table public.employee_info_columns to authenticated;
 grant select, insert, update, delete on table public.employee_info_values to authenticated;
 grant select, insert, delete on table public.employee_info_access_users to authenticated;
-

@@ -1,4 +1,4 @@
-export const EMPLOYEE_INFO_COLUMN_KINDS = ["text", "dropdown", "formula"] as const;
+export const EMPLOYEE_INFO_COLUMN_KINDS = ["text", "dropdown", "formula", "number"] as const;
 export type EmployeeInfoColumnKind = (typeof EMPLOYEE_INFO_COLUMN_KINDS)[number];
 
 export function isEmployeeInfoColumnKind(value: string): value is EmployeeInfoColumnKind {
@@ -49,14 +49,22 @@ export function toFormulaNumber(value: unknown) {
 
 export function evaluateEmployeeFormula(
   formula: string | null | undefined,
-  resolveColumnIndex: (index: number) => unknown
+  resolveColumnIndex: (index: number) => unknown,
+  resolveNamedReference?: (reference: string) => unknown
 ) {
   const raw = String(formula || "").trim();
   if (!raw) return null;
   const expression = raw.startsWith("=") ? raw.slice(1) : raw;
   if (!expression.trim()) return null;
 
-  const replaced = expression.replace(/[A-Za-z]+/g, (match) => {
+  const replaced = expression.replace(/[A-Za-z_][A-Za-z0-9_]*/g, (match) => {
+    if (typeof resolveNamedReference === "function") {
+      const namedValue = resolveNamedReference(match);
+      if (namedValue !== undefined) {
+        return String(toFormulaNumber(namedValue));
+      }
+    }
+
     const index = columnLetterToIndex(match);
     if (index < 0) return "0";
     return String(toFormulaNumber(resolveColumnIndex(index)));
@@ -79,4 +87,3 @@ export function formatFormulaResult(value: number | null) {
   if (Number.isInteger(value)) return String(value);
   return value.toFixed(2).replace(/\.?0+$/, "");
 }
-
