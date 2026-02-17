@@ -22,6 +22,27 @@ function normalizeClientSortDir(value: string | undefined): ClientSortDir {
   return (clientSortDirs as readonly string[]).includes(value) ? (value as ClientSortDir) : "asc";
 }
 
+function normalizeToken(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function isLeaveDateColumn(column: { key: string; label: string; column_kind: string }) {
+  if (column.column_kind !== "date") return false;
+  const keyToken = normalizeToken(column.key);
+  const labelToken = normalizeToken(column.label);
+  const hasLeaveDateWords = (token: string) => token.includes("leave") && token.includes("date");
+  return (
+    keyToken === "leave_date" ||
+    labelToken === "leave_date" ||
+    hasLeaveDateWords(keyToken) ||
+    hasLeaveDateWords(labelToken)
+  );
+}
+
 export default async function ClientsPage(props: {
   searchParams?: Promise<{
     q?: string;
@@ -131,6 +152,73 @@ export default async function ClientsPage(props: {
     clients = (clientsWithEndDate || []) as unknown as ClientRow[];
   }
 
+  const activeEmployeeCountByClientId: Record<string, number> = {};
+  clients.forEach((client) => {
+    if (client.id) activeEmployeeCountByClientId[client.id] = 0;
+  });
+  const clientIds = clients.map((client) => client.id).filter(Boolean);
+
+  if (clientIds.length) {
+    const { data: employeeRecordsRaw, error: employeeRecordsError } = await supabase
+      .from("employee_info_records")
+      .select("id,client_id")
+      .in("client_id", clientIds);
+
+    const employeeRecords = employeeRecordsError
+      ? []
+      : ((employeeRecordsRaw || []) as Array<{ id: string; client_id: string | null }>);
+    const recordIds = employeeRecords.map((record) => record.id).filter(Boolean);
+    const clientIdByRecordId = employeeRecords.reduce<Record<string, string>>((acc, record) => {
+      if (!record.id || !record.client_id) return acc;
+      acc[record.id] = record.client_id;
+      return acc;
+    }, {});
+
+    const { data: employeeColumnsRaw, error: employeeColumnsError } = await supabase
+      .from("employee_info_columns")
+      .select("id,key,label,column_kind");
+    const employeeColumns = employeeColumnsError
+      ? []
+      : ((employeeColumnsRaw || []) as Array<{
+          id: string;
+          key: string;
+          label: string;
+          column_kind: string;
+        }>);
+    const leaveDateColumnIds = employeeColumns
+      .filter((column) => isLeaveDateColumn(column))
+      .map((column) => column.id);
+
+    const inactiveRecordIdSet = new Set<string>();
+    if (recordIds.length && leaveDateColumnIds.length) {
+      const { data: leaveValuesRaw, error: leaveValuesError } = await supabase
+        .from("employee_info_values")
+        .select("record_id,text_value,option_value,column_id")
+        .in("record_id", recordIds)
+        .in("column_id", leaveDateColumnIds);
+
+      if (!leaveValuesError) {
+        ((leaveValuesRaw || []) as Array<{
+          record_id: string;
+          text_value: string | null;
+          option_value: string | null;
+        }>).forEach((row) => {
+          const leaveDateValue = String(row.text_value || row.option_value || "").trim();
+          if (leaveDateValue) {
+            inactiveRecordIdSet.add(row.record_id);
+          }
+        });
+      }
+    }
+
+    recordIds.forEach((recordId) => {
+      if (inactiveRecordIdSet.has(recordId)) return;
+      const clientId = clientIdByRecordId[recordId];
+      if (!clientId) return;
+      activeEmployeeCountByClientId[clientId] = (activeEmployeeCountByClientId[clientId] || 0) + 1;
+    });
+  }
+
   async function deleteClient(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -178,6 +266,7 @@ export default async function ClientsPage(props: {
         </div>
         <ClientsTable
           clients={clients}
+          activeEmployeeCountByClientId={activeEmployeeCountByClientId}
           statusOptions={statusOptions}
           initialFilters={{
             q: query,

@@ -63,6 +63,7 @@ function toDateInputValue(date: Date) {
 
 export default function ClientsTable({
   clients,
+  activeEmployeeCountByClientId,
   statusOptions,
   initialFilters,
   sortKey,
@@ -73,6 +74,7 @@ export default function ClientsTable({
   onDelete,
 }: {
   clients: ClientRow[];
+  activeEmployeeCountByClientId: Record<string, number>;
   statusOptions: readonly string[];
   initialFilters: { q: string; status: string[]; industry: string[] };
   sortKey: ClientSortKey;
@@ -217,6 +219,7 @@ export default function ClientsTable({
   };
 
   const boardByStatus = useMemo(() => {
+    if (view !== "board") return null;
     const buckets = new Map<string, ClientRow[]>();
     statusOptions.forEach((status) => buckets.set(status, []));
     clients.forEach((client) => {
@@ -226,7 +229,7 @@ export default function ClientsTable({
       buckets.get(bucketKey)?.push(client);
     });
     return buckets;
-  }, [clients, statusOptions]);
+  }, [clients, statusOptions, view]);
 
   const ganttData = useMemo(() => {
     const today = new Date();
@@ -240,6 +243,15 @@ export default function ClientsTable({
       today.getMonth() + 3,
       today.getDate()
     );
+    const defaultRangeDays = Math.max(1, diffDays(defaultWindowStart, defaultWindowEnd) + 1);
+    if (view !== "gantt") {
+      return {
+        clients: [],
+        rangeStart: defaultWindowStart,
+        rangeEnd: defaultWindowEnd,
+        rangeDays: defaultRangeDays,
+      };
+    }
     const statusWeight: Record<string, number> = {
       active: 0,
       on_hold: 1,
@@ -267,12 +279,11 @@ export default function ClientsTable({
       });
 
     if (!normalized.length) {
-      const rangeDays = Math.max(1, diffDays(defaultWindowStart, defaultWindowEnd) + 1);
       return {
         clients: [],
         rangeStart: defaultWindowStart,
         rangeEnd: defaultWindowEnd,
-        rangeDays,
+        rangeDays: defaultRangeDays,
       };
     }
 
@@ -286,13 +297,14 @@ export default function ClientsTable({
     const rangeEnd = dataRangeEnd > defaultWindowEnd ? dataRangeEnd : defaultWindowEnd;
     const rangeDays = Math.max(1, diffDays(rangeStart, rangeEnd) + 1);
     return { clients: normalized, rangeStart, rangeEnd, rangeDays };
-  }, [clients]);
+  }, [clients, view]);
 
   const timelineWidth = useMemo(() => {
+    if (view !== "gantt") return ganttViewportWidth;
     // Default viewport target: 2 years back + 3 months forward.
     const dayWidth = Math.max(1, ganttViewportWidth / 822);
     return Math.max(ganttViewportWidth, Math.ceil(ganttData.rangeDays * dayWidth));
-  }, [ganttData.rangeDays, ganttViewportWidth]);
+  }, [ganttData.rangeDays, ganttViewportWidth, view]);
 
   useEffect(() => {
     if (view !== "gantt") {
@@ -314,6 +326,7 @@ export default function ClientsTable({
   }, [view]);
 
   const timelineTicks = useMemo(() => {
+    if (view !== "gantt") return [] as Array<{ label: string; left: number }>;
     const ticks: Array<{ label: string; left: number }> = [];
     const start = new Date(ganttData.rangeStart.getFullYear(), ganttData.rangeStart.getMonth(), 1);
     const end = new Date(ganttData.rangeEnd.getFullYear(), ganttData.rangeEnd.getMonth(), 1);
@@ -325,13 +338,14 @@ export default function ClientsTable({
       cursor.setMonth(cursor.getMonth() + 1);
     }
     return ticks;
-  }, [ganttData.rangeDays, ganttData.rangeEnd, ganttData.rangeStart]);
+  }, [ganttData.rangeDays, ganttData.rangeEnd, ganttData.rangeStart, view]);
 
   const todayMarker = useMemo(() => {
+    if (view !== "gantt") return null;
     const todayOffset = diffDays(ganttData.rangeStart, new Date());
     if (todayOffset < 0 || todayOffset > ganttData.rangeDays - 1) return null;
     return { leftPercent: (todayOffset / ganttData.rangeDays) * 100 };
-  }, [ganttData.rangeDays, ganttData.rangeStart]);
+  }, [ganttData.rangeDays, ganttData.rangeStart, view]);
 
   useEffect(() => {
     if (view !== "gantt") {
@@ -473,6 +487,9 @@ export default function ClientsTable({
               </div>
             </th>
             <th className="px-6 py-3">
+              <span className="text-slate-700">Active employees</span>
+            </th>
+            <th className="px-6 py-3">
               <div className="relative flex items-center justify-between gap-2">
                 <a href={buildSortUrl("status")} className={headerClass("status")}>
                   Status {sortIndicator("status")}
@@ -551,6 +568,9 @@ export default function ClientsTable({
                     {client.name}
                   </Link>
                 </td>
+                <td className="px-6 py-3 text-slate-700">
+                  {activeEmployeeCountByClientId[client.id] ?? 0}
+                </td>
                 <td className="px-6 py-3 text-slate-600">
                   {client.status?.replaceAll("_", " ") || "-"}
                 </td>
@@ -573,7 +593,7 @@ export default function ClientsTable({
             ))
           ) : (
             <tr>
-              <td className="px-6 py-6 text-slate-500" colSpan={6}>
+              <td className="px-6 py-6 text-slate-500" colSpan={7}>
                 No clients found.
               </td>
             </tr>
@@ -603,6 +623,10 @@ export default function ClientsTable({
                   <p>
                     <span className="font-semibold text-slate-700">Industry:</span>{" "}
                     {client.industry || "-"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-slate-700">Active employees:</span>{" "}
+                    {activeEmployeeCountByClientId[client.id] ?? 0}
                   </p>
                   <p>
                     <span className="font-semibold text-slate-700">Owner:</span>{" "}
@@ -640,7 +664,7 @@ export default function ClientsTable({
         <div className="overflow-x-auto px-6 py-6">
           <div className="flex min-w-max gap-4">
             {statusOptions.map((status) => {
-              const columnClients = boardByStatus.get(status) || [];
+              const columnClients = boardByStatus?.get(status) || [];
               const color = statusColors[status] || "bg-slate-400";
               return (
                 <div

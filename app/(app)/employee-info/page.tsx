@@ -594,16 +594,26 @@ export default async function EmployeeInfoPage(props: {
     }
   }
 
-  const [{ data: clientsRaw }, { data: usersRaw }, viewerVisibilityRuleResult] = await Promise.all([
-    supabase.from("clients").select("id,name").order("name", { ascending: true }),
-    supabase.from("users").select("id,full_name,email,role").order("full_name", { ascending: true }),
-    readVisibilityRuleForUser({ supabase, userId: currentAppUserId }),
-  ]);
+  const usersPromise = canManageAccess
+    ? supabase.from("users").select("id,full_name,email,role").order("full_name", { ascending: true })
+    : Promise.resolve({ data: [] as UserRow[], error: null });
+  const [{ data: clientsRaw, error: clientsError }, usersResult, viewerVisibilityRuleResult] =
+    await Promise.all([
+      supabase.from("clients").select("id,name").order("name", { ascending: true }),
+      usersPromise,
+      readVisibilityRuleForUser({ supabase, userId: currentAppUserId }),
+    ]);
+  if (clientsError) {
+    redirect(buildEmployeeInfoUrl({ error: clientsError.message }));
+  }
+  if (usersResult.error) {
+    redirect(buildEmployeeInfoUrl({ error: usersResult.error.message }));
+  }
   if (viewerVisibilityRuleResult.error) {
     redirect(buildEmployeeInfoUrl({ error: viewerVisibilityRuleResult.error }));
   }
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
-  const users = (usersRaw || []) as UserRow[];
+  const users = (usersResult.data || []) as UserRow[];
   const viewerVisibilityRuleRow = viewerVisibilityRuleResult.ruleRow;
   const viewerVisibilityTableMissing = viewerVisibilityRuleResult.tableMissing;
   const viewerVisibilityRule = toEmployeeInfoVisibilityRule(viewerVisibilityRuleRow);
@@ -615,15 +625,20 @@ export default async function EmployeeInfoPage(props: {
   if (viewerVisibilityRule.enabled && viewerVisibilityRule.allowedClientIds.length) {
     recordsQuery = recordsQuery.in("client_id", viewerVisibilityRule.allowedClientIds);
   }
-  const { data: recordsRaw, error: recordsError } = await recordsQuery;
-
-  let { data: columnsRaw, error: columnsError } = await supabase
-    .from("employee_info_columns")
-    .select(
-      "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
-    )
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
+  const [recordsResult, columnsResult] = await Promise.all([
+    recordsQuery,
+    supabase
+      .from("employee_info_columns")
+      .select(
+        "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
+      )
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true }),
+  ]);
+  const recordsRaw = recordsResult.data;
+  const recordsError = recordsResult.error;
+  let columnsRaw = columnsResult.data;
+  let columnsError = columnsResult.error;
 
   if (isSupabaseMissingColumnError(columnsError)) {
     const fallbackColumns = await supabase
@@ -659,6 +674,24 @@ export default async function EmployeeInfoPage(props: {
   const records = (recordsRaw || []) as EmployeeInfoRecordRow[];
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
   const formulaSuggestions = buildFormulaSuggestions(columns);
+  const hasFormulaColumns = columns.some((column) => column.column_kind === "formula");
+  const hasCurrencyColumns = columns.some((column) => column.column_kind === "currency");
+
+  const visibilityRulesPromise =
+    canManageAccess && !viewerVisibilityTableMissing
+      ? supabase
+          .from("employee_info_visibility_rules")
+          .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values")
+      : Promise.resolve({
+          data: [] as EmployeeInfoVisibilityRuleRow[],
+          error: null as { message?: string } | null,
+        });
+  const allowedUsersPromise = canManageAccess
+    ? supabase.from("employee_info_access_users").select("user_id")
+    : Promise.resolve({
+        data: [] as Array<{ user_id: string }>,
+        error: null as { message?: string } | null,
+      });
 
   const recordIds = records.map((row) => row.id).filter(Boolean);
   let valuesRaw: EmployeeInfoValueRow[] = [];
@@ -693,52 +726,55 @@ export default async function EmployeeInfoPage(props: {
     valuesByRecordId,
     ruleRow: viewerVisibilityRuleRow,
   });
-  const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
-    .from("employee_info_exchange_rates")
-    .select("base_currency_code,quote_currency_code,rate,effective_month_start")
-    .order("effective_month_start", { ascending: false });
-  const exchangeRateRows = (
-    isSupabaseMissingTableError(exchangeRateError) ? [] : exchangeRateRowsRaw || []
-  ) as EmployeeInfoExchangeRateRow[];
+  const shouldLoadExchangeRates =
+    visibleRecords.length > 0 &&
+    (hasFormulaColumns || (displayCurrency !== "ORIGINAL" && hasCurrencyColumns));
+  let exchangeRateRows: EmployeeInfoExchangeRateRow[] = [];
+  if (shouldLoadExchangeRates) {
+    const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
+      .from("employee_info_exchange_rates")
+      .select("base_currency_code,quote_currency_code,rate,effective_month_start")
+      .order("effective_month_start", { ascending: false });
+    exchangeRateRows = (
+      isSupabaseMissingTableError(exchangeRateError) ? [] : exchangeRateRowsRaw || []
+    ) as EmployeeInfoExchangeRateRow[];
+  }
 
   const clientNameById = clients.reduce<Record<string, string>>((acc, client) => {
     acc[client.id] = client.name;
     return acc;
   }, {});
-  const formulaValueByRecordIdAndColumnId = buildFormulaValueMap({
-    records: visibleRecords,
-    columns,
-    valueMap: valuesByRecordId,
-    clientNameById,
-    exchangeRateRows,
-    displayCurrency,
-  });
-  const currencyDisplayValueByRecordIdAndColumnId = buildCurrencyDisplayValueMap({
-    records: visibleRecords,
-    columns,
-    valueMap: valuesByRecordId,
-    exchangeRateRows,
-    displayCurrency,
-  });
-
-  const roleValueSuggestionsByColumnId = columns.reduce<Record<string, string[]>>((acc, column) => {
-    if (column.column_kind === "formula") return acc;
-    acc[column.id] = buildRoleValueSuggestions({
-      records,
-      valuesByRecordId,
-      roleColumnId: column.id,
-    });
-    return acc;
-  }, {});
+  const formulaValueByRecordIdAndColumnId =
+    hasFormulaColumns && visibleRecords.length
+      ? buildFormulaValueMap({
+          records: visibleRecords,
+          columns,
+          valueMap: valuesByRecordId,
+          clientNameById,
+          exchangeRateRows,
+          displayCurrency,
+        })
+      : {};
+  const currencyDisplayValueByRecordIdAndColumnId =
+    displayCurrency !== "ORIGINAL" && hasCurrencyColumns && visibleRecords.length
+      ? buildCurrencyDisplayValueMap({
+          records: visibleRecords,
+          columns,
+          valueMap: valuesByRecordId,
+          exchangeRateRows,
+          displayCurrency,
+        })
+      : {};
 
   let visibilityRuleRowsByUserId = new Map<string, EmployeeInfoVisibilityRuleRow>();
   let visibilityRulesLoadError: string | null = null;
+  const [visibilityRulesResult, allowedUsersResult] = await Promise.all([
+    visibilityRulesPromise,
+    allowedUsersPromise,
+  ]);
   if (canManageAccess && !viewerVisibilityTableMissing) {
-    const visibilityRulesResult = await supabase
-      .from("employee_info_visibility_rules")
-      .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values");
     if (visibilityRulesResult.error) {
-      visibilityRulesLoadError = visibilityRulesResult.error.message;
+      visibilityRulesLoadError = visibilityRulesResult.error.message || "Failed to load visibility rules";
     } else {
       visibilityRuleRowsByUserId = new Map(
         ((visibilityRulesResult.data || []) as EmployeeInfoVisibilityRuleRow[]).map((row) => [
@@ -749,10 +785,30 @@ export default async function EmployeeInfoPage(props: {
     }
   }
 
-  const { data: allowedUsersRaw } = canManageAccess
-    ? await supabase.from("employee_info_access_users").select("user_id")
-    : { data: [] as Array<{ user_id: string }> };
-  const allowedUserIds = new Set((allowedUsersRaw || []).map((row) => row.user_id));
+  const roleColumnIdsNeedingHints = canManageAccess
+    ? Array.from(
+        new Set(
+          Array.from(visibilityRuleRowsByUserId.values())
+            .map((row) => String(row.role_column_id || "").trim())
+            .filter((columnId) => columnId.length > 0)
+        )
+      )
+    : [];
+  const roleValueSuggestionsByColumnId = roleColumnIdsNeedingHints.reduce<Record<string, string[]>>(
+    (acc, columnId) => {
+      const column = columns.find((item) => item.id === columnId);
+      if (!column || column.column_kind === "formula") return acc;
+      acc[columnId] = buildRoleValueSuggestions({
+        records,
+        valuesByRecordId,
+        roleColumnId: columnId,
+      });
+      return acc;
+    },
+    {}
+  );
+
+  const allowedUserIds = new Set((allowedUsersResult.data || []).map((row) => row.user_id));
 
   async function createRecord(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
