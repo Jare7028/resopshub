@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   FilterIcon,
@@ -475,6 +476,12 @@ export default function AdminUsersTable({
                         >
                           {isDeleting ? "Deleting..." : "Delete permanently"}
                         </button>
+                        <Link
+                          href={`/admin/users/${user.id}/permissions`}
+                          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        >
+                          Permissions
+                        </Link>
                         {error ? (
                           <span className="text-xs text-red-600">{error}</span>
                         ) : null}
