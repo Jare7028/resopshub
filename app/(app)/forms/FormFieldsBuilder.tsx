@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildFieldKey,
   conditionOperatorUsesValue,
+  doesFormFieldVisibilityMatch,
   formFieldConditionModeOptions,
   formFieldConditionOperatorOptions,
   formatFormLabel,
@@ -114,6 +115,8 @@ export default function FormFieldsBuilder({
 
   const [fields, setFields] = useState<FormField[]>(normalizedInitialFields);
   const [isAddFieldModalOpen, setIsAddFieldModalOpen] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
   const [openAdvancedByFieldId, setOpenAdvancedByFieldId] = useState<Record<string, boolean>>({});
   const modalRef = useRef<HTMLDivElement | null>(null);
 
@@ -551,6 +554,150 @@ export default function FormFieldsBuilder({
           );
         })}
       </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">Visibility preview</h4>
+            <p className="text-xs text-slate-500">
+              Enter sample answers to test visibility rules instantly.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsPreviewOpen((current) => !current)}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+          >
+            {isPreviewOpen ? "Hide preview" : "Open preview"}
+          </button>
+        </div>
+
+        {isPreviewOpen ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              {fields
+                .filter((field) => Boolean(field.key))
+                .map((field) => {
+                  const fieldLabel = field.label || formatFormLabel(field.key) || field.key;
+                  const value = previewValues[field.key] || "";
+                  if (field.type === "select") {
+                    return (
+                      <label
+                        key={`${field.id}_preview`}
+                        className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+                      >
+                        {fieldLabel}
+                        <select
+                          value={value}
+                          onChange={(event) =>
+                            setPreviewValues((current) => ({
+                              ...current,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                        >
+                          <option value="">(blank)</option>
+                          {(field.options || []).map((option) => (
+                            <option key={`${field.id}_preview_option_${option}`} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  }
+                  if (field.type === "checkbox") {
+                    return (
+                      <label
+                        key={`${field.id}_preview`}
+                        className="inline-flex items-center gap-2 text-sm text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={value === "true"}
+                          onChange={(event) =>
+                            setPreviewValues((current) => ({
+                              ...current,
+                              [field.key]: event.target.checked ? "true" : "false",
+                            }))
+                          }
+                        />
+                        {fieldLabel}
+                      </label>
+                    );
+                  }
+                  if (field.type === "textarea") {
+                    return (
+                      <label
+                        key={`${field.id}_preview`}
+                        className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+                      >
+                        {fieldLabel}
+                        <textarea
+                          rows={2}
+                          value={value}
+                          onChange={(event) =>
+                            setPreviewValues((current) => ({
+                              ...current,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                        />
+                      </label>
+                    );
+                  }
+                  return (
+                    <label
+                      key={`${field.id}_preview`}
+                      className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+                    >
+                      {fieldLabel}
+                      <input
+                        type={field.type === "number" || field.type === "date" ? field.type : "text"}
+                        value={value}
+                        onChange={(event) =>
+                          setPreviewValues((current) => ({
+                            ...current,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                      />
+                    </label>
+                  );
+                })}
+            </div>
+
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Current visibility
+              </p>
+              <div className="mt-2 space-y-1">
+                {fields.map((field) => {
+                  const fieldLabel = field.label || formatFormLabel(field.key) || field.key || field.id;
+                  const visible = doesFormFieldVisibilityMatch(field, previewValues);
+                  return (
+                    <p key={`${field.id}_visibility`} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-slate-700">{fieldLabel}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          visible
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-slate-200 text-slate-600"
+                        }`}
+                      >
+                        {visible ? "Visible" : "Hidden"}
+                      </span>
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }
