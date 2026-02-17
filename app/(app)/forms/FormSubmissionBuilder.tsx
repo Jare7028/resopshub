@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   doesFormFieldVisibilityMatch,
+  ensureUniqueFormFieldKeys,
   normalizeFormFieldType,
   type FormField,
 } from "./types";
@@ -20,7 +21,8 @@ export default function FormSubmissionBuilder({
 }) {
   const normalizedFields = useMemo(
     () =>
-      fields.map((field) => ({
+      ensureUniqueFormFieldKeys(
+        fields.map((field) => ({
         ...field,
         type: normalizeFormFieldType(field.type),
         options: Array.isArray(field.options) ? field.options.filter(Boolean) : [],
@@ -28,7 +30,8 @@ export default function FormSubmissionBuilder({
         helpText: String(field.helpText || "").trim(),
         minValue: String(field.minValue || "").trim(),
         maxValue: String(field.maxValue || "").trim(),
-      })),
+      }))
+      ),
     [fields]
   );
   const [values, setValues] = useState<ValueMap>({});

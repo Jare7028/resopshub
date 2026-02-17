@@ -216,6 +216,55 @@ export function normalizeFormFieldMetadata(value: unknown): {
   };
 }
 
+function buildUniqueFieldKey(base: string, used: Set<string>) {
+  let candidate = base || "field";
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${base}_${suffix}`;
+    suffix += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+export function ensureUniqueFormFieldKeys(fields: FormField[]) {
+  const usedKeys = new Set<string>();
+  const firstUniqueKeyByOriginal = new Map<string, string>();
+
+  const keyedFields = fields.map((field, index) => {
+    const originalKey = buildFieldKey(String(field.key || field.label || ""), `field_${index + 1}`);
+    const uniqueKey = buildUniqueFieldKey(originalKey, usedKeys);
+    if (!firstUniqueKeyByOriginal.has(originalKey)) {
+      firstUniqueKeyByOriginal.set(originalKey, uniqueKey);
+    }
+    return {
+      ...field,
+      key: uniqueKey,
+    };
+  });
+
+  const remapFieldKey = (fieldKey: string) =>
+    firstUniqueKeyByOriginal.get(fieldKey) || fieldKey;
+
+  return keyedFields.map((field) => {
+    const conditions = normalizeFormFieldConditions(field.conditions).map((condition) => ({
+      ...condition,
+      fieldKey: remapFieldKey(condition.fieldKey),
+    }));
+    const condition = normalizeFormFieldCondition(field.condition);
+    return {
+      ...field,
+      conditions,
+      condition: condition
+        ? {
+            ...condition,
+            fieldKey: remapFieldKey(condition.fieldKey),
+          }
+        : null,
+    } satisfies FormField;
+  });
+}
+
 export function doesFormFieldConditionMatch(
   condition: FormFieldCondition | null | undefined,
   values: Record<string, string>

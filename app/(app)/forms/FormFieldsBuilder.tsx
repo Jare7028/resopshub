@@ -5,6 +5,7 @@ import {
   buildFieldKey,
   conditionOperatorUsesValue,
   doesFormFieldVisibilityMatch,
+  ensureUniqueFormFieldKeys,
   formFieldConditionModeOptions,
   formFieldConditionOperatorOptions,
   formatFormLabel,
@@ -45,6 +46,22 @@ function createField(seed: number, type: BuilderFieldType = "text"): FormField {
     conditions: [],
     condition: null,
   };
+}
+
+function readSeed(value: string | undefined) {
+  if (!value) return 0;
+  const match = value.match(/_(\d+)$/);
+  if (!match) return 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function computeNextFieldSeed(fields: FormField[]) {
+  let maxSeed = 0;
+  fields.forEach((field) => {
+    maxSeed = Math.max(maxSeed, readSeed(field.id), readSeed(field.key));
+  });
+  return maxSeed + 1;
 }
 
 function TypeIcon({ type }: { type: BuilderFieldType }) {
@@ -102,7 +119,7 @@ export default function FormFieldsBuilder({
 }) {
   const normalizedInitialFields = useMemo(() => {
     if (!initialFields.length) return [createField(1)];
-    return initialFields.map((field, index) => {
+    const normalized = initialFields.map((field, index) => {
       const visibility = normalizeFormFieldVisibility(field);
       const metadata = normalizeFormFieldMetadata(field);
       return {
@@ -123,9 +140,11 @@ export default function FormFieldsBuilder({
         condition: visibility.condition,
       };
     });
+    return ensureUniqueFormFieldKeys(normalized);
   }, [initialFields]);
 
   const [fields, setFields] = useState<FormField[]>(normalizedInitialFields);
+  const nextFieldSeedRef = useRef<number>(computeNextFieldSeed(normalizedInitialFields));
   const [isAddFieldModalOpen, setIsAddFieldModalOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
@@ -135,13 +154,17 @@ export default function FormFieldsBuilder({
   const serialized = useMemo(() => JSON.stringify(fields), [fields]);
 
   const addField = (type: BuilderFieldType) => {
-    setFields((current) => [...current, createField(current.length + 1, type)]);
+    const seed = nextFieldSeedRef.current;
+    nextFieldSeedRef.current += 1;
+    setFields((current) => ensureUniqueFormFieldKeys([...current, createField(seed, type)]));
     setIsAddFieldModalOpen(false);
   };
 
   const updateField = (index: number, updater: (field: FormField) => FormField) => {
     setFields((current) =>
-      current.map((item, itemIndex) => (itemIndex === index ? updater(item) : item))
+      ensureUniqueFormFieldKeys(
+        current.map((item, itemIndex) => (itemIndex === index ? updater(item) : item))
+      )
     );
   };
 
@@ -314,7 +337,9 @@ export default function FormFieldsBuilder({
                   onClick={() =>
                     setFields((current) =>
                       current.length > 1
-                        ? current.filter((_, itemIndex) => itemIndex !== index)
+                        ? ensureUniqueFormFieldKeys(
+                            current.filter((_, itemIndex) => itemIndex !== index)
+                          )
                         : current
                     )
                   }

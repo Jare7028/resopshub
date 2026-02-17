@@ -12,6 +12,7 @@ import FormSubmissionBuilder from "../FormSubmissionBuilder";
 import {
   buildFieldKey,
   doesFormFieldVisibilityMatch,
+  ensureUniqueFormFieldKeys,
   formStatusOptions,
   formatFormLabel,
   normalizeFormActionPriority,
@@ -63,7 +64,7 @@ function normalizeSubmissionSortDir(value: string | null | undefined): Submissio
 
 function parseFields(value: unknown): FormField[] {
   if (!Array.isArray(value)) return [];
-  return value
+  const fields = value
     .map((item, index) => {
       if (!item || typeof item !== "object") return null;
       const row = item as Record<string, unknown>;
@@ -91,6 +92,8 @@ function parseFields(value: unknown): FormField[] {
       } satisfies FormField;
     })
     .filter(Boolean) as FormField[];
+
+  return ensureUniqueFormFieldKeys(fields);
 }
 
 function parseFieldsJson(raw: string): FormField[] {

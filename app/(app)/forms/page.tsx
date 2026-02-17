@@ -12,6 +12,7 @@ import FormsTabs, {
 } from "./_components/FormsTabs";
 import {
   buildFieldKey,
+  ensureUniqueFormFieldKeys,
   formStatusOptions,
   normalizeFormFieldMetadata,
   normalizeFormFieldVisibility,
@@ -54,7 +55,7 @@ function parseFieldsJson(raw: string): FormField[] {
   }
   if (!Array.isArray(parsed)) return [];
 
-  return parsed
+  const fields = parsed
     .map((item, index) => {
       if (!item || typeof item !== "object") return null;
       const row = item as Record<string, unknown>;
@@ -84,6 +85,8 @@ function parseFieldsJson(raw: string): FormField[] {
       } satisfies FormField;
     })
     .filter(Boolean) as FormField[];
+
+  return ensureUniqueFormFieldKeys(fields);
 }
 
 function parseTaskTemplateIdsJson(raw: string): string[] {
