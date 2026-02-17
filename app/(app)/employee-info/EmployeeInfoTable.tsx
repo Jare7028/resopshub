@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type ChangeEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
@@ -70,7 +77,7 @@ function ColumnEditPanel({
   const initialFormula = column.formula || "";
 
   useEffect(() => {
-    const onDocumentMouseDown = (event: MouseEvent) => {
+    const onDocumentMouseDown = (event: globalThis.MouseEvent) => {
       const details = detailsRef.current;
       const updateForm = updateFormRef.current;
       if (!details?.open || !updateForm) return;
@@ -244,8 +251,18 @@ export default function EmployeeInfoTable({
     });
   };
 
+  const preventMiddleClickAutoscroll = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button === 1) {
+      event.preventDefault();
+    }
+  };
+
   return (
-    <div className="overflow-x-auto">
+    <div
+      className="overflow-x-auto"
+      onMouseDown={preventMiddleClickAutoscroll}
+      onAuxClick={preventMiddleClickAutoscroll}
+    >
       <table className="min-w-full divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
           <tr>
