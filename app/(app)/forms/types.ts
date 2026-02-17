@@ -287,7 +287,7 @@ export function doesFormFieldVisibilityMatch(
 }
 
 export function validateFormFieldValue(
-  field: Pick<FormField, "type" | "label" | "key" | "minValue" | "maxValue" | "pattern">,
+  field: Pick<FormField, "type" | "label" | "key" | "minValue" | "maxValue">,
   value: string
 ) {
   const normalized = String(value || "").trim();
@@ -329,18 +329,6 @@ export function validateFormFieldValue(
       if (Number.isFinite(maxDate) && dateValue > maxDate) {
         return `${label} must be on or before ${field.maxValue}`;
       }
-    }
-  }
-
-  if (field.pattern) {
-    let expression: RegExp;
-    try {
-      expression = new RegExp(field.pattern);
-    } catch {
-      return `${label} has an invalid pattern rule`;
-    }
-    if (!expression.test(normalized)) {
-      return `${label} format is invalid`;
     }
   }
 

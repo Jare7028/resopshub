@@ -425,22 +425,6 @@ export default function FormFieldsBuilder({
                       </label>
                     </>
                   ) : null}
-                  {(field.type === "text" || field.type === "textarea") ? (
-                    <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                      Pattern (Regex)
-                      <input
-                        value={field.pattern || ""}
-                        onChange={(event) =>
-                          updateField(index, (item) => ({
-                            ...item,
-                            pattern: event.target.value,
-                          }))
-                        }
-                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                        placeholder="^[A-Z]{3}-[0-9]{4}$"
-                      />
-                    </label>
-                  ) : null}
                   <div className="md:col-span-12 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     <p>Visibility rules</p>
                     <div className="mt-1 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">

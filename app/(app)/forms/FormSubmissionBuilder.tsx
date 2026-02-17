@@ -28,7 +28,6 @@ export default function FormSubmissionBuilder({
         helpText: String(field.helpText || "").trim(),
         minValue: String(field.minValue || "").trim(),
         maxValue: String(field.maxValue || "").trim(),
-        pattern: String(field.pattern || "").trim(),
       })),
     [fields]
   );
@@ -144,7 +143,6 @@ export default function FormSubmissionBuilder({
               placeholder={field.placeholder || undefined}
               min={field.minValue || undefined}
               max={field.maxValue || undefined}
-              pattern={field.pattern || undefined}
               value={values[field.key] || ""}
               onChange={(event) =>
                 setValues((current) => ({ ...current, [field.key]: event.target.value }))
