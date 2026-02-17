@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 export type LinkEntityType =
   | "task"
@@ -50,27 +50,72 @@ export default function ChatComposer(props: {
     }>;
   }) => Promise<void>;
   isSending?: boolean;
-  linkOptions: Record<LinkEntityType, LinkOption[]>;
 }) {
-  const { conversationId, onSend, isSending = false, linkOptions } = props;
+  const { conversationId, onSend, isSending = false } = props;
   const [body, setBody] = useState("");
   const [isSlashOpen, setIsSlashOpen] = useState(false);
   const [entityType, setEntityType] = useState<LinkEntityType>("task");
   const [query, setQuery] = useState("");
   const [entityId, setEntityId] = useState("");
+  const [entityOptions, setEntityOptions] = useState<LinkOption[]>([]);
+  const [isLoadingEntityOptions, setIsLoadingEntityOptions] = useState(false);
+  const [entityOptionsError, setEntityOptionsError] = useState("");
   const [attachedLinks, setAttachedLinks] = useState<AttachedLink[]>([]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [uploadError, setUploadError] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  const filteredOptions = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const options = linkOptions[entityType] || [];
-    if (!normalizedQuery) return options;
-    return options.filter((option) => option.label.toLowerCase().includes(normalizedQuery));
-  }, [entityType, linkOptions, query]);
+  useEffect(() => {
+    if (!isSlashOpen) return;
 
-  const selectedOption = filteredOptions.find((option) => option.id === entityId) || null;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setIsLoadingEntityOptions(true);
+      setEntityOptionsError("");
+      try {
+        const params = new URLSearchParams();
+        params.set("type", entityType);
+        if (query.trim()) {
+          params.set("q", query.trim());
+        }
+        const res = await fetch(`/api/chat/link-options?${params.toString()}`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          options?: LinkOption[];
+        };
+        if (!res.ok) {
+          throw new Error(json.error || "Unable to load options");
+        }
+        const nextOptions = json.options || [];
+        setEntityOptions(nextOptions);
+        setEntityId((prev) =>
+          prev && nextOptions.some((option) => option.id === prev) ? prev : ""
+        );
+      } catch (err) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setEntityOptions([]);
+        setEntityId("");
+        setEntityOptionsError(err instanceof Error ? err.message : "Unable to load options");
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingEntityOptions(false);
+        }
+      }
+    }, 120);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [entityType, isSlashOpen, query]);
+
+  const selectedOption = entityOptions.find((option) => option.id === entityId) || null;
 
   const uploadImage = async (file: File) => {
     const formData = new FormData();
@@ -300,18 +345,24 @@ export default function ChatComposer(props: {
             placeholder={`Search ${typeLabel[entityType]}...`}
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
+          {entityOptionsError ? (
+            <p className="text-xs text-red-600">{entityOptionsError}</p>
+          ) : null}
           <select
             value={entityId}
             onChange={(event) => setEntityId(event.target.value)}
             className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             <option value="">Select {typeLabel[entityType]}</option>
-            {filteredOptions.map((option) => (
+            {entityOptions.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
               </option>
             ))}
           </select>
+          {isLoadingEntityOptions ? (
+            <p className="text-xs text-slate-500">Loading options...</p>
+          ) : null}
           <button
             type="button"
             onClick={attachSelected}

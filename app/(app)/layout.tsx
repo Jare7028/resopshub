@@ -17,6 +17,7 @@ type NavIconName =
   | "clients"
   | "projects"
   | "tasks"
+  | "employeeInfo"
   | "forms"
   | "chat"
   | "personal"
@@ -78,6 +79,16 @@ function SidebarIcon({ name }: { name: NavIconName }) {
           <path d="M5 4h14" />
         </svg>
       );
+    case "employeeInfo":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M18 8h5" />
+          <path d="M18 12h5" />
+          <path d="M18 16h5" />
+        </svg>
+      );
     case "forms":
       return (
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
@@ -135,6 +146,7 @@ const baseNavLinks: NavLink[] = [
   { href: "/clients", label: "Clients", icon: "clients" },
   { href: "/projects", label: "Projects", icon: "projects" },
   { href: "/tasks", label: "Tasks", icon: "tasks" },
+  { href: "/employee-info", label: "Employee Info", icon: "employeeInfo" },
   { href: "/forms", label: "Forms", icon: "forms" },
   { href: "/chat", label: "Chat", icon: "chat" },
   { href: "/personal", label: "Personal", icon: "personal" },

@@ -110,7 +110,6 @@ export default function ChatPageClient(props: {
   initialMessages: MessageRow[];
   initialLatestByConversationId: Record<string, LatestPreview | null>;
   initialUnreadByConversationId: Record<string, number>;
-  linkOptions: Record<LinkEntityType, Array<{ id: string; label: string }>>;
 }) {
   const {
     currentUserId,
@@ -121,7 +120,6 @@ export default function ChatPageClient(props: {
     initialMessages,
     initialLatestByConversationId,
     initialUnreadByConversationId,
-    linkOptions,
   } = props;
 
   const [conversations, setConversations] = useState(initialConversations);
@@ -842,7 +840,6 @@ export default function ChatPageClient(props: {
                     setIsSending(false);
                   }
                 }}
-                linkOptions={linkOptions}
               />
             </div>
           ) : (

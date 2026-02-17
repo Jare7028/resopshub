@@ -75,6 +75,9 @@ type DbMessageAttachmentWithUrlRow = DbMessageAttachmentRow & {
   url: string | null;
 };
 
+const LATEST_MESSAGES_SCAN_LIMIT = 250;
+const INITIAL_CONVERSATION_MESSAGES_LIMIT = 150;
+
 function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string | null>) {
   if (link.entity_type === "task") return `/tasks/${link.entity_id}`;
   if (link.entity_type === "project") return `/projects/${link.entity_id}`;
@@ -149,31 +152,65 @@ export default async function ChatPage(props: {
   const myMemberships = (myMembershipsRaw || []) as ConversationMemberRow[];
   const myConversationIds = myMemberships.map((row) => row.conversation_id).filter(Boolean);
 
-  const { data: conversationsRaw } = myConversationIds.length
-    ? await supabase
+  const selectedConversationIdRaw = String(searchParams?.c || "").trim();
+  const preselectedConversationId =
+    selectedConversationIdRaw && myConversationIds.includes(selectedConversationIdRaw)
+      ? selectedConversationIdRaw
+      : null;
+
+  const conversationsPromise = myConversationIds.length
+    ? supabase
         .from("chat_conversations")
         .select("id,type,title,created_by,created_at")
         .in("id", myConversationIds)
         .order("created_at", { ascending: false })
-    : { data: [] as ConversationRow[] };
-  const conversations = (conversationsRaw || []) as ConversationRow[];
+    : Promise.resolve({ data: [] as ConversationRow[] });
 
-  const { data: allMembersRaw } = myConversationIds.length
-    ? await supabase
+  const allMembersPromise = myConversationIds.length
+    ? supabase
         .from("chat_conversation_members")
         .select("conversation_id,user_id,role,last_read_at")
         .in("conversation_id", myConversationIds)
-    : { data: [] as ConversationMemberRow[] };
-  const allMembers = (allMembersRaw || []) as ConversationMemberRow[];
+    : Promise.resolve({ data: [] as ConversationMemberRow[] });
 
-  const { data: latestMessagesRaw } = myConversationIds.length
-    ? await supabase
+  const latestMessagesPromise = myConversationIds.length
+    ? supabase
         .from("chat_messages")
         .select("id,conversation_id,sender_id,body,created_at,edited_at")
         .in("conversation_id", myConversationIds)
         .order("created_at", { ascending: false })
-        .limit(500)
-    : { data: [] as DbMessageRow[] };
+        .limit(LATEST_MESSAGES_SCAN_LIMIT)
+    : Promise.resolve({ data: [] as DbMessageRow[] });
+
+  const unreadRowsPromise = withPerfTiming("chat.page.unread.rpc", () =>
+    supabase.rpc("chat_unread_counts")
+  );
+
+  const preselectedMessagesPromise = preselectedConversationId
+    ? supabase
+        .from("chat_messages")
+        .select("id,conversation_id,sender_id,body,created_at,edited_at")
+        .eq("conversation_id", preselectedConversationId)
+        .order("created_at", { ascending: true })
+        .limit(INITIAL_CONVERSATION_MESSAGES_LIMIT)
+    : Promise.resolve({ data: [] as DbMessageRow[] });
+
+  const [
+    { data: conversationsRaw },
+    { data: allMembersRaw },
+    { data: latestMessagesRaw },
+    { data: unreadRowsRaw, error: unreadRowsError },
+    { data: preselectedMessagesRaw },
+  ] = await Promise.all([
+    conversationsPromise,
+    allMembersPromise,
+    latestMessagesPromise,
+    unreadRowsPromise,
+    preselectedMessagesPromise,
+  ]);
+
+  const conversations = (conversationsRaw || []) as ConversationRow[];
+  const allMembers = (allMembersRaw || []) as ConversationMemberRow[];
   const latestMessageByConversationId = ((latestMessagesRaw || []) as DbMessageRow[]).reduce<
     Record<string, DbMessageRow | null>
   >((acc, row) => {
@@ -187,45 +224,53 @@ export default async function ChatPage(props: {
     latestMessageByConversationId
   );
 
-  const selectedConversationIdRaw = String(searchParams?.c || "").trim();
   const selectedConversationId =
-    selectedConversationIdRaw && myConversationIds.includes(selectedConversationIdRaw)
-      ? selectedConversationIdRaw
-      : conversationsByRecentActivity[0]?.id || null;
+    preselectedConversationId || conversationsByRecentActivity[0]?.id || null;
 
-  const { data: selectedMessagesRaw } = selectedConversationId
-    ? await supabase
-        .from("chat_messages")
-        .select("id,conversation_id,sender_id,body,created_at,edited_at")
-        .eq("conversation_id", selectedConversationId)
-        .order("created_at", { ascending: true })
-        .limit(300)
-    : { data: [] as DbMessageRow[] };
+  const selectedMessagesRaw =
+    selectedConversationId === preselectedConversationId
+      ? preselectedMessagesRaw
+      : selectedConversationId
+        ? (
+            await supabase
+              .from("chat_messages")
+              .select("id,conversation_id,sender_id,body,created_at,edited_at")
+              .eq("conversation_id", selectedConversationId)
+              .order("created_at", { ascending: true })
+              .limit(INITIAL_CONVERSATION_MESSAGES_LIMIT)
+          ).data
+        : [];
   const selectedMessages = (selectedMessagesRaw || []) as DbMessageRow[];
   const selectedMessageIds = selectedMessages.map((row) => row.id).filter(Boolean);
 
-  const { data: selectedLinksRaw } = selectedMessageIds.length
-    ? await supabase
-        .from("chat_message_links")
-        .select("id,message_id,entity_type,entity_id,label")
-        .in("message_id", selectedMessageIds)
-    : { data: [] as DbMessageLinkRow[] };
-  const selectedLinks = (selectedLinksRaw || []) as DbMessageLinkRow[];
+  const [
+    { data: selectedLinksRaw },
+    { data: selectedReactionsRaw },
+    { data: selectedAttachmentsRaw, error: selectedAttachmentsError },
+  ] = selectedMessageIds.length
+    ? await Promise.all([
+        supabase
+          .from("chat_message_links")
+          .select("id,message_id,entity_type,entity_id,label")
+          .in("message_id", selectedMessageIds),
+        supabase
+          .from("chat_message_reactions")
+          .select("id,message_id,user_id,emoji,created_at")
+          .in("message_id", selectedMessageIds),
+        supabase
+          .from("chat_message_attachments")
+          .select("id,message_id,storage_path,filename,mime_type,size_bytes")
+          .in("message_id", selectedMessageIds),
+      ])
+    : [
+        { data: [] as DbMessageLinkRow[] },
+        { data: [] as DbMessageReactionRow[] },
+        { data: [] as DbMessageAttachmentRow[], error: null },
+      ];
 
-  const { data: selectedReactionsRaw } = selectedMessageIds.length
-    ? await supabase
-        .from("chat_message_reactions")
-        .select("id,message_id,user_id,emoji,created_at")
-        .in("message_id", selectedMessageIds)
-    : { data: [] as DbMessageReactionRow[] };
+  const selectedLinks = (selectedLinksRaw || []) as DbMessageLinkRow[];
   const selectedReactions = (selectedReactionsRaw || []) as DbMessageReactionRow[];
 
-  const { data: selectedAttachmentsRaw, error: selectedAttachmentsError } = selectedMessageIds.length
-    ? await supabase
-        .from("chat_message_attachments")
-        .select("id,message_id,storage_path,filename,mime_type,size_bytes")
-        .in("message_id", selectedMessageIds)
-    : { data: [] as DbMessageAttachmentRow[], error: null };
   const selectedAttachments =
     selectedAttachmentsError && isSupabaseMissingTableError(selectedAttachmentsError)
       ? ([] as DbMessageAttachmentRow[])
@@ -285,62 +330,7 @@ export default async function ChatPage(props: {
     reactions: reactionsByMessageId[message.id] || [],
   }));
 
-  const { data: tasksRaw } = await supabase
-    .from("tasks")
-    .select("id,title")
-    .order("created_at", { ascending: false })
-    .limit(100);
-  const { data: projectsRaw } = await supabase
-    .from("projects")
-    .select("id,name")
-    .order("name", { ascending: true })
-    .limit(100);
-  const { data: clientsRaw } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true })
-    .limit(100);
-  const { data: featuresRaw } = await supabase
-    .from("feature_suggestions")
-    .select("id,title")
-    .order("created_at", { ascending: false })
-    .limit(100);
-  const { data: notesRaw } = await supabase
-    .from("notes")
-    .select("id,title")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  const linkOptions = {
-    task: ((tasksRaw || []) as Array<{ id: string; title: string | null }>).map((row) => ({
-      id: row.id,
-      label: row.title || "Untitled task",
-    })),
-    project: ((projectsRaw || []) as Array<{ id: string; name: string | null }>).map((row) => ({
-      id: row.id,
-      label: row.name || "Untitled project",
-    })),
-    client: ((clientsRaw || []) as Array<{ id: string; name: string | null }>).map((row) => ({
-      id: row.id,
-      label: row.name || "Untitled client",
-    })),
-    feature_suggestion: ((featuresRaw || []) as Array<{ id: string; title: string | null }>).map(
-      (row) => ({
-        id: row.id,
-        label: row.title || "Untitled feature suggestion",
-      })
-    ),
-    note: ((notesRaw || []) as Array<{ id: string; title: string | null }>).map((row) => ({
-      id: row.id,
-      label: row.title || "Untitled note",
-    })),
-  } as const;
-
   const initialUnreadByConversationId: Record<string, number> = {};
-  const { data: unreadRowsRaw, error: unreadRowsError } = await withPerfTiming(
-    "chat.page.unread.rpc",
-    () => supabase.rpc("chat_unread_counts")
-  );
 
   if (!unreadRowsError) {
     const unreadByConversationId = ((unreadRowsRaw || []) as Array<{
@@ -397,7 +387,6 @@ export default async function ChatPage(props: {
         initialMessages={initialMessages}
         initialLatestByConversationId={latestMessageByConversationId}
         initialUnreadByConversationId={initialUnreadByConversationId}
-        linkOptions={linkOptions}
       />
     </div>
   );
