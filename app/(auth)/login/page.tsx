@@ -1,16 +1,25 @@
-﻿import { headers } from "next/headers";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+function normalizeReturnTo(value: string | null | undefined) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (!normalized.startsWith("/")) return "";
+  if (normalized.startsWith("//")) return "";
+  return normalized;
+}
+
 export default async function LoginPage(props: {
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; return_to?: string }>;
 }) {
   const searchParams = await props.searchParams;
+  const returnTo = normalizeReturnTo(searchParams?.return_to);
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
 
   if (authData.user) {
-    redirect("/clients");
+    redirect(returnTo || "/clients");
   }
 
   async function signIn(formData: FormData) {
@@ -18,9 +27,16 @@ export default async function LoginPage(props: {
     const supabase = createSupabaseServerClient();
     const email = String(formData.get("email") || "").trim();
     const password = String(formData.get("password") || "");
+    const returnTo = normalizeReturnTo(String(formData.get("return_to") || ""));
+    const loginBase =
+      returnTo
+        ? `/login?return_to=${encodeURIComponent(returnTo)}`
+        : "/login";
 
     if (!email || !password) {
-      redirect("/login?error=Email%20and%20password%20are%20required");
+      redirect(
+        `${loginBase}${loginBase.includes("?") ? "&" : "?"}error=Email%20and%20password%20are%20required`
+      );
     }
 
     const { error } = await supabase.auth.signInWithPassword({
@@ -29,10 +45,14 @@ export default async function LoginPage(props: {
     });
 
     if (error) {
-      redirect(`/login?error=${encodeURIComponent(error.message)}`);
+      redirect(
+        `${loginBase}${loginBase.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+          error.message
+        )}`
+      );
     }
 
-    redirect("/clients");
+    redirect(returnTo || "/clients");
   }
 
   async function sendPasswordReset(formData: FormData) {
@@ -87,6 +107,7 @@ export default async function LoginPage(props: {
       ) : null}
 
       <form action={signIn} className="space-y-4">
+        <input type="hidden" name="return_to" value={returnTo} />
         <input
           type="email"
           name="email"
@@ -144,7 +165,3 @@ export default async function LoginPage(props: {
     </div>
   );
 }
-
-
-
-

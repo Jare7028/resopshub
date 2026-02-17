@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { formatEmployeeInfoCurrencyAmount, type EmployeeInfoCurrencyCode } from "@/lib/employeeInfo";
 
 type BillingRevenueChargeMode = "per_user" | "monthly";
@@ -38,13 +38,16 @@ function toMonthlyAmount(amountText: string, mode: BillingRevenueChargeMode, emp
   return mode === "per_user" ? numeric * employeeCount : numeric;
 }
 
-function createNewCharge(seed: number): BillingRevenueChargeDraft {
-  return {
-    id: `charge_${seed}`,
-    label: "",
-    amount: "",
-    mode: "monthly",
-  };
+function toUniqueChargeId(rawId: string, usedIds: Set<string>) {
+  const normalizedBase = String(rawId || "").trim() || "charge";
+  let candidate = normalizedBase;
+  let suffix = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${normalizedBase}_${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
 }
 
 export default function RevenueChargesEditor({
@@ -61,18 +64,21 @@ export default function RevenueChargesEditor({
   disabled: boolean;
 }) {
   const initialDrafts = useMemo<BillingRevenueChargeDraft[]>(
-    () =>
-      initialItems.map((item, index) => ({
-        id: String(item.id || `charge_${index + 1}`),
+    () => {
+      const usedIds = new Set<string>();
+      return initialItems.map((item, index) => ({
+        id: toUniqueChargeId(String(item.id || `charge_${index + 1}`), usedIds),
         label: String(item.label || ""),
         amount: normalizeAmount(item.amount),
         mode: item.mode === "per_user" ? "per_user" : "monthly",
-      })),
+      }));
+    },
     [initialItems]
   );
 
   const [charges, setCharges] = useState<BillingRevenueChargeDraft[]>(initialDrafts);
-  const [, setNextSeed] = useState(initialDrafts.length + 1);
+  const nextSeedRef = useRef(initialDrafts.length + 1);
+  const safeEmployeeCount = Number.isFinite(employeeCount) && employeeCount > 0 ? employeeCount : 0;
   const serialized = useMemo(() => JSON.stringify(charges), [charges]);
 
   const updateCharge = (chargeId: string, updater: (charge: BillingRevenueChargeDraft) => BillingRevenueChargeDraft) => {
@@ -82,9 +88,24 @@ export default function RevenueChargesEditor({
   };
 
   const addCharge = () => {
-    setNextSeed((value) => {
-      setCharges((previous) => [...previous, createNewCharge(value)]);
-      return value + 1;
+    setCharges((previous) => {
+      const usedIds = new Set(previous.map((charge) => charge.id));
+      let seed = nextSeedRef.current;
+      let candidateId = `charge_${seed}`;
+      while (usedIds.has(candidateId)) {
+        seed += 1;
+        candidateId = `charge_${seed}`;
+      }
+      nextSeedRef.current = seed + 1;
+      return [
+        ...previous,
+        {
+          id: candidateId,
+          label: "",
+          amount: "",
+          mode: "monthly",
+        },
+      ];
     });
   };
 
@@ -118,7 +139,7 @@ export default function RevenueChargesEditor({
       ) : (
         <div className="mt-4 space-y-3">
           {charges.map((charge, index) => {
-            const monthlyAmount = toMonthlyAmount(charge.amount, charge.mode, employeeCount);
+            const monthlyAmount = toMonthlyAmount(charge.amount, charge.mode, safeEmployeeCount);
             return (
               <div key={charge.id} className="rounded-md border border-slate-200 p-3">
                 <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]">
@@ -208,7 +229,7 @@ export default function RevenueChargesEditor({
 
                 <p className="mt-2 text-xs text-slate-500">
                   Monthly contribution: {formatEmployeeInfoCurrencyAmount(monthlyAmount, currencyCode)}
-                  {charge.mode === "per_user" ? ` (${employeeCount} users)` : ""}
+                  {charge.mode === "per_user" ? ` (${safeEmployeeCount} users)` : ""}
                 </p>
               </div>
             );

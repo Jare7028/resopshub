@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { randomBytes } from "crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -11,6 +13,8 @@ import {
 } from "@/lib/supabaseErrors";
 import FormSubmissionBuilder from "../FormSubmissionBuilder";
 import FormConfigureAutosave from "../FormConfigureAutosave";
+import FormAccessPopover from "../FormAccessPopover";
+import FormShareLinksPopover from "../FormShareLinksPopover";
 import {
   buildFieldKey,
   doesFormFieldVisibilityMatch,
@@ -166,6 +170,35 @@ type ManualTask = {
   title: string;
   description: string;
 };
+
+type FormShareLinkRow = {
+  id: string;
+  token: string;
+  access_mode: "public" | "authenticated";
+  is_active: boolean;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+};
+
+function normalizeFormShareLinkAccessMode(value: string | null | undefined): "public" | "authenticated" {
+  return String(value || "").trim().toLowerCase() === "authenticated"
+    ? "authenticated"
+    : "public";
+}
+
+function normalizeAppBaseUrl(value: string | null | undefined) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  const withoutTrailingSlash = normalized.replace(/\/+$/, "");
+  if (
+    withoutTrailingSlash.startsWith("http://") ||
+    withoutTrailingSlash.startsWith("https://")
+  ) {
+    return withoutTrailingSlash;
+  }
+  return `https://${withoutTrailingSlash}`;
+}
 
 function fieldShouldBeIncluded(field: FormField, values: Record<string, string>) {
   return doesFormFieldVisibilityMatch(field, values);
@@ -341,6 +374,51 @@ export default async function FormDetailPage(props: {
     userMap.set(user.id, user.full_name || user.email || "Unknown user");
   });
 
+  const headerList = await headers();
+  const forwardedHost = headerList.get("x-forwarded-host");
+  const forwardedProto = headerList.get("x-forwarded-proto");
+  const host = forwardedHost || headerList.get("host");
+  const appBaseUrlFromHeaders = host
+    ? `${forwardedProto || "https"}://${host}`
+    : "";
+  const appBaseUrl = normalizeAppBaseUrl(
+    process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.NEXT_PUBLIC_VERCEL_URL ||
+      appBaseUrlFromHeaders
+  );
+
+  const {
+    data: formShareLinksRaw,
+    error: formShareLinksError,
+  } = await supabase
+    .from("form_share_links")
+    .select("id,token,access_mode,is_active,created_at,last_used_at,expires_at")
+    .eq("form_id", formId)
+    .order("created_at", { ascending: false });
+
+  const formShareLinksSchemaMissing = isSupabaseMissingTableError(formShareLinksError);
+  const formShareLinksLoadErrorMessage =
+    formShareLinksError && !formShareLinksSchemaMissing
+      ? `Could not load form share links (${formShareLinksError.message}).`
+      : null;
+  const formShareLinks = (
+    formShareLinksSchemaMissing ? [] : formShareLinksRaw || []
+  )
+    .map((row) => ({
+      id: String((row as { id?: string | null }).id || "").trim(),
+      token: String((row as { token?: string | null }).token || "").trim(),
+      access_mode: normalizeFormShareLinkAccessMode(
+        String((row as { access_mode?: string | null }).access_mode || "public")
+      ),
+      is_active: Boolean((row as { is_active?: boolean | null }).is_active !== false),
+      created_at: String((row as { created_at?: string | null }).created_at || ""),
+      last_used_at:
+        ((row as { last_used_at?: string | null }).last_used_at as string | null) || null,
+      expires_at:
+        ((row as { expires_at?: string | null }).expires_at as string | null) || null,
+    }))
+    .filter((row) => row.id && row.token) as FormShareLinkRow[];
+
   const detailPath = `/forms/${formId}`;
   const buildDetailUrl = (
     tab: FormDetailTabKey,
@@ -405,9 +483,6 @@ export default async function FormDetailPage(props: {
     const fields = parseFieldsJson(String(formData.get("fields_json") || "[]"));
     const selectedTaskTemplateIds = parseTaskTemplateIdsJson(
       String(formData.get("task_template_ids_json") || "[]")
-    );
-    const formAccessAssignments = parseFormAccessAssignmentsJson(
-      String(formData.get("form_access_json") || "[]")
     );
     const manualTasks = (() => {
       let parsed: unknown;
@@ -513,6 +588,37 @@ export default async function FormDetailPage(props: {
       }
     }
 
+    revalidatePath("/forms");
+    revalidatePath(detailPath);
+    return { ok: true as const };
+  }
+
+  async function saveFormAccess(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const formAccessAssignments = parseFormAccessAssignmentsJson(
+      String(formData.get("form_access_json") || "[]")
+    );
+
+    if (formAccessSchemaMissing) {
+      return {
+        ok: false as const,
+        error: "Form user access is not set up yet. Run sql/forms_form_permissions.sql first.",
+      };
+    }
+
+    const canManageResult = await supabase.rpc("can_manage_form", {
+      form_uuid: formId,
+    });
+    if (!isSupabaseMissingFunctionError(canManageResult.error)) {
+      if (canManageResult.error || !canManageResult.data) {
+        return {
+          ok: false as const,
+          error: "You do not have permission to edit form access.",
+        };
+      }
+    }
+
     const { error: clearAccessError } = await supabase
       .from("form_user_permissions")
       .delete()
@@ -535,6 +641,115 @@ export default async function FormDetailPage(props: {
       if (upsertAccessError && !isSupabaseMissingTableError(upsertAccessError)) {
         return { ok: false as const, error: upsertAccessError.message };
       }
+    }
+
+    revalidatePath("/forms");
+    revalidatePath(detailPath);
+    return { ok: true as const };
+  }
+
+  async function createFormShareLink(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+
+    if (formShareLinksSchemaMissing) {
+      return {
+        ok: false as const,
+        error: "Form share links are not set up yet. Run sql/forms_share_links.sql first.",
+      };
+    }
+
+    const canManageResult = await supabase.rpc("can_manage_form", {
+      form_uuid: formId,
+    });
+    if (!isSupabaseMissingFunctionError(canManageResult.error)) {
+      if (canManageResult.error || !canManageResult.data) {
+        return {
+          ok: false as const,
+          error: "You do not have permission to manage share links for this form.",
+        };
+      }
+    }
+
+    const { data: authData } = await supabase.auth.getUser();
+    const authEmail = authData.user?.email;
+    if (!authEmail) {
+      return { ok: false as const, error: "Please log in again." };
+    }
+    const { data: actor } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", authEmail)
+      .maybeSingle();
+    if (!actor?.id) {
+      return { ok: false as const, error: "Missing user profile." };
+    }
+
+    const accessMode = normalizeFormShareLinkAccessMode(
+      String(formData.get("access_mode") || "public")
+    );
+
+    let lastErrorMessage = "Failed to create share link.";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const token = randomBytes(24).toString("hex");
+      const { error } = await supabase.from("form_share_links").insert({
+        form_id: formId,
+        token,
+        access_mode: accessMode,
+        is_active: true,
+        created_by_user_id: actor.id,
+      });
+      if (!error) {
+        revalidatePath("/forms");
+        revalidatePath(detailPath);
+        return { ok: true as const };
+      }
+      if (error.code !== "23505") {
+        lastErrorMessage = error.message;
+        break;
+      }
+      lastErrorMessage = error.message;
+    }
+
+    return { ok: false as const, error: lastErrorMessage };
+  }
+
+  async function toggleFormShareLink(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+
+    if (formShareLinksSchemaMissing) {
+      return {
+        ok: false as const,
+        error: "Form share links are not set up yet. Run sql/forms_share_links.sql first.",
+      };
+    }
+
+    const linkId = String(formData.get("link_id") || "").trim();
+    const nextIsActive = String(formData.get("next_is_active") || "").trim() === "true";
+    if (!linkId) {
+      return { ok: false as const, error: "Missing share link id." };
+    }
+
+    const canManageResult = await supabase.rpc("can_manage_form", {
+      form_uuid: formId,
+    });
+    if (!isSupabaseMissingFunctionError(canManageResult.error)) {
+      if (canManageResult.error || !canManageResult.data) {
+        return {
+          ok: false as const,
+          error: "You do not have permission to manage share links for this form.",
+        };
+      }
+    }
+
+    const { error } = await supabase
+      .from("form_share_links")
+      .update({ is_active: nextIsActive })
+      .eq("id", linkId)
+      .eq("form_id", formId);
+    if (error) {
+      return { ok: false as const, error: error.message };
     }
 
     revalidatePath("/forms");
@@ -958,6 +1173,24 @@ export default async function FormDetailPage(props: {
             Configure form
           </Link>
         ) : null}
+        {canConfigureForm ? (
+          <FormAccessPopover
+            users={workspaceUserOptions}
+            initialAssignments={formAccessAssignments}
+            formAccessSchemaMissing={formAccessSchemaMissing}
+            onSave={saveFormAccess}
+          />
+        ) : null}
+        {canConfigureForm ? (
+          <FormShareLinksPopover
+            appBaseUrl={appBaseUrl}
+            links={formShareLinks}
+            schemaMissing={formShareLinksSchemaMissing}
+            loadErrorMessage={formShareLinksLoadErrorMessage}
+            onCreateLink={createFormShareLink}
+            onToggleLink={toggleFormShareLink}
+          />
+        ) : null}
         <Link
           href={tabUrls.create_submission}
           className={`rounded-md px-3 py-1.5 font-medium ${
@@ -1001,13 +1234,10 @@ export default async function FormDetailPage(props: {
             initialTemplateIds={selectedTaskTemplateIds}
             initialManualTasks={manualTasks}
             taskTemplates={taskTemplates}
-            userOptions={workspaceUserOptions}
-            initialFormAccessAssignments={formAccessAssignments}
             taskTemplatesMissing={
               isSupabaseMissingTableError(templateLinksError) ||
               isSupabaseMissingTableError(taskTemplatesError)
             }
-            formAccessSchemaMissing={formAccessSchemaMissing}
             onAutoSave={saveFormDraft}
           />
         ) : (

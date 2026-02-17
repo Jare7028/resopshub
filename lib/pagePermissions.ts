@@ -38,6 +38,9 @@ export function pagePermissionKeyForPathname(pathname: string): PagePermissionKe
   if (!path || path === "/" || path === "/login" || path === "/reset") {
     return null;
   }
+  if (path === "/forms/share" || path.startsWith("/forms/share/")) {
+    return null;
+  }
 
   for (const route of PAGE_PERMISSION_ROUTE_PREFIXES) {
     if (path === route.prefix || path.startsWith(`${route.prefix}/`)) {

@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import FormFieldsBuilder from "./FormFieldsBuilder";
 import FormTaskTemplatesBuilder from "./FormTaskTemplatesBuilder";
-import FormAccessBuilder from "./FormAccessBuilder";
-import { formStatusOptions, formatFormLabel, type FormAccessAssignment, type FormField, type FormStatus } from "./types";
+import { formStatusOptions, formatFormLabel, type FormField, type FormStatus } from "./types";
 
 type TaskTemplateOption = {
   id: string;
@@ -16,12 +15,6 @@ type ManualTask = {
   id: string;
   title: string;
   description: string;
-};
-
-type UserOption = {
-  id: string;
-  label: string;
-  secondaryLabel?: string;
 };
 
 type SaveResult = {
@@ -37,10 +30,7 @@ export default function FormConfigureAutosave({
   initialTemplateIds,
   initialManualTasks,
   taskTemplates,
-  userOptions,
-  initialFormAccessAssignments,
   taskTemplatesMissing,
-  formAccessSchemaMissing,
   onAutoSave,
 }: {
   initialTitle: string;
@@ -50,10 +40,7 @@ export default function FormConfigureAutosave({
   initialTemplateIds: string[];
   initialManualTasks: ManualTask[];
   taskTemplates: TaskTemplateOption[];
-  userOptions: UserOption[];
-  initialFormAccessAssignments: FormAccessAssignment[];
   taskTemplatesMissing: boolean;
-  formAccessSchemaMissing: boolean;
   onAutoSave: (formData: FormData) => Promise<SaveResult>;
 }) {
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -90,7 +77,6 @@ export default function FormConfigureAutosave({
       fields_json: String(formData.get("fields_json") || "[]"),
       task_template_ids_json: String(formData.get("task_template_ids_json") || "[]"),
       manual_tasks_json: String(formData.get("manual_tasks_json") || "[]"),
-      form_access_json: String(formData.get("form_access_json") || "[]"),
     });
 
   const initialPayloadKey = useMemo(
@@ -111,12 +97,10 @@ export default function FormConfigureAutosave({
             }))
             .filter((task) => task.title)
         ),
-        form_access_json: JSON.stringify(initialFormAccessAssignments),
       }),
     [
       initialDescription,
       initialFields,
-      initialFormAccessAssignments,
       initialManualTasks,
       initialStatus,
       initialTemplateIds,
@@ -254,25 +238,13 @@ export default function FormConfigureAutosave({
           initialManualTasks={initialManualTasks}
           taskTemplates={taskTemplates}
         />
-        <FormAccessBuilder
-          users={userOptions}
-          initialAssignments={initialFormAccessAssignments}
-        />
 
-        {(taskTemplatesMissing || formAccessSchemaMissing) ? (
+        {taskTemplatesMissing ? (
           <div className="space-y-2">
-            {taskTemplatesMissing ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-                Task templates are not set up yet. Run <code>sql/templates.sql</code> (and the latest
-                forms SQL migration) in Supabase SQL editor.
-              </p>
-            ) : null}
-            {formAccessSchemaMissing ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-                Form user access is not set up yet. Run <code>sql/forms_form_permissions.sql</code> in
-                Supabase SQL editor.
-              </p>
-            ) : null}
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+              Task templates are not set up yet. Run <code>sql/templates.sql</code> (and the latest
+              forms SQL migration) in Supabase SQL editor.
+            </p>
           </div>
         ) : null}
 
