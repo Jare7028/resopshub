@@ -1,4 +1,5 @@
 ﻿import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -37,7 +38,7 @@ import {
   type CustomFieldRow,
   type CustomFieldValueRow,
 } from "@/lib/customFields";
-
+import { buildOutlookTaskComposeUrl } from "@/lib/outlookCalendar";
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -199,6 +200,28 @@ export default async function TaskDetailPage(props: {
   const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
   let selectedDue = (searchParams?.due || "all").trim();
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const headerList = await headers();
+  const forwardedHost = headerList.get("x-forwarded-host");
+  const forwardedProto = headerList.get("x-forwarded-proto");
+  const host = forwardedHost || headerList.get("host");
+  const appBaseUrlFromHeaders = host
+    ? `${forwardedProto || "https"}://${host}`
+    : "";
+  const appBaseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_VERCEL_URL ||
+    appBaseUrlFromHeaders;
+  const addToOutlookUrl = buildOutlookTaskComposeUrl(
+    {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      start_date: task.start_date,
+      due_date: task.due_date,
+      due_time: task.due_time,
+    },
+    { appBaseUrl }
+  );
 
   const getRelationName = (
     relation:
@@ -861,17 +884,27 @@ export default async function TaskDetailPage(props: {
         <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Task
         </p>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-3xl font-semibold text-slate-900">{task.title}</h1>
-          <form action={deleteTask}>
-            <ConfirmDelete
-              name={task.title}
-              itemType="Task"
-              triggerLabel="Delete task"
-              confirmLabel="Permanently delete"
-            />
-          </form>
-        </div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-3xl font-semibold text-slate-900">{task.title}</h1>
+            <div className="flex items-center gap-2">
+              <a
+                href={addToOutlookUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Add to Outlook
+              </a>
+              <form action={deleteTask}>
+                <ConfirmDelete
+                  name={task.title}
+                  itemType="Task"
+                  triggerLabel="Delete task"
+                  confirmLabel="Permanently delete"
+                />
+              </form>
+            </div>
+          </div>
         <div className="text-sm text-slate-600">
           <p>
             Client:{" "}
@@ -1504,4 +1537,6 @@ export default async function TaskDetailPage(props: {
     </div>
   );
 }
+
+
 
