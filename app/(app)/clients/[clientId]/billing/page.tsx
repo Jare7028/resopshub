@@ -2,7 +2,11 @@
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingColumnError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import {
   EMPLOYEE_INFO_CURRENCY_CODES,
   buildEmployeeInfoExchangeRateMap,
@@ -159,6 +163,20 @@ export default async function ClientBillingPage(props: {
   }
   const clientName = client.name;
   const clientRecordId = client.id;
+  let canEditBilling = true;
+  let billingPermissionErrorMessage: string | null = null;
+
+  const canEditBillingResult = await supabase.rpc("can_edit_client_billing", {
+    client_uuid: clientId,
+  });
+  if (isSupabaseMissingFunctionError(canEditBillingResult.error)) {
+    canEditBilling = true;
+  } else if (canEditBillingResult.error) {
+    canEditBilling = false;
+    billingPermissionErrorMessage = `Could not verify billing edit permission (${canEditBillingResult.error.message}).`;
+  } else {
+    canEditBilling = Boolean(canEditBillingResult.data);
+  }
 
   let billingProfile: BillingProfileRevenueRow | null = null;
   let billingProfileErrorMessage: string | null = null;
@@ -538,6 +556,14 @@ export default async function ClientBillingPage(props: {
     "use server";
     const supabase = createSupabaseServerClient();
 
+    if (!canEditBilling) {
+      redirect(
+        `/clients/${clientId}/billing?error=${encodeURIComponent(
+          "You do not have permission to edit billing for this client."
+        )}`
+      );
+    }
+
     if (billingProfilesTableMissing) {
       redirect(
         `/clients/${clientId}/billing?error=${encodeURIComponent(
@@ -705,6 +731,17 @@ export default async function ClientBillingPage(props: {
             Some employee rows were skipped due to missing FX rates (<code>#FX!</code>).
           </p>
         ) : null}
+        {billingPermissionErrorMessage ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            {billingPermissionErrorMessage}
+          </p>
+        ) : null}
+        {!canEditBilling ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            You can view this billing page, but only users with billing edit permission can save
+            changes.
+          </p>
+        ) : null}
 
         <form action={saveRevenueModel} className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <div className="space-y-2">
@@ -715,6 +752,7 @@ export default async function ClientBillingPage(props: {
               id="currency"
               name="currency"
               defaultValue={billingCurrencyCode}
+              disabled={!canEditBilling}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
               {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
@@ -736,6 +774,7 @@ export default async function ClientBillingPage(props: {
               step="0.01"
               min="0"
               defaultValue={toFiniteNumber(billingProfile?.hourly_rate) ?? ""}
+              disabled={!canEditBilling}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               placeholder="0.00"
             />
@@ -752,6 +791,7 @@ export default async function ClientBillingPage(props: {
               step="0.01"
               min="0"
               defaultValue={toFiniteNumber(billingProfile?.total_billable_hours) ?? ""}
+              disabled={!canEditBilling}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               placeholder="0"
             />
@@ -768,6 +808,7 @@ export default async function ClientBillingPage(props: {
               step="0.01"
               min="0"
               defaultValue={toFiniteNumber(billingProfile?.other_monthly_charges) ?? ""}
+              disabled={!canEditBilling}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               placeholder="0.00"
             />
@@ -781,6 +822,7 @@ export default async function ClientBillingPage(props: {
               id="breaks_billable"
               name="breaks_billable"
               defaultValue={breaksBillable ? "true" : "false"}
+              disabled={!canEditBilling}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
               <option value="true">Yes</option>
@@ -791,7 +833,8 @@ export default async function ClientBillingPage(props: {
           <div className="md:col-span-2 xl:col-span-5">
             <button
               type="submit"
-              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+              disabled={!canEditBilling}
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save revenue model
             </button>

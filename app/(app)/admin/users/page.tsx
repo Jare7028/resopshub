@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import AdminUsersTable from "./AdminUsersTable";
 
-const roleOptions = ["admin", "ops", "manager", "member", "viewer"] as const;
+const roleOptions = ["admin", "member"] as const;
 const statusOptions = ["active", "disabled"] as const;
 
 export default async function AdminUsersPage({

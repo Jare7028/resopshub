@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingColumnError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
 import AddColumnPopover from "./AddColumnPopover";
 import CustomizeFieldsPopover from "./CustomizeFieldsPopover";
@@ -436,8 +440,33 @@ export default async function EmployeeInfoPage(props: {
     .maybeSingle();
   const currentAppUserId = profile?.id || authUserId;
   const isAdmin = profile?.role === "admin";
+  let canAccessEmployeeInfo = isAdmin;
+  let canManageColumns = isAdmin;
+  let canManageAccess = isAdmin;
 
-  if (!isAdmin) {
+  const [canAccessResult, canManageColumnsResult, canManageAccessResult] = await Promise.all([
+    supabase.rpc("can_access_employee_info"),
+    supabase.rpc("can_manage_employee_info_columns"),
+    supabase.rpc("can_manage_employee_info_access"),
+  ]);
+
+  if (!isSupabaseMissingFunctionError(canAccessResult.error) && !canAccessResult.error) {
+    canAccessEmployeeInfo = Boolean(canAccessResult.data);
+  }
+  if (
+    !isSupabaseMissingFunctionError(canManageColumnsResult.error) &&
+    !canManageColumnsResult.error
+  ) {
+    canManageColumns = Boolean(canManageColumnsResult.data);
+  }
+  if (
+    !isSupabaseMissingFunctionError(canManageAccessResult.error) &&
+    !canManageAccessResult.error
+  ) {
+    canManageAccess = Boolean(canManageAccessResult.data);
+  }
+
+  if (!canAccessEmployeeInfo) {
     const { data: accessRow, error: accessError } = await supabase
       .from("employee_info_access_users")
       .select("user_id")
@@ -575,7 +604,7 @@ export default async function EmployeeInfoPage(props: {
     displayCurrency,
   });
 
-  const { data: allowedUsersRaw } = isAdmin
+  const { data: allowedUsersRaw } = canManageAccess
     ? await supabase.from("employee_info_access_users").select("user_id")
     : { data: [] as Array<{ user_id: string }> };
   const allowedUserIds = new Set((allowedUsersRaw || []).map((row) => row.user_id));
@@ -713,7 +742,15 @@ export default async function EmployeeInfoPage(props: {
       .select("id,role")
       .eq("email", auth.user.email || "")
       .maybeSingle();
-    if (currentUser?.role !== "admin") {
+    let canManageColumns = currentUser?.role === "admin";
+    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
+    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
+      if (canManageColumnsResult.error) {
+        return { ok: false, error: canManageColumnsResult.error.message };
+      }
+      canManageColumns = Boolean(canManageColumnsResult.data);
+    }
+    if (!canManageColumns) {
       return { ok: false, error: "Only admins can add columns" };
     }
 
@@ -774,7 +811,7 @@ export default async function EmployeeInfoPage(props: {
           ? { currency_code: currencyCode }
           : [],
       position: nextPosition,
-      created_by_user_id: currentUser.id,
+      created_by_user_id: currentUser?.id || auth.user.id,
     };
 
     const { error } = await supabase.from("employee_info_columns").insert(payload);
@@ -798,7 +835,15 @@ export default async function EmployeeInfoPage(props: {
       .select("id,role")
       .eq("email", auth.user.email || "")
       .maybeSingle();
-    if (currentUser?.role !== "admin") {
+    let canManageColumns = currentUser?.role === "admin";
+    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
+    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
+      if (canManageColumnsResult.error) {
+        return { ok: false, error: canManageColumnsResult.error.message };
+      }
+      canManageColumns = Boolean(canManageColumnsResult.data);
+    }
+    if (!canManageColumns) {
       return { ok: false, error: "Only admins can edit columns" };
     }
 
@@ -1046,7 +1091,15 @@ export default async function EmployeeInfoPage(props: {
       .select("id,role")
       .eq("email", auth.user.email || "")
       .maybeSingle();
-    if (currentUser?.role !== "admin") {
+    let canManageColumns = currentUser?.role === "admin";
+    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
+    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
+      if (canManageColumnsResult.error) {
+        return { ok: false, error: canManageColumnsResult.error.message };
+      }
+      canManageColumns = Boolean(canManageColumnsResult.data);
+    }
+    if (!canManageColumns) {
       return { ok: false, error: "Only admins can delete columns" };
     }
 
@@ -1076,7 +1129,15 @@ export default async function EmployeeInfoPage(props: {
       .select("id,role")
       .eq("email", auth.user.email || "")
       .maybeSingle();
-    if (currentUser?.role !== "admin") {
+    let canManageColumns = currentUser?.role === "admin";
+    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
+    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
+      if (canManageColumnsResult.error) {
+        return { ok: false, error: canManageColumnsResult.error.message };
+      }
+      canManageColumns = Boolean(canManageColumnsResult.data);
+    }
+    if (!canManageColumns) {
       return { ok: false, error: "Only admins can reorder columns" };
     }
 
@@ -1152,8 +1213,16 @@ export default async function EmployeeInfoPage(props: {
       .select("id,role")
       .eq("email", auth.user.email || "")
       .maybeSingle();
-    if (currentUser?.role !== "admin") {
-      redirect(buildEmployeeInfoUrl({ error: "Only admins can update access users" }));
+    let canManageAccess = currentUser?.role === "admin";
+    const canManageAccessResult = await supabase.rpc("can_manage_employee_info_access");
+    if (!isSupabaseMissingFunctionError(canManageAccessResult.error)) {
+      if (canManageAccessResult.error) {
+        redirect(buildEmployeeInfoUrl({ error: canManageAccessResult.error.message }));
+      }
+      canManageAccess = Boolean(canManageAccessResult.data);
+    }
+    if (!canManageAccess) {
+      redirect(buildEmployeeInfoUrl({ error: "Only authorized users can update access users" }));
     }
 
     const selectedUserIds = Array.from(
@@ -1176,7 +1245,7 @@ export default async function EmployeeInfoPage(props: {
     if (selectedUserIds.length) {
       const inserts = selectedUserIds.map((userId) => ({
         user_id: userId,
-        added_by_user_id: currentUser.id,
+        added_by_user_id: currentUser?.id || auth.user.id,
       }));
       const { error: insertError } = await supabase.from("employee_info_access_users").insert(inserts);
       if (insertError) {
@@ -1212,7 +1281,7 @@ export default async function EmployeeInfoPage(props: {
         </div>
       )}
 
-      {isAdmin ? (
+      {canManageAccess ? (
         <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
           <details className="group">
             <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -1263,40 +1332,40 @@ export default async function EmployeeInfoPage(props: {
             <CustomizeFieldsPopover columns={columns} />
             <CurrencyDisplaySelect value={displayCurrency} />
           </div>
-          {isAdmin ? (
-            <div className="flex items-center gap-2">
-              <a
-                href={
-                  displayCurrency === "ORIGINAL"
-                    ? `/employee-info/export?ts=${exportNonce}`
-                    : `/employee-info/export?display_currency=${displayCurrency}&ts=${exportNonce}`
-                }
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                aria-label="Export employee info to Excel"
-                title="Export to Excel"
+          <div className="flex items-center gap-2">
+            <a
+              href={
+                displayCurrency === "ORIGINAL"
+                  ? `/employee-info/export?ts=${exportNonce}`
+                  : `/employee-info/export?display_currency=${displayCurrency}&ts=${exportNonce}`
+              }
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+              aria-label="Export employee info to Excel"
+              title="Export to Excel"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+                aria-hidden="true"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4"
-                  aria-hidden="true"
-                >
-                  <path d="M12 3v12" />
-                  <path d="m7 10 5 5 5-5" />
-                  <path d="M5 21h14" />
-                </svg>
-              </a>
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+            </a>
+            {canManageColumns ? (
               <AddColumnPopover
                 formulaSuggestions={formulaSuggestions}
                 onCreateColumn={createColumn}
               />
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </div>
         <EmployeeInfoTable
           records={records}
@@ -1306,7 +1375,7 @@ export default async function EmployeeInfoPage(props: {
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
           currencyDisplayValueByRecordIdAndColumnId={currencyDisplayValueByRecordIdAndColumnId}
           displayCurrency={displayCurrency}
-          isAdmin={isAdmin}
+          isAdmin={canManageColumns}
           formulaSuggestions={formulaSuggestions}
           onCreateRecord={createRecord}
           onUpdateCell={updateCell}

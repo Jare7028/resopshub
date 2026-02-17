@@ -15,7 +15,11 @@ import {
   type EmployeeInfoDisplayCurrencyCode,
   type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
-import { isSupabaseMissingColumnError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -331,8 +335,14 @@ export async function GET(request: Request) {
     .maybeSingle();
   const currentAppUserId = profile?.id || authUserId;
   const isAdmin = profile?.role === "admin";
+  let canAccessEmployeeInfo = isAdmin;
 
-  if (!isAdmin) {
+  const canAccessResult = await supabase.rpc("can_access_employee_info");
+  if (!isSupabaseMissingFunctionError(canAccessResult.error) && !canAccessResult.error) {
+    canAccessEmployeeInfo = Boolean(canAccessResult.data);
+  }
+
+  if (!canAccessEmployeeInfo) {
     const { data: accessRow, error: accessError } = await supabase
       .from("employee_info_access_users")
       .select("user_id")
