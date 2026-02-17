@@ -8,6 +8,7 @@ import {
   useState,
   useTransition,
   type ChangeEvent,
+  type FocusEvent,
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -89,6 +90,25 @@ function isEmptyCellValue(value: string | null | undefined) {
   return String(value || "").trim() === "";
 }
 
+function normalizeColumnToken(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+const EMPTY_HIGHLIGHT_EXCLUDED_COLUMN_TOKENS = new Set(["leave_date", "reason_for_leaving"]);
+
+function shouldHighlightEmptyStateForColumn(column: EmployeeInfoColumnRow) {
+  const keyToken = normalizeColumnToken(column.key);
+  const labelToken = normalizeColumnToken(column.label);
+  return (
+    !EMPTY_HIGHLIGHT_EXCLUDED_COLUMN_TOKENS.has(keyToken) &&
+    !EMPTY_HIGHLIGHT_EXCLUDED_COLUMN_TOKENS.has(labelToken)
+  );
+}
+
 function getCellFieldClassName(args: {
   isEmpty: boolean;
   minWidthClass: string;
@@ -104,6 +124,38 @@ function getCellFieldClassName(args: {
 
 function getCellToneClass(isEmpty: boolean) {
   return isEmpty ? "bg-red-50/60" : "";
+}
+
+function syncEditableCellHighlight(
+  control: HTMLInputElement | HTMLSelectElement,
+  shouldHighlight = true
+) {
+  const form = control.form;
+  const primaryValueControl =
+    form?.querySelector<HTMLInputElement | HTMLSelectElement>(
+      'input[name="value"], select[name="value"]'
+    ) || control;
+  const isEmpty = shouldHighlight && isEmptyCellValue(primaryValueControl.value);
+
+  const visibleControls = form
+    ? Array.from(
+        form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+          'input[name="value"], select[name="value"], select[name="currency_code"]'
+        )
+      )
+    : [control];
+
+  visibleControls.forEach((field) => {
+    field.classList.toggle("border-red-200", isEmpty);
+    field.classList.toggle("bg-red-50/70", isEmpty);
+    field.classList.toggle("border-slate-300", !isEmpty);
+    field.classList.toggle("bg-white", !isEmpty);
+  });
+
+  const cell = control.closest("td");
+  if (cell) {
+    cell.classList.toggle("bg-red-50/60", isEmpty);
+  }
 }
 
 function ColumnEditPanel({
@@ -528,8 +580,19 @@ export default function EmployeeInfoTable({
     };
   }, [columns]);
 
-  const submitChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const form = event.currentTarget.form;
+  const getHighlightPolicyForControl = (control: HTMLInputElement | HTMLSelectElement) => {
+    const form = control.form;
+    const columnId = String(
+      form?.querySelector<HTMLInputElement>('input[name="column_id"]')?.value || ""
+    );
+    const column = columns.find((item) => item.id === columnId);
+    return column ? shouldHighlightEmptyStateForColumn(column) : true;
+  };
+
+  const saveControlChange = (control: HTMLInputElement | HTMLSelectElement) => {
+    const shouldHighlight = getHighlightPolicyForControl(control);
+    syncEditableCellHighlight(control, shouldHighlight);
+    const form = control.form;
     if (!form) return;
     const formData = new FormData(form);
     startTransition(() => {
@@ -537,9 +600,26 @@ export default function EmployeeInfoTable({
         const result = await onUpdateCell(formData);
         if (!result?.ok && result?.error) {
           window.alert(result.error);
+          return;
+        }
+        if (result?.ok) {
+          router.refresh();
         }
       })();
     });
+  };
+
+  const handleSelectChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    saveControlChange(event.currentTarget);
+  };
+
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const shouldHighlight = getHighlightPolicyForControl(event.currentTarget);
+    syncEditableCellHighlight(event.currentTarget, shouldHighlight);
+  };
+
+  const handleInputBlur = (event: FocusEvent<HTMLInputElement>) => {
+    saveControlChange(event.currentTarget);
   };
 
   const handleCreateRecordSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -698,7 +778,8 @@ export default function EmployeeInfoTable({
                             isEmpty: isEmptyCellValue(record.full_name),
                             minWidthClass: "w-full min-w-[14rem]",
                           })}
-                          onChange={submitChange}
+                          onChange={handleInputChange}
+                          onBlur={handleInputBlur}
                         />
                       </form>
                     </td>
@@ -715,7 +796,7 @@ export default function EmployeeInfoTable({
                               isEmpty: isEmptyCellValue(record.client_id),
                               minWidthClass: "w-full min-w-[12rem]",
                             })}
-                            onChange={submitChange}
+                            onChange={handleSelectChange}
                           >
                             <option value="">N/A</option>
                             {clients.map((client) => (
@@ -728,14 +809,14 @@ export default function EmployeeInfoTable({
                       </td>
                     ) : null}
                     {visibleColumns.map((column) => {
+                      const highlightEmptyState = shouldHighlightEmptyStateForColumn(column);
                       if (column.column_kind === "formula") {
                         const formulaValue = formulasByColumnId[column.id] || "";
+                        const isEmpty = highlightEmptyState && isEmptyCellValue(formulaValue);
                         return (
                           <td
                             key={column.id}
-                            className={`px-4 py-3 text-slate-700 ${getCellToneClass(
-                              isEmptyCellValue(formulaValue)
-                            )}`}
+                            className={`px-4 py-3 text-slate-700 ${getCellToneClass(isEmpty)}`}
                           >
                             {formulaValue || "-"}
                           </td>
@@ -745,7 +826,7 @@ export default function EmployeeInfoTable({
                       const valueRow = valuesByColumnId[column.id];
                       if (column.column_kind === "dropdown") {
                         const options = parseOptionsJson(column.options_json);
-                        const isEmpty = isEmptyCellValue(valueRow?.option_value);
+                        const isEmpty = highlightEmptyState && isEmptyCellValue(valueRow?.option_value);
                         return (
                           <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                             <form>
@@ -760,7 +841,7 @@ export default function EmployeeInfoTable({
                                   isEmpty,
                                   minWidthClass: "w-full min-w-[12rem]",
                                 })}
-                                onChange={submitChange}
+                                onChange={handleSelectChange}
                               >
                                 <option value="">N/A</option>
                                 {options.map((option) => (
@@ -775,7 +856,7 @@ export default function EmployeeInfoTable({
                       }
 
                     if (column.column_kind === "number") {
-                      const isEmpty = isEmptyCellValue(valueRow?.text_value);
+                      const isEmpty = highlightEmptyState && isEmptyCellValue(valueRow?.text_value);
                       return (
                         <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                             <form>
@@ -793,7 +874,8 @@ export default function EmployeeInfoTable({
                                   isEmpty,
                                   minWidthClass: "w-full min-w-[12rem]",
                                 })}
-                                onChange={submitChange}
+                                onChange={handleInputChange}
+                                onBlur={handleInputBlur}
                               />
                             </form>
                           </td>
@@ -801,7 +883,7 @@ export default function EmployeeInfoTable({
                     }
 
                     if (column.column_kind === "currency") {
-                      const isEmpty = isEmptyCellValue(valueRow?.text_value);
+                      const isEmpty = highlightEmptyState && isEmptyCellValue(valueRow?.text_value);
                       const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
                         valueRow?.money_currency_code ||
                           parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
@@ -818,7 +900,7 @@ export default function EmployeeInfoTable({
                           <td
                             key={column.id}
                             className={`px-4 py-3 text-slate-700 ${getCellToneClass(
-                              isEmptyCellValue(convertedDisplayValue)
+                              highlightEmptyState && isEmptyCellValue(convertedDisplayValue)
                             )}`}
                           >
                             <div className="min-w-[12rem]">
@@ -847,7 +929,7 @@ export default function EmployeeInfoTable({
                                 className={`h-[34px] rounded-md border px-2 text-sm text-slate-700 ${
                                   isEmpty ? "border-red-200 bg-red-50/70" : "border-slate-300 bg-white"
                                 }`}
-                                onChange={submitChange}
+                                onChange={handleSelectChange}
                               >
                                 {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
                                   <option key={code} value={code}>
@@ -866,7 +948,8 @@ export default function EmployeeInfoTable({
                                   isEmpty,
                                   minWidthClass: "w-full",
                                 })}
-                                onChange={submitChange}
+                                onChange={handleInputChange}
+                                onBlur={handleInputBlur}
                               />
                             </div>
                           </form>
@@ -875,7 +958,8 @@ export default function EmployeeInfoTable({
                     }
 
                     if (column.column_kind === "date") {
-                      const isEmpty = isEmptyCellValue(toDateInputValue(valueRow?.text_value));
+                      const isEmpty =
+                        highlightEmptyState && isEmptyCellValue(toDateInputValue(valueRow?.text_value));
                         return (
                           <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                             <form>
@@ -891,14 +975,15 @@ export default function EmployeeInfoTable({
                                   isEmpty,
                                   minWidthClass: "w-full min-w-[12rem]",
                                 })}
-                                onChange={submitChange}
+                                onChange={handleInputChange}
+                                onBlur={handleInputBlur}
                               />
                             </form>
                           </td>
                         );
                       }
 
-                      const isEmpty = isEmptyCellValue(valueRow?.text_value);
+                      const isEmpty = highlightEmptyState && isEmptyCellValue(valueRow?.text_value);
                       return (
                         <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                           <form>
@@ -913,7 +998,8 @@ export default function EmployeeInfoTable({
                                 isEmpty,
                                 minWidthClass: "w-full min-w-[12rem]",
                               })}
-                              onChange={submitChange}
+                              onChange={handleInputChange}
+                              onBlur={handleInputBlur}
                             />
                           </form>
                         </td>
