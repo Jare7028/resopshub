@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -7,6 +8,7 @@ import {
   useState,
   useTransition,
   type ChangeEvent,
+  type FormEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import FormulaAutocompleteInput, {
@@ -58,6 +60,7 @@ type EmployeeInfoValueRow = {
   option_value: string | null;
   money_currency_code: string | null;
 };
+type EmployeeInfoActionResult = { ok: boolean; error?: string };
 const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "USD ($)",
   GBP: "GBP (\u00A3)",
@@ -82,6 +85,27 @@ function toDateInputValue(value: string | null | undefined) {
   return match ? match[1] : "";
 }
 
+function isEmptyCellValue(value: string | null | undefined) {
+  return String(value || "").trim() === "";
+}
+
+function getCellFieldClassName(args: {
+  isEmpty: boolean;
+  minWidthClass: string;
+  extraClassName?: string;
+}) {
+  const toneClassName = args.isEmpty
+    ? "border-red-200 bg-red-50/70"
+    : "border-slate-300 bg-white";
+  return `${args.minWidthClass} rounded-md border ${toneClassName} px-2 py-1.5 text-sm text-slate-700 ${
+    args.extraClassName || ""
+  }`.trim();
+}
+
+function getCellToneClass(isEmpty: boolean) {
+  return isEmpty ? "bg-red-50/60" : "";
+}
+
 function ColumnEditPanel({
   column,
   columnIndex,
@@ -95,10 +119,12 @@ function ColumnEditPanel({
   columnIndex: number;
   totalColumns: number;
   formulaSuggestions: FormulaSuggestion[];
-  onUpdateColumn: (formData: FormData) => Promise<void> | void;
-  onDeleteColumn: (formData: FormData) => Promise<void> | void;
-  onMoveColumn: (formData: FormData) => Promise<void> | void;
+  onUpdateColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
+  onDeleteColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
+  onMoveColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
 }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const [columnKind, setColumnKind] = useState<EmployeeInfoColumnRow["column_kind"]>(
     column.column_kind
   );
@@ -123,6 +149,30 @@ function ColumnEditPanel({
     column.formula_currency_mode
   );
   const initialFormulaCurrencyCode = normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+
+  const runAction = (
+    event: FormEvent<HTMLFormElement>,
+    action: (formData: FormData) => Promise<EmployeeInfoActionResult>,
+    options?: { closeDetails?: boolean; refresh?: boolean }
+  ) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    startTransition(async () => {
+      const result = await action(formData);
+      if (!result?.ok) {
+        if (result?.error) window.alert(result.error);
+        return;
+      }
+      if (options?.closeDetails && detailsRef.current) {
+        detailsRef.current.open = false;
+      }
+      if (options?.refresh !== false) {
+        router.refresh();
+      }
+    });
+  };
 
   useEffect(() => {
     const onDocumentMouseDown = (event: globalThis.MouseEvent) => {
@@ -195,7 +245,7 @@ function ColumnEditPanel({
       </summary>
       <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 text-left normal-case shadow-lg">
         <div className="mb-2 grid grid-cols-2 gap-2">
-          <form action={onMoveColumn}>
+          <form onSubmit={(event) => runAction(event, onMoveColumn, { refresh: true })}>
             <input type="hidden" name="column_id" value={column.id} />
             <input type="hidden" name="direction" value="left" />
             <button
@@ -206,7 +256,7 @@ function ColumnEditPanel({
               Move left
             </button>
           </form>
-          <form action={onMoveColumn}>
+          <form onSubmit={(event) => runAction(event, onMoveColumn, { refresh: true })}>
             <input type="hidden" name="column_id" value={column.id} />
             <input type="hidden" name="direction" value="right" />
             <button
@@ -218,7 +268,11 @@ function ColumnEditPanel({
             </button>
           </form>
         </div>
-        <form ref={updateFormRef} action={onUpdateColumn} className="grid gap-2">
+        <form
+          ref={updateFormRef}
+          onSubmit={(event) => runAction(event, onUpdateColumn, { closeDetails: true, refresh: true })}
+          className="grid gap-2"
+        >
           <input type="hidden" name="column_id" value={column.id} />
           <input
             name="label"
@@ -320,7 +374,10 @@ function ColumnEditPanel({
             Save
           </button>
         </form>
-        <form action={onDeleteColumn} className="mt-2">
+        <form
+          onSubmit={(event) => runAction(event, onDeleteColumn, { closeDetails: true, refresh: true })}
+          className="mt-2"
+        >
           <input type="hidden" name="column_id" value={column.id} />
           <button
             type="submit"
@@ -359,12 +416,13 @@ export default function EmployeeInfoTable({
   displayCurrency: EmployeeInfoDisplayCurrencyCode;
   isAdmin: boolean;
   formulaSuggestions: FormulaSuggestion[];
-  onCreateRecord: (formData: FormData) => Promise<void> | void;
-  onUpdateCell: (formData: FormData) => Promise<unknown> | void;
-  onUpdateColumn: (formData: FormData) => Promise<void> | void;
-  onDeleteColumn: (formData: FormData) => Promise<void> | void;
-  onMoveColumn: (formData: FormData) => Promise<void> | void;
+  onCreateRecord: (formData: FormData) => Promise<EmployeeInfoActionResult>;
+  onUpdateCell: (formData: FormData) => Promise<EmployeeInfoActionResult>;
+  onUpdateColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
+  onDeleteColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
+  onMoveColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
 }) {
+  const router = useRouter();
   const [, startTransition] = useTransition();
   const createRecordFormId = "employee-info-create-record-form";
   const [isAddingRow, setIsAddingRow] = useState(false);
@@ -475,7 +533,31 @@ export default function EmployeeInfoTable({
     if (!form) return;
     const formData = new FormData(form);
     startTransition(() => {
-      void onUpdateCell(formData);
+      void (async () => {
+        const result = await onUpdateCell(formData);
+        if (!result?.ok && result?.error) {
+          window.alert(result.error);
+        }
+      })();
+    });
+  };
+
+  const handleCreateRecordSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+    const formData = new FormData(form);
+
+    startTransition(async () => {
+      const result = await onCreateRecord(formData);
+      if (!result?.ok) {
+        if (result?.error) window.alert(result.error);
+        return;
+      }
+      setIsAddingRow(false);
+      setNewFullName("");
+      setNewClientId("");
+      router.refresh();
     });
   };
 
@@ -537,7 +619,7 @@ export default function EmployeeInfoTable({
             {isAddingRow ? (
               <tr className="bg-slate-50/80">
                 <td className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/80 px-4 py-3">
-                  <form id={createRecordFormId} action={onCreateRecord} />
+                  <form id={createRecordFormId} onSubmit={handleCreateRecordSubmit} />
                   <div className="flex items-center gap-2">
                     <input
                       form={createRecordFormId}
@@ -612,13 +694,16 @@ export default function EmployeeInfoTable({
                           name="value"
                           defaultValue={record.full_name}
                           aria-label="Full name"
-                          className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                          className={getCellFieldClassName({
+                            isEmpty: isEmptyCellValue(record.full_name),
+                            minWidthClass: "w-full min-w-[14rem]",
+                          })}
                           onChange={submitChange}
                         />
                       </form>
                     </td>
                     {showClientColumn ? (
-                      <td className="px-4 py-3">
+                      <td className={`px-4 py-3 ${getCellToneClass(isEmptyCellValue(record.client_id))}`}>
                         <form>
                           <input type="hidden" name="record_id" value={record.id} />
                           <input type="hidden" name="base_field" value="client_id" />
@@ -626,7 +711,10 @@ export default function EmployeeInfoTable({
                             name="value"
                             defaultValue={record.client_id || ""}
                             aria-label="Client"
-                            className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                            className={getCellFieldClassName({
+                              isEmpty: isEmptyCellValue(record.client_id),
+                              minWidthClass: "w-full min-w-[12rem]",
+                            })}
                             onChange={submitChange}
                           >
                             <option value="">N/A</option>
@@ -641,9 +729,15 @@ export default function EmployeeInfoTable({
                     ) : null}
                     {visibleColumns.map((column) => {
                       if (column.column_kind === "formula") {
+                        const formulaValue = formulasByColumnId[column.id] || "";
                         return (
-                          <td key={column.id} className="px-4 py-3 text-slate-700">
-                            {formulasByColumnId[column.id] || "-"}
+                          <td
+                            key={column.id}
+                            className={`px-4 py-3 text-slate-700 ${getCellToneClass(
+                              isEmptyCellValue(formulaValue)
+                            )}`}
+                          >
+                            {formulaValue || "-"}
                           </td>
                         );
                       }
@@ -651,8 +745,9 @@ export default function EmployeeInfoTable({
                       const valueRow = valuesByColumnId[column.id];
                       if (column.column_kind === "dropdown") {
                         const options = parseOptionsJson(column.options_json);
+                        const isEmpty = isEmptyCellValue(valueRow?.option_value);
                         return (
-                          <td key={column.id} className="px-4 py-3">
+                          <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                             <form>
                               <input type="hidden" name="record_id" value={record.id} />
                               <input type="hidden" name="column_id" value={column.id} />
@@ -661,7 +756,10 @@ export default function EmployeeInfoTable({
                                 name="value"
                                 defaultValue={valueRow?.option_value || ""}
                                 aria-label={column.label}
-                                className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                                className={getCellFieldClassName({
+                                  isEmpty,
+                                  minWidthClass: "w-full min-w-[12rem]",
+                                })}
                                 onChange={submitChange}
                               >
                                 <option value="">N/A</option>
@@ -677,8 +775,9 @@ export default function EmployeeInfoTable({
                       }
 
                     if (column.column_kind === "number") {
+                      const isEmpty = isEmptyCellValue(valueRow?.text_value);
                       return (
-                        <td key={column.id} className="px-4 py-3">
+                        <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                             <form>
                               <input type="hidden" name="record_id" value={record.id} />
                               <input type="hidden" name="column_id" value={column.id} />
@@ -690,7 +789,10 @@ export default function EmployeeInfoTable({
                                 name="value"
                                 defaultValue={valueRow?.text_value || ""}
                                 aria-label={column.label}
-                                className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                                className={getCellFieldClassName({
+                                  isEmpty,
+                                  minWidthClass: "w-full min-w-[12rem]",
+                                })}
                                 onChange={submitChange}
                               />
                             </form>
@@ -699,6 +801,7 @@ export default function EmployeeInfoTable({
                     }
 
                     if (column.column_kind === "currency") {
+                      const isEmpty = isEmptyCellValue(valueRow?.text_value);
                       const sourceCurrencyCode = normalizeEmployeeInfoCurrencyCode(
                         valueRow?.money_currency_code ||
                           parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
@@ -712,7 +815,12 @@ export default function EmployeeInfoTable({
                         );
 
                         return (
-                          <td key={column.id} className="px-4 py-3 text-slate-700">
+                          <td
+                            key={column.id}
+                            className={`px-4 py-3 text-slate-700 ${getCellToneClass(
+                              isEmptyCellValue(convertedDisplayValue)
+                            )}`}
+                          >
                             <div className="min-w-[12rem]">
                               <div>{convertedDisplayValue || "-"}</div>
                               {sourceDisplayValue ? (
@@ -726,7 +834,7 @@ export default function EmployeeInfoTable({
                       }
 
                       return (
-                        <td key={column.id} className="px-4 py-3">
+                        <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                           <form>
                             <input type="hidden" name="record_id" value={record.id} />
                             <input type="hidden" name="column_id" value={column.id} />
@@ -736,7 +844,9 @@ export default function EmployeeInfoTable({
                                 name="currency_code"
                                 defaultValue={sourceCurrencyCode}
                                 aria-label={`${column.label} currency`}
-                                className="h-[34px] rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700"
+                                className={`h-[34px] rounded-md border px-2 text-sm text-slate-700 ${
+                                  isEmpty ? "border-red-200 bg-red-50/70" : "border-slate-300 bg-white"
+                                }`}
                                 onChange={submitChange}
                               >
                                 {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
@@ -752,7 +862,10 @@ export default function EmployeeInfoTable({
                                 defaultValue={valueRow?.text_value || ""}
                                 placeholder={getEmployeeInfoCurrencySymbol(sourceCurrencyCode)}
                                 aria-label={column.label}
-                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                                className={getCellFieldClassName({
+                                  isEmpty,
+                                  minWidthClass: "w-full",
+                                })}
                                 onChange={submitChange}
                               />
                             </div>
@@ -762,8 +875,9 @@ export default function EmployeeInfoTable({
                     }
 
                     if (column.column_kind === "date") {
+                      const isEmpty = isEmptyCellValue(toDateInputValue(valueRow?.text_value));
                         return (
-                          <td key={column.id} className="px-4 py-3">
+                          <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                             <form>
                               <input type="hidden" name="record_id" value={record.id} />
                               <input type="hidden" name="column_id" value={column.id} />
@@ -773,7 +887,10 @@ export default function EmployeeInfoTable({
                                 name="value"
                                 defaultValue={toDateInputValue(valueRow?.text_value)}
                                 aria-label={column.label}
-                                className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                                className={getCellFieldClassName({
+                                  isEmpty,
+                                  minWidthClass: "w-full min-w-[12rem]",
+                                })}
                                 onChange={submitChange}
                               />
                             </form>
@@ -781,8 +898,9 @@ export default function EmployeeInfoTable({
                         );
                       }
 
+                      const isEmpty = isEmptyCellValue(valueRow?.text_value);
                       return (
-                        <td key={column.id} className="px-4 py-3">
+                        <td key={column.id} className={`px-4 py-3 ${getCellToneClass(isEmpty)}`}>
                           <form>
                             <input type="hidden" name="record_id" value={record.id} />
                             <input type="hidden" name="column_id" value={column.id} />
@@ -791,7 +909,10 @@ export default function EmployeeInfoTable({
                               name="value"
                               defaultValue={valueRow?.text_value || ""}
                               aria-label={column.label}
-                              className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                              className={getCellFieldClassName({
+                                isEmpty,
+                                minWidthClass: "w-full min-w-[12rem]",
+                              })}
                               onChange={submitChange}
                             />
                           </form>

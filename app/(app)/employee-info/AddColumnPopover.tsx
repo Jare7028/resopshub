@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
@@ -14,6 +15,7 @@ import {
 } from "@/lib/employeeInfo";
 
 type EmployeeInfoColumnKind = "text" | "number" | "date" | "currency" | "dropdown" | "formula";
+type EmployeeInfoActionResult = { ok: boolean; error?: string };
 const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "USD ($)",
   GBP: "GBP (\u00A3)",
@@ -25,16 +27,45 @@ export default function AddColumnPopover({
   onCreateColumn,
 }: {
   formulaSuggestions: FormulaSuggestion[];
-  onCreateColumn: (formData: FormData) => Promise<void> | void;
+  onCreateColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
 }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const detailsRef = useRef<HTMLDetailsElement | null>(null);
   const [columnKind, setColumnKind] = useState<EmployeeInfoColumnKind>("text");
   const [currencyCode, setCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
   const [formulaCurrencyMode, setFormulaCurrencyMode] =
     useState<EmployeeInfoFormulaCurrencyMode>("display");
   const [formulaCurrencyCode, setFormulaCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
 
+  const resetState = () => {
+    setColumnKind("text");
+    setCurrencyCode("USD");
+    setFormulaCurrencyMode("display");
+    setFormulaCurrencyCode("USD");
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+
+    const formData = new FormData(form);
+    startTransition(async () => {
+      const result = await onCreateColumn(formData);
+      if (!result?.ok) {
+        if (result?.error) window.alert(result.error);
+        return;
+      }
+      form.reset();
+      resetState();
+      if (detailsRef.current) detailsRef.current.open = false;
+      router.refresh();
+    });
+  };
+
   return (
-    <details className="relative">
+    <details ref={detailsRef} className="relative">
       <summary
         className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold leading-none text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
         aria-label="Add column"
@@ -50,7 +81,7 @@ export default function AddColumnPopover({
           column keys (for example <code>=salary + bonus</code> or{" "}
           <code>=IF(OR(client=&quot;Resolvable&quot;,client=&quot;Dusk&quot;),500,0)</code>).
         </p>
-        <form action={onCreateColumn} className="mt-3 grid gap-3">
+        <form onSubmit={handleSubmit} className="mt-3 grid gap-3">
           <input
             name="label"
             placeholder="Column label"
