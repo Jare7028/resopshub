@@ -41,6 +41,7 @@ export default function EmployeeInfoTable({
   columns,
   valuesByRecordId,
   formulaValueByRecordIdAndColumnId,
+  onCreateRecord,
   onUpdateCell,
 }: {
   records: EmployeeInfoRecordRow[];
@@ -48,9 +49,11 @@ export default function EmployeeInfoTable({
   columns: EmployeeInfoColumnRow[];
   valuesByRecordId: Record<string, Record<string, EmployeeInfoValueRow>>;
   formulaValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
+  onCreateRecord: (formData: FormData) => Promise<void> | void;
   onUpdateCell: (formData: FormData) => Promise<unknown> | void;
 }) {
   const [, startTransition] = useTransition();
+  const createRecordFormId = "employee-info-create-record-form";
 
   const submitChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const form = event.currentTarget.form;
@@ -185,8 +188,54 @@ export default function EmployeeInfoTable({
             </tr>
           )}
         </tbody>
+        <tfoot className="bg-slate-50">
+          <tr className="border-t border-slate-200">
+            <td className="px-4 py-3">
+              <form id={createRecordFormId} action={onCreateRecord} />
+              <div className="flex items-center gap-2">
+                <input
+                  form={createRecordFormId}
+                  name="full_name"
+                  placeholder="Add employee full name"
+                  aria-label="Add employee full name"
+                  className="w-full min-w-[14rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                  required
+                />
+                <button
+                  type="submit"
+                  form={createRecordFormId}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold text-slate-700 hover:bg-slate-100"
+                  aria-label="Add employee"
+                  title="Add employee"
+                >
+                  +
+                </button>
+              </div>
+            </td>
+            <td className="px-4 py-3">
+              <select
+                form={createRecordFormId}
+                name="client_id"
+                defaultValue=""
+                aria-label="New employee client"
+                className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+              >
+                <option value="">Client (N/A)</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </td>
+            {columns.map((column) => (
+              <td key={`new-record-${column.id}`} className="px-4 py-3 text-xs text-slate-400">
+                {column.column_kind === "formula" ? "auto" : "-"}
+              </td>
+            ))}
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
 }
-

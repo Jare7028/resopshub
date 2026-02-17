@@ -484,129 +484,105 @@ export default async function EmployeeInfoPage(props: {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Add Employee
-        </h2>
-        <form action={createRecord} className="mt-3 grid gap-3 md:grid-cols-3">
-          <input
-            name="full_name"
-            placeholder="Full name"
-            className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-            required
-          />
-          <select
-            name="client_id"
-            defaultValue=""
-            className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-          >
-            <option value="">Client (N/A)</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="h-11 rounded-md btn-primary px-4 text-sm font-semibold text-white"
-          >
-            Add employee
-          </button>
-        </form>
-      </section>
-
       {isAdmin ? (
         <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Add Column
-          </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Formula columns support spreadsheet-style letters (A=Full Name, B=Client, C onward are
-            your custom columns). Example: <code>=(C * D)</code>.
-          </p>
-          <form action={createColumn} className="mt-3 grid gap-3 md:grid-cols-4">
-            <input
-              name="label"
-              placeholder="Column label"
-              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-              required
-            />
-            <select
-              name="column_kind"
-              defaultValue="text"
-              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-            >
-              <option value="text">Text</option>
-              <option value="dropdown">Dropdown</option>
-              <option value="formula">Formula</option>
-            </select>
-            <input
-              name="dropdown_options"
-              placeholder="Dropdown options (comma separated)"
-              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-            />
-            <input
-              name="formula"
-              placeholder="Formula (e.g. =(C * D))"
-              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-            />
-            <div className="md:col-span-4">
+          <details>
+            <summary className="cursor-pointer list-none text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Assign Users
+            </summary>
+            <p className="mt-2 text-xs text-slate-500">
+              Non-admin users must be selected here to access Employee Info.
+            </p>
+            <form action={updateAccessUsers} className="mt-3 space-y-2">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {users
+                  .filter((user) => user.role !== "admin")
+                  .map((user) => (
+                    <label
+                      key={user.id}
+                      className="flex min-h-11 items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        name="allowed_user_ids"
+                        value={user.id}
+                        defaultChecked={allowedUserIds.has(user.id)}
+                      />
+                      <span>{user.full_name || user.email || "Unnamed user"}</span>
+                    </label>
+                  ))}
+              </div>
               <button
                 type="submit"
                 className="h-11 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100"
               >
-                Add column
+                Save access users
               </button>
-            </div>
-          </form>
-        </section>
-      ) : null}
-
-      {isAdmin ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Access Users
-          </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Non-admin users must be selected here to access Employee Info.
-          </p>
-          <form action={updateAccessUsers} className="mt-3 space-y-2">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {users
-                .filter((user) => user.role !== "admin")
-                .map((user) => (
-                  <label
-                    key={user.id}
-                    className="flex min-h-11 items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      name="allowed_user_ids"
-                      value={user.id}
-                      defaultChecked={allowedUserIds.has(user.id)}
-                    />
-                    <span>{user.full_name || user.email || "Unnamed user"}</span>
-                  </label>
-                ))}
-            </div>
-            <button
-              type="submit"
-              className="h-11 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              Save access users
-            </button>
-          </form>
+            </form>
+          </details>
         </section>
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">
+        {isAdmin ? (
+          <div className="flex items-center justify-end border-b border-slate-200 px-4 py-3">
+            <details className="relative">
+              <summary
+                className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold leading-none text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
+                aria-label="Add column"
+                title="Add column"
+              >
+                +
+              </summary>
+              <div className="absolute right-0 z-10 mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
+                <p className="text-xs text-slate-500">
+                  Formula columns support spreadsheet-style letters (A=Full Name, B=Client, C onward
+                  are your custom columns). Example: <code>=(C * D)</code>.
+                </p>
+                <form action={createColumn} className="mt-3 grid gap-3">
+                  <input
+                    name="label"
+                    placeholder="Column label"
+                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+                    required
+                  />
+                  <select
+                    name="column_kind"
+                    defaultValue="text"
+                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+                  >
+                    <option value="text">Text</option>
+                    <option value="dropdown">Dropdown</option>
+                    <option value="formula">Formula</option>
+                  </select>
+                  <input
+                    name="dropdown_options"
+                    placeholder="Dropdown options (comma separated)"
+                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+                  />
+                  <input
+                    name="formula"
+                    placeholder="Formula (e.g. =(C * D))"
+                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+                  />
+                  <button
+                    type="submit"
+                    className="h-11 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Add column
+                  </button>
+                </form>
+              </div>
+            </details>
+          </div>
+        ) : null}
         <EmployeeInfoTable
           records={records}
           clients={clients}
           columns={columns}
           valuesByRecordId={valuesByRecordId}
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
+          onCreateRecord={createRecord}
           onUpdateCell={updateCell}
         />
       </section>
