@@ -1,7 +1,23 @@
 import FormulaParser from "fast-formula-parser";
 
-export const EMPLOYEE_INFO_COLUMN_KINDS = ["text", "dropdown", "formula", "number", "date"] as const;
+export const EMPLOYEE_INFO_COLUMN_KINDS = [
+  "text",
+  "dropdown",
+  "formula",
+  "number",
+  "date",
+  "currency",
+] as const;
 export type EmployeeInfoColumnKind = (typeof EMPLOYEE_INFO_COLUMN_KINDS)[number];
+
+export const EMPLOYEE_INFO_CURRENCY_CODES = ["USD", "GBP", "MUR"] as const;
+export type EmployeeInfoCurrencyCode = (typeof EMPLOYEE_INFO_CURRENCY_CODES)[number];
+
+const EMPLOYEE_INFO_CURRENCY_SYMBOL_BY_CODE: Record<EmployeeInfoCurrencyCode, string> = {
+  USD: "$",
+  GBP: "£",
+  MUR: "Rs",
+};
 
 export function isEmployeeInfoColumnKind(value: string): value is EmployeeInfoColumnKind {
   return (EMPLOYEE_INFO_COLUMN_KINDS as readonly string[]).includes(value);
@@ -9,6 +25,37 @@ export function isEmployeeInfoColumnKind(value: string): value is EmployeeInfoCo
 
 export function normalizeEmployeeInfoColumnKind(value: string): EmployeeInfoColumnKind {
   return isEmployeeInfoColumnKind(value) ? value : "text";
+}
+
+export function isEmployeeInfoCurrencyCode(value: string): value is EmployeeInfoCurrencyCode {
+  return (EMPLOYEE_INFO_CURRENCY_CODES as readonly string[]).includes(value);
+}
+
+export function normalizeEmployeeInfoCurrencyCode(value: string | null | undefined): EmployeeInfoCurrencyCode {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase();
+  return isEmployeeInfoCurrencyCode(normalized) ? normalized : "USD";
+}
+
+export function parseEmployeeInfoCurrencyCodeFromOptions(options: unknown): EmployeeInfoCurrencyCode {
+  if (Array.isArray(options) && options.length) {
+    return normalizeEmployeeInfoCurrencyCode(String(options[0] || ""));
+  }
+  if (options && typeof options === "object") {
+    const candidate = options as { currency_code?: unknown };
+    return normalizeEmployeeInfoCurrencyCode(
+      typeof candidate.currency_code === "string" ? candidate.currency_code : ""
+    );
+  }
+  return "USD";
+}
+
+export function getEmployeeInfoCurrencySymbol(
+  code: EmployeeInfoCurrencyCode | string | null | undefined
+) {
+  const normalizedCode = normalizeEmployeeInfoCurrencyCode(String(code || ""));
+  return EMPLOYEE_INFO_CURRENCY_SYMBOL_BY_CODE[normalizedCode];
 }
 
 export function toEmployeeInfoColumnKey(label: string) {

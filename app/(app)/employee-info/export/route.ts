@@ -3,6 +3,8 @@ import {
   columnIndexToLetter,
   evaluateEmployeeFormula,
   formatFormulaResult,
+  getEmployeeInfoCurrencySymbol,
+  parseEmployeeInfoCurrencyCodeFromOptions,
   toEmployeeInfoColumnKey,
 } from "@/lib/employeeInfo";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -18,8 +20,9 @@ type EmployeeInfoColumnRow = {
   id: string;
   key: string;
   label: string;
-  column_kind: "text" | "dropdown" | "formula" | "number" | "date";
+  column_kind: "text" | "dropdown" | "formula" | "number" | "date" | "currency";
   formula: string | null;
+  options_json: unknown;
   position: number;
 };
 
@@ -168,7 +171,7 @@ export async function GET() {
         .order("created_at", { ascending: false }),
       supabase
         .from("employee_info_columns")
-        .select("id,key,label,column_kind,formula,position")
+        .select("id,key,label,column_kind,formula,options_json,position")
         .order("position", { ascending: true })
         .order("created_at", { ascending: true }),
     ]);
@@ -227,7 +230,23 @@ export async function GET() {
         rowValues.push("");
         return;
       }
-      rowValues.push(column.column_kind === "dropdown" ? value.option_value || "" : value.text_value || "");
+      if (column.column_kind === "dropdown") {
+        rowValues.push(value.option_value || "");
+        return;
+      }
+      if (column.column_kind === "currency") {
+        const amount = String(value.text_value || "").trim();
+        if (!amount) {
+          rowValues.push("");
+          return;
+        }
+        const currencyCode = parseEmployeeInfoCurrencyCodeFromOptions(column.options_json);
+        const symbol = getEmployeeInfoCurrencySymbol(currencyCode);
+        const prefix = currencyCode === "MUR" ? `${symbol} ` : symbol;
+        rowValues.push(`${prefix}${amount}`);
+        return;
+      }
+      rowValues.push(value.text_value || "");
     });
     return rowValues;
   });

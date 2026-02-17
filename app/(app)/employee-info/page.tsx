@@ -9,6 +9,7 @@ import {
   columnIndexToLetter,
   evaluateEmployeeFormula,
   formatFormulaResult,
+  normalizeEmployeeInfoCurrencyCode,
   normalizeEmployeeInfoColumnKind,
   toEmployeeInfoColumnKey,
 } from "@/lib/employeeInfo";
@@ -24,7 +25,7 @@ type EmployeeInfoColumnRow = {
   id: string;
   key: string;
   label: string;
-  column_kind: "text" | "dropdown" | "formula" | "number" | "date";
+  column_kind: "text" | "dropdown" | "formula" | "number" | "date" | "currency";
   formula: string | null;
   options_json: unknown;
   position: number;
@@ -83,6 +84,10 @@ function normalizeDateCellValue(rawValue: string) {
     date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day;
   return isValid ? normalized : null;
+}
+
+function normalizeCurrencyCellValue(rawValue: string) {
+  return normalizeNumberCellValue(rawValue);
 }
 
 function buildFormulaSuggestions(columns: EmployeeInfoColumnRow[]) {
@@ -406,6 +411,8 @@ export default async function EmployeeInfoPage(props: {
     const normalizedValue =
       columnKind === "number"
         ? normalizeNumberCellValue(value)
+        : columnKind === "currency"
+        ? normalizeCurrencyCellValue(value)
         : columnKind === "date"
         ? normalizeDateCellValue(value)
         : value;
@@ -466,6 +473,9 @@ export default async function EmployeeInfoPage(props: {
     const kind = normalizeEmployeeInfoColumnKind(String(formData.get("column_kind") || ""));
     const optionsRaw = String(formData.get("dropdown_options") || "").trim();
     const formula = String(formData.get("formula") || "").trim();
+    const currencyCode = normalizeEmployeeInfoCurrencyCode(
+      String(formData.get("currency_code") || "")
+    );
 
     if (!label) {
       redirect(buildEmployeeInfoUrl({ error: "Column label is required" }));
@@ -501,7 +511,12 @@ export default async function EmployeeInfoPage(props: {
       label,
       column_kind: kind,
       formula: kind === "formula" ? formula : null,
-      options_json: kind === "dropdown" ? toOptionsJson(optionsRaw) : [],
+      options_json:
+        kind === "dropdown"
+          ? toOptionsJson(optionsRaw)
+          : kind === "currency"
+          ? { currency_code: currencyCode }
+          : [],
       position: nextPosition,
       created_by_user_id: currentUser.id,
     };
@@ -537,6 +552,9 @@ export default async function EmployeeInfoPage(props: {
     const kind = normalizeEmployeeInfoColumnKind(String(formData.get("column_kind") || ""));
     const optionsRaw = String(formData.get("dropdown_options") || "").trim();
     const formula = String(formData.get("formula") || "").trim();
+    const currencyCode = normalizeEmployeeInfoCurrencyCode(
+      String(formData.get("currency_code") || "")
+    );
 
     if (!columnId) {
       redirect(buildEmployeeInfoUrl({ error: "Column id is required" }));
@@ -569,7 +587,12 @@ export default async function EmployeeInfoPage(props: {
         label,
         column_kind: kind,
         formula: kind === "formula" ? formula : null,
-        options_json: kind === "dropdown" ? toOptionsJson(optionsRaw) : [],
+        options_json:
+          kind === "dropdown"
+            ? toOptionsJson(optionsRaw)
+            : kind === "currency"
+            ? { currency_code: currencyCode }
+            : [],
         updated_at: new Date().toISOString(),
       })
       .eq("id", columnId);
@@ -622,6 +645,28 @@ export default async function EmployeeInfoPage(props: {
             ? valueRows
                 .map((row) => {
                   const normalizedValue = normalizeNumberCellValue(
+                    String(row.text_value || row.option_value || "")
+                  );
+                  if (!normalizedValue) return null;
+                  return {
+                    record_id: row.record_id,
+                    column_id: columnId,
+                    text_value: normalizedValue,
+                    option_value: null,
+                    updated_at: now,
+                  };
+                })
+                .filter((row): row is {
+                  record_id: string;
+                  column_id: string;
+                  text_value: string;
+                  option_value: null;
+                  updated_at: string;
+                } => Boolean(row))
+            : kind === "currency"
+            ? valueRows
+                .map((row) => {
+                  const normalizedValue = normalizeCurrencyCellValue(
                     String(row.text_value || row.option_value || "")
                   );
                   if (!normalizedValue) return null;

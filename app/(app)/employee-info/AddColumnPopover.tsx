@@ -4,8 +4,18 @@ import { useState } from "react";
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
+import {
+  EMPLOYEE_INFO_CURRENCY_CODES,
+  normalizeEmployeeInfoCurrencyCode,
+  type EmployeeInfoCurrencyCode,
+} from "@/lib/employeeInfo";
 
-type EmployeeInfoColumnKind = "text" | "number" | "date" | "dropdown" | "formula";
+type EmployeeInfoColumnKind = "text" | "number" | "date" | "currency" | "dropdown" | "formula";
+const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
+  USD: "USD ($)",
+  GBP: "GBP (£)",
+  MUR: "MUR (Rs)",
+};
 
 export default function AddColumnPopover({
   formulaSuggestions,
@@ -15,6 +25,7 @@ export default function AddColumnPopover({
   onCreateColumn: (formData: FormData) => Promise<void> | void;
 }) {
   const [columnKind, setColumnKind] = useState<EmployeeInfoColumnKind>("text");
+  const [currencyCode, setCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
 
   return (
     <details className="relative">
@@ -51,9 +62,26 @@ export default function AddColumnPopover({
             <option value="text">Text</option>
             <option value="number">Number</option>
             <option value="date">Date</option>
+            <option value="currency">Currency ($)</option>
             <option value="dropdown">Dropdown</option>
             <option value="formula">Formula</option>
           </select>
+          {columnKind === "currency" ? (
+            <select
+              name="currency_code"
+              value={currencyCode}
+              onChange={(event) =>
+                setCurrencyCode(normalizeEmployeeInfoCurrencyCode(event.currentTarget.value))
+              }
+              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+            >
+              {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {currencyLabelByCode[code]}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {columnKind === "dropdown" ? (
             <input
               name="dropdown_options"

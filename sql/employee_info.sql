@@ -19,7 +19,7 @@ create table if not exists public.employee_info_columns (
   id uuid primary key default gen_random_uuid(),
   key text not null unique,
   label text not null,
-  column_kind text not null check (column_kind in ('text', 'dropdown', 'formula', 'number', 'date')),
+  column_kind text not null check (column_kind in ('text', 'dropdown', 'formula', 'number', 'date', 'currency')),
   formula text,
   options_json jsonb not null default '[]'::jsonb,
   position integer not null default 0,

@@ -12,6 +12,13 @@ import {
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
+import {
+  EMPLOYEE_INFO_CURRENCY_CODES,
+  getEmployeeInfoCurrencySymbol,
+  normalizeEmployeeInfoCurrencyCode,
+  parseEmployeeInfoCurrencyCodeFromOptions,
+  type EmployeeInfoCurrencyCode,
+} from "@/lib/employeeInfo";
 
 type ClientRow = {
   id: string;
@@ -28,7 +35,7 @@ type EmployeeInfoColumnRow = {
   id: string;
   key: string;
   label: string;
-  column_kind: "text" | "dropdown" | "formula" | "number" | "date";
+  column_kind: "text" | "dropdown" | "formula" | "number" | "date" | "currency";
   formula: string | null;
   options_json: unknown;
   position: number;
@@ -40,6 +47,11 @@ type EmployeeInfoValueRow = {
 };
 
 const EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY = "employee_info_visible_fields_v1";
+const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
+  USD: "USD ($)",
+  GBP: "GBP (£)",
+  MUR: "MUR (Rs)",
+};
 
 function parseOptionsJson(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -79,12 +91,16 @@ function ColumnEditPanel({
   const [columnKind, setColumnKind] = useState<EmployeeInfoColumnRow["column_kind"]>(
     column.column_kind
   );
+  const [currencyCode, setCurrencyCode] = useState<EmployeeInfoCurrencyCode>(() =>
+    parseEmployeeInfoCurrencyCodeFromOptions(column.options_json)
+  );
   const detailsRef = useRef<HTMLDetailsElement | null>(null);
   const updateFormRef = useRef<HTMLFormElement | null>(null);
   const initialLabel = column.label;
   const initialKind = column.column_kind;
   const initialDropdownOptions = formatOptionsInput(column.options_json);
   const initialFormula = column.formula || "";
+  const initialCurrencyCode = parseEmployeeInfoCurrencyCodeFromOptions(column.options_json);
 
   useEffect(() => {
     const onDocumentMouseDown = (event: globalThis.MouseEvent) => {
@@ -100,12 +116,16 @@ function ColumnEditPanel({
       const nextKind = String(formData.get("column_kind") || "");
       const nextDropdownOptions = String(formData.get("dropdown_options") || "");
       const nextFormula = String(formData.get("formula") || "");
+      const nextCurrencyCode = normalizeEmployeeInfoCurrencyCode(
+        String(formData.get("currency_code") || "")
+      );
 
       const hasChanges =
         nextLabel !== initialLabel ||
         nextKind !== initialKind ||
         nextDropdownOptions !== initialDropdownOptions ||
-        nextFormula !== initialFormula;
+        nextFormula !== initialFormula ||
+        nextCurrencyCode !== initialCurrencyCode;
 
       if (hasChanges) {
         if (!updateForm.reportValidity()) {
@@ -121,7 +141,7 @@ function ColumnEditPanel({
     return () => {
       document.removeEventListener("mousedown", onDocumentMouseDown);
     };
-  }, [initialDropdownOptions, initialFormula, initialKind, initialLabel]);
+  }, [initialCurrencyCode, initialDropdownOptions, initialFormula, initialKind, initialLabel]);
 
   return (
     <details ref={detailsRef} className="relative shrink-0">
@@ -177,9 +197,26 @@ function ColumnEditPanel({
             <option value="text">Text</option>
             <option value="number">Number</option>
             <option value="date">Date</option>
+            <option value="currency">Currency ($)</option>
             <option value="dropdown">Dropdown</option>
             <option value="formula">Formula</option>
           </select>
+          {columnKind === "currency" ? (
+            <select
+              name="currency_code"
+              value={currencyCode}
+              onChange={(event) =>
+                setCurrencyCode(normalizeEmployeeInfoCurrencyCode(event.currentTarget.value))
+              }
+              className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+            >
+              {EMPLOYEE_INFO_CURRENCY_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {currencyLabelByCode[code]}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {columnKind === "dropdown" ? (
             <input
               name="dropdown_options"
@@ -600,9 +637,9 @@ export default function EmployeeInfoTable({
                         );
                       }
 
-                      if (column.column_kind === "number") {
-                        return (
-                          <td key={column.id} className="px-4 py-3">
+                    if (column.column_kind === "number") {
+                      return (
+                        <td key={column.id} className="px-4 py-3">
                             <form>
                               <input type="hidden" name="record_id" value={record.id} />
                               <input type="hidden" name="column_id" value={column.id} />
@@ -619,10 +656,40 @@ export default function EmployeeInfoTable({
                               />
                             </form>
                           </td>
-                        );
-                      }
+                      );
+                    }
 
-                      if (column.column_kind === "date") {
+                    if (column.column_kind === "currency") {
+                      const currencyCode = parseEmployeeInfoCurrencyCodeFromOptions(column.options_json);
+                      const currencySymbol = getEmployeeInfoCurrencySymbol(currencyCode);
+                      const currencyPrefix = currencyCode === "MUR" ? `${currencySymbol} ` : currencySymbol;
+                      return (
+                        <td key={column.id} className="px-4 py-3">
+                          <form>
+                            <input type="hidden" name="record_id" value={record.id} />
+                            <input type="hidden" name="column_id" value={column.id} />
+                            <input type="hidden" name="column_kind" value={column.column_kind} />
+                            <div className="relative min-w-[12rem]">
+                              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-slate-500">
+                                {currencyPrefix}
+                              </span>
+                              <input
+                                type="number"
+                                step="any"
+                                inputMode="decimal"
+                                name="value"
+                                defaultValue={valueRow?.text_value || ""}
+                                aria-label={column.label}
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 pl-10 text-sm text-slate-700"
+                                onChange={submitChange}
+                              />
+                            </div>
+                          </form>
+                        </td>
+                      );
+                    }
+
+                    if (column.column_kind === "date") {
                         return (
                           <td key={column.id} className="px-4 py-3">
                             <form>

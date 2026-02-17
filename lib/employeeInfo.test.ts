@@ -2,12 +2,37 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateEmployeeFormula,
   formatFormulaResult,
+  getEmployeeInfoCurrencySymbol,
   normalizeEmployeeInfoColumnKind,
+  normalizeEmployeeInfoCurrencyCode,
+  parseEmployeeInfoCurrencyCodeFromOptions,
 } from "./employeeInfo";
 
 describe("normalizeEmployeeInfoColumnKind", () => {
   it("accepts date as a valid employee info column kind", () => {
     expect(normalizeEmployeeInfoColumnKind("date")).toBe("date");
+  });
+
+  it("accepts currency as a valid employee info column kind", () => {
+    expect(normalizeEmployeeInfoColumnKind("currency")).toBe("currency");
+  });
+});
+
+describe("employee info currency helpers", () => {
+  it("normalizes currency codes and falls back to USD", () => {
+    expect(normalizeEmployeeInfoCurrencyCode("gbp")).toBe("GBP");
+    expect(normalizeEmployeeInfoCurrencyCode("bad-code")).toBe("USD");
+  });
+
+  it("reads currency code from column options json", () => {
+    expect(parseEmployeeInfoCurrencyCodeFromOptions({ currency_code: "MUR" })).toBe("MUR");
+    expect(parseEmployeeInfoCurrencyCodeFromOptions([])).toBe("USD");
+  });
+
+  it("maps currency symbols", () => {
+    expect(getEmployeeInfoCurrencySymbol("USD")).toBe("$");
+    expect(getEmployeeInfoCurrencySymbol("GBP")).toBe("£");
+    expect(getEmployeeInfoCurrencySymbol("MUR")).toBe("Rs");
   });
 });
 
