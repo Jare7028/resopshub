@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
 
 export type FormulaSuggestion = {
   token: string;
@@ -38,26 +44,52 @@ function resolveSuggestionRange(value: string, caret: number): SuggestionRange |
 
 export default function FormulaAutocompleteInput({
   name,
+  value,
   defaultValue,
+  onValueChange,
   placeholder,
   className,
   required,
   suggestions,
+  multiline = false,
+  rows = 10,
+  autoFocus,
 }: {
-  name: string;
+  name?: string;
+  value?: string;
   defaultValue?: string;
+  onValueChange?: (nextValue: string) => void;
   placeholder: string;
   className: string;
   required?: boolean;
   suggestions: FormulaSuggestion[];
+  multiline?: boolean;
+  rows?: number;
+  autoFocus?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [value, setValue] = useState(defaultValue || "");
+  const isControlled = value !== undefined;
+  const [internalValue, setInternalValue] = useState(defaultValue || "");
+  const currentValue = isControlled ? String(value || "") : internalValue;
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [range, setRange] = useState<SuggestionRange | null>(null);
+
+  const setNextValue = (nextValue: string) => {
+    if (!isControlled) {
+      setInternalValue(nextValue);
+    }
+    onValueChange?.(nextValue);
+  };
+
+  const handleInputRef = (node: HTMLInputElement | null) => {
+    inputRef.current = node;
+  };
+
+  const handleTextareaRef = (node: HTMLTextAreaElement | null) => {
+    inputRef.current = node;
+  };
 
   const filteredSuggestions = useMemo(() => {
     if (!range) return [] as FormulaSuggestion[];
@@ -98,9 +130,11 @@ export default function FormulaAutocompleteInput({
 
   const applySuggestion = (suggestion: FormulaSuggestion) => {
     if (!range) return;
-    const nextValue = `${value.slice(0, range.start)}${suggestion.token}${value.slice(range.end)}`;
+    const nextValue = `${currentValue.slice(0, range.start)}${suggestion.token}${currentValue.slice(
+      range.end
+    )}`;
     const nextCaret = range.start + suggestion.token.length;
-    setValue(nextValue);
+    setNextValue(nextValue);
     closeSuggestions();
     requestAnimationFrame(() => {
       if (!inputRef.current) return;
@@ -109,7 +143,9 @@ export default function FormulaAutocompleteInput({
     });
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (
+    event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     if (!isOpen || !filteredSuggestions.length) return;
 
     if (event.key === "ArrowDown") {
@@ -138,42 +174,87 @@ export default function FormulaAutocompleteInput({
     }
   };
 
+  const handleControlChange = (
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    const nextValue = event.currentTarget.value;
+    const caret = event.currentTarget.selectionStart ?? nextValue.length;
+    setNextValue(nextValue);
+    refreshSuggestions(nextValue, caret);
+  };
+
   return (
     <div className="relative">
-      <input
-        ref={inputRef}
-        name={name}
-        value={value}
-        placeholder={placeholder}
-        required={required}
-        className={className}
-        onChange={(event) => {
-          const nextValue = event.currentTarget.value;
-          const caret = event.currentTarget.selectionStart ?? nextValue.length;
-          setValue(nextValue);
-          refreshSuggestions(nextValue, caret);
-        }}
-        onClick={(event) => {
-          refreshSuggestions(event.currentTarget.value, event.currentTarget.selectionStart ?? 0);
-        }}
-        onKeyUp={(event) => {
-          const target = event.currentTarget;
-          refreshSuggestions(target.value, target.selectionStart ?? target.value.length);
-        }}
-        onFocus={(event) => {
-          if (blurTimeoutRef.current) {
-            clearTimeout(blurTimeoutRef.current);
-            blurTimeoutRef.current = null;
-          }
-          refreshSuggestions(event.currentTarget.value, event.currentTarget.selectionStart ?? event.currentTarget.value.length);
-        }}
-        onBlur={() => {
-          blurTimeoutRef.current = setTimeout(() => {
-            closeSuggestions();
-          }, 120);
-        }}
-        onKeyDown={handleKeyDown}
-      />
+      {multiline ? (
+        <textarea
+          ref={handleTextareaRef}
+          name={name}
+          value={currentValue}
+          rows={rows}
+          placeholder={placeholder}
+          required={required}
+          className={className}
+          autoFocus={autoFocus}
+          onChange={handleControlChange}
+          onClick={(event) => {
+            refreshSuggestions(event.currentTarget.value, event.currentTarget.selectionStart ?? 0);
+          }}
+          onKeyUp={(event) => {
+            const target = event.currentTarget;
+            refreshSuggestions(target.value, target.selectionStart ?? target.value.length);
+          }}
+          onFocus={(event) => {
+            if (blurTimeoutRef.current) {
+              clearTimeout(blurTimeoutRef.current);
+              blurTimeoutRef.current = null;
+            }
+            refreshSuggestions(
+              event.currentTarget.value,
+              event.currentTarget.selectionStart ?? event.currentTarget.value.length
+            );
+          }}
+          onBlur={() => {
+            blurTimeoutRef.current = setTimeout(() => {
+              closeSuggestions();
+            }, 120);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+      ) : (
+        <input
+          ref={handleInputRef}
+          name={name}
+          value={currentValue}
+          placeholder={placeholder}
+          required={required}
+          className={className}
+          autoFocus={autoFocus}
+          onChange={handleControlChange}
+          onClick={(event) => {
+            refreshSuggestions(event.currentTarget.value, event.currentTarget.selectionStart ?? 0);
+          }}
+          onKeyUp={(event) => {
+            const target = event.currentTarget;
+            refreshSuggestions(target.value, target.selectionStart ?? target.value.length);
+          }}
+          onFocus={(event) => {
+            if (blurTimeoutRef.current) {
+              clearTimeout(blurTimeoutRef.current);
+              blurTimeoutRef.current = null;
+            }
+            refreshSuggestions(
+              event.currentTarget.value,
+              event.currentTarget.selectionStart ?? event.currentTarget.value.length
+            );
+          }}
+          onBlur={() => {
+            blurTimeoutRef.current = setTimeout(() => {
+              closeSuggestions();
+            }, 120);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+      )}
 
       {isOpen && filteredSuggestions.length ? (
         <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg">

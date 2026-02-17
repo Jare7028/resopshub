@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
+import FormulaEditorDialog from "./FormulaEditorDialog";
 import {
   EMPLOYEE_INFO_CURRENCY_CODES,
   EMPLOYEE_INFO_FORMULA_CURRENCY_MODES,
@@ -37,18 +38,32 @@ export default function AddColumnPopover({
   const [formulaCurrencyMode, setFormulaCurrencyMode] =
     useState<EmployeeInfoFormulaCurrencyMode>("display");
   const [formulaCurrencyCode, setFormulaCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
+  const [formulaValue, setFormulaValue] = useState("");
+  const [isFormulaEditorOpen, setIsFormulaEditorOpen] = useState(false);
+
+  useEffect(() => {
+    if (columnKind !== "formula" && isFormulaEditorOpen) {
+      setIsFormulaEditorOpen(false);
+    }
+  }, [columnKind, isFormulaEditorOpen]);
 
   const resetState = () => {
     setColumnKind("text");
     setCurrencyCode("USD");
     setFormulaCurrencyMode("display");
     setFormulaCurrencyCode("USD");
+    setFormulaValue("");
+    setIsFormulaEditorOpen(false);
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     if (!form.reportValidity()) return;
+    if (columnKind === "formula" && !formulaValue.trim()) {
+      window.alert("Formula is required");
+      return;
+    }
 
     const formData = new FormData(form);
     startTransition(async () => {
@@ -131,12 +146,20 @@ export default function AddColumnPopover({
             <>
               <FormulaAutocompleteInput
                 name="formula"
-                defaultValue=""
+                value={formulaValue}
+                onValueChange={setFormulaValue}
                 placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
                 className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
                 required
                 suggestions={formulaSuggestions}
               />
+              <button
+                type="button"
+                onClick={() => setIsFormulaEditorOpen(true)}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Open Formula Editor
+              </button>
               <select
                 name="formula_currency_mode"
                 value={formulaCurrencyMode}
@@ -181,6 +204,14 @@ export default function AddColumnPopover({
           </button>
         </form>
       </div>
+      <FormulaEditorDialog
+        open={isFormulaEditorOpen}
+        title="Formula Editor"
+        value={formulaValue}
+        onValueChange={setFormulaValue}
+        onClose={() => setIsFormulaEditorOpen(false)}
+        suggestions={formulaSuggestions}
+      />
     </details>
   );
 }

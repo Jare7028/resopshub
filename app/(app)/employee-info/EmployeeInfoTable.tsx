@@ -15,6 +15,7 @@ import {
 import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
+import FormulaEditorDialog from "./FormulaEditorDialog";
 import {
   EMPLOYEE_INFO_VISIBILITY_EVENT,
   EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY,
@@ -190,6 +191,8 @@ function ColumnEditPanel({
   const [formulaCurrencyCode, setFormulaCurrencyCode] = useState<EmployeeInfoCurrencyCode>(() =>
     normalizeEmployeeInfoCurrencyCode(column.formula_currency_code)
   );
+  const [formulaValue, setFormulaValue] = useState(column.formula || "");
+  const [isFormulaEditorOpen, setIsFormulaEditorOpen] = useState(false);
   const detailsRef = useRef<HTMLDetailsElement | null>(null);
   const updateFormRef = useRef<HTMLFormElement | null>(null);
   const initialLabel = column.label;
@@ -201,6 +204,12 @@ function ColumnEditPanel({
     column.formula_currency_mode
   );
   const initialFormulaCurrencyCode = normalizeEmployeeInfoCurrencyCode(column.formula_currency_code);
+
+  useEffect(() => {
+    if (columnKind !== "formula" && isFormulaEditorOpen) {
+      setIsFormulaEditorOpen(false);
+    }
+  }, [columnKind, isFormulaEditorOpen]);
 
   const runAction = (
     event: FormEvent<HTMLFormElement>,
@@ -228,6 +237,7 @@ function ColumnEditPanel({
 
   useEffect(() => {
     const onDocumentMouseDown = (event: globalThis.MouseEvent) => {
+      if (isFormulaEditorOpen) return;
       const details = detailsRef.current;
       const updateForm = updateFormRef.current;
       if (!details?.open || !updateForm) return;
@@ -284,6 +294,7 @@ function ColumnEditPanel({
     initialFormulaCurrencyMode,
     initialKind,
     initialLabel,
+    isFormulaEditorOpen,
   ]);
 
   return (
@@ -377,12 +388,20 @@ function ColumnEditPanel({
             <>
               <FormulaAutocompleteInput
                 name="formula"
-                defaultValue={column.formula || ""}
+                value={formulaValue}
+                onValueChange={setFormulaValue}
                 placeholder='Formula (e.g. =IF(OR(client="Resolvable",client="Dusk"),500,0))'
                 className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
                 required
                 suggestions={formulaSuggestions}
               />
+              <button
+                type="button"
+                onClick={() => setIsFormulaEditorOpen(true)}
+                className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Open Formula Editor
+              </button>
               <select
                 name="formula_currency_mode"
                 value={formulaCurrencyMode}
@@ -439,6 +458,14 @@ function ColumnEditPanel({
           </button>
         </form>
       </div>
+      <FormulaEditorDialog
+        open={isFormulaEditorOpen}
+        title={`Formula Editor: ${column.label}`}
+        value={formulaValue}
+        onValueChange={setFormulaValue}
+        onClose={() => setIsFormulaEditorOpen(false)}
+        suggestions={formulaSuggestions}
+      />
     </details>
   );
 }
