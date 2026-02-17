@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
+import { formatTaskStatusLabel } from "@/lib/taskStatus";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import MultiSelect from "../_components/MultiSelect";
 import {
@@ -45,11 +46,17 @@ type ProjectRow = {
 
 type OpenProjectTaskRow = {
   id: string;
+  client_id: string | null;
   project_id: string | null;
   title: string;
   status: string | null;
   priority: string | null;
+  start_date: string | null;
   due_date: string | null;
+  due_time: string | null;
+  assignee_user_id: string | null;
+  projects?: { name?: string | null } | { name?: string | null }[] | null;
+  clients?: { name?: string | null } | { name?: string | null }[] | null;
   assignee_user_ids: string[];
 };
 
@@ -73,6 +80,7 @@ type ProjectsViewProps = {
   openTaskCountByProjectId: Record<string, number>;
   openTasksByProjectId?: Record<string, OpenProjectTaskRow[]>;
   statusOptions: readonly string[];
+  taskStatusOptions: readonly string[];
   initialView?: "table" | "gantt" | "board";
   initialFilters: {
     client: string[];
@@ -86,6 +94,7 @@ type ProjectsViewProps = {
   watchToggleUrl: string;
   sortKey: ProjectSortKey;
   sortDir: ProjectSortDir;
+  onTaskUpdate: (formData: FormData) => Promise<unknown> | void;
   basePath?: string;
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
@@ -143,6 +152,7 @@ export default function ProjectsView({
   openTaskCountByProjectId,
   openTasksByProjectId = {},
   statusOptions,
+  taskStatusOptions,
   initialView = "table",
   initialFilters,
   onUpdate,
@@ -152,6 +162,7 @@ export default function ProjectsView({
   watchToggleUrl,
   sortKey,
   sortDir,
+  onTaskUpdate,
   basePath = "/projects",
   hasExplicitView = false,
   viewPreferenceScope = "projects",
@@ -283,6 +294,16 @@ export default function ProjectsView({
       router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
   };
+
+  const inlineReturnToQuery = buildQuery(
+    filters,
+    sortKey,
+    sortDir,
+    view,
+    hideCompleted,
+    includeWatching
+  );
+  const inlineReturnTo = inlineReturnToQuery ? `${basePath}?${inlineReturnToQuery}` : basePath;
 
   useEffect(() => {
     setView(initialView);
@@ -416,6 +437,32 @@ export default function ProjectsView({
     });
     startTransition(() => {
       void onUpdate(formData);
+    });
+  };
+
+  const handleTaskInlineChange = (
+    event: ChangeEvent<HTMLSelectElement | HTMLInputElement>
+  ) => {
+    const form = event.currentTarget.form;
+    if (!form) return;
+    const formData = new FormData(form);
+    startTransition(() => {
+      void onTaskUpdate(formData);
+    });
+  };
+
+  const handleTaskAssigneesChange = (taskId: string, selectedUserIds: string[]) => {
+    const formData = new FormData();
+    formData.set("task_id", taskId);
+    formData.set("return_to", inlineReturnTo);
+    formData.append("assignee_user_ids", "");
+    selectedUserIds.forEach((userId) => {
+      if (userId) {
+        formData.append("assignee_user_ids", userId);
+      }
+    });
+    startTransition(() => {
+      void onTaskUpdate(formData);
     });
   };
 
@@ -830,10 +877,7 @@ export default function ProjectsView({
                       </tr>
                       {expandedProjectIds.has(project.id)
                         ? (openTasksByProjectId[project.id] || []).map((task) => (
-                            <tr
-                              key={task.id}
-                              className="border-t border-slate-100 bg-slate-50/60"
-                            >
+                            <tr key={task.id} className="border-t border-slate-100 bg-slate-50/60">
                               <td className="px-6 py-2 text-slate-700">
                                 <div className="flex items-center gap-2 pl-6">
                                   <span aria-hidden="true" className="text-slate-400">
@@ -845,16 +889,88 @@ export default function ProjectsView({
                                 </div>
                               </td>
                               <td className="px-6 py-2 text-right text-slate-400">-</td>
-                              <td className="px-6 py-2 text-slate-400">-</td>
                               <td className="px-6 py-2 text-slate-600">
-                                {formatProjectStatusLabel(task.status)}
+                                <form>
+                                  <input type="hidden" name="task_id" value={task.id} />
+                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                  <select
+                                    name="client_id"
+                                    aria-label="Task client"
+                                    defaultValue={task.client_id || ""}
+                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                    onChange={handleTaskInlineChange}
+                                  >
+                                    <option value="">No client</option>
+                                    {clients.map((client) => (
+                                      <option key={client.id} value={client.id}>
+                                        {client.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </form>
                               </td>
                               <td className="px-6 py-2 text-slate-600">
-                                {getAssigneeLabel(task.assignee_user_ids)}
+                                <form>
+                                  <input type="hidden" name="task_id" value={task.id} />
+                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                  <select
+                                    name="status"
+                                    aria-label="Task status"
+                                    defaultValue={task.status || "to_do"}
+                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                    onChange={handleTaskInlineChange}
+                                  >
+                                    {taskStatusOptions.map((status) => (
+                                      <option key={status} value={status}>
+                                        {formatTaskStatusLabel(status)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </form>
                               </td>
-                              <td className="px-6 py-2 text-slate-400">-</td>
                               <td className="px-6 py-2 text-slate-600">
-                                {task.due_date || "-"}
+                                <form id={`project-task-${task.id}-assignees`}>
+                                  <input type="hidden" name="task_id" value={task.id} />
+                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                  <AssigneeMultiSelect
+                                    users={users}
+                                    name="assignee_user_ids"
+                                    defaultSelected={task.assignee_user_ids}
+                                    className="w-full"
+                                    form={`project-task-${task.id}-assignees`}
+                                    onSelectionChange={(selectedIds) =>
+                                      handleTaskAssigneesChange(task.id, selectedIds)
+                                    }
+                                  />
+                                </form>
+                              </td>
+                              <td className="px-6 py-2 text-slate-600">
+                                <form>
+                                  <input type="hidden" name="task_id" value={task.id} />
+                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                  <input
+                                    type="date"
+                                    name="start_date"
+                                    aria-label="Task start date"
+                                    defaultValue={task.start_date || ""}
+                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                    onChange={handleTaskInlineChange}
+                                  />
+                                </form>
+                              </td>
+                              <td className="px-6 py-2 text-slate-600">
+                                <form>
+                                  <input type="hidden" name="task_id" value={task.id} />
+                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                  <input
+                                    type="date"
+                                    name="due_date"
+                                    aria-label="Task due date"
+                                    defaultValue={task.due_date || ""}
+                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                    onChange={handleTaskInlineChange}
+                                  />
+                                </form>
                               </td>
                             </tr>
                           ))

@@ -3,8 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
-import FormFieldsBuilder from "./FormFieldsBuilder";
-import FormTaskTemplatesBuilder from "./FormTaskTemplatesBuilder";
+import FormCreateAutosave from "./FormCreateAutosave";
 import FormsTable from "./FormsTable";
 import FormsTabs, {
   normalizeFormsTabKey,
@@ -276,9 +275,10 @@ export default async function FormsPage(props: {
     title: string;
   }>;
 
-  async function createForm(formData: FormData) {
+  async function upsertFormDraft(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const formId = String(formData.get("form_id") || "").trim();
     const title = String(formData.get("title") || "").trim();
     const description = String(formData.get("description") || "").trim();
     const status = normalizeFormStatus(String(formData.get("status") || "draft"));
@@ -291,17 +291,17 @@ export default async function FormsPage(props: {
     );
 
     if (!title) {
-      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Form%20title%20is%20required`);
+      return { ok: false, error: "Form title is required" };
     }
 
     if (!fields.length) {
-      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Add%20at%20least%20one%20field`);
+      return { ok: false, error: "Add at least one field" };
     }
 
     const { data: authData } = await supabase.auth.getUser();
     const authEmail = authData.user?.email;
     if (!authEmail) {
-      redirect("/login");
+      return { ok: false, error: "Please log in again" };
     }
 
     const { data: currentUser } = await supabase
@@ -310,52 +310,81 @@ export default async function FormsPage(props: {
       .eq("email", authEmail)
       .maybeSingle();
     if (!currentUser?.id) {
-      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20user%20profile`);
+      return { ok: false, error: "Missing user profile" };
     }
 
-    const { data: insertedForm, error: formInsertError } = await supabase
-      .from("forms")
-      .insert({
-        title,
-        description: description || null,
-        status,
-        fields,
-        created_by: currentUser.id,
-      })
-      .select("id")
-      .single();
+    let targetFormId = formId;
+    if (targetFormId) {
+      const { error: formUpdateError } = await supabase
+        .from("forms")
+        .update({
+          title,
+          description: description || null,
+          status,
+          fields,
+        })
+        .eq("id", targetFormId);
+      if (formUpdateError) {
+        return { ok: false, error: formUpdateError.message };
+      }
+    } else {
+      const { data: insertedForm, error: formInsertError } = await supabase
+        .from("forms")
+        .insert({
+          title,
+          description: description || null,
+          status,
+          fields,
+          created_by: currentUser.id,
+        })
+        .select("id")
+        .single();
+      if (formInsertError || !insertedForm?.id) {
+        return {
+          ok: false,
+          error: formInsertError?.message || "Failed to create form",
+        };
+      }
+      targetFormId = insertedForm.id;
+    }
 
-    if (formInsertError || !insertedForm?.id) {
-      redirect(
-        `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-          formInsertError?.message || "Failed to create form"
-        )}`
-      );
+    const { error: clearTemplateLinksError } = await supabase
+      .from("form_submission_task_templates")
+      .delete()
+      .eq("form_id", targetFormId);
+    if (
+      clearTemplateLinksError &&
+      !isSupabaseMissingTableError(clearTemplateLinksError)
+    ) {
+      return { ok: false, error: clearTemplateLinksError.message };
     }
 
     if (selectedTaskTemplateIds.length) {
       const { error: linkError } = await supabase.from("form_submission_task_templates").insert(
         selectedTaskTemplateIds.map((taskTemplateId, index) => ({
-          form_id: insertedForm.id,
+          form_id: targetFormId,
           task_template_id: taskTemplateId,
           enabled: true,
           position: index,
         }))
       );
-
-      if (linkError) {
-        redirect(
-          `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-            linkError.message
-          )}`
-        );
+      if (linkError && !isSupabaseMissingTableError(linkError)) {
+        return { ok: false, error: linkError.message };
       }
+    }
+
+    const { error: clearManualActionsError } = await supabase
+      .from("form_submission_actions")
+      .delete()
+      .eq("form_id", targetFormId);
+    if (clearManualActionsError && !isSupabaseMissingTableError(clearManualActionsError)) {
+      return { ok: false, error: clearManualActionsError.message };
     }
 
     if (manualTasks.length) {
       const { error: actionError } = await supabase.from("form_submission_actions").insert(
         manualTasks.map((task, index) => ({
-          form_id: insertedForm.id,
+          form_id: targetFormId,
           label: task.title,
           task_title_template: task.title,
           task_description_template: task.description || null,
@@ -365,18 +394,14 @@ export default async function FormsPage(props: {
           position: index,
         }))
       );
-
-      if (actionError) {
-        redirect(
-          `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-            actionError.message
-          )}`
-        );
+      if (actionError && !isSupabaseMissingTableError(actionError)) {
+        return { ok: false, error: actionError.message };
       }
     }
 
     revalidatePath("/forms");
-    redirect(`/forms/${insertedForm.id}?return_to=${encodeURIComponent(returnTo)}&success=Form%20created`);
+    revalidatePath(`/forms/${targetFormId}`);
+    return { ok: true, formId: targetFormId };
   }
 
   return (
@@ -417,62 +442,12 @@ export default async function FormsPage(props: {
       <FormsTabs active={activeTab} urls={formsTabUrls} />
 
       {activeTab === "create" ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Create form</h2>
-          <form action={createForm} className="mt-4 space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Form title
-                <input
-                  name="title"
-                  required
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                  placeholder="New employee onboarding"
-                />
-              </label>
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Status
-                <select
-                  name="status"
-                  defaultValue="draft"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                >
-                  {formStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Description
-              <textarea
-                name="description"
-                rows={3}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                placeholder="Capture details and trigger onboarding tasks."
-              />
-            </label>
-            <FormFieldsBuilder initialFields={[]} />
-            <FormTaskTemplatesBuilder
-              initialTemplateIds={[]}
-              initialManualTasks={[]}
-              taskTemplates={taskTemplates}
-            />
-            {isSupabaseMissingTableError(taskTemplatesError) ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-                Task templates are not set up yet. Run `sql/templates.sql` in Supabase SQL editor.
-              </p>
-            ) : null}
-            <button
-              type="submit"
-              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-            >
-              Create form
-            </button>
-          </form>
-        </section>
+        <FormCreateAutosave
+          taskTemplates={taskTemplates}
+          taskTemplatesMissing={isSupabaseMissingTableError(taskTemplatesError)}
+          returnTo={returnTo}
+          onAutoSave={upsertFormDraft}
+        />
       ) : null}
 
       {activeTab === "list" ? (

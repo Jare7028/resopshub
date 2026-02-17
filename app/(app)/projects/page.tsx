@@ -5,13 +5,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
-import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import { normalizeTaskStatusOrDefault, TASK_STATUS_OPTIONS } from "@/lib/taskStatus";
 import {
   buildStatusOptions,
   DEFAULT_PROJECT_STATUS_OPTIONS,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { updateTaskInlineAction } from "../tasks/actions";
 import ProjectsView, {
   type ProjectSortDir,
   type ProjectSortKey,
@@ -300,6 +301,11 @@ export default async function ProjectsPage(props: {
     (statusOptionsRaw || []) as StatusOptionRow[],
     DEFAULT_PROJECT_STATUS_OPTIONS
   );
+  const taskStatusOptions = buildStatusOptions(
+    "task",
+    (statusOptionsRaw || []) as StatusOptionRow[],
+    TASK_STATUS_OPTIONS
+  );
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
@@ -450,10 +456,16 @@ export default async function ProjectsPage(props: {
     Array<{
       id: string;
       project_id: string | null;
+      client_id: string | null;
       title: string;
       status: string | null;
       priority: string | null;
+      start_date: string | null;
       due_date: string | null;
+      due_time: string | null;
+      assignee_user_id: string | null;
+      projects?: { name?: string | null } | { name?: string | null }[] | null;
+      clients?: { name?: string | null } | { name?: string | null }[] | null;
       assignee_user_ids: string[];
     }>
   > = {};
@@ -461,7 +473,9 @@ export default async function ProjectsPage(props: {
   if (projectIdsForCounts.length) {
     const { data: tasksForCountsRaw, error: tasksForCountsError } = await supabase
       .from("tasks")
-      .select("id,project_id,title,status,priority,due_date,parent_task_id,assignee_user_id")
+      .select(
+        "id,project_id,client_id,title,status,priority,start_date,due_date,due_time,parent_task_id,assignee_user_id,projects(name),clients(name)"
+      )
       .in("project_id", projectIdsForCounts)
       .is("parent_task_id", null);
 
@@ -469,11 +483,16 @@ export default async function ProjectsPage(props: {
       const tasksForCounts = (tasksForCountsRaw || []) as Array<{
         id: string;
         project_id: string | null;
+        client_id: string | null;
         title: string;
         status: string | null;
         priority: string | null;
+        start_date: string | null;
         due_date: string | null;
+        due_time: string | null;
         assignee_user_id: string | null;
+        projects?: { name?: string | null } | { name?: string | null }[] | null;
+        clients?: { name?: string | null } | { name?: string | null }[] | null;
       }>;
       const taskIds = tasksForCounts.map((row) => row.id).filter(Boolean);
       const assigneeIdsByTaskId: Record<string, string[]> = {};
@@ -507,10 +526,16 @@ export default async function ProjectsPage(props: {
         openTasksByProjectId[projectId].push({
           id: row.id,
           project_id: row.project_id,
+          client_id: row.client_id,
           title: row.title,
           status: row.status,
           priority: row.priority,
+          start_date: row.start_date,
           due_date: row.due_date,
+          due_time: row.due_time,
+          assignee_user_id: row.assignee_user_id,
+          projects: row.projects ?? null,
+          clients: row.clients ?? null,
           assignee_user_ids: assigneeIds,
         });
       }
@@ -1315,6 +1340,7 @@ export default async function ProjectsPage(props: {
           openTaskCountByProjectId={openTaskCountByProjectId}
           openTasksByProjectId={openTasksByProjectId}
           statusOptions={projectStatusOptions}
+          taskStatusOptions={taskStatusOptions}
           initialView={selectedView}
           initialFilters={{
             client: selectedClientIds,
@@ -1328,6 +1354,7 @@ export default async function ProjectsPage(props: {
           sortKey={selectedSortKey}
           sortDir={selectedSortDir}
           onUpdate={updateProjectInline}
+          onTaskUpdate={updateTaskInlineAction}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="projects"
         />
