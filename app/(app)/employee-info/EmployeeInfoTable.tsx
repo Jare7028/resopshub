@@ -269,10 +269,6 @@ export default function EmployeeInfoTable({
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex flex-col gap-0.5">
                     <span>{column.label}</span>
-                    <span className="text-[10px] normal-case text-slate-400">{column.column_kind}</span>
-                    {column.column_kind === "formula" && column.formula ? (
-                      <span className="text-[10px] normal-case text-slate-400">{column.formula}</span>
-                    ) : null}
                   </div>
                   {isAdmin ? (
                     <ColumnEditPanel
