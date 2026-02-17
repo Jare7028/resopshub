@@ -23,6 +23,7 @@ import {
   type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
 import RevenueChargesEditor from "./RevenueChargesEditor";
+import EmployeeMonthlyCostBreakdownPopover from "./EmployeeMonthlyCostBreakdownPopover";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -72,6 +73,13 @@ type EmployeeMonthlyCostSummary = {
   currencyCode: EmployeeInfoCurrencyCode;
   clientRowCount: number;
   contributingRowCount: number;
+  roleColumnLabel: string | null;
+  breakdownRows: Array<{
+    roleLabel: string;
+    employeeCount: number;
+    contributingRowCount: number;
+    totalAmount: number;
+  }>;
   isConfigured: boolean;
   hasMissingExchangeRate: boolean;
   errorMessage: string | null;
@@ -115,6 +123,23 @@ function parseNumericCellValue(value: string | null | undefined) {
   if (!normalized) return null;
   const numeric = Number(normalized);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function getRoleBreakdownColumnScore(column: EmployeeInfoColumnRow) {
+  if (column.column_kind !== "text" && column.column_kind !== "dropdown") return 0;
+
+  const tokens = [toEmployeeInfoColumnKey(column.key), toEmployeeInfoColumnKey(column.label)];
+  let score = 0;
+  tokens.forEach((token) => {
+    if (token === "position") score = Math.max(score, 100);
+    if (token === "role") score = Math.max(score, 95);
+    if (token === "job_title") score = Math.max(score, 90);
+    if (token === "job_role") score = Math.max(score, 85);
+    if (token === "employee_role") score = Math.max(score, 80);
+    if (token === "title") score = Math.max(score, 70);
+    if (token === "function") score = Math.max(score, 60);
+  });
+  return score;
 }
 
 function toFiniteNumber(value: unknown) {
@@ -344,6 +369,8 @@ export default async function ClientBillingPage(props: {
     currencyCode: billingCurrencyCode,
     clientRowCount: 0,
     contributingRowCount: 0,
+    roleColumnLabel: null,
+    breakdownRows: [],
     isConfigured: false,
     hasMissingExchangeRate: false,
     errorMessage: null,
@@ -396,6 +423,20 @@ export default async function ClientBillingPage(props: {
         hasStringId(row)
       );
       const monthlyCostColumn = employeeColumns.find(isTotalMonthlyCostColumn);
+      const roleBreakdownColumn =
+        employeeColumns
+          .map((column) => ({
+            column,
+            score: getRoleBreakdownColumnScore(column),
+          }))
+          .filter((entry) => entry.score > 0)
+          .sort((left, right) => {
+            if (right.score !== left.score) return right.score - left.score;
+            return (left.column.position || 0) - (right.column.position || 0);
+          })[0]?.column || null;
+      if (roleBreakdownColumn) {
+        employeeMonthlyCostSummary.roleColumnLabel = roleBreakdownColumn.label;
+      }
 
       if (monthlyCostColumn) {
         employeeMonthlyCostSummary.isConfigured = true;
@@ -482,9 +523,34 @@ export default async function ClientBillingPage(props: {
 
             const monthlyCostDisplayIndex =
               employeeColumns.findIndex((column) => column.id === monthlyCostColumn.id) + 2;
+            const roleBreakdownMap = new Map<
+              string,
+              {
+                roleLabel: string;
+                employeeCount: number;
+                contributingRowCount: number;
+                totalAmount: number;
+              }
+            >();
 
             employeeRecords.forEach((record) => {
               const valuesByColumnId = valuesByRecordId[record.id] || {};
+              const roleSourceValue = roleBreakdownColumn
+                ? valuesByColumnId[roleBreakdownColumn.id]
+                : null;
+              const roleLabel = String(
+                roleBreakdownColumn?.column_kind === "dropdown"
+                  ? roleSourceValue?.option_value
+                  : roleSourceValue?.text_value
+              ).trim() || "Unspecified role";
+              const roleEntry = roleBreakdownMap.get(roleLabel) || {
+                roleLabel,
+                employeeCount: 0,
+                contributingRowCount: 0,
+                totalAmount: 0,
+              };
+              roleEntry.employeeCount += 1;
+              roleBreakdownMap.set(roleLabel, roleEntry);
 
               const resolveDisplayIndexValue = (
                 displayIndex: number,
@@ -656,7 +722,22 @@ export default async function ClientBillingPage(props: {
               if (amountToAdd === null || !Number.isFinite(amountToAdd)) return;
               employeeMonthlyCostSummary.amount += amountToAdd;
               employeeMonthlyCostSummary.contributingRowCount += 1;
+              roleEntry.contributingRowCount += 1;
+              roleEntry.totalAmount += amountToAdd;
+              roleBreakdownMap.set(roleLabel, roleEntry);
             });
+
+            employeeMonthlyCostSummary.breakdownRows = Array.from(roleBreakdownMap.values()).sort(
+              (left, right) => {
+                if (right.employeeCount !== left.employeeCount) {
+                  return right.employeeCount - left.employeeCount;
+                }
+                if (right.totalAmount !== left.totalAmount) {
+                  return right.totalAmount - left.totalAmount;
+                }
+                return left.roleLabel.localeCompare(right.roleLabel);
+              }
+            );
           }
         }
       }
@@ -781,9 +862,19 @@ export default async function ClientBillingPage(props: {
 
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-lg border border-slate-200 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Employee monthly cost
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Employee monthly costs
+            </p>
+            <EmployeeMonthlyCostBreakdownPopover
+              currencyCode={employeeMonthlyCostSummary.currencyCode}
+              rows={employeeMonthlyCostSummary.breakdownRows}
+              totalAmount={employeeMonthlyCostSummary.amount}
+              clientRowCount={employeeMonthlyCostSummary.clientRowCount}
+              contributingRowCount={employeeMonthlyCostSummary.contributingRowCount}
+              roleColumnLabel={employeeMonthlyCostSummary.roleColumnLabel}
+            />
+          </div>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
             {formatEmployeeInfoCurrencyAmount(
               employeeMonthlyCostSummary.amount,

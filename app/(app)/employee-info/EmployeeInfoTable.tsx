@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -34,6 +35,12 @@ import {
   type EmployeeInfoDisplayCurrencyCode,
   type EmployeeInfoFormulaCurrencyMode,
 } from "@/lib/employeeInfo";
+import {
+  FilterIcon,
+  FilterMenuMulti,
+  FilterMenuText,
+} from "../_components/TableHeaderFilters";
+import MultiSelect from "../_components/MultiSelect";
 
 type ClientRow = {
   id: string;
@@ -64,11 +71,15 @@ type EmployeeInfoValueRow = {
   money_currency_code: string | null;
 };
 type EmployeeInfoActionResult = { ok: boolean; error?: string };
+type EmployeeInfoSortDir = "asc" | "desc";
+type EmployeeInfoSortKey = "full_name" | "client" | `column:${string}`;
+
 const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "USD ($)",
   GBP: "GBP (\u00A3)",
   MUR: "MUR (Rs)",
 };
+const NONE_FILTER_VALUE = "__none__";
 
 function parseOptionsJson(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -158,6 +169,58 @@ function syncEditableCellHighlight(
   if (cell) {
     cell.classList.toggle("bg-red-50/60", isEmpty);
   }
+}
+
+function parseSortableNumber(value: string | null | undefined) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/,/g, "")
+    .replace(/[^0-9.+-]/g, "");
+  if (
+    !normalized ||
+    normalized === "-" ||
+    normalized === "+" ||
+    normalized === "." ||
+    normalized === "-." ||
+    normalized === "+."
+  ) {
+    return null;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseSortableDateStamp(value: string | null | undefined) {
+  const normalized = toDateInputValue(value);
+  if (!normalized) return null;
+  const [year, month, day] = normalized.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return Date.UTC(year, month - 1, day, 12, 0, 0, 0);
+}
+
+function compareSortableValues(
+  left: string | number | null,
+  right: string | number | null,
+  dir: EmployeeInfoSortDir
+) {
+  const leftEmpty =
+    left == null || (typeof left === "string" && String(left).trim().length === 0);
+  const rightEmpty =
+    right == null || (typeof right === "string" && String(right).trim().length === 0);
+  if (leftEmpty && rightEmpty) return 0;
+  if (leftEmpty) return 1;
+  if (rightEmpty) return -1;
+
+  let base = 0;
+  if (typeof left === "number" && typeof right === "number") {
+    base = left - right;
+  } else {
+    base = String(left).localeCompare(String(right), undefined, {
+      sensitivity: "base",
+    });
+  }
+
+  return dir === "asc" ? base : -base;
 }
 
 function ColumnEditPanel({
@@ -510,8 +573,16 @@ export default function EmployeeInfoTable({
   const [newClientId, setNewClientId] = useState("");
   const [showClientColumn, setShowClientColumn] = useState(true);
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() => columns.map((c) => c.id));
+  const [sortKey, setSortKey] = useState<EmployeeInfoSortKey>("full_name");
+  const [sortDir, setSortDir] = useState<EmployeeInfoSortDir>("asc");
+  const [fullNameFilter, setFullNameFilter] = useState("");
+  const [clientFilters, setClientFilters] = useState<string[]>([]);
+  const [columnTextFilters, setColumnTextFilters] = useState<Record<string, string>>({});
+  const [columnOptionFilters, setColumnOptionFilters] = useState<Record<string, string[]>>({});
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const hasLoadedVisibilityRef = useRef(false);
   const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
   const visibleColumns = useMemo(
@@ -525,6 +596,14 @@ export default function EmployeeInfoTable({
     });
     return indexById;
   }, [columns]);
+  const clientNameById = useMemo(
+    () =>
+      clients.reduce<Record<string, string>>((acc, client) => {
+        acc[client.id] = client.name;
+        return acc;
+      }, {}),
+    [clients]
+  );
 
   useEffect(() => {
     if (hasLoadedVisibilityRef.current) return;
@@ -589,6 +668,69 @@ export default function EmployeeInfoTable({
     };
   }, [columns]);
 
+  useEffect(() => {
+    if (!openMenu) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenMenu(null);
+      }
+    };
+
+    const onPointerDown = (event: MouseEvent | PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (menuRef.current && !menuRef.current.contains(target)) {
+        setOpenMenu(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [openMenu]);
+
+  useEffect(() => {
+    const knownColumnIdSet = new Set(columns.map((column) => column.id));
+    const visibleColumnIdSetLocal = new Set(visibleColumns.map((column) => column.id));
+
+    setColumnTextFilters((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([columnId, value]) => {
+          return (
+            knownColumnIdSet.has(columnId) &&
+            visibleColumnIdSetLocal.has(columnId) &&
+            Boolean(String(value || "").trim())
+          );
+        })
+      )
+    );
+
+    setColumnOptionFilters((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([columnId, values]) => {
+          return (
+            knownColumnIdSet.has(columnId) &&
+            visibleColumnIdSetLocal.has(columnId) &&
+            Array.isArray(values) &&
+            values.length > 0
+          );
+        })
+      )
+    );
+
+    if (sortKey.startsWith("column:")) {
+      const sortedColumnId = sortKey.slice("column:".length);
+      if (!knownColumnIdSet.has(sortedColumnId) || !visibleColumnIdSetLocal.has(sortedColumnId)) {
+        setSortKey("full_name");
+        setSortDir("asc");
+      }
+    }
+  }, [columns, sortKey, visibleColumns]);
+
   const getHighlightPolicyForControl = (control: HTMLInputElement | HTMLSelectElement) => {
     const form = control.form;
     const columnId = String(
@@ -650,6 +792,262 @@ export default function EmployeeInfoTable({
     });
   };
 
+  const getColumnTextValue = useCallback(
+    (record: EmployeeInfoRecordRow, column: EmployeeInfoColumnRow) => {
+      const valueRow = valuesByRecordId[record.id]?.[column.id];
+      if (column.column_kind === "formula") {
+        return String(formulaValueByRecordIdAndColumnId[record.id]?.[column.id] || "").trim();
+      }
+      if (column.column_kind === "dropdown") {
+        return String(valueRow?.option_value || "").trim();
+      }
+      if (column.column_kind === "currency") {
+        if (displayCurrency !== "ORIGINAL") {
+          return String(
+            currencyDisplayValueByRecordIdAndColumnId[record.id]?.[column.id] || ""
+          ).trim();
+        }
+        return String(valueRow?.text_value || "").trim();
+      }
+      if (column.column_kind === "date") {
+        return toDateInputValue(valueRow?.text_value);
+      }
+      return String(valueRow?.text_value || "").trim();
+    },
+    [
+      currencyDisplayValueByRecordIdAndColumnId,
+      displayCurrency,
+      formulaValueByRecordIdAndColumnId,
+      valuesByRecordId,
+    ]
+  );
+
+  const getColumnSortValue = useCallback(
+    (record: EmployeeInfoRecordRow, column: EmployeeInfoColumnRow) => {
+      const valueRow = valuesByRecordId[record.id]?.[column.id];
+
+      if (column.column_kind === "dropdown") {
+        const value = String(valueRow?.option_value || "").trim();
+        return value ? value.toLowerCase() : null;
+      }
+
+      if (column.column_kind === "date") {
+        return parseSortableDateStamp(valueRow?.text_value);
+      }
+
+      if (column.column_kind === "number") {
+        return parseSortableNumber(valueRow?.text_value);
+      }
+
+      if (column.column_kind === "currency") {
+        if (displayCurrency !== "ORIGINAL") {
+          const convertedValue =
+            currencyDisplayValueByRecordIdAndColumnId[record.id]?.[column.id] || "";
+          const convertedNumber = parseSortableNumber(convertedValue);
+          if (convertedNumber !== null) {
+            return convertedNumber;
+          }
+        }
+        return parseSortableNumber(valueRow?.text_value);
+      }
+
+      if (column.column_kind === "formula") {
+        const formulaValue = String(
+          formulaValueByRecordIdAndColumnId[record.id]?.[column.id] || ""
+        ).trim();
+        const formulaNumber = parseSortableNumber(formulaValue);
+        if (formulaNumber !== null) {
+          return formulaNumber;
+        }
+        return formulaValue ? formulaValue.toLowerCase() : null;
+      }
+
+      const textValue = String(valueRow?.text_value || "").trim();
+      return textValue ? textValue.toLowerCase() : null;
+    },
+    [
+      currencyDisplayValueByRecordIdAndColumnId,
+      displayCurrency,
+      formulaValueByRecordIdAndColumnId,
+      valuesByRecordId,
+    ]
+  );
+
+  const applySort = (nextKey: EmployeeInfoSortKey) => {
+    if (sortKey === nextKey) {
+      setSortDir((previous) => (previous === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDir("asc");
+  };
+
+  const headerClass = (key: EmployeeInfoSortKey) =>
+    `inline-flex items-center gap-2 hover:text-slate-900 ${
+      sortKey === key ? "text-slate-900" : "text-slate-500"
+    }`;
+
+  const sortIndicator = (key: EmployeeInfoSortKey) => {
+    if (sortKey !== key) return null;
+    return (
+      <span aria-hidden="true" className="text-[10px] text-slate-400">
+        {sortDir === "asc" ? "^" : "v"}
+      </span>
+    );
+  };
+
+  const setColumnTextFilter = (columnId: string, nextValue: string) => {
+    setColumnTextFilters((previous) => {
+      const normalized = String(nextValue || "");
+      if (!normalized.trim()) {
+        if (!(columnId in previous)) return previous;
+        const next = { ...previous };
+        delete next[columnId];
+        return next;
+      }
+      return { ...previous, [columnId]: normalized };
+    });
+  };
+
+  const setColumnOptionFilter = (columnId: string, nextValues: string[]) => {
+    setColumnOptionFilters((previous) => {
+      if (!nextValues.length) {
+        if (!(columnId in previous)) return previous;
+        const next = { ...previous };
+        delete next[columnId];
+        return next;
+      }
+      return { ...previous, [columnId]: nextValues };
+    });
+  };
+
+  const clearAllFilters = () => {
+    setFullNameFilter("");
+    setClientFilters([]);
+    setColumnTextFilters({});
+    setColumnOptionFilters({});
+    setOpenMenu(null);
+  };
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (fullNameFilter.trim()) count += 1;
+    if (clientFilters.length) count += 1;
+    count += Object.values(columnTextFilters).filter((value) => String(value || "").trim()).length;
+    count += Object.values(columnOptionFilters).filter((values) => values.length > 0).length;
+    return count;
+  }, [clientFilters.length, columnOptionFilters, columnTextFilters, fullNameFilter]);
+
+  const filteredAndSortedRecords = useMemo(() => {
+    const normalizedFullNameFilter = fullNameFilter.trim().toLowerCase();
+    const selectedClientSet = new Set(clientFilters);
+    const visibleColumnById = new Map(visibleColumns.map((column) => [column.id, column]));
+    const columnTextFilterEntries = Object.entries(columnTextFilters).filter(([columnId, value]) => {
+      return visibleColumnById.has(columnId) && Boolean(String(value || "").trim());
+    });
+    const columnOptionFilterEntries = Object.entries(columnOptionFilters).filter(
+      ([columnId, values]) => visibleColumnById.has(columnId) && values.length > 0
+    );
+
+    const next = records.filter((record) => {
+      if (
+        normalizedFullNameFilter &&
+        !String(record.full_name || "").toLowerCase().includes(normalizedFullNameFilter)
+      ) {
+        return false;
+      }
+
+      if (selectedClientSet.size > 0) {
+        const clientValue = record.client_id || NONE_FILTER_VALUE;
+        if (!selectedClientSet.has(clientValue)) {
+          return false;
+        }
+      }
+
+      for (const [columnId, values] of columnOptionFilterEntries) {
+        const column = visibleColumnById.get(columnId);
+        if (!column) continue;
+        const valueRow = valuesByRecordId[record.id]?.[column.id];
+        const optionValue = String(valueRow?.option_value || "").trim() || NONE_FILTER_VALUE;
+        if (!values.includes(optionValue)) {
+          return false;
+        }
+      }
+
+      for (const [columnId, filterValue] of columnTextFilterEntries) {
+        const column = visibleColumnById.get(columnId);
+        if (!column) continue;
+        const cellText = getColumnTextValue(record, column).toLowerCase();
+        if (!cellText.includes(String(filterValue || "").trim().toLowerCase())) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    next.sort((left, right) => {
+      const leftValue =
+        sortKey === "full_name"
+          ? String(left.full_name || "").trim().toLowerCase()
+          : sortKey === "client"
+          ? String(left.client_id ? clientNameById[left.client_id] || "" : "").trim().toLowerCase()
+          : (() => {
+              const columnId = sortKey.slice("column:".length);
+              const column = columns.find((item) => item.id === columnId);
+              return column ? getColumnSortValue(left, column) : null;
+            })();
+
+      const rightValue =
+        sortKey === "full_name"
+          ? String(right.full_name || "").trim().toLowerCase()
+          : sortKey === "client"
+          ? String(right.client_id ? clientNameById[right.client_id] || "" : "").trim().toLowerCase()
+          : (() => {
+              const columnId = sortKey.slice("column:".length);
+              const column = columns.find((item) => item.id === columnId);
+              return column ? getColumnSortValue(right, column) : null;
+            })();
+
+      const primary = compareSortableValues(leftValue, rightValue, sortDir);
+      if (primary !== 0) return primary;
+
+      const secondary = compareSortableValues(
+        String(left.full_name || "").trim().toLowerCase(),
+        String(right.full_name || "").trim().toLowerCase(),
+        "asc"
+      );
+      if (secondary !== 0) return secondary;
+
+      return compareSortableValues(left.id, right.id, "asc");
+    });
+
+    return next;
+  }, [
+    clientFilters,
+    clientNameById,
+    columnOptionFilters,
+    columnTextFilters,
+    columns,
+    fullNameFilter,
+    records,
+    sortDir,
+    sortKey,
+    valuesByRecordId,
+    visibleColumns,
+    getColumnSortValue,
+    getColumnTextValue,
+  ]);
+
+  const hasAnyFilters = activeFilterCount > 0;
+  const clientFilterOptions = useMemo(
+    () => [
+      { value: NONE_FILTER_VALUE, label: "N/A" },
+      ...clients.map((client) => ({ value: client.id, label: client.name })),
+    ],
+    [clients]
+  );
+
   const preventMiddleClickAutoscroll = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button === 1) {
       event.preventDefault();
@@ -657,51 +1055,217 @@ export default function EmployeeInfoTable({
   };
 
   return (
-    <div
-      className="overflow-x-auto"
-      onMouseDown={preventMiddleClickAutoscroll}
-      onAuxClick={preventMiddleClickAutoscroll}
-    >
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
+    <div className="space-y-3">
+      <div className="mobile-filter-panel space-y-2 md:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Filters{hasAnyFilters ? ` (${activeFilterCount})` : ""}
+          </p>
+          {hasAnyFilters ? (
+            <button
+              type="button"
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              onClick={clearAllFilters}
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+        <input
+          type="text"
+          value={fullNameFilter}
+          onChange={(event) => setFullNameFilter(event.currentTarget.value)}
+          placeholder="Filter full name..."
+          className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
+        />
+        {showClientColumn ? (
+          <MultiSelect
+            options={clientFilterOptions}
+            selectedValues={clientFilters}
+            placeholder="All clients"
+            onChange={setClientFilters}
+          />
+        ) : null}
+      </div>
+
+      <div
+        className="overflow-x-auto"
+        onMouseDown={preventMiddleClickAutoscroll}
+        onAuxClick={preventMiddleClickAutoscroll}
+      >
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="sticky left-0 top-0 z-40 border-r border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span>Full Name</span>
+                <div className="relative flex items-center justify-between gap-2">
                   <button
                     type="button"
-                    aria-label="Add employee row"
-                    title="Add employee row"
-                    onClick={() => setIsAddingRow(true)}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    className={headerClass("full_name")}
+                    onClick={() => applySort("full_name")}
                   >
-                    +
+                    Full Name
+                    {sortIndicator("full_name")}
                   </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Filter full name"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) =>
+                          current === "full_name" ? null : "full_name"
+                        );
+                      }}
+                    >
+                      <FilterIcon active={Boolean(fullNameFilter.trim())} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Add employee row"
+                      title="Add employee row"
+                      onClick={() => setIsAddingRow(true)}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {openMenu === "full_name" ? (
+                    <div
+                      ref={menuRef}
+                      className="absolute right-0 top-full z-30 mt-2 normal-case"
+                    >
+                      <FilterMenuText
+                        title="Full Name"
+                        value={fullNameFilter}
+                        placeholder="Contains..."
+                        onApply={setFullNameFilter}
+                        onClear={() => setFullNameFilter("")}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </th>
               {showClientColumn ? (
-                <th className="sticky top-0 z-30 bg-slate-50 px-4 py-3">Client</th>
-              ) : null}
-              {visibleColumns.map((column) => (
-                <th key={column.id} className="sticky top-0 z-30 bg-slate-50 px-4 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-col gap-0.5">
-                      <span>{column.label}</span>
-                    </div>
-                    {isAdmin ? (
-                      <ColumnEditPanel
-                        column={column}
-                        columnIndex={columnIndexById[column.id] || 0}
-                        totalColumns={columns.length}
-                        formulaSuggestions={formulaSuggestions}
-                        onUpdateColumn={onUpdateColumn}
-                        onDeleteColumn={onDeleteColumn}
-                        onMoveColumn={onMoveColumn}
-                      />
+                <th className="sticky top-0 z-30 bg-slate-50 px-4 py-3">
+                  <div className="relative flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      className={headerClass("client")}
+                      onClick={() => applySort("client")}
+                    >
+                      Client
+                      {sortIndicator("client")}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Filter client"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpenMenu((current) => (current === "client" ? null : "client"));
+                      }}
+                    >
+                      <FilterIcon active={clientFilters.length > 0} />
+                    </button>
+                    {openMenu === "client" ? (
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-full z-30 mt-2 normal-case"
+                      >
+                        <FilterMenuMulti
+                          title="Client"
+                          options={clientFilterOptions}
+                          selectedValues={clientFilters}
+                          onChange={setClientFilters}
+                          onClear={() => setClientFilters([])}
+                        />
+                      </div>
                     ) : null}
                   </div>
                 </th>
-              ))}
+              ) : null}
+              {visibleColumns.map((column) => {
+                const columnSortKey = `column:${column.id}` as EmployeeInfoSortKey;
+                const columnMenuKey = `column:${column.id}`;
+                const dropdownFilterValues = columnOptionFilters[column.id] || [];
+                const textFilterValue = columnTextFilters[column.id] || "";
+                const isDropdownFilter = column.column_kind === "dropdown";
+                const hasColumnFilter = isDropdownFilter
+                  ? dropdownFilterValues.length > 0
+                  : Boolean(textFilterValue.trim());
+
+                return (
+                  <th key={column.id} className="sticky top-0 z-30 bg-slate-50 px-4 py-3">
+                    <div className="relative flex items-start justify-between gap-2">
+                      <button
+                        type="button"
+                        className={headerClass(columnSortKey)}
+                        onClick={() => applySort(columnSortKey)}
+                      >
+                        {column.label}
+                        {sortIndicator(columnSortKey)}
+                      </button>
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          aria-label={`Filter ${column.label}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setOpenMenu((current) =>
+                              current === columnMenuKey ? null : columnMenuKey
+                            );
+                          }}
+                        >
+                          <FilterIcon active={hasColumnFilter} />
+                        </button>
+                        {isAdmin ? (
+                          <ColumnEditPanel
+                            column={column}
+                            columnIndex={columnIndexById[column.id] || 0}
+                            totalColumns={columns.length}
+                            formulaSuggestions={formulaSuggestions}
+                            onUpdateColumn={onUpdateColumn}
+                            onDeleteColumn={onDeleteColumn}
+                            onMoveColumn={onMoveColumn}
+                          />
+                        ) : null}
+                      </div>
+                      {openMenu === columnMenuKey ? (
+                        <div
+                          ref={menuRef}
+                          className="absolute right-0 top-full z-30 mt-2 normal-case"
+                        >
+                          {isDropdownFilter ? (
+                            <FilterMenuMulti
+                              title={column.label}
+                              options={[
+                                { value: NONE_FILTER_VALUE, label: "N/A" },
+                                ...parseOptionsJson(column.options_json).map((option) => ({
+                                  value: option,
+                                  label: option,
+                                })),
+                              ]}
+                              selectedValues={dropdownFilterValues}
+                              onChange={(next) => setColumnOptionFilter(column.id, next)}
+                              onClear={() => setColumnOptionFilter(column.id, [])}
+                            />
+                          ) : (
+                            <FilterMenuText
+                              title={column.label}
+                              value={textFilterValue}
+                              placeholder="Contains..."
+                              onApply={(next) => setColumnTextFilter(column.id, next)}
+                              onClear={() => setColumnTextFilter(column.id, "")}
+                            />
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
@@ -769,8 +1333,8 @@ export default function EmployeeInfoTable({
               </tr>
             ) : null}
 
-            {records.length ? (
-              records.map((record) => {
+            {filteredAndSortedRecords.length ? (
+              filteredAndSortedRecords.map((record) => {
                 const valuesByColumnId = valuesByRecordId[record.id] || {};
                 const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
                 return (
@@ -1023,12 +1587,15 @@ export default function EmployeeInfoTable({
                   className="px-4 py-6 text-slate-500"
                   colSpan={1 + (showClientColumn ? 1 : 0) + visibleColumns.length}
                 >
-                  No employee records yet.
+                  {records.length
+                    ? "No matching employee records for current filters."
+                    : "No employee records yet."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+    </div>
   );
 }
