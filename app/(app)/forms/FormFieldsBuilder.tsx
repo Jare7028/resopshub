@@ -4,11 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildFieldKey,
   conditionOperatorUsesValue,
+  formFieldConditionModeOptions,
   formFieldConditionOperatorOptions,
   formatFormLabel,
-  normalizeFormFieldCondition,
+  normalizeFormFieldConditionMode,
   normalizeFormFieldConditionOperator,
+  normalizeFormFieldVisibility,
   normalizeFormFieldType,
+  type FormFieldCondition,
   type FormField,
 } from "./types";
 
@@ -31,6 +34,8 @@ function createField(seed: number, type: BuilderFieldType = "text"): FormField {
     type,
     required: false,
     options: [],
+    conditionMode: "all",
+    conditions: [],
     condition: null,
   };
 }
@@ -90,16 +95,21 @@ export default function FormFieldsBuilder({
 }) {
   const normalizedInitialFields = useMemo(() => {
     if (!initialFields.length) return [createField(1)];
-    return initialFields.map((field, index) => ({
-      ...field,
-      id: field.id || `field_${index + 1}`,
-      key: field.key || `field_${index + 1}`,
-      label: field.label || "",
-      type: normalizeFormFieldType(field.type),
-      required: Boolean(field.required),
-      options: Array.isArray(field.options) ? field.options.filter(Boolean) : [],
-      condition: normalizeFormFieldCondition(field.condition),
-    }));
+    return initialFields.map((field, index) => {
+      const visibility = normalizeFormFieldVisibility(field);
+      return {
+        ...field,
+        id: field.id || `field_${index + 1}`,
+        key: field.key || `field_${index + 1}`,
+        label: field.label || "",
+        type: normalizeFormFieldType(field.type),
+        required: Boolean(field.required),
+        options: Array.isArray(field.options) ? field.options.filter(Boolean) : [],
+        conditionMode: visibility.conditionMode,
+        conditions: visibility.conditions,
+        condition: visibility.condition,
+      };
+    });
   }, [initialFields]);
 
   const [fields, setFields] = useState<FormField[]>(normalizedInitialFields);
@@ -118,6 +128,22 @@ export default function FormFieldsBuilder({
     setFields((current) =>
       current.map((item, itemIndex) => (itemIndex === index ? updater(item) : item))
     );
+  };
+
+  const withVisibility = (
+    field: FormField,
+    visibility: { conditionMode?: string | null; conditions: FormFieldCondition[] }
+  ): FormField => {
+    const conditionMode = normalizeFormFieldConditionMode(visibility.conditionMode || field.conditionMode);
+    const normalizedConditions = visibility.conditions;
+    const firstValidCondition =
+      normalizedConditions.find((condition) => Boolean(condition?.fieldKey)) || null;
+    return {
+      ...field,
+      conditionMode,
+      conditions: normalizedConditions,
+      condition: firstValidCondition,
+    };
   };
 
   useEffect(() => {
@@ -189,14 +215,16 @@ export default function FormFieldsBuilder({
 
       <div className="space-y-3">
         {fields.map((field, index) => {
+          const visibility = normalizeFormFieldVisibility(field);
+          const conditions = visibility.conditions;
+          const conditionMode = visibility.conditionMode;
           const conditionFieldOptions = fields
             .filter((candidate, candidateIndex) => candidateIndex !== index && Boolean(candidate.key))
             .map((candidate, candidateIndex) => ({
               key: candidate.key,
               label: candidate.label || formatFormLabel(candidate.key) || `Field ${candidateIndex + 1}`,
             }));
-          const conditionOperator = normalizeFormFieldConditionOperator(field.condition?.operator);
-          const showConditionValue = conditionOperatorUsesValue(conditionOperator);
+          const canAddCondition = conditionFieldOptions.length > 0;
 
           return (
             <div key={field.id} className="rounded-lg border border-slate-200 p-4">
@@ -337,88 +365,185 @@ export default function FormFieldsBuilder({
                       placeholder="field_key"
                     />
                   </label>
-                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Show only when
-                    <select
-                      value={field.condition?.fieldKey || ""}
-                      onChange={(event) =>
-                        updateField(index, (item) => ({
-                          ...item,
-                          condition: event.target.value
-                            ? {
-                                fieldKey: event.target.value,
-                                operator: normalizeFormFieldConditionOperator(item.condition?.operator),
-                                value: conditionOperatorUsesValue(
-                                  normalizeFormFieldConditionOperator(item.condition?.operator)
+                  <div className="md:col-span-8 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    <p>Visibility rules</p>
+                    <div className="mt-1 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        {conditions.length > 1 ? (
+                          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                            Match
+                            <select
+                              value={conditionMode}
+                              onChange={(event) =>
+                                updateField(index, (item) =>
+                                  withVisibility(item, {
+                                    conditionMode: event.target.value,
+                                    conditions,
+                                  })
                                 )
-                                  ? item.condition?.value || ""
-                                  : "",
                               }
-                            : null,
-                        }))
-                      }
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                    >
-                      <option value="">Always show</option>
-                      {conditionFieldOptions.map((option) => (
-                        <option key={option.key} value={option.key}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Condition
-                    <select
-                      value={conditionOperator}
-                      onChange={(event) =>
-                        updateField(index, (item) => ({
-                          ...item,
-                          condition: item.condition
-                            ? {
-                                fieldKey: item.condition.fieldKey,
-                                operator: normalizeFormFieldConditionOperator(event.target.value),
-                                value: conditionOperatorUsesValue(
-                                  normalizeFormFieldConditionOperator(event.target.value)
-                                )
-                                  ? item.condition.value || ""
-                                  : "",
-                              }
-                            : null,
-                        }))
-                      }
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      disabled={!field.condition}
-                    >
-                      {formFieldConditionOperatorOptions.map((operator) => (
-                        <option key={operator} value={operator}>
-                          {formatFormLabel(operator)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="md:col-span-4 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Value
-                    <input
-                      value={field.condition?.value || ""}
-                      onChange={(event) =>
-                        updateField(index, (item) => ({
-                          ...item,
-                          condition:
-                            item.condition && conditionOperatorUsesValue(item.condition.operator)
-                              ? {
-                                  fieldKey: item.condition.fieldKey,
-                                  operator: item.condition.operator,
-                                  value: event.target.value,
+                              className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+                            >
+                              {formFieldConditionModeOptions.map((mode) => (
+                                <option key={mode} value={mode}>
+                                  {mode === "all" ? "All rules (AND)" : "Any rule (OR)"}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : (
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            {conditions.length ? "1 rule" : "Always visible"}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateField(index, (item) =>
+                              withVisibility(item, {
+                                conditionMode,
+                                conditions: [
+                                  ...conditions,
+                                  {
+                                    fieldKey: conditionFieldOptions[0]?.key || "",
+                                    operator: "equals",
+                                    value: "",
+                                  },
+                                ],
+                              })
+                            )
+                          }
+                          className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!canAddCondition}
+                        >
+                          Add rule
+                        </button>
+                      </div>
+
+                      {!canAddCondition ? (
+                        <p className="text-xs font-normal normal-case text-slate-500">
+                          Add another field first to build visibility rules.
+                        </p>
+                      ) : null}
+
+                      {conditions.map((condition, conditionIndex) => {
+                        const conditionOperator = normalizeFormFieldConditionOperator(
+                          condition.operator
+                        );
+                        const showConditionValue = conditionOperatorUsesValue(conditionOperator);
+                        return (
+                          <div
+                            key={`${field.id}_condition_${conditionIndex}`}
+                            className="grid gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-12"
+                          >
+                            <label className="md:col-span-5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                              Field
+                              <select
+                                value={condition.fieldKey}
+                                onChange={(event) =>
+                                  updateField(index, (item) => {
+                                    const nextConditions = [...conditions];
+                                    nextConditions[conditionIndex] = {
+                                      ...nextConditions[conditionIndex],
+                                      fieldKey: event.target.value,
+                                    };
+                                    return withVisibility(item, {
+                                      conditionMode,
+                                      conditions: nextConditions,
+                                    });
+                                  })
                                 }
-                              : item.condition,
-                        }))
-                      }
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal disabled:bg-slate-100 disabled:text-slate-400"
-                      placeholder="Expected value"
-                      disabled={!field.condition || !showConditionValue}
-                    />
-                  </label>
+                                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
+                              >
+                                <option value="">Select field</option>
+                                {conditionFieldOptions.map((option) => (
+                                  <option key={option.key} value={option.key}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <label className="md:col-span-3 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                              Condition
+                              <select
+                                value={conditionOperator}
+                                onChange={(event) =>
+                                  updateField(index, (item) => {
+                                    const nextOperator = normalizeFormFieldConditionOperator(
+                                      event.target.value
+                                    );
+                                    const nextConditions = [...conditions];
+                                    nextConditions[conditionIndex] = {
+                                      ...nextConditions[conditionIndex],
+                                      operator: nextOperator,
+                                      value: conditionOperatorUsesValue(nextOperator)
+                                        ? nextConditions[conditionIndex]?.value || ""
+                                        : "",
+                                    };
+                                    return withVisibility(item, {
+                                      conditionMode,
+                                      conditions: nextConditions,
+                                    });
+                                  })
+                                }
+                                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
+                              >
+                                {formFieldConditionOperatorOptions.map((operator) => (
+                                  <option key={operator} value={operator}>
+                                    {formatFormLabel(operator)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <label className="md:col-span-3 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                              Value
+                              <input
+                                value={condition.value || ""}
+                                onChange={(event) =>
+                                  updateField(index, (item) => {
+                                    const nextConditions = [...conditions];
+                                    nextConditions[conditionIndex] = {
+                                      ...nextConditions[conditionIndex],
+                                      value: event.target.value,
+                                    };
+                                    return withVisibility(item, {
+                                      conditionMode,
+                                      conditions: nextConditions,
+                                    });
+                                  })
+                                }
+                                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal disabled:bg-slate-100 disabled:text-slate-400"
+                                placeholder="Expected value"
+                                disabled={!showConditionValue}
+                              />
+                            </label>
+
+                            <div className="md:col-span-1 flex items-end justify-end">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateField(index, (item) =>
+                                    withVisibility(item, {
+                                      conditionMode,
+                                      conditions: conditions.filter(
+                                        (_entry, entryIndex) => entryIndex !== conditionIndex
+                                      ),
+                                    })
+                                  )
+                                }
+                                className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-700 hover:border-red-300 hover:text-red-800"
+                                aria-label="Remove condition"
+                              >
+                                x
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </>
               ) : null}
               </div>

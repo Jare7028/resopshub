@@ -11,11 +11,11 @@ import FormTaskTemplatesBuilder from "../FormTaskTemplatesBuilder";
 import FormSubmissionBuilder from "../FormSubmissionBuilder";
 import {
   buildFieldKey,
-  doesFormFieldConditionMatch,
+  doesFormFieldVisibilityMatch,
   formStatusOptions,
   formatFormLabel,
   normalizeFormActionPriority,
-  normalizeFormFieldCondition,
+  normalizeFormFieldVisibility,
   normalizeFormFieldType,
   normalizeFormStatus,
   renderTemplate,
@@ -67,6 +67,7 @@ function parseFields(value: unknown): FormField[] {
       const row = item as Record<string, unknown>;
       const key = buildFieldKey(String(row.key || ""), `field_${index + 1}`);
       if (!key) return null;
+      const visibility = normalizeFormFieldVisibility(row);
       return {
         id: String(row.id || `field_${index + 1}`),
         key,
@@ -76,7 +77,9 @@ function parseFields(value: unknown): FormField[] {
         options: Array.isArray(row.options)
           ? row.options.map((entry) => String(entry || "").trim()).filter(Boolean)
           : [],
-        condition: normalizeFormFieldCondition(row.condition),
+        conditionMode: visibility.conditionMode,
+        conditions: visibility.conditions,
+        condition: visibility.condition,
       } satisfies FormField;
     })
     .filter(Boolean) as FormField[];
@@ -122,7 +125,7 @@ type ManualTask = {
 };
 
 function fieldShouldBeIncluded(field: FormField, values: Record<string, string>) {
-  return doesFormFieldConditionMatch(field.condition, values);
+  return doesFormFieldVisibilityMatch(field, values);
 }
 
 export default async function FormDetailPage(props: {

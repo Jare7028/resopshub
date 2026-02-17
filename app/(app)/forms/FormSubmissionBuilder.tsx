@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  doesFormFieldConditionMatch,
+  doesFormFieldVisibilityMatch,
   normalizeFormFieldType,
   type FormField,
 } from "./types";
@@ -10,7 +10,7 @@ import {
 type ValueMap = Record<string, string>;
 
 function shouldShowField(field: FormField, values: ValueMap) {
-  return doesFormFieldConditionMatch(field.condition, values);
+  return doesFormFieldVisibilityMatch(field, values);
 }
 
 export default function FormSubmissionBuilder({

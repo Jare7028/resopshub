@@ -20,13 +20,19 @@ export const formFieldConditionOperatorOptions = [
   "not_contains",
   "is_empty",
   "is_not_empty",
+  "greater_than",
+  "greater_or_equal",
+  "less_than",
+  "less_or_equal",
 ] as const;
+export const formFieldConditionModeOptions = ["all", "any"] as const;
 export const formActionPriorityOptions = ["low", "medium", "high", "critical"] as const;
 
 export type FormStatus = (typeof formStatusOptions)[number];
 export type FormSubmissionStatus = (typeof formSubmissionStatusOptions)[number];
 export type FormFieldType = (typeof formFieldTypeOptions)[number];
 export type FormFieldConditionOperator = (typeof formFieldConditionOperatorOptions)[number];
+export type FormFieldConditionMode = (typeof formFieldConditionModeOptions)[number];
 export type FormActionPriority = (typeof formActionPriorityOptions)[number];
 
 export type FormFieldCondition = {
@@ -42,6 +48,8 @@ export type FormField = {
   type: FormFieldType;
   required: boolean;
   options?: string[];
+  conditionMode?: FormFieldConditionMode;
+  conditions?: FormFieldCondition[];
   condition?: FormFieldCondition | null;
 };
 
@@ -107,6 +115,14 @@ export function normalizeFormFieldConditionOperator(
     : "equals";
 }
 
+export function normalizeFormFieldConditionMode(
+  value: string | null | undefined
+): FormFieldConditionMode {
+  return formFieldConditionModeOptions.includes(value as FormFieldConditionMode)
+    ? (value as FormFieldConditionMode)
+    : "all";
+}
+
 export function conditionOperatorUsesValue(operator: FormFieldConditionOperator) {
   return operator !== "is_empty" && operator !== "is_not_empty";
 }
@@ -135,6 +151,40 @@ export function normalizeFormFieldCondition(value: unknown): FormFieldCondition 
   };
 }
 
+export function normalizeFormFieldConditions(value: unknown): FormFieldCondition[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => normalizeFormFieldCondition(entry))
+    .filter((entry): entry is FormFieldCondition => Boolean(entry));
+}
+
+export function normalizeFormFieldVisibility(value: unknown): {
+  conditionMode: FormFieldConditionMode;
+  conditions: FormFieldCondition[];
+  condition: FormFieldCondition | null;
+} {
+  if (!value || typeof value !== "object") {
+    return {
+      conditionMode: "all",
+      conditions: [],
+      condition: null,
+    };
+  }
+  const row = value as Record<string, unknown>;
+  const conditionMode = normalizeFormFieldConditionMode(
+    String(row.conditionMode || row.condition_mode || "").trim()
+  );
+  const conditions = normalizeFormFieldConditions(row.conditions || row.rules);
+  const condition = normalizeFormFieldCondition(row.condition);
+  const normalizedConditions = conditions.length ? conditions : condition ? [condition] : [];
+
+  return {
+    conditionMode,
+    conditions: normalizedConditions,
+    condition: normalizedConditions[0] || null,
+  };
+}
+
 export function doesFormFieldConditionMatch(
   condition: FormFieldCondition | null | undefined,
   values: Record<string, string>
@@ -142,6 +192,23 @@ export function doesFormFieldConditionMatch(
   if (!condition?.fieldKey) return true;
   const actual = String(values[condition.fieldKey] || "").trim().toLowerCase();
   const expected = String(condition.value || "").trim().toLowerCase();
+  const compareValues = () => {
+    const actualNumber = Number(actual);
+    const expectedNumber = Number(expected);
+    if (Number.isFinite(actualNumber) && Number.isFinite(expectedNumber)) {
+      if (actualNumber === expectedNumber) return 0;
+      return actualNumber > expectedNumber ? 1 : -1;
+    }
+
+    const actualTimestamp = Date.parse(actual);
+    const expectedTimestamp = Date.parse(expected);
+    if (Number.isFinite(actualTimestamp) && Number.isFinite(expectedTimestamp)) {
+      if (actualTimestamp === expectedTimestamp) return 0;
+      return actualTimestamp > expectedTimestamp ? 1 : -1;
+    }
+
+    return actual.localeCompare(expected);
+  };
 
   switch (condition.operator) {
     case "not_equals":
@@ -154,10 +221,38 @@ export function doesFormFieldConditionMatch(
       return actual.length === 0;
     case "is_not_empty":
       return actual.length > 0;
+    case "greater_than":
+      return expected ? compareValues() > 0 : false;
+    case "greater_or_equal":
+      return expected ? compareValues() >= 0 : false;
+    case "less_than":
+      return expected ? compareValues() < 0 : false;
+    case "less_or_equal":
+      return expected ? compareValues() <= 0 : false;
     case "equals":
     default:
       return actual === expected;
   }
+}
+
+export function doesFormFieldVisibilityMatch(
+  field: Pick<FormField, "conditionMode" | "conditions" | "condition">,
+  values: Record<string, string>
+) {
+  const normalizedConditions = normalizeFormFieldConditions(field.conditions);
+  const legacyCondition = normalizeFormFieldCondition(field.condition);
+  const conditions = normalizedConditions.length
+    ? normalizedConditions
+    : legacyCondition
+      ? [legacyCondition]
+      : [];
+  if (!conditions.length) return true;
+
+  const mode = normalizeFormFieldConditionMode(field.conditionMode);
+  if (mode === "any") {
+    return conditions.some((condition) => doesFormFieldConditionMatch(condition, values));
+  }
+  return conditions.every((condition) => doesFormFieldConditionMatch(condition, values));
 }
 
 export function renderTemplate(template: string, values: Record<string, string>) {
