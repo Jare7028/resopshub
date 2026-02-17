@@ -20,6 +20,10 @@ type BillingRevenueChargeRow = {
   mode: BillingRevenueChargeMode;
 };
 
+type BillingRevenueChargeRowPatch = Partial<
+  Pick<BillingRevenueChargeRow, "persistedId" | "label" | "amount" | "mode">
+>;
+
 function toSafeString(value: unknown) {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "";
@@ -128,21 +132,24 @@ export default function RevenueChargesEditor({
   );
 
   const updateRow = useCallback(
-    (
-      rowKey: string,
-      updater: (row: BillingRevenueChargeRow) => BillingRevenueChargeRow
-    ) => {
+    (rowKey: string, patch: BillingRevenueChargeRowPatch) => {
       runSafely(() => {
         setRows((previous) =>
           previous.map((row) => {
             if (row.rowKey !== rowKey) return row;
-            const nextRow = updater(row);
+
+            const nextPersistedId =
+              patch.persistedId === undefined ? row.persistedId : patch.persistedId;
+            const nextLabel = patch.label === undefined ? row.label : patch.label;
+            const nextAmount = patch.amount === undefined ? row.amount : patch.amount;
+            const nextMode = patch.mode === undefined ? row.mode : patch.mode;
+
             return {
               rowKey: row.rowKey,
-              persistedId: toSafeString(nextRow.persistedId || row.persistedId),
-              label: toSafeString(nextRow.label),
-              amount: normalizeAmount(nextRow.amount),
-              mode: normalizeMode(nextRow.mode),
+              persistedId: toSafeString(nextPersistedId || row.persistedId),
+              label: toSafeString(nextLabel),
+              amount: normalizeAmount(nextAmount),
+              mode: normalizeMode(nextMode),
             };
           })
         );
@@ -251,12 +258,11 @@ export default function RevenueChargesEditor({
                       type="text"
                       value={row.label}
                       disabled={disabled}
-                      onChange={(event) =>
-                        updateRow(row.rowKey, (previous) => ({
-                          ...previous,
-                          label: event.currentTarget.value,
-                        }))
-                      }
+                      onChange={(event) => {
+                        const nextLabel = event.currentTarget?.value;
+                        if (typeof nextLabel !== "string") return;
+                        updateRow(row.rowKey, { label: nextLabel });
+                      }}
                       className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                       placeholder={`Charge ${index + 1}`}
                     />
@@ -275,12 +281,11 @@ export default function RevenueChargesEditor({
                       inputMode="decimal"
                       value={row.amount}
                       disabled={disabled}
-                      onChange={(event) =>
-                        updateRow(row.rowKey, (previous) => ({
-                          ...previous,
-                          amount: event.currentTarget.value.replace(/,/g, ""),
-                        }))
-                      }
+                      onChange={(event) => {
+                        const nextAmount = event.currentTarget?.value;
+                        if (typeof nextAmount !== "string") return;
+                        updateRow(row.rowKey, { amount: nextAmount.replace(/,/g, "") });
+                      }}
                       className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                       placeholder="0.00"
                     />
@@ -297,12 +302,13 @@ export default function RevenueChargesEditor({
                       id={`charge_mode_${row.rowKey}`}
                       value={row.mode}
                       disabled={disabled}
-                      onChange={(event) =>
-                        updateRow(row.rowKey, (previous) => ({
-                          ...previous,
-                          mode: event.currentTarget.value === "per_user" ? "per_user" : "monthly",
-                        }))
-                      }
+                      onChange={(event) => {
+                        const nextModeValue = event.currentTarget?.value;
+                        if (typeof nextModeValue !== "string") return;
+                        updateRow(row.rowKey, {
+                          mode: nextModeValue === "per_user" ? "per_user" : "monthly",
+                        });
+                      }}
                       className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                     >
                       <option value="per_user">Per user</option>
