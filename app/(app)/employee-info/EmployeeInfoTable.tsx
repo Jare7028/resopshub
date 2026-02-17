@@ -1,6 +1,9 @@
 "use client";
 
 import { useRef, useState, useTransition, type ChangeEvent } from "react";
+import FormulaAutocompleteInput, {
+  type FormulaSuggestion,
+} from "./FormulaAutocompleteInput";
 
 type ClientRow = {
   id: string;
@@ -53,7 +56,7 @@ function ColumnEditPanel({
   column,
   columnIndex,
   totalColumns,
-  formulaSuggestionListId,
+  formulaSuggestions,
   onUpdateColumn,
   onDeleteColumn,
   onMoveColumn,
@@ -61,7 +64,7 @@ function ColumnEditPanel({
   column: EmployeeInfoColumnRow;
   columnIndex: number;
   totalColumns: number;
-  formulaSuggestionListId: string;
+  formulaSuggestions: FormulaSuggestion[];
   onUpdateColumn: (formData: FormData) => Promise<void> | void;
   onDeleteColumn: (formData: FormData) => Promise<void> | void;
   onMoveColumn: (formData: FormData) => Promise<void> | void;
@@ -136,13 +139,13 @@ function ColumnEditPanel({
             />
           ) : null}
           {columnKind === "formula" ? (
-            <input
+            <FormulaAutocompleteInput
               name="formula"
               defaultValue={column.formula || ""}
               placeholder="Formula (e.g. =(C * D))"
-              list={formulaSuggestionListId}
               className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
               required
+              suggestions={formulaSuggestions}
             />
           ) : null}
           <button
@@ -173,7 +176,7 @@ export default function EmployeeInfoTable({
   valuesByRecordId,
   formulaValueByRecordIdAndColumnId,
   isAdmin,
-  formulaSuggestionListId,
+  formulaSuggestions,
   onCreateRecord,
   onUpdateCell,
   onUpdateColumn,
@@ -186,7 +189,7 @@ export default function EmployeeInfoTable({
   valuesByRecordId: Record<string, Record<string, EmployeeInfoValueRow>>;
   formulaValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
   isAdmin: boolean;
-  formulaSuggestionListId: string;
+  formulaSuggestions: FormulaSuggestion[];
   onCreateRecord: (formData: FormData) => Promise<void> | void;
   onUpdateCell: (formData: FormData) => Promise<unknown> | void;
   onUpdateColumn: (formData: FormData) => Promise<void> | void;
@@ -271,7 +274,7 @@ export default function EmployeeInfoTable({
                       column={column}
                       columnIndex={index}
                       totalColumns={columns.length}
-                      formulaSuggestionListId={formulaSuggestionListId}
+                      formulaSuggestions={formulaSuggestions}
                       onUpdateColumn={onUpdateColumn}
                       onDeleteColumn={onDeleteColumn}
                       onMoveColumn={onMoveColumn}

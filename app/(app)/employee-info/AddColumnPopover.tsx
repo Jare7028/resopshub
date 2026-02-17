@@ -1,20 +1,16 @@
 "use client";
 
 import { useState } from "react";
-
-type FormulaSuggestion = {
-  token: string;
-  label: string;
-};
+import FormulaAutocompleteInput, {
+  type FormulaSuggestion,
+} from "./FormulaAutocompleteInput";
 
 type EmployeeInfoColumnKind = "text" | "number" | "dropdown" | "formula";
 
 export default function AddColumnPopover({
-  formulaSuggestionListId,
   formulaSuggestions,
   onCreateColumn,
 }: {
-  formulaSuggestionListId: string;
   formulaSuggestions: FormulaSuggestion[];
   onCreateColumn: (formData: FormData) => Promise<void> | void;
 }) {
@@ -63,12 +59,13 @@ export default function AddColumnPopover({
             />
           ) : null}
           {columnKind === "formula" ? (
-            <input
+            <FormulaAutocompleteInput
               name="formula"
+              defaultValue=""
               placeholder="Formula (e.g. =(C * D))"
-              list={formulaSuggestionListId}
               className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
               required
+              suggestions={formulaSuggestions}
             />
           ) : null}
           <button
@@ -78,11 +75,6 @@ export default function AddColumnPopover({
             Add column
           </button>
         </form>
-        <datalist id={formulaSuggestionListId}>
-          {formulaSuggestions.map((suggestion) => (
-            <option key={suggestion.token} value={`=${suggestion.token}`} label={suggestion.label} />
-          ))}
-        </datalist>
       </div>
     </details>
   );

@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
 import AddColumnPopover from "./AddColumnPopover";
+import type { FormulaSuggestion } from "./FormulaAutocompleteInput";
 import {
   columnIndexToLetter,
   evaluateEmployeeFormula,
@@ -41,11 +42,6 @@ type UserRow = {
   full_name: string | null;
   email: string | null;
   role: string | null;
-};
-
-type FormulaSuggestion = {
-  token: string;
-  label: string;
 };
 
 function buildEmployeeInfoUrl(params?: { error?: string; success?: string }) {
@@ -285,7 +281,6 @@ export default async function EmployeeInfoPage(props: {
 
   const records = (recordsRaw || []) as EmployeeInfoRecordRow[];
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
-  const formulaSuggestionListId = "employee-info-formula-suggestions";
   const formulaSuggestions = buildFormulaSuggestions(columns);
 
   const recordIds = records.map((row) => row.id).filter(Boolean);
@@ -894,7 +889,6 @@ export default async function EmployeeInfoPage(props: {
         {isAdmin ? (
           <div className="flex items-center justify-end border-b border-slate-200 px-4 py-3">
             <AddColumnPopover
-              formulaSuggestionListId={formulaSuggestionListId}
               formulaSuggestions={formulaSuggestions}
               onCreateColumn={createColumn}
             />
@@ -907,7 +901,7 @@ export default async function EmployeeInfoPage(props: {
           valuesByRecordId={valuesByRecordId}
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
           isAdmin={isAdmin}
-          formulaSuggestionListId={formulaSuggestionListId}
+          formulaSuggestions={formulaSuggestions}
           onCreateRecord={createRecord}
           onUpdateCell={updateCell}
           onUpdateColumn={updateColumn}
