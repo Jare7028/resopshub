@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
+import AddColumnPopover from "./AddColumnPopover";
 import {
   columnIndexToLetter,
   evaluateEmployeeFormula,
@@ -666,6 +667,112 @@ export default async function EmployeeInfoPage(props: {
     redirect(buildEmployeeInfoUrl({ success: "Column updated" }));
   }
 
+  async function deleteColumn(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) {
+      redirect("/login");
+    }
+
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", auth.user.email || "")
+      .maybeSingle();
+    if (currentUser?.role !== "admin") {
+      redirect(buildEmployeeInfoUrl({ error: "Only admins can delete columns" }));
+    }
+
+    const columnId = String(formData.get("column_id") || "").trim();
+    if (!columnId) {
+      redirect(buildEmployeeInfoUrl({ error: "Column id is required" }));
+    }
+
+    const { error } = await supabase.from("employee_info_columns").delete().eq("id", columnId);
+    if (error) {
+      redirect(buildEmployeeInfoUrl({ error: error.message }));
+    }
+
+    revalidatePath("/employee-info");
+    redirect(buildEmployeeInfoUrl({ success: "Column deleted" }));
+  }
+
+  async function moveColumn(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) {
+      redirect("/login");
+    }
+
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", auth.user.email || "")
+      .maybeSingle();
+    if (currentUser?.role !== "admin") {
+      redirect(buildEmployeeInfoUrl({ error: "Only admins can reorder columns" }));
+    }
+
+    const columnId = String(formData.get("column_id") || "").trim();
+    const direction = String(formData.get("direction") || "")
+      .trim()
+      .toLowerCase();
+    if (!columnId) {
+      redirect(buildEmployeeInfoUrl({ error: "Column id is required" }));
+    }
+    if (direction !== "left" && direction !== "right") {
+      redirect(buildEmployeeInfoUrl({ error: "Invalid direction" }));
+    }
+
+    const { data: orderedColumnsRaw, error: orderedColumnsError } = await supabase
+      .from("employee_info_columns")
+      .select("id")
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (orderedColumnsError) {
+      redirect(buildEmployeeInfoUrl({ error: orderedColumnsError.message }));
+    }
+
+    const orderedColumns = orderedColumnsRaw || [];
+    if (orderedColumns.length < 2) {
+      redirect("/employee-info");
+    }
+
+    const currentIndex = orderedColumns.findIndex((column) => column.id === columnId);
+    if (currentIndex < 0) {
+      redirect(buildEmployeeInfoUrl({ error: "Column not found" }));
+    }
+
+    const targetIndex = direction === "left" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= orderedColumns.length) {
+      redirect("/employee-info");
+    }
+
+    const reorderedColumns = [...orderedColumns];
+    const temp = reorderedColumns[currentIndex];
+    reorderedColumns[currentIndex] = reorderedColumns[targetIndex];
+    reorderedColumns[targetIndex] = temp;
+
+    const now = new Date().toISOString();
+    const updates = reorderedColumns.map((column, index) => ({
+      id: column.id,
+      position: index + 1,
+      updated_at: now,
+    }));
+
+    const { error: updateError } = await supabase
+      .from("employee_info_columns")
+      .upsert(updates, { onConflict: "id" });
+    if (updateError) {
+      redirect(buildEmployeeInfoUrl({ error: updateError.message }));
+    }
+
+    revalidatePath("/employee-info");
+    redirect("/employee-info");
+  }
+
   async function updateAccessUsers(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -786,65 +893,11 @@ export default async function EmployeeInfoPage(props: {
       <section className="rounded-lg border border-slate-200 bg-white">
         {isAdmin ? (
           <div className="flex items-center justify-end border-b border-slate-200 px-4 py-3">
-            <details className="relative">
-              <summary
-                className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold leading-none text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
-                aria-label="Add column"
-                title="Add column"
-              >
-                +
-              </summary>
-              <div className="absolute right-0 z-10 mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
-                <p className="text-xs text-slate-500">
-                  Formula columns support letters (A=Full Name, B=Client, C onward custom columns)
-                  and column keys (for example <code>=salary + bonus</code>).
-                </p>
-                <form action={createColumn} className="mt-3 grid gap-3">
-                  <input
-                    name="label"
-                    placeholder="Column label"
-                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-                    required
-                  />
-                  <select
-                    name="column_kind"
-                    defaultValue="text"
-                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-                  >
-                    <option value="text">Text</option>
-                    <option value="number">Number</option>
-                    <option value="dropdown">Dropdown</option>
-                    <option value="formula">Formula</option>
-                  </select>
-                  <input
-                    name="dropdown_options"
-                    placeholder="Dropdown options (comma separated)"
-                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-                  />
-                  <input
-                    name="formula"
-                    placeholder="Formula (e.g. =(C * D))"
-                    list={formulaSuggestionListId}
-                    className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
-                  />
-                  <button
-                    type="submit"
-                    className="h-11 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    Add column
-                  </button>
-                </form>
-                <datalist id={formulaSuggestionListId}>
-                  {formulaSuggestions.map((suggestion) => (
-                    <option
-                      key={suggestion.token}
-                      value={`=${suggestion.token}`}
-                      label={suggestion.label}
-                    />
-                  ))}
-                </datalist>
-              </div>
-            </details>
+            <AddColumnPopover
+              formulaSuggestionListId={formulaSuggestionListId}
+              formulaSuggestions={formulaSuggestions}
+              onCreateColumn={createColumn}
+            />
           </div>
         ) : null}
         <EmployeeInfoTable
@@ -858,6 +911,8 @@ export default async function EmployeeInfoPage(props: {
           onCreateRecord={createRecord}
           onUpdateCell={updateCell}
           onUpdateColumn={updateColumn}
+          onDeleteColumn={deleteColumn}
+          onMoveColumn={moveColumn}
         />
       </section>
     </div>

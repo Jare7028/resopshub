@@ -49,6 +49,123 @@ function isDraftRowBlank(row: DraftRecordRow) {
   return !row.fullName.trim() && !row.clientId.trim();
 }
 
+function ColumnEditPanel({
+  column,
+  columnIndex,
+  totalColumns,
+  formulaSuggestionListId,
+  onUpdateColumn,
+  onDeleteColumn,
+  onMoveColumn,
+}: {
+  column: EmployeeInfoColumnRow;
+  columnIndex: number;
+  totalColumns: number;
+  formulaSuggestionListId: string;
+  onUpdateColumn: (formData: FormData) => Promise<void> | void;
+  onDeleteColumn: (formData: FormData) => Promise<void> | void;
+  onMoveColumn: (formData: FormData) => Promise<void> | void;
+}) {
+  const [columnKind, setColumnKind] = useState<EmployeeInfoColumnRow["column_kind"]>(
+    column.column_kind
+  );
+
+  return (
+    <details className="relative shrink-0">
+      <summary
+        className="flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold tracking-normal text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
+        aria-label={`Edit ${column.label}`}
+        title={`Edit ${column.label}`}
+      >
+        Edit
+      </summary>
+      <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 text-left normal-case shadow-lg">
+        <div className="mb-2 grid grid-cols-2 gap-2">
+          <form action={onMoveColumn}>
+            <input type="hidden" name="column_id" value={column.id} />
+            <input type="hidden" name="direction" value="left" />
+            <button
+              type="submit"
+              disabled={columnIndex === 0}
+              className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Move left
+            </button>
+          </form>
+          <form action={onMoveColumn}>
+            <input type="hidden" name="column_id" value={column.id} />
+            <input type="hidden" name="direction" value="right" />
+            <button
+              type="submit"
+              disabled={columnIndex === totalColumns - 1}
+              className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Move right
+            </button>
+          </form>
+        </div>
+        <form action={onUpdateColumn} className="grid gap-2">
+          <input type="hidden" name="column_id" value={column.id} />
+          <input
+            name="label"
+            defaultValue={column.label}
+            placeholder="Column label"
+            className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+            required
+          />
+          <select
+            name="column_kind"
+            value={columnKind}
+            onChange={(event) =>
+              setColumnKind(event.currentTarget.value as EmployeeInfoColumnRow["column_kind"])
+            }
+            className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+          >
+            <option value="text">Text</option>
+            <option value="number">Number</option>
+            <option value="dropdown">Dropdown</option>
+            <option value="formula">Formula</option>
+          </select>
+          {columnKind === "dropdown" ? (
+            <input
+              name="dropdown_options"
+              defaultValue={formatOptionsInput(column.options_json)}
+              placeholder="Dropdown options (comma separated)"
+              className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+              required
+            />
+          ) : null}
+          {columnKind === "formula" ? (
+            <input
+              name="formula"
+              defaultValue={column.formula || ""}
+              placeholder="Formula (e.g. =(C * D))"
+              list={formulaSuggestionListId}
+              className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+              required
+            />
+          ) : null}
+          <button
+            type="submit"
+            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Save
+          </button>
+        </form>
+        <form action={onDeleteColumn} className="mt-2">
+          <input type="hidden" name="column_id" value={column.id} />
+          <button
+            type="submit"
+            className="h-9 w-full rounded-md border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 hover:bg-red-100"
+          >
+            Delete column
+          </button>
+        </form>
+      </div>
+    </details>
+  );
+}
+
 export default function EmployeeInfoTable({
   records,
   clients,
@@ -60,6 +177,8 @@ export default function EmployeeInfoTable({
   onCreateRecord,
   onUpdateCell,
   onUpdateColumn,
+  onDeleteColumn,
+  onMoveColumn,
 }: {
   records: EmployeeInfoRecordRow[];
   clients: ClientRow[];
@@ -71,6 +190,8 @@ export default function EmployeeInfoTable({
   onCreateRecord: (formData: FormData) => Promise<void> | void;
   onUpdateCell: (formData: FormData) => Promise<unknown> | void;
   onUpdateColumn: (formData: FormData) => Promise<void> | void;
+  onDeleteColumn: (formData: FormData) => Promise<void> | void;
+  onMoveColumn: (formData: FormData) => Promise<void> | void;
 }) {
   const [, startTransition] = useTransition();
   const nextDraftIdRef = useRef(1);
@@ -131,10 +252,12 @@ export default function EmployeeInfoTable({
       <table className="min-w-full divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-4 py-3">Full Name</th>
-            <th className="px-4 py-3">Client</th>
-            {columns.map((column) => (
-              <th key={column.id} className="px-4 py-3">
+            <th className="sticky left-0 top-0 z-40 border-r border-slate-200 bg-slate-50 px-4 py-3">
+              Full Name
+            </th>
+            <th className="sticky top-0 z-30 bg-slate-50 px-4 py-3">Client</th>
+            {columns.map((column, index) => (
+              <th key={column.id} className="sticky top-0 z-30 bg-slate-50 px-4 py-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex flex-col gap-0.5">
                     <span>{column.label}</span>
@@ -144,56 +267,15 @@ export default function EmployeeInfoTable({
                     ) : null}
                   </div>
                   {isAdmin ? (
-                    <details className="relative shrink-0">
-                      <summary
-                        className="flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold tracking-normal text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
-                        aria-label={`Edit ${column.label}`}
-                        title={`Edit ${column.label}`}
-                      >
-                        Edit
-                      </summary>
-                      <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 text-left normal-case shadow-lg">
-                        <form action={onUpdateColumn} className="grid gap-2">
-                          <input type="hidden" name="column_id" value={column.id} />
-                          <input
-                            name="label"
-                            defaultValue={column.label}
-                            placeholder="Column label"
-                            className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-                            required
-                          />
-                          <select
-                            name="column_kind"
-                            defaultValue={column.column_kind}
-                            className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-                          >
-                            <option value="text">Text</option>
-                            <option value="number">Number</option>
-                            <option value="dropdown">Dropdown</option>
-                            <option value="formula">Formula</option>
-                          </select>
-                          <input
-                            name="dropdown_options"
-                            defaultValue={formatOptionsInput(column.options_json)}
-                            placeholder="Dropdown options (comma separated)"
-                            className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-                          />
-                          <input
-                            name="formula"
-                            defaultValue={column.formula || ""}
-                            placeholder="Formula (e.g. =(C * D))"
-                            list={formulaSuggestionListId}
-                            className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-                          />
-                          <button
-                            type="submit"
-                            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Save
-                          </button>
-                        </form>
-                      </div>
-                    </details>
+                    <ColumnEditPanel
+                      column={column}
+                      columnIndex={index}
+                      totalColumns={columns.length}
+                      formulaSuggestionListId={formulaSuggestionListId}
+                      onUpdateColumn={onUpdateColumn}
+                      onDeleteColumn={onDeleteColumn}
+                      onMoveColumn={onMoveColumn}
+                    />
                   ) : null}
                 </div>
               </th>
@@ -206,7 +288,7 @@ export default function EmployeeInfoTable({
             const isBlank = !draftRow.fullName.trim();
             return (
               <tr key={draftRow.id} className="bg-slate-50/80">
-                <td className="px-4 py-3">
+                <td className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/80 px-4 py-3">
                   <form id={createRecordFormId} action={onCreateRecord} />
                   <div className="flex items-center gap-2">
                     <input
@@ -266,7 +348,7 @@ export default function EmployeeInfoTable({
               const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
               return (
                 <tr key={record.id}>
-                  <td className="px-4 py-3">
+                  <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3">
                     <form>
                       <input type="hidden" name="record_id" value={record.id} />
                       <input type="hidden" name="base_field" value="full_name" />
