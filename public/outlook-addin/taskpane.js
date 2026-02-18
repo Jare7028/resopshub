@@ -82,18 +82,32 @@
   }
 
   function normalizeBodyText(raw) {
-    const text = String(raw || "");
-    const stripped = text.indexOf("<") !== -1 ? stripHtml(text) : text;
-    return stripped
+    return String(raw || "")
       .replace(/\r\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\u00A0/g, " ")
+      .replace(/\n{4,}/g, "\n\n\n")
       .trim();
   }
 
-  function stripHtml(html) {
+  function extractTextFromHtml(html) {
     const parser = document.createElement("div");
-    parser.innerHTML = html;
-    return parser.textContent || parser.innerText || "";
+    parser.innerHTML = String(html || "");
+    const junkNodes = parser.querySelectorAll("script, style, noscript");
+    Array.prototype.forEach.call(junkNodes, (node) => node.remove());
+    return parser.innerText || parser.textContent || "";
+  }
+
+  function getMessageBody(item, coercionType) {
+    return new Promise((resolve, reject) => {
+      item.body.getAsync(coercionType, (result) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          resolve(String(result.value || ""));
+          return;
+        }
+        reject(new Error(result.error && result.error.message ? result.error.message : "Could not read message body."));
+      });
+    });
   }
 
   function getCurrentItem() {
@@ -104,16 +118,28 @@
     return mailbox.item;
   }
 
-  function getCurrentMessageBodyText(item) {
-    return new Promise((resolve, reject) => {
-      item.body.getAsync(Office.CoercionType.Text, (result) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded) {
-          resolve(normalizeBodyText(result.value));
-          return;
+  async function getCurrentMessageBodyText(item) {
+    const htmlCoercionType =
+      Office &&
+      Office.CoercionType &&
+      typeof Office.CoercionType.Html !== "undefined"
+        ? Office.CoercionType.Html
+        : null;
+
+    if (htmlCoercionType !== null) {
+      try {
+        const htmlBody = await getMessageBody(item, htmlCoercionType);
+        const htmlText = normalizeBodyText(extractTextFromHtml(htmlBody));
+        if (htmlText) {
+          return htmlText;
         }
-        reject(new Error(result.error && result.error.message ? result.error.message : "Could not read message body."));
-      });
-    });
+      } catch (_htmlError) {
+        // Fall back to plain text when HTML retrieval is unavailable in this client.
+      }
+    }
+
+    const plainTextBody = await getMessageBody(item, Office.CoercionType.Text);
+    return normalizeBodyText(plainTextBody);
   }
 
   function normalizeParticipant(value) {
