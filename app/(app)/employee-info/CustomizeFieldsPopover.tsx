@@ -78,6 +78,7 @@ export default function CustomizeFieldsPopover({
   return (
     <details
       className="relative"
+      data-employee-info-popover="true"
       open={isOpen}
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
     >

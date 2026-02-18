@@ -80,7 +80,11 @@ export default function AddColumnPopover({
   };
 
   return (
-    <details ref={detailsRef} className="relative">
+    <details
+      ref={detailsRef}
+      className="relative"
+      data-employee-info-popover="true"
+    >
       <summary
         className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold leading-none text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
         aria-label="Add column"

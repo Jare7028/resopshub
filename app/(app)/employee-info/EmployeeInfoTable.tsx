@@ -203,6 +203,11 @@ function resetEditableFormControlsToDefault(form: HTMLFormElement) {
   });
 }
 
+function hasEmployeeInfoPopoverOpen() {
+  if (typeof document === "undefined") return false;
+  return Boolean(document.querySelector('details[data-employee-info-popover="true"][open]'));
+}
+
 function parseSortableNumber(value: string | null | undefined) {
   const normalized = String(value || "")
     .trim()
@@ -394,7 +399,11 @@ function ColumnEditPanel({
   ]);
 
   return (
-    <details ref={detailsRef} className="relative shrink-0">
+    <details
+      ref={detailsRef}
+      className="relative shrink-0"
+      data-employee-info-popover="true"
+    >
       <summary
         className="flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold tracking-normal text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
         aria-label={`Edit ${column.label}`}
@@ -615,6 +624,8 @@ export default function EmployeeInfoTable({
   const hasLoadedVisibilityRef = useRef(false);
   const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
   const currencySwitchIntentAtRef = useRef(0);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openMenuRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
@@ -721,6 +732,19 @@ export default function EmployeeInfoTable({
   }, []);
 
   useEffect(() => {
+    openMenuRef.current = openMenu;
+  }, [openMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!openMenu) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -792,6 +816,22 @@ export default function EmployeeInfoTable({
     return column ? shouldHighlightEmptyStateForColumn(column) : true;
   };
 
+  const queueTableRefresh = useCallback(() => {
+    const attemptRefresh = () => {
+      if (openMenuRef.current || hasEmployeeInfoPopoverOpen()) {
+        refreshTimeoutRef.current = setTimeout(attemptRefresh, 180);
+        return;
+      }
+      refreshTimeoutRef.current = null;
+      router.refresh();
+    };
+
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+    refreshTimeoutRef.current = setTimeout(attemptRefresh, 180);
+  }, [router]);
+
   const saveControlChange = (control: HTMLInputElement | HTMLSelectElement) => {
     const shouldHighlight = getHighlightPolicyForControl(control);
     syncEditableCellHighlight(control, shouldHighlight);
@@ -807,7 +847,7 @@ export default function EmployeeInfoTable({
           return;
         }
         if (result?.ok) {
-          router.refresh();
+          queueTableRefresh();
         }
       })();
     });
