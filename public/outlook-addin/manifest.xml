@@ -58,7 +58,7 @@
                   <Label resid="ResOpsHub.ImportTaskButton.Label" />
                   <Supertip>
                     <Title resid="ResOpsHub.ImportTaskButton.Label" />
-                    <Description resid="ResOpsHub.ImportTaskButton.Tooltip" />
+                    <Description resid="ResOpsHub.ImportTaskTip" />
                   </Supertip>
                   <Icon>
                     <bt:Image size="16" resid="Icon.16" />
@@ -91,7 +91,7 @@
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String
-          id="ResOpsHub.ImportTaskButton.Tooltip"
+          id="ResOpsHub.ImportTaskTip"
           DefaultValue="Create a ResOpsHub task from this email thread." />
       </bt:LongStrings>
     </Resources>

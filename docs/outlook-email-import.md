@@ -36,7 +36,7 @@ or copy/paste the file contents into Supabase SQL editor.
 ## Notes
 
 - v1 only supports primary mailbox imports.
-- The add-in requests Microsoft Graph conversation data and blocks creation if full conversation expansion fails.
+- The add-in currently imports the currently open email only (single-message snapshot) and does not request Graph conversation expansion.
 - Duplicate detection warns by `selected_message_id` and allows override via `createDespiteDuplicate`.
 - The create endpoint accepts optional `notesText` to support editable note text before creating the task.
 - Daily telemetry counts are available via `public.outlook_import_daily_metrics`.

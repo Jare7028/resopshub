@@ -1,4 +1,4 @@
-/* global Office, OfficeRuntime */
+/* global Office */
 (function () {
   "use strict";
 
@@ -116,72 +116,40 @@
     });
   }
 
-  async function getGraphAccessToken() {
-    if (
-      typeof OfficeRuntime === "undefined" ||
-      !OfficeRuntime.auth ||
-      !OfficeRuntime.auth.getAccessToken
-    ) {
-      throw new Error("Graph access is unavailable in this Outlook client.");
-    }
-    return OfficeRuntime.auth.getAccessToken({
-      allowSignInPrompt: true,
-      allowConsentPrompt: true,
-      forMSGraphAccess: true,
-    });
+  function normalizeParticipant(value) {
+    if (!value) return null;
+    if (typeof value === "string") return value;
+    const emailAddress = value.emailAddress || value.address || null;
+    const displayName = value.displayName || value.name || null;
+    return emailAddress || displayName || null;
   }
 
-  async function graphRequest(token, path) {
-    const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Prefer: 'outlook.body-content-type="text"',
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Graph request failed: ${response.status} ${errorText}`);
-    }
-    return response.json();
+  function normalizeParticipantList(values) {
+    if (!Array.isArray(values)) return [];
+    return values.map(normalizeParticipant).filter(Boolean);
   }
 
-  function toRecipientAddress(recipient) {
-    if (!recipient || !recipient.emailAddress) return null;
-    return recipient.emailAddress.address || recipient.emailAddress.name || null;
+  function normalizeAttachmentType(value) {
+    const normalized = String(value || "").trim();
+    return normalized || null;
   }
 
-  function toRecipientList(input) {
-    if (!Array.isArray(input)) return [];
-    return input.map(toRecipientAddress).filter(Boolean);
+  function collectCurrentMessageAttachments(item) {
+    if (!item || !Array.isArray(item.attachments)) return [];
+    return item.attachments
+      .filter((attachment) => attachment && attachment.name)
+      .map((attachment) => ({
+        name: String(attachment.name),
+        size: Number.isFinite(Number(attachment.size)) ? Number(attachment.size) : null,
+        contentType: normalizeAttachmentType(attachment.attachmentType),
+        webLink: null,
+      }));
   }
 
-  async function fetchMessageAttachments(token, messageId, messageWebLink) {
-    const encodedId = encodeURIComponent(messageId);
-    try {
-      const data = await graphRequest(
-        token,
-        `/me/messages/${encodedId}/attachments?$select=name,size,contentType`
-      );
-      const rows = Array.isArray(data.value) ? data.value : [];
-      return rows
-        .filter((row) => row && row.name)
-        .map((row) => ({
-          name: String(row.name),
-          size: Number.isFinite(Number(row.size)) ? Number(row.size) : null,
-          contentType: row.contentType ? String(row.contentType) : null,
-          webLink: messageWebLink || null,
-        }));
-    } catch (_error) {
-      return [];
-    }
-  }
-
-  async function collectConversationThreadPayload() {
+  async function collectCurrentMessagePayload() {
     const mailbox = Office.context.mailbox;
     const item = getCurrentItem();
-    const fallbackBodyText = await getCurrentMessageBodyText(item);
+    const bodyText = await getCurrentMessageBodyText(item);
     const mailboxEmail = mailbox.userProfile && mailbox.userProfile.emailAddress
       ? mailbox.userProfile.emailAddress
       : "";
@@ -202,86 +170,36 @@
       }
     }
 
-    setLoadingMessage("Fetching conversation from Microsoft Graph...");
-    const graphToken = await getGraphAccessToken();
-    const selectedMessage = await graphRequest(
-      graphToken,
-      `/me/messages/${encodeURIComponent(restMessageId)}?$select=id,internetMessageId,conversationId,subject,webLink,from,toRecipients,ccRecipients,receivedDateTime,body`
-    );
-    const conversationId = selectedMessage.conversationId || item.conversationId;
-    if (!conversationId) {
-      throw new Error(
-        "Conversation ID is missing. Full-thread import requires a conversation-enabled message."
-      );
-    }
-
-    const escapedConversationId = String(conversationId).replace(/'/g, "''");
-    const conversationFilter = encodeURIComponent(
-      `conversationId eq '${escapedConversationId}'`
-    );
-    const conversationData = await graphRequest(
-      graphToken,
-      `/me/messages?$top=100&$orderby=receivedDateTime%20asc&$filter=${conversationFilter}&$select=id,internetMessageId,conversationId,subject,webLink,from,toRecipients,ccRecipients,receivedDateTime,body,hasAttachments`
-    );
-    const messages = Array.isArray(conversationData.value) ? conversationData.value : [];
-
-    if (!messages.length) {
-      throw new Error(
-        "Conversation expansion failed. Open this email in a full Outlook client and retry."
-      );
-    }
-
-    const thread = [];
-    for (const message of messages) {
-      const messageId = message && message.id ? String(message.id) : "";
-      if (!messageId) continue;
-      const messageWebLink = message.webLink ? String(message.webLink) : null;
-      const attachments = message.hasAttachments
-        ? await fetchMessageAttachments(graphToken, messageId, messageWebLink)
-        : [];
-      thread.push({
-        messageId,
-        internetMessageId: message.internetMessageId ? String(message.internetMessageId) : null,
-        from: toRecipientAddress(message.from),
-        to: toRecipientList(message.toRecipients),
-        cc: toRecipientList(message.ccRecipients),
-        sentAt: message.receivedDateTime ? String(message.receivedDateTime) : null,
-        subject: message.subject ? String(message.subject) : null,
-        bodyText: normalizeBodyText(message.body && message.body.content ? message.body.content : ""),
-        attachments,
-        webLink: messageWebLink,
-      });
-    }
-
-    if (!thread.length) {
-      throw new Error(
-        "Conversation expansion failed because no thread messages were returned."
-      );
-    }
+    const conversationId = item.conversationId ? String(item.conversationId) : null;
+    const fromValue = normalizeParticipant(item.from || item.sender || null);
+    const toValues = normalizeParticipantList(item.to);
+    const ccValues = normalizeParticipantList(item.cc);
+    const sentAtValue = item.dateTimeCreated ? String(item.dateTimeCreated) : null;
+    const attachments = collectCurrentMessageAttachments(item);
 
     return {
-      selectedMessageId: selectedMessage.id ? String(selectedMessage.id) : String(restMessageId),
-      internetMessageId: selectedMessage.internetMessageId
-        ? String(selectedMessage.internetMessageId)
-        : null,
-      conversationId: String(conversationId),
-      subject: selectedMessage.subject ? String(selectedMessage.subject) : String(item.subject || ""),
+      selectedMessageId: String(restMessageId),
+      internetMessageId: null,
+      conversationId: conversationId,
+      subject: String(item.subject || ""),
       mailbox: {
         userEmail: mailboxEmail,
         mailboxType: "primary",
       },
-      thread: thread.map((message) => ({
-        messageId: message.messageId,
-        internetMessageId: message.internetMessageId || null,
-        from: message.from || null,
-        to: message.to || [],
-        cc: message.cc || [],
-        sentAt: message.sentAt || null,
-        subject: message.subject || null,
-        bodyText: message.bodyText || fallbackBodyText || "(No text body)",
-        attachments: message.attachments || [],
-        webLink: message.webLink || null,
-      })),
+      thread: [
+        {
+          messageId: String(restMessageId),
+          internetMessageId: null,
+          from: fromValue,
+          to: toValues,
+          cc: ccValues,
+          sentAt: sentAtValue,
+          subject: String(item.subject || ""),
+          bodyText: bodyText || "(No text body)",
+          attachments: attachments,
+          webLink: null,
+        },
+      ],
     };
   }
 
@@ -365,12 +283,12 @@
   }
 
   async function loadPreview() {
-    setLoadingMessage("Collecting Outlook message context...");
+    setLoadingMessage("Reading current email...");
     setFormStatus("", false);
     showView("loading");
 
     try {
-      const payload = await collectConversationThreadPayload();
+      const payload = await collectCurrentMessagePayload();
       setLoadingMessage("Preparing task preview...");
       const { response, data } = await callPreview(payload);
       if (response.status === 401) {
