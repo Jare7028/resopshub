@@ -403,8 +403,8 @@ function buildOutlookImportMessageHeaderLines(message: OutlookImportThreadMessag
 function recoverEmailBodyLineBreaks(text: string) {
   return String(text || "")
     .replace(/([.!?])(?=[A-Z][a-z])/g, "$1\n")
-    .replace(/,(?=[A-Z][a-z]{2,})/g, ",\n")
-    .replace(/\s+(From:\s)/g, "\n\n$1")
+    .replace(/((?:many )?thanks),([A-Z][a-z]+)/gi, "$1,\n$2")
+    .replace(/\s+(From:\s)/g, "\n$1")
     .replace(/\s+(Sent:\s)/g, "\n$1")
     .replace(/\s+(To:\s)/g, "\n$1")
     .replace(/\s+(Cc:\s)/g, "\n$1")
@@ -419,12 +419,15 @@ function buildOutlookImportBodyLines(bodyText: string) {
       .replace(/\u00A0/g, " ")
   )
     .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{4,}/g, "\n\n\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!normalized) {
     return ["(No text body)"];
   }
-  return normalized.split("\n").map((line) => line.replace(/\s+$/g, ""));
+  return normalized
+    .split("\n")
+    .map((line) => line.replace(/\s+$/g, ""))
+    .filter((line) => line.trim().length > 0);
 }
 
 export function buildOutlookImportReadableNotesText(args: {

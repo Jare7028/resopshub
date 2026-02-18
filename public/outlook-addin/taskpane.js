@@ -84,8 +84,8 @@
   function recoverEmailLineBreaks(text) {
     return String(text || "")
       .replace(/([.!?])(?=[A-Z][a-z])/g, "$1\n")
-      .replace(/,(?=[A-Z][a-z]{2,})/g, ",\n")
-      .replace(/\s+(From:\s)/g, "\n\n$1")
+      .replace(/((?:many )?thanks),([A-Z][a-z]+)/gi, "$1,\n$2")
+      .replace(/\s+(From:\s)/g, "\n$1")
       .replace(/\s+(Sent:\s)/g, "\n$1")
       .replace(/\s+(To:\s)/g, "\n$1")
       .replace(/\s+(Cc:\s)/g, "\n$1")
@@ -100,7 +100,7 @@
         .replace(/\u00A0/g, " ")
     )
       .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{4,}/g, "\n\n\n")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
 

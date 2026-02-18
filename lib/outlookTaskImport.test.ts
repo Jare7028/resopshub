@@ -80,7 +80,7 @@ describe("outlookTaskImport", () => {
 
     expect(prepared.normalizedNotesText).toContain("Saturdays?\nWill this come in with immediate effect?");
     expect(prepared.normalizedNotesText).toContain("Many thanks,\nCalum");
-    expect(prepared.normalizedNotesText).toContain("\n\nFrom: Jared Clapham <jared@resolvable.com>");
+    expect(prepared.normalizedNotesText).toContain("\nFrom: Jared Clapham <jared@resolvable.com>");
     expect(prepared.normalizedNotesText).toContain("\nSent: 17 February 2026 16:45");
     expect(prepared.normalizedNotesText).toContain("\nTo: Calum <calum@bigfurniturewarehouse.com>");
     expect(prepared.normalizedNotesText).toContain("\nSubject: Hourly Rate:");
