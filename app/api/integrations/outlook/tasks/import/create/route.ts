@@ -140,7 +140,7 @@ export async function POST(request: Request) {
     const taskId = randomUUID();
     let taskContent: unknown = prepared.normalizedTaskContent;
     let taskContentText = prepared.normalizedTaskContentText;
-    if (parsedCreate.notesText && parsedCreate.notesText !== prepared.normalizedTaskContentText) {
+    if (parsedCreate.notesText && parsedCreate.notesText !== prepared.normalizedNotesText) {
       taskContent = buildTiptapDocFromPlainText(parsedCreate.notesText);
       taskContentText = extractPlainText(taskContent);
     }

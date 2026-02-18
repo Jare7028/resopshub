@@ -53,6 +53,18 @@ describe("outlookTaskImport", () => {
     expect(prepared.normalizedTitle).toBe("Follow up with client");
   });
 
+  it("builds readable multiline notes text for preview editing", () => {
+    const prepared = prepareOutlookImportPreview(buildPreviewPayload(), {
+      importedAtIso: "2026-02-18T12:00:00.000Z",
+    });
+    expect(prepared.normalizedNotesText).toContain("Source: Outlook email import");
+    expect(prepared.normalizedNotesText).toContain("Summary\n- Subject: Follow up with client");
+    expect(prepared.normalizedNotesText).toContain("\n\nMessage 1\nFrom: alice@contoso.com");
+    expect(prepared.normalizedNotesText).toContain("\nBody:\nCan we review this by Friday?");
+    expect(prepared.normalizedNotesText).toContain("\nAttachments:\n- proposal.pdf");
+    expect(prepared.normalizedNotesText).toContain("Outlook thread link:");
+  });
+
   it("converts thread content into searchable tiptap text", () => {
     const payload = buildPreviewPayload();
     const content = buildOutlookImportTaskContent({

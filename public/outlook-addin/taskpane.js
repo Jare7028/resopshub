@@ -259,7 +259,7 @@
       titleInput.value = previewResponse.normalizedTitle || "";
     }
     if (notesInput) {
-      notesInput.value = previewResponse.normalizedTaskContentText || "";
+      notesInput.value = previewResponse.normalizedNotesText || previewResponse.normalizedTaskContentText || "";
     }
     if (clientIdInput) {
       clientIdInput.value = "";

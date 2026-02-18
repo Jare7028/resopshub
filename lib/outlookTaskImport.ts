@@ -65,6 +65,7 @@ export type OutlookImportPreviewResponse = {
   normalizedTitle: string;
   normalizedTaskContent: unknown;
   normalizedTaskContentText: string;
+  normalizedNotesText: string;
   duplicateMatches: OutlookDuplicateMatch[];
   warnings: string[];
 };
@@ -104,6 +105,7 @@ export type PreparedOutlookImportPreview = {
   normalizedTitle: string;
   normalizedTaskContent: TiptapDoc;
   normalizedTaskContentText: string;
+  normalizedNotesText: string;
   warnings: string[];
   attachmentCount: number;
   normalizedTextBytes: number;
@@ -393,6 +395,101 @@ function formatAttachmentLine(attachment: OutlookImportAttachment) {
   return parts.join(" | ");
 }
 
+function buildOutlookImportSummaryLines(payload: OutlookImportPreviewRequest, importedAtIso: string) {
+  const lines = [
+    `Subject: ${normalizeOutlookImportTitle(payload.subject)}`,
+    `Imported at: ${importedAtIso}`,
+    `Mailbox: ${payload.mailbox.userEmail}`,
+    `Selected message ID: ${payload.selectedMessageId}`,
+  ];
+  if (payload.conversationId) {
+    lines.push(`Conversation ID: ${payload.conversationId}`);
+  }
+  lines.push(`Thread message count: ${payload.thread.length}`);
+  return lines;
+}
+
+function buildOutlookImportMessageHeaderLines(message: OutlookImportThreadMessage) {
+  const lines = [
+    message.from ? `From: ${message.from}` : null,
+    message.to?.length ? `To: ${message.to.join(", ")}` : null,
+    message.cc?.length ? `Cc: ${message.cc.join(", ")}` : null,
+    message.sentAt ? `Sent: ${message.sentAt}` : null,
+    message.subject ? `Subject: ${message.subject}` : null,
+    `Message ID: ${message.messageId}`,
+  ].filter(Boolean);
+  return lines as string[];
+}
+
+function buildOutlookImportBodyLines(bodyText: string) {
+  const normalized = String(bodyText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+  if (!normalized) {
+    return ["(No text body)"];
+  }
+  return normalized.split("\n").map((line) => line.replace(/\s+$/g, ""));
+}
+
+export function buildOutlookImportReadableNotesText(args: {
+  payload: OutlookImportPreviewRequest;
+  importedAtIso: string;
+}) {
+  const { payload, importedAtIso } = args;
+  const lines: string[] = [];
+
+  lines.push("Source: Outlook email import");
+  lines.push("");
+  lines.push("Summary");
+  buildOutlookImportSummaryLines(payload, importedAtIso).forEach((line) => {
+    lines.push(`- ${line}`);
+  });
+  lines.push("");
+
+  payload.thread.forEach((message, index) => {
+    lines.push(`Message ${index + 1}`);
+    buildOutlookImportMessageHeaderLines(message).forEach((line) => {
+      lines.push(line);
+    });
+    lines.push("");
+    lines.push("Body:");
+    buildOutlookImportBodyLines(message.bodyText).forEach((line) => {
+      lines.push(line);
+    });
+
+    const attachmentItems = (message.attachments || []).map(formatAttachmentLine);
+    if (attachmentItems.length) {
+      lines.push("");
+      lines.push("Attachments:");
+      attachmentItems.forEach((item) => {
+        lines.push(`- ${item}`);
+      });
+    }
+
+    if (message.webLink) {
+      lines.push("");
+      lines.push(`Message link: ${message.webLink}`);
+    }
+
+    if (index < payload.thread.length - 1) {
+      lines.push("");
+      lines.push("----");
+      lines.push("");
+    } else {
+      lines.push("");
+    }
+  });
+
+  const firstLink = payload.thread.find((message) => message.webLink)?.webLink || null;
+  if (firstLink) {
+    lines.push("Outlook thread link:");
+    lines.push(firstLink);
+  }
+
+  return lines.join("\n").replace(/\n{4,}/g, "\n\n\n").trim();
+}
+
 export function buildOutlookImportTaskContent(args: {
   payload: OutlookImportPreviewRequest;
   importedAtIso: string;
@@ -400,37 +497,28 @@ export function buildOutlookImportTaskContent(args: {
   const { payload, importedAtIso } = args;
   const nodes: TiptapNode[] = [];
   nodes.push(paragraph("Source: Outlook email import"));
-  nodes.push(paragraph(`Subject: ${payload.subject || OUTLOOK_IMPORT_DEFAULT_TITLE}`));
-  nodes.push(paragraph(`Imported at: ${importedAtIso}`));
-  nodes.push(paragraph(`Mailbox: ${payload.mailbox.userEmail}`));
-  nodes.push(paragraph(`Selected message ID: ${payload.selectedMessageId}`));
-  if (payload.conversationId) {
-    nodes.push(paragraph(`Conversation ID: ${payload.conversationId}`));
+  nodes.push(paragraph());
+  nodes.push(paragraph("Summary"));
+  const summaryList = bulletList(buildOutlookImportSummaryLines(payload, importedAtIso));
+  if (summaryList) {
+    nodes.push(summaryList);
   }
-  nodes.push(paragraph(`Thread message count: ${payload.thread.length}`));
   nodes.push(paragraph());
 
   payload.thread.forEach((message, index) => {
     nodes.push(paragraph(`Message ${index + 1}`));
-
-    const headerParts = [
-      message.from ? `From: ${message.from}` : null,
-      message.to?.length ? `To: ${message.to.join(", ")}` : null,
-      message.cc?.length ? `Cc: ${message.cc.join(", ")}` : null,
-      message.sentAt ? `Sent: ${message.sentAt}` : null,
-      message.subject ? `Subject: ${message.subject}` : null,
-      `Message ID: ${message.messageId}`,
-    ].filter(Boolean) as string[];
-    if (headerParts.length) {
-      nodes.push(paragraph(headerParts.join(" | ")));
-    }
-
-    if (message.bodyText.trim()) {
-      nodes.push(paragraph(message.bodyText));
-    }
+    buildOutlookImportMessageHeaderLines(message).forEach((line) => {
+      nodes.push(paragraph(line));
+    });
+    nodes.push(paragraph());
+    nodes.push(paragraph("Body:"));
+    buildOutlookImportBodyLines(message.bodyText).forEach((line) => {
+      nodes.push(paragraph(line));
+    });
 
     const attachmentItems = (message.attachments || []).map(formatAttachmentLine);
     if (attachmentItems.length) {
+      nodes.push(paragraph());
       nodes.push(paragraph("Attachments:"));
       const list = bulletList(attachmentItems);
       if (list) {
@@ -439,15 +527,23 @@ export function buildOutlookImportTaskContent(args: {
     }
 
     if (message.webLink) {
+      nodes.push(paragraph());
       nodes.push(paragraph(`Message link: ${message.webLink}`));
     }
 
-    nodes.push(paragraph());
+    if (index < payload.thread.length - 1) {
+      nodes.push(paragraph());
+      nodes.push(paragraph("----"));
+      nodes.push(paragraph());
+    } else {
+      nodes.push(paragraph());
+    }
   });
 
   const firstLink = payload.thread.find((message) => message.webLink)?.webLink || null;
   if (firstLink) {
-    nodes.push(paragraph(`Outlook thread link: ${firstLink}`));
+    nodes.push(paragraph("Outlook thread link:"));
+    nodes.push(paragraph(firstLink));
   }
 
   return {
@@ -472,7 +568,11 @@ export function prepareOutlookImportPreview(
     importedAtIso,
   });
   const normalizedTaskContentText = extractPlainText(normalizedTaskContent);
-  const normalizedTextBytes = new TextEncoder().encode(normalizedTaskContentText).length;
+  const normalizedNotesText = buildOutlookImportReadableNotesText({
+    payload,
+    importedAtIso,
+  });
+  const normalizedTextBytes = new TextEncoder().encode(normalizedNotesText).length;
   if (normalizedTextBytes > OUTLOOK_IMPORT_MAX_TEXT_BYTES) {
     throw new OutlookImportValidationError(
       `Thread text is too large. Maximum is ${OUTLOOK_IMPORT_MAX_TEXT_BYTES} bytes.`
@@ -484,6 +584,7 @@ export function prepareOutlookImportPreview(
     normalizedTitle,
     normalizedTaskContent,
     normalizedTaskContentText,
+    normalizedNotesText,
     warnings,
     attachmentCount: countOutlookImportAttachments(payload.thread),
     normalizedTextBytes,

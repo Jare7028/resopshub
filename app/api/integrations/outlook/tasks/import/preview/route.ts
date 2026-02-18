@@ -77,6 +77,7 @@ export async function POST(request: Request) {
       normalizedTitle: prepared.normalizedTitle,
       normalizedTaskContent: prepared.normalizedTaskContent,
       normalizedTaskContentText: prepared.normalizedTaskContentText,
+      normalizedNotesText: prepared.normalizedNotesText,
       duplicateMatches,
       warnings: Array.from(new Set(warnings)),
     };
