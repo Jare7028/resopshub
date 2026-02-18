@@ -40,3 +40,4 @@ or copy/paste the file contents into Supabase SQL editor.
 - Duplicate detection warns by `selected_message_id` and allows override via `createDespiteDuplicate`.
 - The create endpoint accepts optional `notesText` to support editable note text before creating the task.
 - Daily telemetry counts are available via `public.outlook_import_daily_metrics`.
+- In production, Supabase cookies use `SameSite=None; Secure` so auth works inside embedded Outlook add-in panes.

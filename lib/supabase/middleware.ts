@@ -4,6 +4,7 @@ import {
   type SetAllCookies,
 } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getSupabaseCookieOptions } from "@/lib/supabase/cookieOptions";
 import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
@@ -43,11 +44,7 @@ export async function updateSession(request: NextRequest) {
         }
       },
     },
-    cookieOptions: {
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    } as CookieOptions,
+    cookieOptions: getSupabaseCookieOptions() as CookieOptions,
   });
 
   const { data: authData } = await supabase.auth.getUser();
