@@ -70,6 +70,27 @@ const formatSuggestionStatusLabel = (status: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
+function normalizeToken(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function isLeaveDateColumn(column: { key: string; label: string; column_kind: string }) {
+  if (column.column_kind !== "date") return false;
+  const keyToken = normalizeToken(column.key);
+  const labelToken = normalizeToken(column.label);
+  const hasLeaveDateWords = (token: string) => token.includes("leave") && token.includes("date");
+  return (
+    keyToken === "leave_date" ||
+    labelToken === "leave_date" ||
+    hasLeaveDateWords(keyToken) ||
+    hasLeaveDateWords(labelToken)
+  );
+}
+
 export default async function DashboardPage(props: {
   searchParams?: Promise<{
     range?: string;
@@ -908,6 +929,26 @@ export default async function DashboardPage(props: {
         financeWarnings.push(`Could not load Employee Info values (${employeeValuesResult.error.message}).`);
       } else {
         employeeValues = (employeeValuesResult.data || []) as EmployeeInfoValueRow[];
+      }
+    }
+
+    const leaveDateColumnIds = new Set(
+      employeeColumns.filter((column) => isLeaveDateColumn(column)).map((column) => column.id)
+    );
+
+    if (employeeRecords.length && employeeValues.length && leaveDateColumnIds.size) {
+      const inactiveRecordIdSet = new Set<string>();
+      employeeValues.forEach((valueRow) => {
+        if (!leaveDateColumnIds.has(valueRow.column_id)) return;
+        const leaveDateValue = String(valueRow.text_value || valueRow.option_value || "").trim();
+        if (leaveDateValue) {
+          inactiveRecordIdSet.add(valueRow.record_id);
+        }
+      });
+      if (inactiveRecordIdSet.size) {
+        employeeRecords = employeeRecords.filter((record) => !inactiveRecordIdSet.has(record.id));
+        const activeRecordIdSet = new Set(employeeRecords.map((row) => row.id));
+        employeeValues = employeeValues.filter((valueRow) => activeRecordIdSet.has(valueRow.record_id));
       }
     }
 
