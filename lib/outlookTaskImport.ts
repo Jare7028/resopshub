@@ -396,7 +396,6 @@ function buildOutlookImportMessageHeaderLines(message: OutlookImportThreadMessag
     message.cc?.length ? `Cc: ${message.cc.join(", ")}` : null,
     message.sentAt ? `Sent: ${message.sentAt}` : null,
     message.subject ? `Subject: ${message.subject}` : null,
-    `Message ID: ${message.messageId}`,
   ].filter(Boolean);
   return lines as string[];
 }

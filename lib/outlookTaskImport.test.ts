@@ -64,6 +64,7 @@ describe("outlookTaskImport", () => {
     expect(prepared.normalizedNotesText).not.toContain("Selected message ID:");
     expect(prepared.normalizedNotesText).not.toContain("Conversation ID:");
     expect(prepared.normalizedNotesText).not.toContain("Thread message count:");
+    expect(prepared.normalizedNotesText).not.toContain("Message ID:");
     expect(prepared.normalizedNotesText).not.toContain("Attachments:");
     expect(prepared.normalizedNotesText).toContain("Outlook thread link:");
   });
