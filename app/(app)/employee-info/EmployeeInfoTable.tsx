@@ -220,11 +220,18 @@ function hasEmployeeInfoPopoverOpen() {
   return Boolean(document.querySelector('details[data-employee-info-popover="true"][open]'));
 }
 
-function isEmployeeInfoMenuInteractionTarget(target: HTMLElement | null) {
+function getElementFromEventTarget(target: EventTarget | null) {
+  if (!target) return null;
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+function isEmployeeInfoMenuInteractionTarget(target: Element | null) {
   if (!target) return false;
   return Boolean(
     target.closest(
-      'button, a, summary, [role="button"], [data-employee-info-popover="true"], [data-employee-info-currency-selector="true"]'
+      'button, a, summary, [role="button"], [role="menuitem"], [data-employee-info-popover="true"], [data-employee-info-currency-selector="true"]'
     )
   );
 }
@@ -645,10 +652,11 @@ export default function EmployeeInfoTable({
   const hasLoadedVisibilityRef = useRef(false);
   const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
   const currencySwitchIntentAtRef = useRef(0);
-  const lastPointerDownTargetRef = useRef<EventTarget | null>(null);
+  const lastPointerDownTargetRef = useRef<Element | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openMenuRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const tableRootRef = useRef<HTMLDivElement | null>(null);
 
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
   const visibleColumns = useMemo(
@@ -775,7 +783,7 @@ export default function EmployeeInfoTable({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const trackPointerDownTarget = (event: PointerEvent) => {
-      lastPointerDownTargetRef.current = event.target;
+      lastPointerDownTargetRef.current = getElementFromEventTarget(event.target);
     };
 
     window.addEventListener("pointerdown", trackPointerDownTarget, true);
@@ -916,19 +924,24 @@ export default function EmployeeInfoTable({
   };
 
   const handleInputBlur = (event: FocusEvent<HTMLInputElement>) => {
-    const relatedTarget = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
-    const pointerTarget =
-      lastPointerDownTargetRef.current instanceof HTMLElement
-        ? lastPointerDownTargetRef.current
-        : null;
+    const relatedTarget = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+    const pointerTarget = lastPointerDownTargetRef.current;
     const blurIntentTarget = relatedTarget || pointerTarget;
     const isCurrencySelectorTarget = Boolean(
       blurIntentTarget?.closest('[data-employee-info-currency-selector="true"]')
     );
     const isMenuInteractionTarget = isEmployeeInfoMenuInteractionTarget(blurIntentTarget);
+    const isLeavingTableArea = Boolean(
+      blurIntentTarget && tableRootRef.current && !tableRootRef.current.contains(blurIntentTarget)
+    );
     const withinSwitchIntentWindow =
       Date.now() - currencySwitchIntentAtRef.current < CURRENCY_SWITCH_INTENT_WINDOW_MS;
-    if (isCurrencySelectorTarget || withinSwitchIntentWindow || isMenuInteractionTarget) {
+    if (
+      isCurrencySelectorTarget ||
+      withinSwitchIntentWindow ||
+      isMenuInteractionTarget ||
+      isLeavingTableArea
+    ) {
       const form = event.currentTarget.form;
       if (form) {
         resetEditableFormControlsToDefault(form);
@@ -1222,7 +1235,7 @@ export default function EmployeeInfoTable({
   };
 
   return (
-    <div className="space-y-3">
+    <div ref={tableRootRef} className="space-y-3">
       <div className="mobile-filter-panel space-y-2 md:hidden">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

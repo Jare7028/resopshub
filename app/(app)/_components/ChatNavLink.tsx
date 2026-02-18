@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
+import AppNavLink from "./AppNavLink";
 
 export default function ChatNavLink({
   initialUnreadCount,
@@ -96,7 +96,7 @@ export default function ChatNavLink({
   const showBadge = pathname !== "/chat" && unreadCount > 0;
 
   return (
-    <Link
+    <AppNavLink
       href="/chat"
       className={`flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 ${className || ""}`}
       title="Chat"
@@ -126,6 +126,6 @@ export default function ChatNavLink({
           {unreadLabel}
         </span>
       ) : null}
-    </Link>
+    </AppNavLink>
   );
 }

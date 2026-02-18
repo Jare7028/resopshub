@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import AppNavLink from "./_components/AppNavLink";
 
 type Section = {
   id: string;
@@ -522,12 +522,12 @@ export default function PersonalNavSections({
         }}
         className={isPageDropTarget ? "rounded-md border border-dashed border-violet-400" : undefined}
       >
-        <Link
+        <AppNavLink
           href={`/personal/${page.id}`}
           className={`${pageLinkClass(page.id)} ${canDragPage ? "cursor-grab active:cursor-grabbing" : ""}`}
         >
           {page.title || "Untitled"}
-        </Link>
+        </AppNavLink>
       </div>
     );
   };
@@ -566,7 +566,7 @@ export default function PersonalNavSections({
         ) : null}
       </div>
       <div className="mt-2 space-y-3 px-3">
-        <Link
+        <AppNavLink
           href="/personal"
           className={`block rounded-md px-2 py-1 text-sm ${
             pathname === "/personal"
@@ -575,7 +575,7 @@ export default function PersonalNavSections({
           }`}
         >
           All pages
-        </Link>
+        </AppNavLink>
 
         {filteredGeneralPages.length ? (
           <div

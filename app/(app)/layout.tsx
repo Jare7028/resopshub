@@ -1,4 +1,3 @@
-import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -13,6 +12,7 @@ import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
 import GlobalSearchBar from "./_components/GlobalSearchBar";
 import AppResumeRefresh from "./_components/AppResumeRefresh";
+import AppNavLink from "./_components/AppNavLink";
 
 type NavIconName =
   | "dashboard"
@@ -378,7 +378,7 @@ export default async function AppLayout({
         <aside className="fixed inset-y-0 left-0 z-40 flex h-screen w-[17.5rem] max-w-[85vw] -translate-x-full flex-col overflow-x-hidden border-r app-border app-surface transition-transform duration-200 peer-checked/drawer:translate-x-0 md:w-64 md:translate-x-0 md:transition-[width] md:duration-200 md:peer-checked/sidebar:w-16 md:peer-checked/sidebar:[&_.nav-label]:hidden md:peer-checked/sidebar:[&_.personal-nav-sections]:hidden md:peer-checked/sidebar:[&_.sidebar-logo]:hidden md:peer-checked/sidebar:[&_.sidebar-mini-logo]:inline-flex md:peer-checked/sidebar:[&_.nav-item]:justify-center md:peer-checked/sidebar:[&_.chat-badge]:absolute md:peer-checked/sidebar:[&_.chat-badge]:right-1 md:peer-checked/sidebar:[&_.chat-badge]:top-1">
           <div className="px-4 py-4 md:py-5">
             <div className="flex items-center justify-between gap-2">
-              <Link href="/clients" className="flex items-center gap-2">
+              <AppNavLink href="/clients" className="flex items-center gap-2">
                 <Image
                   src="/logo.png"
                   alt="ResOpsHub"
@@ -395,7 +395,7 @@ export default async function AppLayout({
                     className="h-8 w-8 object-contain"
                   />
                 </span>
-              </Link>
+              </AppNavLink>
               <label
                 htmlFor="app-sidebar-open"
                 className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:hidden"
@@ -450,7 +450,7 @@ export default async function AppLayout({
                     badgeClassName="chat-badge"
                   />
                 ) : (
-                  <Link
+                  <AppNavLink
                     key={link.href}
                     href={link.href}
                     className="nav-item relative flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
@@ -459,7 +459,7 @@ export default async function AppLayout({
                   >
                     <SidebarIcon name={link.icon} />
                     <span className="nav-label">{link.label}</span>
-                  </Link>
+                  </AppNavLink>
                 )
               )}
             </div>
@@ -476,7 +476,7 @@ export default async function AppLayout({
 
           {canViewSettings ? (
             <div className="px-3 pb-4">
-              <Link
+              <AppNavLink
                 href="/settings"
                 className="nav-item group flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                 aria-label="Settings"
@@ -496,7 +496,7 @@ export default async function AppLayout({
                   <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a8.8 8.8 0 0 0-1.7-1l-.4-2.7H9.1l-.4 2.7a8.8 8.8 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 13a7.9 7.9 0 0 0-.1 1 7.9 7.9 0 0 0 .1 1L2.5 16.6l2 3.4 2.5-1a8.8 8.8 0 0 0 1.7 1l.4 2.7h5.8l.4-2.7a8.8 8.8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 15Z" />
                 </svg>
                 <span className="nav-label">Settings</span>
-              </Link>
+              </AppNavLink>
             </div>
           ) : null}
         </aside>
