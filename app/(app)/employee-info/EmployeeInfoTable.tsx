@@ -208,6 +208,15 @@ function hasEmployeeInfoPopoverOpen() {
   return Boolean(document.querySelector('details[data-employee-info-popover="true"][open]'));
 }
 
+function isEmployeeInfoMenuInteractionTarget(target: HTMLElement | null) {
+  if (!target) return false;
+  return Boolean(
+    target.closest(
+      'button, a, summary, [role="button"], [data-employee-info-popover="true"], [data-employee-info-currency-selector="true"]'
+    )
+  );
+}
+
 function parseSortableNumber(value: string | null | undefined) {
   const normalized = String(value || "")
     .trim()
@@ -624,6 +633,7 @@ export default function EmployeeInfoTable({
   const hasLoadedVisibilityRef = useRef(false);
   const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
   const currencySwitchIntentAtRef = useRef(0);
+  const lastPointerDownTargetRef = useRef<EventTarget | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openMenuRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -728,6 +738,18 @@ export default function EmployeeInfoTable({
         EMPLOYEE_INFO_DISPLAY_CURRENCY_SWITCH_INTENT,
         markCurrencySwitchIntent
       );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const trackPointerDownTarget = (event: PointerEvent) => {
+      lastPointerDownTargetRef.current = event.target;
+    };
+
+    window.addEventListener("pointerdown", trackPointerDownTarget, true);
+    return () => {
+      window.removeEventListener("pointerdown", trackPointerDownTarget, true);
     };
   }, []);
 
@@ -863,14 +885,19 @@ export default function EmployeeInfoTable({
   };
 
   const handleInputBlur = (event: FocusEvent<HTMLInputElement>) => {
-    const relatedTarget =
-      event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
+    const relatedTarget = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
+    const pointerTarget =
+      lastPointerDownTargetRef.current instanceof HTMLElement
+        ? lastPointerDownTargetRef.current
+        : null;
+    const blurIntentTarget = relatedTarget || pointerTarget;
     const isCurrencySelectorTarget = Boolean(
-      relatedTarget?.closest('[data-employee-info-currency-selector="true"]')
+      blurIntentTarget?.closest('[data-employee-info-currency-selector="true"]')
     );
+    const isMenuInteractionTarget = isEmployeeInfoMenuInteractionTarget(blurIntentTarget);
     const withinSwitchIntentWindow =
       Date.now() - currencySwitchIntentAtRef.current < CURRENCY_SWITCH_INTENT_WINDOW_MS;
-    if (isCurrencySelectorTarget || withinSwitchIntentWindow) {
+    if (isCurrencySelectorTarget || withinSwitchIntentWindow || isMenuInteractionTarget) {
       const form = event.currentTarget.form;
       if (form) {
         resetEditableFormControlsToDefault(form);
