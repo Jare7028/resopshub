@@ -133,6 +133,14 @@ type NoteEditorClientProps = {
   onSaveContextMenuFavorites?: (
     favorites: ContextMenuFavoriteActionId[]
   ) => Promise<void>;
+  initialRibbonTab?: RibbonTabId;
+  initialZoomPercent?: number;
+  initialFocusMode?: boolean;
+  onViewStateChange?: (state: {
+    ribbonTab: RibbonTabId;
+    zoomPercent: number;
+    focusMode: boolean;
+  }) => Promise<void>;
 };
 
 type TaskHoverSummary = {
@@ -168,6 +176,7 @@ type FloatingMenuPosition = {
 type ImageFloatMode = "none" | "left" | "right";
 type NoteShapeKind = "rectangle" | "square" | "circle" | "arrow";
 type NoteShapeAttrs = {
+  objectId: string;
   kind: NoteShapeKind;
   x: number;
   y: number;
@@ -175,12 +184,15 @@ type NoteShapeAttrs = {
   height: number;
   stroke: string;
   fill: string;
+  zIndex: number;
 };
 type NoteTextBoxAttrs = {
+  objectId: string;
   x: number;
   y: number;
   width: number;
   height: number;
+  zIndex: number;
 };
 const MAX_INLINE_IMAGE_BYTES = 1_800_000;
 const MAX_INLINE_IMAGE_DIMENSION = 1800;
@@ -419,6 +431,9 @@ function getNextFontSizeValue(currentValue: string, direction: "up" | "down") {
 type WordTextAlign = "left" | "center" | "right" | "justify";
 type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
 type RibbonTabId = "home" | "insert" | "layout" | "review" | "view";
+
+const NOTE_CRITICAL_SAVE_META_KEY = "note-critical-save";
+const DRAFT_STORAGE_PREFIX = "note-editor-draft-v2:";
 
 const RIBBON_TABS: ReadonlyArray<{ id: RibbonTabId; label: string }> = [
   { id: "home", label: "Home" },
@@ -733,6 +748,21 @@ function normalizeShapeNumber(
   return Math.round(next);
 }
 
+function createOverlayObjectId() {
+  try {
+    if (
+      typeof globalThis !== "undefined" &&
+      globalThis.crypto &&
+      typeof globalThis.crypto.randomUUID === "function"
+    ) {
+      return globalThis.crypto.randomUUID();
+    }
+  } catch {
+    // Ignore unsupported randomUUID environments.
+  }
+  return `overlay_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function getDefaultShapeSize(kind: NoteShapeKind) {
   if (kind === "arrow") {
     return { width: 220, height: 86 };
@@ -754,6 +784,10 @@ function normalizeNoteShapeAttrs(attrs: Record<string, unknown> | null | undefin
     height = size;
   }
   return {
+    objectId:
+      typeof attrs?.objectId === "string" && attrs.objectId.trim()
+        ? attrs.objectId.trim()
+        : createOverlayObjectId(),
     kind,
     x: normalizeShapeNumber(attrs?.x, 24, { min: 0, max: 4000 }),
     y: normalizeShapeNumber(attrs?.y, 24, { min: 0, max: 4000 }),
@@ -764,6 +798,7 @@ function normalizeNoteShapeAttrs(attrs: Record<string, unknown> | null | undefin
       kind === "arrow"
         ? "transparent"
         : String(attrs?.fill || NOTE_SHAPE_DEFAULT_FILL).trim() || NOTE_SHAPE_DEFAULT_FILL,
+    zIndex: normalizeShapeNumber(attrs?.zIndex, 20, { min: 1, max: 200 }),
   };
 }
 
@@ -771,6 +806,10 @@ function normalizeNoteTextBoxAttrs(
   attrs: Record<string, unknown> | null | undefined
 ): NoteTextBoxAttrs {
   return {
+    objectId:
+      typeof attrs?.objectId === "string" && attrs.objectId.trim()
+        ? attrs.objectId.trim()
+        : createOverlayObjectId(),
     x: normalizeShapeNumber(attrs?.x, 24, { min: 0, max: 4000 }),
     y: normalizeShapeNumber(attrs?.y, 24, { min: 0, max: 4000 }),
     width: normalizeShapeNumber(attrs?.width, NOTE_TEXTBOX_DEFAULT_WIDTH, {
@@ -781,15 +820,18 @@ function normalizeNoteTextBoxAttrs(
       min: 100,
       max: 1400,
     }),
+    zIndex: normalizeShapeNumber(attrs?.zIndex, 24, { min: 1, max: 200 }),
   };
 }
 
 function areNoteTextBoxAttrsEqual(left: NoteTextBoxAttrs, right: NoteTextBoxAttrs) {
   return (
+    left.objectId === right.objectId &&
     left.x === right.x &&
     left.y === right.y &&
     left.width === right.width &&
-    left.height === right.height
+    left.height === right.height &&
+    left.zIndex === right.zIndex
   );
 }
 
@@ -820,13 +862,15 @@ function getShapeSvgMarkup(attrs: NoteShapeAttrs) {
 
 function areNoteShapeAttrsEqual(left: NoteShapeAttrs, right: NoteShapeAttrs) {
   return (
+    left.objectId === right.objectId &&
     left.kind === right.kind &&
     left.x === right.x &&
     left.y === right.y &&
     left.width === right.width &&
     left.height === right.height &&
     left.stroke === right.stroke &&
-    left.fill === right.fill
+    left.fill === right.fill &&
+    left.zIndex === right.zIndex
   );
 }
 
@@ -854,6 +898,7 @@ function getInsertShapeDefaults(editor: Editor, kind: NoteShapeKind) {
   }
 
   return normalizeNoteShapeAttrs({
+    objectId: createOverlayObjectId(),
     kind,
     x,
     y,
@@ -861,6 +906,7 @@ function getInsertShapeDefaults(editor: Editor, kind: NoteShapeKind) {
     height,
     stroke: NOTE_SHAPE_DEFAULT_STROKE,
     fill: kind === "arrow" ? "transparent" : NOTE_SHAPE_DEFAULT_FILL,
+    zIndex: 20 + existingShapeCount,
   });
 }
 
@@ -900,10 +946,12 @@ function getInsertTextBoxDefaults(editor: Editor) {
   }
 
   return normalizeNoteTextBoxAttrs({
+    objectId: createOverlayObjectId(),
     x,
     y,
     width: NOTE_TEXTBOX_DEFAULT_WIDTH,
     height: NOTE_TEXTBOX_DEFAULT_HEIGHT,
+    zIndex: 24 + existingTextBoxCount,
   });
 }
 
@@ -930,6 +978,7 @@ const NoteShape = TiptapNode.create({
   draggable: false,
   addAttributes() {
     return {
+      objectId: { default: null },
       kind: { default: "rectangle" },
       x: { default: 24 },
       y: { default: 24 },
@@ -937,6 +986,7 @@ const NoteShape = TiptapNode.create({
       height: { default: 104 },
       stroke: { default: NOTE_SHAPE_DEFAULT_STROKE },
       fill: { default: NOTE_SHAPE_DEFAULT_FILL },
+      zIndex: { default: 20 },
     };
   },
   parseHTML() {
@@ -980,6 +1030,8 @@ const NoteShape = TiptapNode.create({
         dom.style.top = `${next.y}px`;
         dom.style.width = `${next.width}px`;
         dom.style.height = `${next.height}px`;
+        dom.style.zIndex = String(next.zIndex);
+        dom.setAttribute("data-note-shape-object-id", next.objectId);
         dom.setAttribute("data-note-shape-kind", next.kind);
         inner.innerHTML = getShapeSvgMarkup(next);
       };
@@ -998,7 +1050,9 @@ const NoteShape = TiptapNode.create({
         if (areNoteShapeAttrsEqual(normalizedNext, persistedAttrs)) {
           return;
         }
-        const tr = editor.state.tr.setNodeMarkup(pos, undefined, normalizedNext);
+        const tr = editor.state.tr
+          .setNodeMarkup(pos, undefined, normalizedNext)
+          .setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
         editor.view.dispatch(tr);
         persistedAttrs = normalizedNext;
       };
@@ -1275,10 +1329,12 @@ const NoteTextBox = TiptapNode.create({
   draggable: false,
   addAttributes() {
     return {
+      objectId: { default: null },
       x: { default: 24 },
       y: { default: 24 },
       width: { default: NOTE_TEXTBOX_DEFAULT_WIDTH },
       height: { default: NOTE_TEXTBOX_DEFAULT_HEIGHT },
+      zIndex: { default: 24 },
     };
   },
   parseHTML() {
@@ -1322,6 +1378,8 @@ const NoteTextBox = TiptapNode.create({
         dom.style.top = `${next.y}px`;
         dom.style.width = `${next.width}px`;
         dom.style.height = `${next.height}px`;
+        dom.style.zIndex = String(next.zIndex);
+        dom.setAttribute("data-note-textbox-object-id", next.objectId);
       };
 
       const commitNodeAttrs = (next: NoteTextBoxAttrs) => {
@@ -1340,7 +1398,9 @@ const NoteTextBox = TiptapNode.create({
         if (areNoteTextBoxAttrsEqual(normalizedNext, persistedAttrs)) {
           return;
         }
-        const tr = editor.state.tr.setNodeMarkup(pos, undefined, normalizedNext);
+        const tr = editor.state.tr
+          .setNodeMarkup(pos, undefined, normalizedNext)
+          .setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
         editor.view.dispatch(tr);
         persistedAttrs = normalizedNext;
       };
@@ -1969,6 +2029,22 @@ function resolveOverlayNodeFromContextMenuTarget(
   };
 }
 
+function resolveSelectedOverlayNode(editor: Editor) {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (!isOverlayNodeTypeName(node.type.name)) {
+      continue;
+    }
+    return {
+      nodeType: node.type.name,
+      pos: $from.before(depth),
+      node,
+    };
+  }
+  return null;
+}
+
 function getSelectedText(editor: Editor) {
   const { from, to, empty } = editor.state.selection;
   if (empty) {
@@ -2000,8 +2076,23 @@ export default function NoteEditorClient({
   contextMenuMode = "full",
   initialContextMenuFavorites = [],
   onSaveContextMenuFavorites,
+  initialRibbonTab = "home",
+  initialZoomPercent = 100,
+  initialFocusMode = false,
+  onViewStateChange,
 }: NoteEditorClientProps) {
-  const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>("home");
+  const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>(() => {
+    if (
+      initialRibbonTab === "home" ||
+      initialRibbonTab === "insert" ||
+      initialRibbonTab === "layout" ||
+      initialRibbonTab === "review" ||
+      initialRibbonTab === "view"
+    ) {
+      return initialRibbonTab;
+    }
+    return "home";
+  });
   const [, startTransition] = useTransition();
   const [isTaskPending, startTaskTransition] = useTransition();
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -2064,30 +2155,80 @@ export default function NoteEditorClient({
   const taskHoverLinkRef = useRef<HTMLAnchorElement | null>(null);
   const taskHoverCacheRef = useRef<Record<string, TaskHoverSummary>>({});
   const taskHoverRequestIdRef = useRef(0);
-  const [zoomPercent, setZoomPercent] = useState(100);
+  const [zoomPercent, setZoomPercent] = useState(() =>
+    Math.min(1000, Math.max(20, Math.round(Number(initialZoomPercent) || 100)))
+  );
+  const [focusMode, setFocusMode] = useState(Boolean(initialFocusMode));
+  const [showLayoutGrid, setShowLayoutGrid] = useState(false);
+  const [showOutline, setShowOutline] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [defaultFontFamilyLabel, setDefaultFontFamilyLabel] = useState("Arial");
   const [defaultFontSizeLabel, setDefaultFontSizeLabel] = useState("14");
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoredDraftRef = useRef(false);
+  const draftStorageKey = useMemo(() => `${DRAFT_STORAGE_PREFIX}${entityId}`, [entityId]);
+
+  const persistDraftSnapshot = useCallback(
+    (json: unknown, dirty: boolean) => {
+      try {
+        if (typeof window === "undefined") {
+          return;
+        }
+        window.sessionStorage.setItem(
+          draftStorageKey,
+          JSON.stringify({
+            entityId,
+            dirty,
+            updatedAt: new Date().toISOString(),
+            content: json,
+          })
+        );
+      } catch {
+        // Ignore session storage failures.
+      }
+    },
+    [draftStorageKey, entityId]
+  );
+
+  const persistEditorSave = useCallback(
+    async (json: unknown) => {
+      setSaveState("saving");
+      try {
+        await onSave(entityId, json);
+        setSaveError("");
+        setSaveState("saved");
+        persistDraftSnapshot(json, false);
+        if (saveStatusTimerRef.current) {
+          clearTimeout(saveStatusTimerRef.current);
+        }
+        saveStatusTimerRef.current = setTimeout(() => {
+          setSaveState((current) => (current === "saved" ? "idle" : current));
+        }, 1400);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to save your changes.";
+        setSaveError(message);
+        setSaveState("error");
+        console.error("[noteEditor.save]", message);
+      }
+    },
+    [entityId, onSave, persistDraftSnapshot]
+  );
 
   const flushPendingSave = useCallback(() => {
-    if (!saveTimer.current) {
-      return;
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
     }
-    clearTimeout(saveTimer.current);
-    saveTimer.current = null;
-
     const currentEditor = editorRef.current;
     if (!currentEditor) {
       return;
     }
-
     const json = currentEditor.getJSON();
-    void onSave(entityId, json).catch((error: unknown) => {
-      const message =
-        error instanceof Error ? error.message : "Unable to save your changes.";
-      console.error("[noteEditor.save.flush]", message);
-    });
-  }, [entityId, onSave]);
+    void persistEditorSave(json);
+  }, [persistEditorSave]);
 
   const [taskCreator, setTaskCreator] = useState<{
     open: boolean;
@@ -2737,27 +2878,29 @@ export default function NoteEditorClient({
       handleKeyDown: handleEditorKeyDown,
       handlePaste,
     },
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor, transaction }) => {
       updateSlashMenu(editor);
       updateMentionMenu(editor);
       const nextColType = getActiveTableColumnType(editor);
       setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
       setSaveError((prev) => (prev ? "" : prev));
+      setSaveState("saving");
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
       }
       const json = editor.getJSON();
+      persistDraftSnapshot(json, true);
+      const isCriticalSave = Boolean(transaction.getMeta(NOTE_CRITICAL_SAVE_META_KEY));
+      if (isCriticalSave) {
+        startTransition(() => {
+          void persistEditorSave(json);
+        });
+        return;
+      }
       saveTimer.current = setTimeout(() => {
         saveTimer.current = null;
         startTransition(() => {
-          void onSave(entityId, json).catch((error: unknown) => {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Unable to save your changes.";
-            setSaveError(message);
-            console.error("[noteEditor.save]", message);
-          });
+          void persistEditorSave(json);
         });
       }, 600);
     },
@@ -2782,6 +2925,95 @@ export default function NoteEditorClient({
   }, [editor]);
 
   useEffect(() => {
+    if (!editor || restoredDraftRef.current) {
+      return;
+    }
+    restoredDraftRef.current = true;
+    try {
+      const raw = window.sessionStorage.getItem(draftStorageKey);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as {
+        content?: unknown;
+        dirty?: boolean;
+      };
+      if (!parsed?.dirty || !parsed.content) {
+        return;
+      }
+      const initialJson = JSON.stringify(normalizeContent(initialContent));
+      const draftJson = JSON.stringify(parsed.content);
+      if (initialJson === draftJson) {
+        return;
+      }
+      editor.commands.setContent(normalizeContent(parsed.content));
+      setSaveState("saving");
+    } catch {
+      // Ignore malformed draft snapshots.
+    }
+  }, [draftStorageKey, editor, initialContent]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const tr = editor.state.tr;
+    let hasUpgradeChanges = false;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "noteShape") {
+        const attrs = node.attrs as Record<string, unknown>;
+        const hasObjectId =
+          typeof attrs.objectId === "string" && attrs.objectId.trim().length > 0;
+        const hasZIndex = Number.isFinite(Number(attrs.zIndex));
+        if (!hasObjectId || !hasZIndex) {
+          tr.setNodeMarkup(pos, undefined, normalizeNoteShapeAttrs(attrs));
+          hasUpgradeChanges = true;
+        }
+      }
+      if (node.type.name === "noteTextBox") {
+        const attrs = node.attrs as Record<string, unknown>;
+        const hasObjectId =
+          typeof attrs.objectId === "string" && attrs.objectId.trim().length > 0;
+        const hasZIndex = Number.isFinite(Number(attrs.zIndex));
+        if (!hasObjectId || !hasZIndex) {
+          tr.setNodeMarkup(pos, undefined, normalizeNoteTextBoxAttrs(attrs));
+          hasUpgradeChanges = true;
+        }
+      }
+      return true;
+    });
+    if (!hasUpgradeChanges || !tr.docChanged) {
+      return;
+    }
+    tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+    editor.view.dispatch(tr);
+  }, [editor]);
+
+  useEffect(() => {
+    if (!onViewStateChange) {
+      return;
+    }
+    if (viewStateTimerRef.current) {
+      clearTimeout(viewStateTimerRef.current);
+    }
+    viewStateTimerRef.current = setTimeout(() => {
+      startTransition(() => {
+        void onViewStateChange({
+          ribbonTab: activeRibbonTab,
+          zoomPercent,
+          focusMode,
+        });
+      });
+    }, 450);
+    return () => {
+      if (viewStateTimerRef.current) {
+        clearTimeout(viewStateTimerRef.current);
+        viewStateTimerRef.current = null;
+      }
+    };
+  }, [activeRibbonTab, focusMode, onViewStateChange, startTransition, zoomPercent]);
+
+  useEffect(() => {
     if (!editor) {
       return;
     }
@@ -2797,6 +3029,12 @@ export default function NoteEditorClient({
   useEffect(() => {
     return () => {
       flushPendingSave();
+      if (saveStatusTimerRef.current) {
+        clearTimeout(saveStatusTimerRef.current);
+      }
+      if (viewStateTimerRef.current) {
+        clearTimeout(viewStateTimerRef.current);
+      }
       if (taskHoverOpenTimerRef.current) {
         clearTimeout(taskHoverOpenTimerRef.current);
       }
@@ -3077,6 +3315,117 @@ export default function NoteEditorClient({
       editor.view.dispatch(tr);
     });
   }, [contextMenu.overlayNodePos, contextMenu.overlayNodeType, editor, run]);
+
+  const mutateSelectedOverlayAttrs = useCallback(
+    (
+      mutator: (
+        attrs: NoteShapeAttrs | NoteTextBoxAttrs,
+        nodeType: OverlayNodeType
+      ) => NoteShapeAttrs | NoteTextBoxAttrs
+    ) => {
+      if (!editor) {
+        return false;
+      }
+      const selected = resolveSelectedOverlayNode(editor);
+      if (!selected || !isOverlayNodeTypeName(selected.node.type.name)) {
+        return false;
+      }
+      const nodeType = selected.node.type.name;
+      const normalizedCurrent =
+        nodeType === "noteShape"
+          ? normalizeNoteShapeAttrs(selected.node.attrs as Record<string, unknown>)
+          : normalizeNoteTextBoxAttrs(selected.node.attrs as Record<string, unknown>);
+      const next = mutator(normalizedCurrent, nodeType);
+      const normalizedNext =
+        nodeType === "noteShape"
+          ? normalizeNoteShapeAttrs(next as Record<string, unknown>)
+          : normalizeNoteTextBoxAttrs(next as Record<string, unknown>);
+      const tr = editor.state.tr
+        .setNodeMarkup(selected.pos, undefined, normalizedNext)
+        .setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+      editor.view.dispatch(tr);
+      return true;
+    },
+    [editor]
+  );
+
+  const bringOverlayForward = useCallback(() => {
+    mutateSelectedOverlayAttrs((attrs) => ({
+      ...attrs,
+      zIndex: Math.min(200, Number(attrs.zIndex || 1) + 1),
+    }));
+  }, [mutateSelectedOverlayAttrs]);
+
+  const sendOverlayBackward = useCallback(() => {
+    mutateSelectedOverlayAttrs((attrs) => ({
+      ...attrs,
+      zIndex: Math.max(1, Number(attrs.zIndex || 1) - 1),
+    }));
+  }, [mutateSelectedOverlayAttrs]);
+
+  const alignOverlay = useCallback(
+    (direction: "left" | "center" | "right" | "top" | "middle" | "bottom") => {
+      if (!editor) return;
+      const editorElement = editor.view.dom as HTMLElement;
+      const editorWidth = Math.max(320, editorElement.clientWidth || 0);
+      const editorHeight = Math.max(300, editorElement.clientHeight || 0);
+      mutateSelectedOverlayAttrs((attrs) => {
+        const next = { ...attrs };
+        if (direction === "left") next.x = 16;
+        if (direction === "center") next.x = Math.max(0, Math.round((editorWidth - attrs.width) / 2));
+        if (direction === "right") next.x = Math.max(0, editorWidth - attrs.width - 16);
+        if (direction === "top") next.y = 16;
+        if (direction === "middle") next.y = Math.max(0, Math.round((editorHeight - attrs.height) / 2));
+        if (direction === "bottom") next.y = Math.max(0, editorHeight - attrs.height - 16);
+        return next;
+      });
+    },
+    [editor, mutateSelectedOverlayAttrs]
+  );
+
+  const resizeOverlayBy = useCallback(
+    (delta: number) => {
+      mutateSelectedOverlayAttrs((attrs, nodeType) => {
+        const nextWidth = Math.max(80, attrs.width + delta);
+        const nextHeight = Math.max(60, attrs.height + delta);
+        if (nodeType === "noteShape") {
+          const shapeAttrs = attrs as NoteShapeAttrs;
+          if (shapeAttrs.kind === "square" || shapeAttrs.kind === "circle") {
+            const squareSize = Math.max(nextWidth, nextHeight);
+            return { ...shapeAttrs, width: squareSize, height: squareSize };
+          }
+        }
+        return {
+          ...attrs,
+          width: nextWidth,
+          height: nextHeight,
+        };
+      });
+    },
+    [mutateSelectedOverlayAttrs]
+  );
+
+  const snapOverlayToGrid = useCallback(() => {
+    mutateSelectedOverlayAttrs((attrs, nodeType) => {
+      const next = {
+        ...attrs,
+        x: Math.round(attrs.x / 12) * 12,
+        y: Math.round(attrs.y / 12) * 12,
+        width: Math.round(attrs.width / 12) * 12,
+        height: Math.round(attrs.height / 12) * 12,
+      };
+      if (nodeType === "noteShape") {
+        const shapeNext = next as NoteShapeAttrs;
+        if (shapeNext.kind === "square" || shapeNext.kind === "circle") {
+          const squareSize = Math.max(shapeNext.width, shapeNext.height);
+          shapeNext.width = squareSize;
+          shapeNext.height = squareSize;
+        }
+        return shapeNext;
+      }
+      return next;
+    });
+  }, [mutateSelectedOverlayAttrs]);
 
   const toggleContextMenuFavorite = useCallback((actionId: ContextMenuFavoriteActionId) => {
     setContextMenuFavorites((prev) => {
@@ -3895,6 +4244,58 @@ export default function NoteEditorClient({
     return parts.join("\n");
   }, [lastEditedAtLabel, lastEditedByLabel]);
 
+  const selectedOverlayNode = editor ? resolveSelectedOverlayNode(editor) : null;
+  const canLayoutOverlay = Boolean(selectedOverlayNode);
+  const reviewStats = editor
+    ? (() => {
+        const plainText = normalizeInlineText(editor.state.doc.textBetween(0, editor.state.doc.content.size, " "));
+        const words = plainText ? plainText.split(/\s+/).filter(Boolean).length : 0;
+        const readingMinutes = words ? Math.max(1, Math.ceil(words / 220)) : 0;
+        const mentions = (plainText.match(/@[a-z0-9._-]+/gi) || []).length;
+        const linkedTaskRefs = (plainText.match(/\/tasks\/[a-f0-9-]+/gi) || []).length;
+        return {
+          words,
+          readingMinutes,
+          mentions,
+          linkedTaskRefs,
+        };
+      })()
+    : { words: 0, readingMinutes: 0, mentions: 0, linkedTaskRefs: 0 };
+  const outlineHeadings = editor
+    ? (() => {
+        const headings: Array<{ id: string; label: string; level: number }> = [];
+        let headingIndex = 0;
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name !== "heading") {
+            return true;
+          }
+          const level = Number(node.attrs?.level || 1);
+          const label = normalizeInlineText(node.textContent || "");
+          if (!label) {
+            return true;
+          }
+          headings.push({
+            id: `heading-${pos}-${headingIndex}`,
+            label,
+            level: Math.min(3, Math.max(1, level)),
+          });
+          headingIndex += 1;
+          return true;
+        });
+        return headings;
+      })()
+    : [];
+  const isHomeTab = activeRibbonTab === "home";
+  const isInsertTab = activeRibbonTab === "insert";
+  const isLayoutTab = activeRibbonTab === "layout";
+  const isReviewTab = activeRibbonTab === "review";
+  const isViewTab = activeRibbonTab === "view";
+  const selectedOverlayLabel = selectedOverlayNode
+    ? selectedOverlayNode.node.type.name === "noteShape"
+      ? "Shape selected"
+      : "Text box selected"
+    : "No shape or text box selected";
+
   if (!editor) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-6">
@@ -3913,7 +4314,12 @@ export default function NoteEditorClient({
       : "Delete item";
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4" aria-label={title}>
+    <section
+      className={`rounded-lg border bg-white p-4 ${
+        focusMode ? "border-slate-300 shadow-sm" : "border-slate-200"
+      }`}
+      aria-label={title}
+    >
 
       {taskToast ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
@@ -3939,6 +4345,16 @@ export default function NoteEditorClient({
           </div>
         </div>
       ) : null}
+
+      <div className={`mt-2 text-xs font-medium ${saveState === "error" ? "text-red-600" : "text-slate-500"}`}>
+        {saveState === "saving"
+          ? "Saving..."
+          : saveState === "saved"
+          ? "Saved"
+          : saveState === "error"
+          ? "Save failed"
+          : "Ready"}
+      </div>
 
       {showTopToolbar ? (
         <div
@@ -3971,253 +4387,420 @@ export default function NoteEditorClient({
           </div>
           <div className="-mx-1 overflow-x-auto px-1">
             <div className="flex min-w-max items-start gap-1.5">
-              <RibbonGroup title="Clipboard">
-                <RibbonIconButton
-                  label="Copy style"
-                  title="Copy formatting"
-                  onClick={copyFormatting}
-                  active={Boolean(copiedFormat)}
-                  icon={<PaintIcon />}
-                />
-                <RibbonIconButton
-                  label="Apply style"
-                  title="Apply copied formatting"
-                  onClick={applyCopiedFormatting}
-                  disabled={!copiedFormat}
-                  icon={<ApplyIcon />}
-                />
-                <RibbonIconButton
-                  label="Clear"
-                  title="Clear formatting"
-                  onClick={clearFormatting}
-                  icon={<ClearIcon />}
-                />
-              </RibbonGroup>
+              {isHomeTab ? (
+                <>
+                  <RibbonGroup title="Clipboard">
+                    <RibbonIconButton
+                      label="Copy style"
+                      title="Copy formatting"
+                      onClick={copyFormatting}
+                      active={Boolean(copiedFormat)}
+                      icon={<PaintIcon />}
+                    />
+                    <RibbonIconButton
+                      label="Apply style"
+                      title="Apply copied formatting"
+                      onClick={applyCopiedFormatting}
+                      disabled={!copiedFormat}
+                      icon={<ApplyIcon />}
+                    />
+                    <RibbonIconButton
+                      label="Clear"
+                      title="Clear formatting"
+                      onClick={clearFormatting}
+                      icon={<ClearIcon />}
+                    />
+                  </RibbonGroup>
 
-              <RibbonGroup title="Font">
-                <select
-                  value={currentBlockStyle}
-                  onChange={(event) => applyBlockStyle(event.target.value as WordBlockStyle)}
-                  className="h-7 w-[8rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
-                  title="Text style"
-                >
-                  <option value="paragraph">Paragraph</option>
-                  <option value="h1">Heading 1</option>
-                  <option value="h2">Heading 2</option>
-                  <option value="h3">Heading 3</option>
-                  <option value="quote">Callout / Quote</option>
-                </select>
-                <select
-                  value={currentFontFamily}
-                  onChange={(event) => setFontFamilyValue(event.target.value)}
-                  className="h-7 w-[7.2rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
-                  title="Font family"
-                >
-                  <option value="">{defaultFontFamilyLabel}</option>
-                  {fontFamilyOptions.map((font) => (
-                    <option key={font.value} value={font.value}>
-                      {font.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={currentFontSize}
-                  onChange={(event) => setFontSizeValue(event.target.value)}
-                  className="h-7 w-[3.8rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
-                  title="Font size"
-                >
-                  <option value="">{defaultFontSizeLabel}</option>
-                  {fontSizeOptions.map((size) => (
-                    <option key={size.value} value={size.value}>
-                      {size.label}
-                    </option>
-                  ))}
-                </select>
-                <RibbonIconButton
-                  label="Bold"
-                  title="Bold"
-                  onClick={() => editor.chain().focus().toggleBold().run()}
-                  active={editor.isActive("bold")}
-                  icon={<span className="text-[11px] font-black leading-none">B</span>}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Italic"
-                  title="Italic"
-                  onClick={() => editor.chain().focus().toggleItalic().run()}
-                  active={editor.isActive("italic")}
-                  icon={<span className="text-[11px] italic leading-none">I</span>}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Underline"
-                  title="Underline"
-                  onClick={() => editor.chain().focus().toggleUnderline().run()}
-                  active={editor.isActive("underline")}
-                  icon={<span className="text-[11px] underline leading-none">U</span>}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Highlight"
-                  title="Highlight"
-                  onClick={() => editor.chain().focus().toggleHighlight().run()}
-                  active={editor.isActive("highlight")}
-                  icon={<span className="h-2.5 w-2.5 rounded-sm bg-amber-300" />}
-                  iconOnly
-                />
-              </RibbonGroup>
-
-              <RibbonGroup title="Paragraph">
-                <RibbonIconButton
-                  label="Align left"
-                  onClick={() => setTextAlignValue("left")}
-                  active={currentTextAlign === "left"}
-                  icon={<AlignIcon align="left" />}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Align center"
-                  onClick={() => setTextAlignValue("center")}
-                  active={currentTextAlign === "center"}
-                  icon={<AlignIcon align="center" />}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Align right"
-                  onClick={() => setTextAlignValue("right")}
-                  active={currentTextAlign === "right"}
-                  icon={<AlignIcon align="right" />}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Justify"
-                  onClick={() => setTextAlignValue("justify")}
-                  active={currentTextAlign === "justify"}
-                  icon={<AlignIcon align="justify" />}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Bullets"
-                  onClick={() => editor.chain().focus().toggleBulletList().run()}
-                  active={editor.isActive("bulletList")}
-                  icon={<ListBulletedIcon />}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Numbered"
-                  onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                  active={editor.isActive("orderedList")}
-                  icon={<ListNumberedIcon />}
-                  iconOnly
-                />
-                <RibbonIconButton
-                  label="Checklist"
-                  onClick={() => editor.chain().focus().toggleTaskList().run()}
-                  active={editor.isActive("taskList")}
-                  icon={<ChecklistIcon />}
-                  iconOnly
-                />
-              </RibbonGroup>
-
-              <RibbonGroup title="Insert">
-                {onCreateTask ? (
-                  <RibbonIconButton
-                    label="Task"
-                    title="Create task"
-                    onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
-                    icon={<span className="text-sm leading-none">+</span>}
-                  />
-                ) : null}
-                <RibbonIconButton
-                  label="Section"
-                  onClick={insertSectionBox}
-                  icon={<SectionIcon />}
-                />
-                <div className="relative" ref={shapeMenuRef}>
-                  <RibbonIconButton
-                    label="Shape"
-                    title="Insert shape"
-                    onClick={() => {
-                      setShapeMenuOpen((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          window.requestAnimationFrame(() => updateShapeMenuPosition());
-                        }
-                        return next;
-                      });
-                    }}
-                    active={shapeMenuOpen}
-                    icon={<ShapeIcon />}
-                  />
-                </div>
-                <RibbonIconButton
-                  label="Text box"
-                  onClick={insertTextBoxTemplate}
-                  icon={<TextBoxIcon />}
-                />
-                <RibbonIconButton
-                  label="Link"
-                  onClick={setLinkFromPrompt}
-                  icon={<LinkIcon />}
-                />
-                <RibbonIconButton
-                  label="Image"
-                  onClick={insertImageFromPrompt}
-                  icon={<ImageIcon />}
-                />
-                <RibbonIconButton
-                  label="File"
-                  title="Attachment"
-                  onClick={triggerAttachmentPicker}
-                  icon={<AttachmentIcon />}
-                />
-                <RibbonIconButton
-                  label="Table"
-                  onClick={() =>
-                    editor
-                      .chain()
-                      .focus()
-                      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-                      .run()
-                  }
-                  icon={<TableIcon />}
-                />
-              </RibbonGroup>
-
-              <RibbonGroup title="History">
-                <RibbonIconButton
-                  label="Undo"
-                  onClick={() => editor.chain().focus().undo().run()}
-                  icon={<UndoIcon />}
-                />
-                <RibbonIconButton
-                  label="Redo"
-                  onClick={() => editor.chain().focus().redo().run()}
-                  icon={<RedoIcon />}
-                />
-              </RibbonGroup>
-
-              {editor.isActive("table") ? (
-                <RibbonGroup title="Table">
-                  <div className="w-full space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Column type
-                    </p>
+                  <RibbonGroup title="Font">
                     <select
-                      value={activeTableColType}
-                      onChange={(event) =>
-                        setSelectedTableColumnsType(event.target.value as TableColumnType)
-                      }
-                      className="h-7 w-full rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
+                      value={currentBlockStyle}
+                      onChange={(event) => applyBlockStyle(event.target.value as WordBlockStyle)}
+                      className="h-7 w-[8rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
+                      title="Text style"
                     >
-                      {TABLE_COLUMN_TYPES.map((type) => (
-                        <option key={type.id} value={type.id}>
-                          {type.label}
+                      <option value="paragraph">Paragraph</option>
+                      <option value="h1">Heading 1</option>
+                      <option value="h2">Heading 2</option>
+                      <option value="h3">Heading 3</option>
+                      <option value="quote">Callout / Quote</option>
+                    </select>
+                    <select
+                      value={currentFontFamily}
+                      onChange={(event) => setFontFamilyValue(event.target.value)}
+                      className="h-7 w-[7.2rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
+                      title="Font family"
+                    >
+                      <option value="">{defaultFontFamilyLabel}</option>
+                      {fontFamilyOptions.map((font) => (
+                        <option key={font.value} value={font.value}>
+                          {font.label}
                         </option>
                       ))}
                     </select>
+                    <select
+                      value={currentFontSize}
+                      onChange={(event) => setFontSizeValue(event.target.value)}
+                      className="h-7 w-[3.8rem] rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
+                      title="Font size"
+                    >
+                      <option value="">{defaultFontSizeLabel}</option>
+                      {fontSizeOptions.map((size) => (
+                        <option key={size.value} value={size.value}>
+                          {size.label}
+                        </option>
+                      ))}
+                    </select>
+                    <RibbonIconButton
+                      label="Bold"
+                      title="Bold"
+                      onClick={() => editor.chain().focus().toggleBold().run()}
+                      active={editor.isActive("bold")}
+                      icon={<span className="text-[11px] font-black leading-none">B</span>}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Italic"
+                      title="Italic"
+                      onClick={() => editor.chain().focus().toggleItalic().run()}
+                      active={editor.isActive("italic")}
+                      icon={<span className="text-[11px] italic leading-none">I</span>}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Underline"
+                      title="Underline"
+                      onClick={() => editor.chain().focus().toggleUnderline().run()}
+                      active={editor.isActive("underline")}
+                      icon={<span className="text-[11px] underline leading-none">U</span>}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Highlight"
+                      title="Highlight"
+                      onClick={() => editor.chain().focus().toggleHighlight().run()}
+                      active={editor.isActive("highlight")}
+                      icon={<span className="h-2.5 w-2.5 rounded-sm bg-amber-300" />}
+                      iconOnly
+                    />
+                  </RibbonGroup>
+
+                  <RibbonGroup title="Paragraph">
+                    <RibbonIconButton
+                      label="Align left"
+                      onClick={() => setTextAlignValue("left")}
+                      active={currentTextAlign === "left"}
+                      icon={<AlignIcon align="left" />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Align center"
+                      onClick={() => setTextAlignValue("center")}
+                      active={currentTextAlign === "center"}
+                      icon={<AlignIcon align="center" />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Align right"
+                      onClick={() => setTextAlignValue("right")}
+                      active={currentTextAlign === "right"}
+                      icon={<AlignIcon align="right" />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Justify"
+                      onClick={() => setTextAlignValue("justify")}
+                      active={currentTextAlign === "justify"}
+                      icon={<AlignIcon align="justify" />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Bullets"
+                      onClick={() => editor.chain().focus().toggleBulletList().run()}
+                      active={editor.isActive("bulletList")}
+                      icon={<ListBulletedIcon />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Numbered"
+                      onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                      active={editor.isActive("orderedList")}
+                      icon={<ListNumberedIcon />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Checklist"
+                      onClick={() => editor.chain().focus().toggleTaskList().run()}
+                      active={editor.isActive("taskList")}
+                      icon={<ChecklistIcon />}
+                      iconOnly
+                    />
+                  </RibbonGroup>
+
+                  <RibbonGroup title="History">
+                    <RibbonIconButton
+                      label="Undo"
+                      onClick={() => editor.chain().focus().undo().run()}
+                      icon={<UndoIcon />}
+                    />
+                    <RibbonIconButton
+                      label="Redo"
+                      onClick={() => editor.chain().focus().redo().run()}
+                      icon={<RedoIcon />}
+                    />
+                  </RibbonGroup>
+
+                  {editor.isActive("table") ? (
+                    <RibbonGroup title="Table">
+                      <div className="w-full space-y-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          Column type
+                        </p>
+                        <select
+                          value={activeTableColType}
+                          onChange={(event) =>
+                            setSelectedTableColumnsType(event.target.value as TableColumnType)
+                          }
+                          className="h-7 w-full rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-700"
+                        >
+                          {TABLE_COLUMN_TYPES.map((type) => (
+                            <option key={type.id} value={type.id}>
+                              {type.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </RibbonGroup>
+                  ) : null}
+                </>
+              ) : null}
+
+              {isInsertTab ? (
+                <RibbonGroup title="Insert">
+                  {onCreateTask ? (
+                    <RibbonIconButton
+                      label="Task"
+                      title="Create task"
+                      onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
+                      icon={<span className="text-sm leading-none">+</span>}
+                    />
+                  ) : null}
+                  <RibbonIconButton
+                    label="Section"
+                    onClick={insertSectionBox}
+                    icon={<SectionIcon />}
+                  />
+                  <div className="relative" ref={shapeMenuRef}>
+                    <RibbonIconButton
+                      label="Shape"
+                      title="Insert shape"
+                      onClick={() => {
+                        setShapeMenuOpen((prev) => {
+                          const next = !prev;
+                          if (next) {
+                            window.requestAnimationFrame(() => updateShapeMenuPosition());
+                          }
+                          return next;
+                        });
+                      }}
+                      active={shapeMenuOpen}
+                      icon={<ShapeIcon />}
+                    />
                   </div>
+                  <RibbonIconButton
+                    label="Text box"
+                    onClick={insertTextBoxTemplate}
+                    icon={<TextBoxIcon />}
+                  />
+                  <RibbonIconButton
+                    label="Link"
+                    onClick={setLinkFromPrompt}
+                    icon={<LinkIcon />}
+                  />
+                  <RibbonIconButton
+                    label="Image"
+                    onClick={insertImageFromPrompt}
+                    icon={<ImageIcon />}
+                  />
+                  <RibbonIconButton
+                    label="File"
+                    title="Attachment"
+                    onClick={triggerAttachmentPicker}
+                    icon={<AttachmentIcon />}
+                  />
+                  <RibbonIconButton
+                    label="Table"
+                    onClick={() =>
+                      editor
+                        .chain()
+                        .focus()
+                        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                        .run()
+                    }
+                    icon={<TableIcon />}
+                  />
                 </RibbonGroup>
+              ) : null}
+
+              {isLayoutTab ? (
+                <>
+                  <RibbonGroup title="Arrange">
+                    <RibbonIconButton
+                      label="Forward"
+                      title="Bring selected object forward"
+                      onClick={bringOverlayForward}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">Z+</span>}
+                    />
+                    <RibbonIconButton
+                      label="Backward"
+                      title="Send selected object backward"
+                      onClick={sendOverlayBackward}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">Z-</span>}
+                    />
+                    <RibbonIconButton
+                      label="Snap"
+                      title="Snap selected object to grid"
+                      onClick={snapOverlayToGrid}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">#</span>}
+                    />
+                  </RibbonGroup>
+                  <RibbonGroup title="Align">
+                    <RibbonIconButton
+                      label="Left"
+                      onClick={() => alignOverlay("left")}
+                      disabled={!canLayoutOverlay}
+                      icon={<AlignIcon align="left" />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Center"
+                      onClick={() => alignOverlay("center")}
+                      disabled={!canLayoutOverlay}
+                      icon={<AlignIcon align="center" />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Right"
+                      onClick={() => alignOverlay("right")}
+                      disabled={!canLayoutOverlay}
+                      icon={<AlignIcon align="right" />}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Top"
+                      onClick={() => alignOverlay("top")}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">T</span>}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Middle"
+                      onClick={() => alignOverlay("middle")}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">M</span>}
+                      iconOnly
+                    />
+                    <RibbonIconButton
+                      label="Bottom"
+                      onClick={() => alignOverlay("bottom")}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">B</span>}
+                      iconOnly
+                    />
+                  </RibbonGroup>
+                  <RibbonGroup title="Size">
+                    <RibbonIconButton
+                      label="Bigger"
+                      onClick={() => resizeOverlayBy(12)}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">+</span>}
+                    />
+                    <RibbonIconButton
+                      label="Smaller"
+                      onClick={() => resizeOverlayBy(-12)}
+                      disabled={!canLayoutOverlay}
+                      icon={<span className="text-[11px] leading-none">-</span>}
+                    />
+                  </RibbonGroup>
+                  <p className="self-center px-2 text-xs text-slate-500">
+                    {selectedOverlayLabel}
+                  </p>
+                </>
+              ) : null}
+
+              {isReviewTab ? (
+                <>
+                  <RibbonGroup title="Document">
+                    <p className="px-1 text-[11px] text-slate-700">
+                      {reviewStats.words.toLocaleString()} words
+                    </p>
+                    <p className="px-1 text-[11px] text-slate-600">
+                      {reviewStats.readingMinutes
+                        ? `${reviewStats.readingMinutes} min read`
+                        : "No reading time"}
+                    </p>
+                    <p className="px-1 text-[11px] text-slate-600">
+                      {reviewStats.mentions} mentions
+                    </p>
+                    <p className="px-1 text-[11px] text-slate-600">
+                      {reviewStats.linkedTaskRefs} linked tasks
+                    </p>
+                  </RibbonGroup>
+                  {onCreateTask ? (
+                    <RibbonGroup title="Tasks">
+                      <RibbonIconButton
+                        label="Create task"
+                        onClick={() => openTaskCreator(getSuggestedTaskTitle(editor))}
+                        icon={<span className="text-sm leading-none">+</span>}
+                      />
+                    </RibbonGroup>
+                  ) : null}
+                </>
+              ) : null}
+
+              {isViewTab ? (
+                <>
+                  <RibbonGroup title="Zoom">
+                    <RibbonIconButton
+                      label="Zoom out"
+                      onClick={() => setZoomPercent((prev) => Math.max(20, prev - 10))}
+                      icon={<span className="text-[11px] leading-none">-</span>}
+                    />
+                    <RibbonIconButton
+                      label={`${zoomPercent}%`}
+                      onClick={() => setZoomPercent(100)}
+                      icon={<span className="text-[11px] leading-none">1:1</span>}
+                    />
+                    <RibbonIconButton
+                      label="Zoom in"
+                      onClick={() => setZoomPercent((prev) => Math.min(1000, prev + 10))}
+                      icon={<span className="text-[11px] leading-none">+</span>}
+                    />
+                  </RibbonGroup>
+                  <RibbonGroup title="View">
+                    <RibbonIconButton
+                      label={focusMode ? "Exit focus" : "Focus mode"}
+                      onClick={() => setFocusMode((prev) => !prev)}
+                      active={focusMode}
+                      icon={<span className="text-[11px] leading-none">F</span>}
+                    />
+                    <RibbonIconButton
+                      label={showOutline ? "Hide outline" : "Show outline"}
+                      onClick={() => setShowOutline((prev) => !prev)}
+                      active={showOutline}
+                      icon={<span className="text-[11px] leading-none">O</span>}
+                    />
+                    <RibbonIconButton
+                      label={showLayoutGrid ? "Hide grid" : "Show grid"}
+                      onClick={() => setShowLayoutGrid((prev) => !prev)}
+                      active={showLayoutGrid}
+                      icon={<span className="text-[11px] leading-none">#</span>}
+                    />
+                  </RibbonGroup>
+                </>
               ) : null}
             </div>
           </div>
@@ -4232,7 +4815,7 @@ export default function NoteEditorClient({
 
       <div
         ref={editorSurfaceRef}
-        className={showTopToolbar ? "mt-3" : "mt-4"}
+        className={`${showTopToolbar ? "mt-3" : "mt-4"} ${focusMode ? "md:px-8" : ""}`}
         onContextMenu={handleContextMenu}
         onMouseMove={handleEditorMouseMove}
         onMouseLeave={() => scheduleTaskHoverClose()}
@@ -4277,7 +4860,66 @@ export default function NoteEditorClient({
             ) : null}
           </div>
         </BubbleMenu>
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white p-4">
+        {showOutline ? (
+          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Outline
+            </p>
+            {outlineHeadings.length ? (
+              <div className="mt-2 space-y-1">
+                {outlineHeadings.map((heading) => (
+                  <button
+                    key={heading.id}
+                    type="button"
+                    onClick={() => {
+                      const headingText = normalizeInlineText(heading.label);
+                      if (!headingText) {
+                        return;
+                      }
+                      let matched = false;
+                      editor.state.doc.descendants((node, pos) => {
+                        if (node.type.name !== "heading") {
+                          return true;
+                        }
+                        if (normalizeInlineText(node.textContent || "") === headingText) {
+                          editor
+                            .chain()
+                            .focus()
+                            .setTextSelection({ from: pos + 1, to: pos + 1 })
+                            .run();
+                          matched = true;
+                          return false;
+                        }
+                        return true;
+                      });
+                      if (!matched) return;
+                    }}
+                    className="block w-full truncate rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-white"
+                    style={{ paddingLeft: `${Math.max(0, heading.level - 1) * 12 + 8}px` }}
+                  >
+                    {heading.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500">No headings in this page yet.</p>
+            )}
+          </div>
+        ) : null}
+        <div
+          className={`overflow-x-auto rounded-lg border bg-white p-4 ${
+            focusMode ? "border-slate-300 shadow-sm" : "border-slate-200"
+          }`}
+          style={
+            showLayoutGrid
+              ? {
+                  backgroundImage:
+                    "linear-gradient(to right, rgba(148,163,184,0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.2) 1px, transparent 1px)",
+                  backgroundSize: "12px 12px",
+                }
+              : undefined
+          }
+        >
           <div
             style={{
               transform: `scale(${editorScale})`,

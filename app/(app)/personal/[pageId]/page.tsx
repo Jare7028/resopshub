@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -5,9 +6,13 @@ import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
 import type { ContextMenuFavoriteActionId } from "../../_components/NoteEditorClient";
 import { extractPlainText } from "@/lib/tiptapText";
-import PersonalPageTabs, {
-  normalizePersonalPageTabKey,
-} from "./_components/PersonalPageTabs";
+import PersonalSidebarTree from "../_components/PersonalSidebarTree";
+import {
+  loadPersonalPageUserStateMap,
+  loadPersonalSinglePageUserState,
+  loadPersonalWorkspaceTree,
+} from "../_lib/workspaceData";
+import { togglePersonalPageFavorite } from "../workspaceActions";
 
 export const dynamic = "force-dynamic";
 
@@ -168,9 +173,26 @@ function normalizeContextMenuFavorites(value: unknown) {
   return Array.from(new Set(next));
 }
 
+type PersonalPageTabKey = "notes" | "section_members" | "page_members";
+
+function normalizePersonalPageTabKey(value: string | null | undefined): PersonalPageTabKey {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "section_members") return "section_members";
+  if (normalized === "page_members") return "page_members";
+  return "notes";
+}
+
 export default async function PersonalPage(props: {
   params: Promise<{ pageId: string }>;
-  searchParams?: Promise<{ tab?: string; error?: string; success?: string }>;
+  searchParams?: Promise<{
+    tab?: string;
+    panel?: string;
+    focus?: string;
+    error?: string;
+    success?: string;
+  }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
@@ -198,6 +220,19 @@ export default async function PersonalPage(props: {
   const pageTitle = page.title || "Personal page";
   const pageContent = page.content ?? null;
   const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
+  const panelParam = String(searchParams?.panel || "")
+    .trim()
+    .toLowerCase();
+  const activePanel: "none" | "share" | "history" | "templates" =
+    panelParam === "share" ||
+    panelParam === "history" ||
+    panelParam === "templates" ||
+    panelParam === "none"
+      ? (panelParam as "none" | "share" | "history" | "templates")
+      : activeTab === "section_members" || activeTab === "page_members"
+      ? "share"
+      : "none";
+  const focusFromQuery = String(searchParams?.focus || "0") === "1";
   const sectionId = page.section_id;
   const pageOwnerId = page.owner_id;
   const isOwner = pageOwnerId === user.id;
@@ -207,6 +242,9 @@ export default async function PersonalPage(props: {
     { data: users },
     { data: clients },
     { data: pageTemplatesRaw, error: pageTemplatesError },
+    sidebarTree,
+    { map: pageUserStateById, missingTable: pageUserStateTableMissing },
+    { state: pageUserState, missingTable: singlePageStateTableMissing },
   ] = await Promise.all([
     supabase.from("personal_sections").select("id,title").order("sort_order", { ascending: true }),
     supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
@@ -216,6 +254,16 @@ export default async function PersonalPage(props: {
       .select("id,name")
       .eq("owner_id", user.id)
       .order("name", { ascending: true }),
+    loadPersonalWorkspaceTree(
+      supabase as unknown as Parameters<typeof loadPersonalWorkspaceTree>[0]
+    ),
+    loadPersonalPageUserStateMap(
+      supabase as unknown as Parameters<typeof loadPersonalPageUserStateMap>[0]
+    ),
+    loadPersonalSinglePageUserState(
+      supabase as unknown as Parameters<typeof loadPersonalSinglePageUserState>[0],
+      pageId
+    ),
   ]);
   const pageTemplatesTableMissing = Boolean(
     pageTemplatesError && isSupabaseMissingTableError(pageTemplatesError)
@@ -237,9 +285,11 @@ export default async function PersonalPage(props: {
 
   let initialContextMenuFavorites: ContextMenuFavoriteActionId[] = [];
   let persistContextMenuFavorites = true;
+  let defaultZoomPercentPreference = 100;
+  let defaultRibbonTabPreference: "home" | "insert" | "layout" | "review" | "view" = "home";
   const { data: noteEditorPreferencesRaw, error: noteEditorPreferencesError } = await supabase
     .from("user_note_editor_preferences")
-    .select("personal_context_menu_favorites")
+    .select("personal_context_menu_favorites,default_zoom_percent,default_ribbon_tab")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -256,6 +306,22 @@ export default async function PersonalPage(props: {
     initialContextMenuFavorites = normalizeContextMenuFavorites(
       noteEditorPreferencesRaw?.personal_context_menu_favorites
     );
+    const zoomFromPreferences = Number(noteEditorPreferencesRaw?.default_zoom_percent);
+    if (Number.isFinite(zoomFromPreferences)) {
+      defaultZoomPercentPreference = Math.max(20, Math.min(1000, Math.round(zoomFromPreferences)));
+    }
+    const ribbonFromPreferences = String(noteEditorPreferencesRaw?.default_ribbon_tab || "")
+      .trim()
+      .toLowerCase();
+    if (
+      ribbonFromPreferences === "home" ||
+      ribbonFromPreferences === "insert" ||
+      ribbonFromPreferences === "layout" ||
+      ribbonFromPreferences === "review" ||
+      ribbonFromPreferences === "view"
+    ) {
+      defaultRibbonTabPreference = ribbonFromPreferences;
+    }
   }
 
   const { data: sectionMembersRaw } = await supabase
@@ -284,6 +350,29 @@ export default async function PersonalPage(props: {
     user_id: string;
     role: string;
   }>;
+
+  const pageIsFavorite = Boolean(pageUserState?.is_favorite);
+  const initialRibbonTab = pageUserState?.last_ribbon_tab || defaultRibbonTabPreference;
+  const initialZoomPercent =
+    pageUserState?.zoom_percent && Number.isFinite(pageUserState.zoom_percent)
+      ? Number(pageUserState.zoom_percent)
+      : defaultZoomPercentPreference;
+  const initialFocusMode = focusFromQuery ? true : Boolean(pageUserState?.focus_mode);
+  const sidebarInitiallyCollapsed = Boolean(pageUserState?.sidebar_collapsed);
+  const workspaceStateTableMissing = pageUserStateTableMissing || singlePageStateTableMissing;
+
+  const panelBaseParams = new URLSearchParams();
+  if (searchParams?.success) panelBaseParams.set("success", searchParams.success);
+  if (searchParams?.error) panelBaseParams.set("error", searchParams.error);
+  if (focusFromQuery) panelBaseParams.set("focus", "1");
+  const panelUrl = (panel: "none" | "share" | "history" | "templates") => {
+    const sp = new URLSearchParams(panelBaseParams);
+    if (panel !== "none") {
+      sp.set("panel", panel);
+    }
+    const query = sp.toString();
+    return query ? `/personal/${pageId}?${query}` : `/personal/${pageId}`;
+  };
 
   async function updatePageDetails(formData: FormData) {
     "use server";
@@ -423,6 +512,86 @@ export default async function PersonalPage(props: {
     const sp = new URLSearchParams();
     if (activeTab !== "notes") sp.set("tab", activeTab);
     sp.set("success", "Template saved");
+    redirect(`/personal/${pageId}?${sp.toString()}`);
+  }
+
+  async function applyTemplateToPage(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUser = authData.user;
+    if (!currentUser) {
+      redirect("/login");
+    }
+
+    const templateId = String(formData.get("template_id") || "").trim();
+    if (!templateId) {
+      const sp = new URLSearchParams();
+      sp.set("panel", "templates");
+      sp.set("error", "Choose a template");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    const { data: template, error: templateError } = await supabase
+      .from("personal_page_templates")
+      .select("content")
+      .eq("owner_id", currentUser.id)
+      .eq("id", templateId)
+      .maybeSingle();
+
+    if (templateError) {
+      const sp = new URLSearchParams();
+      sp.set("panel", "templates");
+      if (isSupabaseMissingTableError(templateError)) {
+        sp.set("error", "Page templates need sql/personal_templates_and_page_order.sql");
+      } else {
+        sp.set("error", templateError.message);
+      }
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    if (!template?.content || typeof template.content !== "object") {
+      const sp = new URLSearchParams();
+      sp.set("panel", "templates");
+      sp.set("error", "Template has no content");
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    const now = new Date().toISOString();
+    const updatePayload: Record<string, unknown> = {
+      content: template.content,
+      updated_at: now,
+      content_text: extractPlainText(template.content),
+      last_edited_at: now,
+      last_edited_by_user_id: currentUser.id,
+    };
+
+    let update = await supabase.from("personal_pages").update(updatePayload).eq("id", pageId);
+    while (update.error && isMissingColumnError(update.error)) {
+      const message = update.error.message || "";
+      if (message.includes("content_text")) {
+        delete updatePayload.content_text;
+      } else if (message.includes("last_edited_at")) {
+        delete updatePayload.last_edited_at;
+      } else if (message.includes("last_edited_by_user_id")) {
+        delete updatePayload.last_edited_by_user_id;
+      } else {
+        break;
+      }
+      update = await supabase.from("personal_pages").update(updatePayload).eq("id", pageId);
+    }
+
+    if (update.error) {
+      const sp = new URLSearchParams();
+      sp.set("panel", "templates");
+      sp.set("error", update.error.message);
+      redirect(`/personal/${pageId}?${sp.toString()}`);
+    }
+
+    revalidatePath(`/personal/${pageId}`);
+    const sp = new URLSearchParams();
+    sp.set("panel", "templates");
+    sp.set("success", "Template applied");
     redirect(`/personal/${pageId}?${sp.toString()}`);
   }
 
@@ -758,339 +927,191 @@ export default async function PersonalPage(props: {
     redirect(`/clients/${clientId}/notes/${note.id}`);
   }
 
+  async function toggleFavorite() {
+    "use server";
+    await togglePersonalPageFavorite({
+      pageId,
+      nextFavorite: !pageIsFavorite,
+    });
+    revalidatePath(`/personal/${pageId}`);
+    revalidatePath("/personal");
+  }
+
+  const pagePlainText =
+    pageContent && typeof pageContent === "object"
+      ? extractPlainText(pageContent)
+      : String(pageContent || "");
+  const pageWordCount = pagePlainText.trim()
+    ? pagePlainText
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length
+    : 0;
+  const pageReadingMinutes = pageWordCount ? Math.max(1, Math.ceil(pageWordCount / 220)) : 0;
+  const sectionRelation = page.personal_sections as
+    | { title?: string | null }
+    | Array<{ title?: string | null }>
+    | null
+    | undefined;
+  const sectionTitle = Array.isArray(sectionRelation)
+    ? sectionRelation[0]?.title || null
+    : sectionRelation?.title || null;
+  const focusToggleParams = new URLSearchParams(panelBaseParams);
+  if (activePanel !== "none") {
+    focusToggleParams.set("panel", activePanel);
+  }
+  if (focusFromQuery) {
+    focusToggleParams.delete("focus");
+  } else {
+    focusToggleParams.set("focus", "1");
+  }
+  const focusToggleQuery = focusToggleParams.toString();
+  const focusToggleUrl = focusToggleQuery
+    ? `/personal/${pageId}?${focusToggleQuery}`
+    : `/personal/${pageId}`;
+
   return (
-    <div className="space-y-5">
-      {(searchParams?.error || searchParams?.success) && (
-        <div className="space-y-2">
-          {searchParams?.error ? (
-            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-              {searchParams.error}
-            </p>
-          ) : null}
-          {searchParams?.success ? (
-            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-              {searchParams.success}
-            </p>
-          ) : null}
-        </div>
-      )}
-
-      <PersonalPageTabs
-        pageId={pageId}
-        active={activeTab}
-        sectionId={sectionId}
-        extra={
-          <div className="flex flex-wrap items-start justify-end gap-2">
-            <form action={updatePageDetails} className="flex flex-wrap items-center gap-2">
-              <input
-                name="title"
-                defaultValue={page.title}
-                aria-label="Page title"
-                className="w-48 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              />
-              <select
-                name="section_id"
-                defaultValue={page.section_id || ""}
-                aria-label="Section"
-                className="w-52 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              >
-                <option value="">General</option>
-                {sections?.map((section) => (
-                  <option key={section.id} value={section.id}>
-                    {section.title}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
-              >
-                Update
-              </button>
-            </form>
-
-            {isOwner ? (
-              <>
-                <details className="group relative">
-                  <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">
-                    <span>Link client note</span>
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 12 12"
-                      className="h-3 w-3 text-slate-400 transition group-open:rotate-180"
-                    >
-                      <path
-                        d="M2.5 4.5 6 8l3.5-3.5"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </summary>
-                  <div className="absolute right-0 z-30 mt-2 w-[26rem] max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Create linked client note
-                    </p>
-                    <form action={linkPageToClientNote} className="mt-2 flex flex-wrap items-end gap-2">
-                      <select
-                        name="client_id"
-                        className="min-w-[200px] flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                        defaultValue=""
-                        required
-                      >
-                        <option value="" disabled>
-                          Select client
-                        </option>
-                        {(clients || []).map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.name}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        name="visibility"
-                        defaultValue="internal"
-                        className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                      >
-                        <option value="internal">internal</option>
-                        <option value="client_shared">client shared</option>
-                      </select>
-                      <button
-                        type="submit"
-                        className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
-                      >
-                        Link
-                      </button>
-                    </form>
-                  </div>
-                </details>
-
-                <details className="group relative">
-                  <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100">
-                    <span>Page templates</span>
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 12 12"
-                      className="h-3 w-3 text-slate-400 transition group-open:rotate-180"
-                    >
-                      <path
-                        d="M2.5 4.5 6 8l3.5-3.5"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </summary>
-                  <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Save current page as template
-                    </p>
-                    <form action={savePageAsTemplate} className="mt-2 flex flex-wrap items-center gap-2">
-                      <input
-                        name="name"
-                        defaultValue={pageTitle}
-                        className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-                      >
-                        Save
-                      </button>
-                    </form>
-                    <p className="mt-2 text-xs text-slate-500">
-                      {pageTemplatesTableMissing
-                        ? "Page templates need sql/personal_templates_and_page_order.sql."
-                        : `${pageTemplates.length} template${pageTemplates.length === 1 ? "" : "s"} available.`}
-                    </p>
-                  </div>
-                </details>
-              </>
-            ) : null}
-
-            {isOwner ? (
-              <details className="group relative">
-                <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 font-medium text-red-700 hover:border-red-300 hover:text-red-800">
-                  <span>Delete</span>
-                </summary>
-                <div className="absolute right-0 z-30 mt-2 w-72 rounded-md border border-red-200 bg-white p-3 text-sm text-red-800 shadow-lg">
-                  <p className="text-xs">
-                    This will permanently delete the page and its content.
-                  </p>
-                  <form action={deletePersonalPage} className="mt-2">
-                    <button
-                      type="submit"
-                      className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                    >
-                      Confirm delete
-                    </button>
-                  </form>
-                </div>
-              </details>
-            ) : null}
-          </div>
-        }
+    <div className="space-y-4 xl:grid xl:grid-cols-[20rem_minmax(0,1fr)_20rem] xl:items-start xl:gap-4 xl:space-y-0">
+      <PersonalSidebarTree
+        sections={sidebarTree.sections}
+        generalPages={sidebarTree.generalPages}
+        currentPageId={pageId}
+        persistPageId={pageId}
+        initialCollapsed={sidebarInitiallyCollapsed}
+        pageStateByPageId={pageUserStateById}
       />
 
-      {activeTab === "section_members" ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Section members</h2>
+      <div className="space-y-4">
+        {(searchParams?.error || searchParams?.success) && (
+          <div className="space-y-2">
+            {searchParams?.error ? (
+              <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                {searchParams.error}
+              </p>
+            ) : null}
+            {searchParams?.success ? (
+              <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+                {searchParams.success}
+              </p>
+            ) : null}
           </div>
-          <div className="px-6 py-4">
-            <form action={addSectionMember} className="flex flex-wrap gap-2">
-              <select
-                name="user_id"
-                className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+        )}
+
+        {workspaceStateTableMissing ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Favorites and per-page workspace state need
+            <span className="font-mono"> sql/personal_workspace_user_state.sql</span>.
+          </p>
+        ) : null}
+
+        <section className="rounded-lg border border-slate-200 bg-white px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <Link href="/personal" className="hover:text-slate-700">
+                  Personal
+                </Link>
+                {" / "}
+                {sectionTitle || "General"}
+                {" / "}
+                {pageTitle}
+              </p>
+              <form action={updatePageDetails} className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  name="title"
+                  defaultValue={page.title}
+                  aria-label="Page title"
+                  className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                />
+                <select
+                  name="section_id"
+                  defaultValue={page.section_id || ""}
+                  aria-label="Section"
+                  className="w-56 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                >
+                  <option value="">General</option>
+                  {sections?.map((section) => (
+                    <option key={section.id} value={section.id}>
+                      {section.title}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
+                >
+                  Save title
+                </button>
+              </form>
+              <p className="mt-2 text-xs text-slate-500">
+                {lastEditedAtLabel ? `Last edited ${lastEditedAtLabel}` : "No edit history yet"}
+                {lastEditedByLabel ? ` by ${lastEditedByLabel}` : ""}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <form action={toggleFavorite}>
+                <button
+                  type="submit"
+                  className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
+                    pageIsFavorite
+                      ? "border-amber-300 bg-amber-50 text-amber-700"
+                      : "border-slate-300 text-slate-700 hover:border-slate-400"
+                  }`}
+                >
+                  {pageIsFavorite ? "Favorited" : "Favorite"}
+                </button>
+              </form>
+              <Link
+                href={panelUrl("share")}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
+                  activePanel === "share"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 text-slate-700 hover:border-slate-400"
+                }`}
               >
-                <option value="">Select user</option>
-                {users?.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.full_name || member.email}
-                  </option>
-                ))}
-              </select>
-              <select
-                name="role"
-                defaultValue="view"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                Share
+              </Link>
+              <Link
+                href={panelUrl("history")}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
+                  activePanel === "history"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 text-slate-700 hover:border-slate-400"
+                }`}
               >
-                <option value="view">View</option>
-                <option value="edit">Edit</option>
-              </select>
-              <button
-                type="submit"
-                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                History
+              </Link>
+              <Link
+                href={panelUrl("templates")}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
+                  activePanel === "templates"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 text-slate-700 hover:border-slate-400"
+                }`}
               >
-                Add
-              </button>
-            </form>
-            <div className="mt-4 space-y-2">
-              {sectionMembers?.length ? (
-                sectionMembers.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    <span className="text-slate-600">
-                      {userLabelById[member.user_id] || "Unknown user"}
-                    </span>
-                    <form className="flex items-center gap-2" action={updateSectionMember}>
-                      <input type="hidden" name="member_id" value={member.id} />
-                      <select
-                        name="role"
-                        defaultValue={member.role}
-                        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                      >
-                        <option value="view">View</option>
-                        <option value="edit">Edit</option>
-                      </select>
-                      <button
-                        type="submit"
-                        className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600"
-                      >
-                        Update
-                      </button>
-                      <button
-                        type="submit"
-                        formAction={removeSectionMember}
-                        className="text-xs font-semibold text-red-600 hover:text-red-800"
-                      >
-                        Remove
-                      </button>
-                    </form>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-500">No section members yet.</p>
-              )}
+                Templates
+              </Link>
+              <Link
+                href={focusToggleUrl}
+                className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
+                  focusFromQuery
+                    ? "border-blue-300 bg-blue-50 text-blue-700"
+                    : "border-slate-300 text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                {focusFromQuery ? "Exit focus" : "Focus mode"}
+              </Link>
+              <Link
+                href={panelUrl("none")}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-400"
+              >
+                Close panel
+              </Link>
             </div>
           </div>
         </section>
-      ) : null}
 
-      {activeTab === "page_members" ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Page members</h2>
-          </div>
-          <div className="px-6 py-4">
-            <form action={addPageMember} className="flex flex-wrap gap-2">
-              <select
-                name="user_id"
-                className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="">Select user</option>
-                {users?.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.full_name || member.email}
-                  </option>
-                ))}
-              </select>
-              <select
-                name="role"
-                defaultValue="view"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="view">View</option>
-                <option value="edit">Edit</option>
-              </select>
-              <button
-                type="submit"
-                className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-              >
-                Add
-              </button>
-            </form>
-            <div className="mt-4 space-y-2">
-              {pageMembers?.length ? (
-                pageMembers.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    <span className="text-slate-600">
-                      {userLabelById[member.user_id] || "Unknown user"}
-                    </span>
-                    <form className="flex items-center gap-2" action={updatePageMember}>
-                      <input type="hidden" name="member_id" value={member.id} />
-                      <select
-                        name="role"
-                        defaultValue={member.role}
-                        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                      >
-                        <option value="view">View</option>
-                        <option value="edit">Edit</option>
-                      </select>
-                      <button
-                        type="submit"
-                        className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600"
-                      >
-                        Update
-                      </button>
-                      <button
-                        type="submit"
-                        formAction={removePageMember}
-                        className="text-xs font-semibold text-red-600 hover:text-red-800"
-                      >
-                        Remove
-                      </button>
-                    </form>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-500">No page-specific members yet.</p>
-              )}
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {activeTab === "notes" ? (
         <div className="space-y-3">
           <PersonalPageEditorClient
             pageId={page.id}
@@ -1099,9 +1120,304 @@ export default async function PersonalPage(props: {
             lastEditedByLabel={lastEditedByLabel}
             initialContextMenuFavorites={initialContextMenuFavorites}
             persistContextMenuFavorites={persistContextMenuFavorites}
+            initialRibbonTab={initialRibbonTab}
+            initialZoomPercent={initialZoomPercent}
+            initialFocusMode={initialFocusMode}
           />
         </div>
-      ) : null}
+      </div>
+
+      <aside className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workspace panel</p>
+        {activePanel === "none" ? (
+          <p className="text-sm text-slate-500">
+            Open Share, History, or Templates to view contextual controls.
+          </p>
+        ) : null}
+
+        {activePanel === "share" ? (
+          <div className="space-y-4">
+            {isOwner ? (
+              <details className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                  Link client note
+                </summary>
+                <form action={linkPageToClientNote} className="mt-2 grid gap-2">
+                  <select
+                    name="client_id"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    defaultValue=""
+                    required
+                  >
+                    <option value="" disabled>
+                      Select client
+                    </option>
+                    {(clients || []).map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    name="visibility"
+                    defaultValue="internal"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="internal">internal</option>
+                    <option value="client_shared">client shared</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                  >
+                    Create linked note
+                  </button>
+                </form>
+              </details>
+            ) : null}
+
+            {sectionId ? (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-slate-800">Section members</h3>
+                <form action={addSectionMember} className="grid gap-2">
+                  <select
+                    name="user_id"
+                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  >
+                    <option value="">Select user</option>
+                    {users?.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.full_name || member.email}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    name="role"
+                    defaultValue="view"
+                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  >
+                    <option value="view">View</option>
+                    <option value="edit">Edit</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                  >
+                    Add section member
+                  </button>
+                </form>
+                <div className="space-y-2">
+                  {sectionMembers?.length ? (
+                    sectionMembers.map((member) => (
+                      <div
+                        key={member.id}
+                        className="rounded-md border border-slate-200 px-2 py-2 text-xs"
+                      >
+                        <p className="truncate text-slate-700">
+                          {userLabelById[member.user_id] || "Unknown user"}
+                        </p>
+                        <form className="mt-1 flex items-center gap-1" action={updateSectionMember}>
+                          <input type="hidden" name="member_id" value={member.id} />
+                          <select
+                            name="role"
+                            defaultValue={member.role}
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                          >
+                            <option value="view">View</option>
+                            <option value="edit">Edit</option>
+                          </select>
+                          <button
+                            type="submit"
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="submit"
+                            formAction={removeSectionMember}
+                            className="text-xs font-semibold text-red-600 hover:text-red-800"
+                          >
+                            Remove
+                          </button>
+                        </form>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500">No section members yet.</p>
+                  )}
+                </div>
+              </section>
+            ) : (
+              <p className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-600">
+                This page is in General. Section member sharing is unavailable.
+              </p>
+            )}
+
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-800">Page members</h3>
+              <form action={addPageMember} className="grid gap-2">
+                <select
+                  name="user_id"
+                  className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="">Select user</option>
+                  {users?.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.full_name || member.email}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  name="role"
+                  defaultValue="view"
+                  className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="view">View</option>
+                  <option value="edit">Edit</option>
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                >
+                  Add page member
+                </button>
+              </form>
+              <div className="space-y-2">
+                {pageMembers?.length ? (
+                  pageMembers.map((member) => (
+                    <div
+                      key={member.id}
+                      className="rounded-md border border-slate-200 px-2 py-2 text-xs"
+                    >
+                      <p className="truncate text-slate-700">
+                        {userLabelById[member.user_id] || "Unknown user"}
+                      </p>
+                      <form className="mt-1 flex items-center gap-1" action={updatePageMember}>
+                        <input type="hidden" name="member_id" value={member.id} />
+                        <select
+                          name="role"
+                          defaultValue={member.role}
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        >
+                          <option value="view">View</option>
+                          <option value="edit">Edit</option>
+                        </select>
+                        <button
+                          type="submit"
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="submit"
+                          formAction={removePageMember}
+                          className="text-xs font-semibold text-red-600 hover:text-red-800"
+                        >
+                          Remove
+                        </button>
+                      </form>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500">No page-specific members yet.</p>
+                )}
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {activePanel === "history" ? (
+          <div className="space-y-3 text-sm text-slate-700">
+            <p>
+              <span className="font-semibold text-slate-900">Last edited:</span>{" "}
+              {lastEditedAtLabel || "Not available"}
+            </p>
+            <p>
+              <span className="font-semibold text-slate-900">Edited by:</span>{" "}
+              {lastEditedByLabel || "Unknown"}
+            </p>
+            <p>
+              <span className="font-semibold text-slate-900">Word count:</span>{" "}
+              {pageWordCount.toLocaleString()}
+            </p>
+            <p>
+              <span className="font-semibold text-slate-900">Reading time:</span>{" "}
+              {pageReadingMinutes ? `${pageReadingMinutes} min` : "0 min"}
+            </p>
+            <p>
+              <span className="font-semibold text-slate-900">Share mode:</span>{" "}
+              {page.share_mode || "private"}
+            </p>
+          </div>
+        ) : null}
+
+        {activePanel === "templates" ? (
+          <div className="space-y-4">
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-800">Save as template</h3>
+              <form action={savePageAsTemplate} className="grid gap-2">
+                <input
+                  name="name"
+                  defaultValue={pageTitle}
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                >
+                  Save template
+                </button>
+              </form>
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-800">Apply template</h3>
+              <form action={applyTemplateToPage} className="grid gap-2">
+                <select
+                  name="template_id"
+                  defaultValue=""
+                  disabled={pageTemplatesTableMissing}
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  <option value="">Select template</option>
+                  {pageTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 disabled:opacity-60"
+                  disabled={pageTemplatesTableMissing}
+                >
+                  Apply to this page
+                </button>
+              </form>
+              <p className="text-xs text-slate-500">
+                {pageTemplatesTableMissing
+                  ? "Templates require sql/personal_templates_and_page_order.sql."
+                  : `${pageTemplates.length} template${pageTemplates.length === 1 ? "" : "s"} available.`}
+              </p>
+            </section>
+          </div>
+        ) : null}
+
+        {isOwner ? (
+          <details className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <summary className="cursor-pointer font-semibold">Danger zone</summary>
+            <p className="mt-2 text-xs">This permanently deletes the page and its content.</p>
+            <form action={deletePersonalPage} className="mt-2">
+              <button
+                type="submit"
+                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+              >
+                Confirm delete page
+              </button>
+            </form>
+          </details>
+        ) : null}
+      </aside>
     </div>
   );
 }
