@@ -761,7 +761,47 @@ export default async function EmployeeInfoPage(props: {
           data: [] as EmployeeInfoVisibilityRuleRow[],
           error: null as { message?: string } | null,
         });
-  const recordIds = records.map((row) => row.id).filter(Boolean);
+  let recordsForValues = records;
+  const shouldPrefilterByRole =
+    viewerVisibilityRule.enabled &&
+    Boolean(viewerVisibilityRule.roleColumnId) &&
+    viewerVisibilityRule.allowedRoleTokens.length > 0 &&
+    recordsForValues.length > 0;
+
+  if (shouldPrefilterByRole) {
+    const roleColumnId = viewerVisibilityRule.roleColumnId as string;
+    const rolePrefilterRecordIds = recordsForValues.map((row) => row.id).filter(Boolean);
+    const roleValuesResult = await supabase
+      .from("employee_info_values")
+      .select("record_id,text_value,option_value")
+      .in("record_id", rolePrefilterRecordIds)
+      .eq("column_id", roleColumnId);
+
+    if (roleValuesResult.error && !isSupabaseMissingTableError(roleValuesResult.error)) {
+      redirect(buildEmployeeInfoUrl({ error: roleValuesResult.error.message }));
+    }
+
+    const roleValueByRecordId = new Map<string, string>();
+    ((roleValuesResult.data || []) as Array<{
+      record_id: string;
+      text_value: string | null;
+      option_value: string | null;
+    }>).forEach((row) => {
+      const roleValue = String(row.option_value || row.text_value || "").trim();
+      if (!row.record_id) return;
+      roleValueByRecordId.set(row.record_id, roleValue);
+    });
+
+    recordsForValues = recordsForValues.filter((record) =>
+      isEmployeeInfoRecordVisible({
+        rule: viewerVisibilityRule,
+        clientId: record.client_id,
+        roleValue: roleValueByRecordId.get(record.id) || "",
+      })
+    );
+  }
+
+  const recordIds = recordsForValues.map((row) => row.id).filter(Boolean);
   let valuesRaw: EmployeeInfoValueRow[] = [];
   let valuesError: { message?: string; code?: string } | null = null;
   if (recordIds.length) {
@@ -790,7 +830,7 @@ export default async function EmployeeInfoPage(props: {
   const valueRows = (isSupabaseMissingTableError(valuesError) ? [] : valuesRaw || []) as EmployeeInfoValueRow[];
   const valuesByRecordId = buildValueMap(valueRows);
   const visibleRecords = filterRecordsByVisibilityRule({
-    records,
+    records: recordsForValues,
     valuesByRecordId,
     rule: viewerVisibilityRule,
   });
@@ -1878,7 +1918,7 @@ export default async function EmployeeInfoPage(props: {
 
       {canManageVisibilityRules ? (
         <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
-          <details className="group" open>
+          <details className="group">
             <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
               <span
                 aria-hidden="true"
