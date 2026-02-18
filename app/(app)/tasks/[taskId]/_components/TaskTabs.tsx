@@ -32,6 +32,7 @@ export default function TaskTabs({
         <Link
           key={tab.key}
           href={`/tasks/${taskId}${tab.suffix}`}
+          prefetch={false}
           className={`rounded-md px-3 py-1.5 font-medium ${
             active === tab.key
               ? "tab-active"

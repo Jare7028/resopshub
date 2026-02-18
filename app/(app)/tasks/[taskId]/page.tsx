@@ -47,6 +47,24 @@ const dueDateFilters = [
   { value: "none", label: "No due date" },
 ] as const;
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
+type TaskDetailRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  start_date: string | null;
+  due_date: string | null;
+  due_time: string | null;
+  assignee_user_id: string | null;
+  project_id: string | null;
+  client_id: string | null;
+  content?: unknown | null;
+  last_edited_at: string | null;
+  last_edited_by_user_id: string | null;
+  projects?: { name?: string | null } | { name?: string | null }[] | null;
+  clients?: { name?: string | null } | { name?: string | null }[] | null;
+};
 
 function buildTaskUrl(
   taskId: string,
@@ -123,13 +141,27 @@ export default async function TaskDetailPage(props: {
     (statusOptionsRaw || []) as StatusOptionRow[],
     TASK_STATUS_OPTIONS
   );
-  const { data: task } = await supabase
-    .from("tasks")
-    .select(
-      "id,title,description,status,priority,start_date,due_date,due_time,assignee_user_id,project_id,client_id,content,last_edited_at,last_edited_by_user_id,projects(name),clients(name)"
-    )
-    .eq("id", params.taskId)
-    .single();
+  const activeTab = normalizeTaskTabKey(searchParams?.tab);
+  let task: TaskDetailRow | null = null;
+  if (activeTab === "notes") {
+    const { data } = await supabase
+      .from("tasks")
+      .select(
+        "id,title,description,status,priority,start_date,due_date,due_time,assignee_user_id,project_id,client_id,content,last_edited_at,last_edited_by_user_id,projects(name),clients(name)"
+      )
+      .eq("id", params.taskId)
+      .single();
+    task = data as TaskDetailRow | null;
+  } else {
+    const { data } = await supabase
+      .from("tasks")
+      .select(
+        "id,title,description,status,priority,start_date,due_date,due_time,assignee_user_id,project_id,client_id,last_edited_at,last_edited_by_user_id,projects(name),clients(name)"
+      )
+      .eq("id", params.taskId)
+      .single();
+    task = data as TaskDetailRow | null;
+  }
 
   if (!task) {
     notFound();
@@ -178,7 +210,6 @@ export default async function TaskDetailPage(props: {
   );
 
   const taskId = task.id;
-  const activeTab = normalizeTaskTabKey(searchParams?.tab);
   const showAddFieldModal = searchParams?.add_field === "1";
   const taskStatus = task.status;
   const taskPriority = task.priority;
@@ -323,102 +354,120 @@ export default async function TaskDetailPage(props: {
     ? assigneeMap.get(task.last_edited_by_user_id) || "Unknown user"
     : null;
 
-  let subtasksQuery = supabase
-    .from("tasks")
-    .select(
-      "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
-    )
-    .eq("parent_task_id", task.id)
-    .order("created_at", { ascending: false });
-
-  if (selectedStatuses.length) {
-    subtasksQuery = subtasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
-  }
-  if (selectedPriorities.length) {
-    subtasksQuery = subtasksQuery.in("priority", selectedPriorities);
-  }
-  const wantsUnassigned = selectedAssignees.includes("unassigned");
-  const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
-  if (wantsUnassigned && selectedAssigneeIds.length) {
-    subtasksQuery = subtasksQuery.or(
-      `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
-    );
-  } else if (wantsUnassigned) {
-    subtasksQuery = subtasksQuery.is("assignee_user_id", null);
-  } else if (selectedAssigneeIds.length) {
-    subtasksQuery = subtasksQuery.in("assignee_user_id", selectedAssigneeIds);
-  }
-  if (selectedClientIds.length) {
-    subtasksQuery = subtasksQuery.in("client_id", selectedClientIds);
-  }
-  if (selectedProjectIds.length) {
-    subtasksQuery = subtasksQuery.in("project_id", selectedProjectIds);
-  }
-  const wantsCompletedStatuses =
-    selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
-  if (hideCompleted && !wantsCompletedStatuses) {
-    subtasksQuery = subtasksQuery.not("status", "in", "(completed,cancelled)");
-  }
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
-  if (selectedDue === "overdue") {
-    subtasksQuery = subtasksQuery.lt("due_date", todayIso);
-  } else if (selectedDue === "next_7") {
-    const next = new Date(today);
-    next.setDate(next.getDate() + 7);
-    const nextIso = next.toISOString().slice(0, 10);
-    subtasksQuery = subtasksQuery.gte("due_date", todayIso).lte("due_date", nextIso);
-  } else if (selectedDue === "none") {
-    subtasksQuery = subtasksQuery.is("due_date", null);
-  }
-
-  const { data: subtasksRaw } = await subtasksQuery;
   const subtasksById: Record<string, string[]> = {};
-  const subtaskIds = (subtasksRaw || []).map((subtask) => subtask.id).filter(Boolean);
-  if (subtaskIds.length) {
-    const { data: subtaskAssignees } = await supabase
-      .from("task_assignees")
-      .select("task_id,user_id")
-      .in("task_id", subtaskIds);
-    (subtaskAssignees || []).forEach((row) => {
-      if (!subtasksById[row.task_id]) {
-        subtasksById[row.task_id] = [];
-      }
-      subtasksById[row.task_id].push(row.user_id);
-    });
-  }
-  (subtasksRaw || []).forEach((subtask) => {
-    if (!subtasksById[subtask.id]) {
-      subtasksById[subtask.id] = [];
-    }
-    if (
-      subtask.assignee_user_id &&
-      !subtasksById[subtask.id].includes(subtask.assignee_user_id)
-    ) {
-      subtasksById[subtask.id].push(subtask.assignee_user_id);
-    }
-  });
-  const subtasks = sortTasksForDisplay({
-    tasks: subtasksRaw || [],
-    sortKey: subtaskSortKey,
-    sortDir: subtaskSortDir,
-    users: users || [],
-    assigneesByTask: subtasksById,
-    statusOrder: statusOptions,
-  });
   const openSubtaskCountByTaskId: Record<string, number> = {};
-  if (subtaskIds.length) {
-    const { data: subsubtasksRaw, error: subsubtasksError } = await supabase
+  let subtasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    priority: string;
+    start_date: string | null;
+    due_date: string | null;
+    due_time: string | null;
+    created_at: string | null;
+    assignee_user_id: string | null;
+    client_id: string | null;
+    project_id: string | null;
+    projects?: { name: string | null } | { name: string | null }[] | null;
+    clients?: { name: string | null } | { name: string | null }[] | null;
+  }> = [];
+
+  if (activeTab === "subtasks") {
+    let subtasksQuery = supabase
       .from("tasks")
-      .select("parent_task_id")
-      .in("parent_task_id", subtaskIds)
-      .not("status", "in", "(completed,cancelled)");
-    if (!subsubtasksError) {
-      (subsubtasksRaw || []).forEach((row) => {
-        const parentId = row.parent_task_id;
-        if (!parentId) return;
-        openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
+      .select(
+        "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
+      )
+      .eq("parent_task_id", task.id)
+      .order("created_at", { ascending: false });
+
+    if (selectedStatuses.length) {
+      subtasksQuery = subtasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
+    }
+    if (selectedPriorities.length) {
+      subtasksQuery = subtasksQuery.in("priority", selectedPriorities);
+    }
+    const wantsUnassigned = selectedAssignees.includes("unassigned");
+    const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
+    if (wantsUnassigned && selectedAssigneeIds.length) {
+      subtasksQuery = subtasksQuery.or(
+        `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
+      );
+    } else if (wantsUnassigned) {
+      subtasksQuery = subtasksQuery.is("assignee_user_id", null);
+    } else if (selectedAssigneeIds.length) {
+      subtasksQuery = subtasksQuery.in("assignee_user_id", selectedAssigneeIds);
+    }
+    if (selectedClientIds.length) {
+      subtasksQuery = subtasksQuery.in("client_id", selectedClientIds);
+    }
+    if (selectedProjectIds.length) {
+      subtasksQuery = subtasksQuery.in("project_id", selectedProjectIds);
+    }
+    const wantsCompletedStatuses =
+      selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+    if (hideCompleted && !wantsCompletedStatuses) {
+      subtasksQuery = subtasksQuery.not("status", "in", "(completed,cancelled)");
+    }
+    const today = new Date();
+    const todayIso = today.toISOString().slice(0, 10);
+    if (selectedDue === "overdue") {
+      subtasksQuery = subtasksQuery.lt("due_date", todayIso);
+    } else if (selectedDue === "next_7") {
+      const next = new Date(today);
+      next.setDate(next.getDate() + 7);
+      const nextIso = next.toISOString().slice(0, 10);
+      subtasksQuery = subtasksQuery.gte("due_date", todayIso).lte("due_date", nextIso);
+    } else if (selectedDue === "none") {
+      subtasksQuery = subtasksQuery.is("due_date", null);
+    }
+
+    const { data: subtasksRaw } = await subtasksQuery;
+    const subtaskIds = (subtasksRaw || []).map((subtask) => subtask.id).filter(Boolean);
+    if (subtaskIds.length) {
+      const { data: subtaskAssignees } = await supabase
+        .from("task_assignees")
+        .select("task_id,user_id")
+        .in("task_id", subtaskIds);
+      (subtaskAssignees || []).forEach((row) => {
+        if (!subtasksById[row.task_id]) {
+          subtasksById[row.task_id] = [];
+        }
+        subtasksById[row.task_id].push(row.user_id);
       });
+    }
+    (subtasksRaw || []).forEach((subtask) => {
+      if (!subtasksById[subtask.id]) {
+        subtasksById[subtask.id] = [];
+      }
+      if (
+        subtask.assignee_user_id &&
+        !subtasksById[subtask.id].includes(subtask.assignee_user_id)
+      ) {
+        subtasksById[subtask.id].push(subtask.assignee_user_id);
+      }
+    });
+    subtasks = sortTasksForDisplay({
+      tasks: subtasksRaw || [],
+      sortKey: subtaskSortKey,
+      sortDir: subtaskSortDir,
+      users: users || [],
+      assigneesByTask: subtasksById,
+      statusOrder: statusOptions,
+    }) as typeof subtasks;
+    if (subtaskIds.length) {
+      const { data: subsubtasksRaw, error: subsubtasksError } = await supabase
+        .from("tasks")
+        .select("parent_task_id")
+        .in("parent_task_id", subtaskIds)
+        .not("status", "in", "(completed,cancelled)");
+      if (!subsubtasksError) {
+        (subsubtasksRaw || []).forEach((row) => {
+          const parentId = row.parent_task_id;
+          if (!parentId) return;
+          openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
+        });
+      }
     }
   }
 
