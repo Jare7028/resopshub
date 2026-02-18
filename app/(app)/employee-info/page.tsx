@@ -2149,6 +2149,7 @@ export default async function EmployeeInfoPage(props: {
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
           currencyDisplayValueByRecordIdAndColumnId={currencyDisplayValueByRecordIdAndColumnId}
           displayCurrency={displayCurrency}
+          currentUserId={currentAppUserId}
           isAdmin={canManageColumns}
           formulaSuggestions={formulaSuggestions}
           onCreateRecord={createRecord}

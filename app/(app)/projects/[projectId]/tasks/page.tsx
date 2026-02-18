@@ -104,6 +104,15 @@ export default async function ProjectTasksPage(props: {
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
   const hasExplicitView = typeof searchParams?.view !== "undefined";
+  const hasExplicitFilterParams =
+    typeof searchParams?.status !== "undefined" ||
+    typeof searchParams?.priority !== "undefined" ||
+    typeof searchParams?.assignee !== "undefined" ||
+    typeof searchParams?.due !== "undefined" ||
+    typeof searchParams?.hide !== "undefined" ||
+    typeof searchParams?.sort !== "undefined" ||
+    typeof searchParams?.dir !== "undefined" ||
+    hasExplicitView;
   const selectedStatuses = coerceTaskStatusList(parseCsvParam(searchParams?.status)).filter(
     (status) => statusOptions.includes(status)
   );
@@ -856,6 +865,9 @@ export default async function ProjectTasksPage(props: {
           }}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
+          filterPersistenceUserId={currentUserId || authData.user?.id || null}
+          filterPersistenceScope={`project:${projectId}`}
+          hasExplicitFilterParams={hasExplicitFilterParams}
         />
       </section>
     </div>

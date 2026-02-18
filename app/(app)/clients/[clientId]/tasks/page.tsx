@@ -30,7 +30,7 @@ import TasksView from "../../../tasks/TasksView";
 import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
 import { parseTaskScheduleFormData } from "@/lib/taskSchedule";
 import { randomUUID } from "node:crypto";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -132,6 +132,16 @@ export default async function ClientTasksPage(props: {
       ? (viewRaw as "table" | "gantt" | "board")
       : "table";
   const hasExplicitView = typeof searchParams?.view !== "undefined";
+  const hasExplicitFilterParams =
+    typeof searchParams?.status !== "undefined" ||
+    typeof searchParams?.priority !== "undefined" ||
+    typeof searchParams?.assignee !== "undefined" ||
+    typeof searchParams?.project !== "undefined" ||
+    typeof searchParams?.due !== "undefined" ||
+    typeof searchParams?.hide !== "undefined" ||
+    typeof searchParams?.sort !== "undefined" ||
+    typeof searchParams?.dir !== "undefined" ||
+    hasExplicitView;
   const { data: client } = await supabase
     .from("clients")
     .select("id,name")
@@ -413,6 +423,12 @@ export default async function ClientTasksPage(props: {
   async function createTask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "tasks",
+      redirectPath: `/clients/${clientId}/tasks`,
+    });
     const { data: authData } = await supabase.auth.getUser();
     if (!authData.user?.id) {
       redirect("/login");
@@ -646,7 +662,17 @@ export default async function ClientTasksPage(props: {
     revalidatePath(`/clients/${clientId}/tasks`);
     redirect(buildClientTasksUrl("list", { success: "Task created" }));
   }
-  const updateTaskInline = updateTaskInlineAction;
+  async function updateTaskInline(input: Parameters<typeof updateTaskInlineAction>[0]) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "tasks",
+      redirectPath: `/clients/${clientId}/tasks`,
+    });
+    return updateTaskInlineAction(input);
+  }
 
   return (
     <div className="space-y-8">
@@ -905,6 +931,9 @@ export default async function ClientTasksPage(props: {
           basePath={`/clients/${clientId}/tasks`}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
+          filterPersistenceUserId={authUserId}
+          filterPersistenceScope={`client:${clientId}`}
+          hasExplicitFilterParams={hasExplicitFilterParams}
         />
       </section>
     </div>

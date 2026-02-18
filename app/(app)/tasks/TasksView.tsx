@@ -1,14 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
-import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
+import {
+  normalizeTaskSortDir,
+  normalizeTaskSortKey,
+  type TaskSortDir,
+  type TaskSortKey,
+} from "@/lib/taskSorting";
 import { setCsvParam } from "@/lib/queryParams";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
 import {
+  isViewMode,
   readDefaultViewMode,
   writeDefaultViewMode,
   type ViewPreferenceScope,
@@ -105,6 +119,9 @@ type TasksViewProps = {
   fixedParams?: Record<string, string | null | undefined>;
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
+  filterPersistenceUserId?: string | null;
+  filterPersistenceScope?: string;
+  hasExplicitFilterParams?: boolean;
 };
 
 const statusColors: Record<string, string> = {
@@ -117,6 +134,36 @@ const statusColors: Record<string, string> = {
 };
 
 type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
+const TASK_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.task-filters.v1";
+
+type PersistedTaskFilterState = {
+  status: string[];
+  priority: string[];
+  assignee: string[];
+  due: string;
+  client: string[];
+  project: string[];
+  hideCompleted: boolean;
+  includeWatching: boolean;
+  sortKey: TaskSortKey;
+  sortDir: TaskSortDir;
+  view: "table" | "gantt" | "board";
+};
+
+function normalizeStorageList(value: unknown) {
+  if (!Array.isArray(value)) return [] as string[];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function filterAllowedValues(values: string[], allowedValues: Set<string>) {
+  return values.filter((value) => allowedValues.has(value));
+}
 
 function toDate(value?: string | null) {
   if (!value) return null;
@@ -168,6 +215,9 @@ export default function TasksView({
   fixedParams = {},
   hasExplicitView = false,
   viewPreferenceScope = "tasks",
+  filterPersistenceUserId = null,
+  filterPersistenceScope,
+  hasExplicitFilterParams = false,
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
@@ -180,6 +230,17 @@ export default function TasksView({
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
     () => new Set(initialExpandedTaskIds)
   );
+  const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
+
+  const taskFilterPersistenceKey = useMemo(() => {
+    const userId = String(filterPersistenceUserId || "").trim();
+    if (!userId) return null;
+    const rawScope = String(filterPersistenceScope || basePath || "/tasks")
+      .trim()
+      .toLowerCase();
+    const scope = rawScope || "/tasks";
+    return `${TASK_FILTER_PERSISTENCE_KEY_PREFIX}:${userId}:${scope}`;
+  }, [basePath, filterPersistenceScope, filterPersistenceUserId]);
 
   const usersById = useMemo(
     () =>
@@ -243,39 +304,170 @@ export default function TasksView({
     setExpandedTaskIds(new Set(initialExpandedTaskIds));
   }, [initialExpandedKey, initialExpandedTaskIds]);
 
-  const buildQuery = (
-    next: typeof filters,
-    nextSortKey: TaskSortKey,
-    nextSortDir: TaskSortDir,
-    nextView: typeof view,
-    nextHideCompleted: boolean,
-    nextExpandedTaskIds: Set<string> = expandedTaskIds
-  ) => {
-    const params = new URLSearchParams();
-    Object.entries(fixedParams).forEach(([key, value]) => {
-      const normalized = String(value || "").trim();
-      if (normalized) {
-        params.set(key, normalized);
+  const buildQuery = useCallback(
+    (
+      next: typeof filters,
+      nextSortKey: TaskSortKey,
+      nextSortDir: TaskSortDir,
+      nextView: typeof view,
+      nextHideCompleted: boolean,
+      nextExpandedTaskIds: Set<string> = expandedTaskIds,
+      nextIncludeWatching: boolean = includeWatching
+    ) => {
+      const params = new URLSearchParams();
+      Object.entries(fixedParams).forEach(([key, value]) => {
+        const normalized = String(value || "").trim();
+        if (normalized) {
+          params.set(key, normalized);
+        }
+      });
+      setCsvParam(params, "status", next.status);
+      setCsvParam(params, "priority", next.priority);
+      setCsvParam(params, "assignee", next.assignee);
+      setCsvParam(params, "client", next.client);
+      setCsvParam(params, "project", next.project);
+      if (next.due && next.due !== "all") params.set("due", next.due);
+      params.set("hide", nextHideCompleted ? "1" : "0");
+      if (nextIncludeWatching) {
+        params.set("watch", "1");
       }
-    });
-    setCsvParam(params, "status", next.status);
-    setCsvParam(params, "priority", next.priority);
-    setCsvParam(params, "assignee", next.assignee);
-    setCsvParam(params, "client", next.client);
-    setCsvParam(params, "project", next.project);
-    if (next.due && next.due !== "all") params.set("due", next.due);
-    params.set("hide", nextHideCompleted ? "1" : "0");
-    if (includeWatching) {
-      params.set("watch", "1");
+      params.set("sort", nextSortKey);
+      params.set("dir", nextSortDir);
+      if (nextView !== "table") {
+        params.set("view", nextView);
+      }
+      setCsvParam(params, "expand", Array.from(nextExpandedTaskIds));
+      return params.toString();
+    },
+    [expandedTaskIds, fixedParams, includeWatching]
+  );
+
+  useEffect(() => {
+    setHasLoadedPersistedFilters(!taskFilterPersistenceKey);
+  }, [taskFilterPersistenceKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!taskFilterPersistenceKey || hasLoadedPersistedFilters) return;
+
+    if (hasExplicitFilterParams) {
+      setHasLoadedPersistedFilters(true);
+      return;
     }
-    params.set("sort", nextSortKey);
-    params.set("dir", nextSortDir);
-    if (nextView !== "table") {
-      params.set("view", nextView);
+
+    try {
+      const raw = window.localStorage.getItem(taskFilterPersistenceKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<PersistedTaskFilterState>;
+        const statusSet = new Set(statusOptions.map((value) => String(value).trim()));
+        const prioritySet = new Set(priorityOptions.map((value) => String(value).trim()));
+        const assigneeSet = new Set(users.map((value) => String(value.id).trim()));
+        assigneeSet.add("unassigned");
+        const dueSet = new Set(dueOptions.map((value) => String(value.value).trim()));
+        const clientSet = new Set(clients.map((value) => String(value.id).trim()));
+        const projectSet = new Set(projects.map((value) => String(value.id).trim()));
+
+        const nextFilters = {
+          status: filterAllowedValues(normalizeStorageList(parsed.status), statusSet),
+          priority: filterAllowedValues(normalizeStorageList(parsed.priority), prioritySet),
+          assignee: filterAllowedValues(normalizeStorageList(parsed.assignee), assigneeSet),
+          due:
+            dueSet.has(String(parsed.due || "").trim()) && String(parsed.due || "").trim()
+              ? String(parsed.due || "").trim()
+              : "all",
+          client: filterAllowedValues(normalizeStorageList(parsed.client), clientSet),
+          project: filterAllowedValues(normalizeStorageList(parsed.project), projectSet),
+        };
+        const nextHideCompleted =
+          typeof parsed.hideCompleted === "boolean" ? parsed.hideCompleted : hideCompleted;
+        const nextIncludeWatching =
+          typeof parsed.includeWatching === "boolean" ? parsed.includeWatching : includeWatching;
+        const nextSortKey = normalizeTaskSortKey(String(parsed.sortKey || sortKey || ""));
+        const nextSortDir = normalizeTaskSortDir(String(parsed.sortDir || sortDir || ""));
+        const parsedView = String(parsed.view || "").trim();
+        const nextView = isViewMode(parsedView) ? parsedView : view;
+        const currentQuery = buildQuery(filters, sortKey, sortDir, view, hideCompleted);
+        const restoredQuery = buildQuery(
+          nextFilters,
+          nextSortKey,
+          nextSortDir,
+          nextView,
+          nextHideCompleted,
+          new Set(initialExpandedTaskIds),
+          nextIncludeWatching
+        );
+
+        if (restoredQuery !== currentQuery) {
+          setFilters(nextFilters);
+          setView(nextView);
+          startTransition(() => {
+            router.replace(restoredQuery ? `${basePath}?${restoredQuery}` : basePath, {
+              scroll: false,
+            });
+          });
+        }
+      }
+    } catch {
+      // Ignore localStorage and JSON parse failures.
     }
-    setCsvParam(params, "expand", Array.from(nextExpandedTaskIds));
-    return params.toString();
-  };
+
+    setHasLoadedPersistedFilters(true);
+  }, [
+    basePath,
+    buildQuery,
+    clients,
+    dueOptions,
+    filters,
+    hasExplicitFilterParams,
+    hasLoadedPersistedFilters,
+    hideCompleted,
+    includeWatching,
+    initialExpandedTaskIds,
+    priorityOptions,
+    projects,
+    router,
+    sortDir,
+    sortKey,
+    startTransition,
+    statusOptions,
+    taskFilterPersistenceKey,
+    users,
+    view,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!taskFilterPersistenceKey || !hasLoadedPersistedFilters) return;
+
+    const payload: PersistedTaskFilterState = {
+      status: filters.status,
+      priority: filters.priority,
+      assignee: filters.assignee,
+      due: filters.due,
+      client: filters.client,
+      project: filters.project,
+      hideCompleted,
+      includeWatching,
+      sortKey,
+      sortDir,
+      view,
+    };
+
+    try {
+      window.localStorage.setItem(taskFilterPersistenceKey, JSON.stringify(payload));
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  }, [
+    filters,
+    hasLoadedPersistedFilters,
+    hideCompleted,
+    includeWatching,
+    sortDir,
+    sortKey,
+    taskFilterPersistenceKey,
+    view,
+  ]);
 
   const inlineReturnToQuery = buildQuery(filters, sortKey, sortDir, view, hideCompleted);
   const inlineReturnTo = inlineReturnToQuery ? `${basePath}?${inlineReturnToQuery}` : returnTo;

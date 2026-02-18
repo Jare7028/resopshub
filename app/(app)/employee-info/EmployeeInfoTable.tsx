@@ -20,8 +20,11 @@ import FormulaEditorDialog from "./FormulaEditorDialog";
 import { EMPLOYEE_INFO_DISPLAY_CURRENCY_SWITCH_INTENT } from "./events";
 import {
   EMPLOYEE_INFO_VISIBILITY_EVENT,
+  persistEmployeeInfoFilters,
   persistEmployeeInfoVisibility,
+  readEmployeeInfoFilters,
   readEmployeeInfoVisibility,
+  type EmployeeInfoFiltersState,
   type EmployeeInfoVisibilityState,
 } from "./employeeInfoVisibility";
 import {
@@ -611,6 +614,7 @@ export default function EmployeeInfoTable({
   formulaValueByRecordIdAndColumnId,
   currencyDisplayValueByRecordIdAndColumnId,
   displayCurrency,
+  currentUserId,
   isAdmin,
   formulaSuggestions,
   onCreateRecord,
@@ -626,6 +630,7 @@ export default function EmployeeInfoTable({
   formulaValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
   currencyDisplayValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
   displayCurrency: EmployeeInfoDisplayCurrencyCode;
+  currentUserId?: string | null;
   isAdmin: boolean;
   formulaSuggestions: FormulaSuggestion[];
   onCreateRecord: (formData: FormData) => Promise<EmployeeInfoActionResult>;
@@ -649,7 +654,8 @@ export default function EmployeeInfoTable({
   const [columnTextFilters, setColumnTextFilters] = useState<Record<string, string>>({});
   const [columnOptionFilters, setColumnOptionFilters] = useState<Record<string, string[]>>({});
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const hasLoadedVisibilityRef = useRef(false);
+  const [hasLoadedVisibility, setHasLoadedVisibility] = useState(false);
+  const [hasLoadedFilters, setHasLoadedFilters] = useState(false);
   const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
   const currencySwitchIntentAtRef = useRef(0);
   const lastPointerDownTargetRef = useRef<Element | null>(null);
@@ -699,17 +705,40 @@ export default function EmployeeInfoTable({
   }, [leaveDateColumnIds, records, valuesByRecordId]);
 
   useEffect(() => {
-    if (hasLoadedVisibilityRef.current) return;
-    hasLoadedVisibilityRef.current = true;
+    if (hasLoadedVisibility) return;
     const knownColumnIds = new Set(columns.map((column) => column.id));
     const loaded = readEmployeeInfoVisibility(knownColumnIds, {
       showClientColumn: true,
       visibleColumnIds: columns.map((column) => column.id),
-    });
+    }, { userId: currentUserId });
 
     setShowClientColumn(loaded.showClientColumn);
     setVisibleColumnIds(loaded.visibleColumnIds);
-  }, [columns]);
+    setHasLoadedVisibility(true);
+  }, [columns, currentUserId, hasLoadedVisibility]);
+
+  useEffect(() => {
+    if (hasLoadedFilters) return;
+    const knownColumnIds = new Set(columns.map((column) => column.id));
+    const knownClientIds = new Set(clients.map((client) => client.id));
+    const loaded = readEmployeeInfoFilters({
+      knownColumnIds,
+      knownClientIds,
+      fallbackState: {
+        fullNameFilter: "",
+        clientFilters: [],
+        columnTextFilters: {},
+        columnOptionFilters: {},
+      } satisfies EmployeeInfoFiltersState,
+      options: { userId: currentUserId },
+    });
+
+    setFullNameFilter(loaded.fullNameFilter);
+    setClientFilters(loaded.clientFilters);
+    setColumnTextFilters(loaded.columnTextFilters);
+    setColumnOptionFilters(loaded.columnOptionFilters);
+    setHasLoadedFilters(true);
+  }, [clients, columns, currentUserId, hasLoadedFilters]);
 
   useEffect(() => {
     setVisibleColumnIds((previous) => {
@@ -727,12 +756,35 @@ export default function EmployeeInfoTable({
   }, [columns]);
 
   useEffect(() => {
+    if (!hasLoadedVisibility) return;
     persistEmployeeInfoVisibility({
       showClientColumn,
       visibleColumnIds,
       knownColumnIds: columns.map((column) => column.id),
+    }, { userId: currentUserId });
+  }, [columns, currentUserId, hasLoadedVisibility, showClientColumn, visibleColumnIds]);
+
+  useEffect(() => {
+    if (!hasLoadedFilters) return;
+    persistEmployeeInfoFilters({
+      fullNameFilter,
+      clientFilters,
+      columnTextFilters,
+      columnOptionFilters,
+      knownColumnIds: columns.map((column) => column.id),
+      knownClientIds: clients.map((client) => client.id),
+      options: { userId: currentUserId },
     });
-  }, [columns, showClientColumn, visibleColumnIds]);
+  }, [
+    clientFilters,
+    clients,
+    columnOptionFilters,
+    columnTextFilters,
+    columns,
+    currentUserId,
+    fullNameFilter,
+    hasLoadedFilters,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

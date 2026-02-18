@@ -1,4 +1,5 @@
 export const EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY = "employee_info_visible_fields_v1";
+const EMPLOYEE_INFO_FILTERS_STORAGE_KEY = "employee_info_filters_v1";
 export const EMPLOYEE_INFO_VISIBILITY_EVENT = "employee-info-visibility-updated";
 
 export type EmployeeInfoVisibilityState = {
@@ -6,10 +7,28 @@ export type EmployeeInfoVisibilityState = {
   visibleColumnIds: string[];
 };
 
+export type EmployeeInfoFiltersState = {
+  fullNameFilter: string;
+  clientFilters: string[];
+  columnTextFilters: Record<string, string>;
+  columnOptionFilters: Record<string, string[]>;
+};
+
 type PersistedEmployeeInfoVisibilityState = {
   show_client_column?: boolean;
   visible_column_ids?: string[];
   known_column_ids?: string[];
+};
+
+type PersistedEmployeeInfoFiltersState = {
+  full_name_filter?: string;
+  client_filters?: string[];
+  column_text_filters?: Record<string, string>;
+  column_option_filters?: Record<string, string[]>;
+};
+
+type EmployeeInfoPersistenceOptions = {
+  userId?: string | null;
 };
 
 function uniqueIds(values: string[]) {
@@ -25,16 +44,53 @@ function normalizeIdList(values: unknown) {
   );
 }
 
+function normalizeUserId(userId?: string | null) {
+  const normalized = String(userId || "").trim();
+  return normalized || "anonymous";
+}
+
+function getScopedStorageKey(baseKey: string, options?: EmployeeInfoPersistenceOptions) {
+  return `${baseKey}:${normalizeUserId(options?.userId)}`;
+}
+
+function normalizeTextFilterMap(value: unknown, knownColumnIds: Set<string>) {
+  if (!value || typeof value !== "object") return {} as Record<string, string>;
+  const result: Record<string, string> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([columnId, rawValue]) => {
+    if (!knownColumnIds.has(columnId)) return;
+    const normalized = String(rawValue || "");
+    if (!normalized.trim()) return;
+    result[columnId] = normalized;
+  });
+  return result;
+}
+
+function normalizeOptionFilterMap(value: unknown, knownColumnIds: Set<string>) {
+  if (!value || typeof value !== "object") return {} as Record<string, string[]>;
+  const result: Record<string, string[]> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([columnId, rawValue]) => {
+    if (!knownColumnIds.has(columnId)) return;
+    const normalized = normalizeIdList(rawValue);
+    if (!normalized.length) return;
+    result[columnId] = normalized;
+  });
+  return result;
+}
+
 export function readEmployeeInfoVisibility(
   knownColumnIds: Set<string>,
-  fallbackState: EmployeeInfoVisibilityState
+  fallbackState: EmployeeInfoVisibilityState,
+  options?: EmployeeInfoPersistenceOptions
 ) {
   if (typeof window === "undefined") {
     return fallbackState;
   }
 
   try {
-    const raw = window.localStorage.getItem(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY);
+    const scopedKey = getScopedStorageKey(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY, options);
+    const scopedRaw = window.localStorage.getItem(scopedKey);
+    const legacyRaw = window.localStorage.getItem(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY);
+    const raw = scopedRaw || legacyRaw;
     if (!raw) return fallbackState;
 
     const parsed = JSON.parse(raw) as PersistedEmployeeInfoVisibilityState;
@@ -65,7 +121,8 @@ export function readEmployeeInfoVisibility(
 }
 
 export function persistEmployeeInfoVisibility(
-  state: EmployeeInfoVisibilityState & { knownColumnIds?: string[] }
+  state: EmployeeInfoVisibilityState & { knownColumnIds?: string[] },
+  options?: EmployeeInfoPersistenceOptions
 ) {
   if (typeof window === "undefined") return;
 
@@ -78,7 +135,7 @@ export function persistEmployeeInfoVisibility(
 
   try {
     window.localStorage.setItem(
-      EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY,
+      getScopedStorageKey(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY, options),
       JSON.stringify({
         show_client_column: state.showClientColumn,
         visible_column_ids: visibleColumnIds,
@@ -97,4 +154,72 @@ export function persistEmployeeInfoVisibility(
       },
     })
   );
+}
+
+export function readEmployeeInfoFilters(args: {
+  knownColumnIds: Set<string>;
+  knownClientIds: Set<string>;
+  fallbackState: EmployeeInfoFiltersState;
+  options?: EmployeeInfoPersistenceOptions;
+}) {
+  const { knownColumnIds, knownClientIds, fallbackState, options } = args;
+  if (typeof window === "undefined") {
+    return fallbackState;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(getScopedStorageKey(EMPLOYEE_INFO_FILTERS_STORAGE_KEY, options));
+    if (!raw) return fallbackState;
+
+    const parsed = JSON.parse(raw) as PersistedEmployeeInfoFiltersState;
+    const fullNameFilter = String(parsed.full_name_filter || "");
+    const clientFilters = normalizeIdList(parsed.client_filters).filter((clientId) =>
+      knownClientIds.has(clientId)
+    );
+    const columnTextFilters = normalizeTextFilterMap(parsed.column_text_filters, knownColumnIds);
+    const columnOptionFilters = normalizeOptionFilterMap(parsed.column_option_filters, knownColumnIds);
+
+    return {
+      fullNameFilter,
+      clientFilters,
+      columnTextFilters,
+      columnOptionFilters,
+    };
+  } catch {
+    return fallbackState;
+  }
+}
+
+export function persistEmployeeInfoFilters(args: {
+  fullNameFilter: string;
+  clientFilters: string[];
+  columnTextFilters: Record<string, string>;
+  columnOptionFilters: Record<string, string[]>;
+  knownColumnIds: string[];
+  knownClientIds: string[];
+  options?: EmployeeInfoPersistenceOptions;
+}) {
+  if (typeof window === "undefined") return;
+
+  const knownColumnIdSet = new Set(normalizeIdList(args.knownColumnIds));
+  const knownClientIdSet = new Set(normalizeIdList(args.knownClientIds));
+  const clientFilters = normalizeIdList(args.clientFilters).filter((clientId) =>
+    knownClientIdSet.has(clientId)
+  );
+  const columnTextFilters = normalizeTextFilterMap(args.columnTextFilters, knownColumnIdSet);
+  const columnOptionFilters = normalizeOptionFilterMap(args.columnOptionFilters, knownColumnIdSet);
+
+  try {
+    window.localStorage.setItem(
+      getScopedStorageKey(EMPLOYEE_INFO_FILTERS_STORAGE_KEY, args.options),
+      JSON.stringify({
+        full_name_filter: String(args.fullNameFilter || ""),
+        client_filters: clientFilters,
+        column_text_filters: columnTextFilters,
+        column_option_filters: columnOptionFilters,
+      })
+    );
+  } catch {
+    // Ignore localStorage write failures.
+  }
 }
