@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   EMPLOYEE_INFO_DISPLAY_CURRENCY_CODES,
@@ -23,7 +23,6 @@ export default function CurrencyDisplaySelect({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
 
   const normalizedValue = useMemo(
     () => normalizeEmployeeInfoDisplayCurrencyCode(value),
@@ -40,9 +39,7 @@ export default function CurrencyDisplaySelect({
   const handleValueChange = (nextValue: string) => {
     const normalized = normalizeEmployeeInfoDisplayCurrencyCode(nextValue);
     setLocalValue(normalized);
-    const rawQuery =
-      typeof window !== "undefined" ? window.location.search.slice(1) : searchParams.toString();
-    const params = new URLSearchParams(rawQuery);
+    const params = new URLSearchParams(searchParams.toString());
 
     if (normalized === "ORIGINAL") {
       params.delete("display_currency");
@@ -54,10 +51,7 @@ export default function CurrencyDisplaySelect({
     params.delete("error");
     const nextQuery = params.toString();
     const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
-    startTransition(() => {
-      router.replace(nextUrl, { scroll: false });
-      router.refresh();
-    });
+    router.replace(nextUrl, { scroll: false });
   };
 
   return (

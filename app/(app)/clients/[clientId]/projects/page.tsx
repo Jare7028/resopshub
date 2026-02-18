@@ -14,6 +14,7 @@ import {
 } from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ProjectsTable from "../../../projects/ProjectsTable";
+import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const toProjectCode = (value: string) =>
@@ -111,6 +112,11 @@ export default async function ClientProjectsPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "projects",
+  });
   const selectedClientIds = selectedClientIdsRaw.filter((id) => id === clientId);
   const selectedStatuses = selectedStatusesRaw.filter((value) =>
     projectStatusOptions.includes(value)

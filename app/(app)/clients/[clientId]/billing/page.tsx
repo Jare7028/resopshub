@@ -26,6 +26,7 @@ import RevenueChargesEditor from "./RevenueChargesEditor";
 import EmployeeMonthlyCostBreakdownPopover from "./EmployeeMonthlyCostBreakdownPopover";
 import EstimatedMonthlyRevenueBreakdownPopover from "./EstimatedMonthlyRevenueBreakdownPopover";
 import MonthlyCostSourcesEditor from "./MonthlyCostSourcesEditor";
+import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -497,6 +498,11 @@ export default async function ClientBillingPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "billing",
+  });
   const clientName = client.name;
   const clientRecordId = client.id;
   let canEditBilling = true;

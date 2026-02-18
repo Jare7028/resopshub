@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import ClientTabs from "./_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { CLIENT_PAGE_TABS, type ClientPageTabKey } from "./_components/clientPageTabs";
+import { ensureClientPageViewAccess } from "./_lib/clientPageAccess";
 import {
   normalizeCustomFieldKind,
   toCustomFieldKey,
@@ -39,6 +41,16 @@ type EditorUserRow = {
   full_name?: string | null;
   email?: string | null;
 };
+
+type ClientPagePermissionRow = {
+  user_id: string;
+  page_key: string;
+  access_level: "none" | "view" | "edit";
+};
+
+const configurableClientTabs = CLIENT_PAGE_TABS.filter(
+  (tab) => tab.key !== "overview"
+) as Array<{ key: Exclude<ClientPageTabKey, "overview">; label: string; suffix: string }>;
 
 function isMissingColumnError(error: unknown) {
   if (!error || typeof error !== "object") {
@@ -114,6 +126,11 @@ export default async function ClientOverviewPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "overview",
+  });
 
   const { data: customFieldsRaw, error: customFieldsError } = await supabase
     .from("custom_fields")
@@ -235,10 +252,35 @@ export default async function ClientOverviewPage(props: {
         .select("user_id")
         .eq("client_id", clientId)
     : { data: [] as { user_id: string }[] };
+  const { data: clientPagePermissionsRaw, error: clientPagePermissionsError } = isAdmin
+    ? await supabase
+        .from("client_page_permissions")
+        .select("user_id,page_key,access_level")
+        .eq("client_id", clientId)
+    : { data: [] as ClientPagePermissionRow[], error: null };
 
   const assignedClientUserIds = new Set(
     (clientUsers || []).map((row) => row.user_id).filter(Boolean)
   );
+  const assignedClientUsers = (users || []).filter((user) => assignedClientUserIds.has(user.id));
+  const clientPagePermissionsTableMissing =
+    isAdmin && isSupabaseMissingTableError(clientPagePermissionsError);
+  const clientPagePermissionsLoadError =
+    isAdmin && clientPagePermissionsError && !isSupabaseMissingTableError(clientPagePermissionsError)
+      ? clientPagePermissionsError.message
+      : null;
+  const deniedPageKeysByUserId = ((clientPagePermissionsTableMissing
+    ? []
+    : clientPagePermissionsRaw || []) as ClientPagePermissionRow[]).reduce<
+    Record<string, Set<ClientPageTabKey>>
+  >((acc, row) => {
+    if (row.access_level !== "none") return acc;
+    const pageKey = String(row.page_key || "").trim() as ClientPageTabKey;
+    if (!CLIENT_PAGE_TABS.some((tab) => tab.key === pageKey)) return acc;
+    acc[row.user_id] ||= new Set<ClientPageTabKey>();
+    acc[row.user_id].add(pageKey);
+    return acc;
+  }, {});
 
   async function updateClientMembers(formData: FormData) {
     "use server";
@@ -251,7 +293,7 @@ export default async function ClientOverviewPage(props: {
 
     const { data: editor } = await supabase
       .from("users")
-      .select("role")
+      .select("id,role")
       .eq("email", authEmail)
       .maybeSingle();
 
@@ -277,8 +319,127 @@ export default async function ClientOverviewPage(props: {
       }
     }
 
+    const { data: existingPageOverrides, error: existingPageOverridesError } = await supabase
+      .from("client_page_permissions")
+      .select("user_id")
+      .eq("client_id", clientId);
+    if (existingPageOverridesError && !isSupabaseMissingTableError(existingPageOverridesError)) {
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(existingPageOverridesError.message)}`);
+    }
+    if (!existingPageOverridesError) {
+      const selectedSet = new Set(selectedIds);
+      const staleUserIds = Array.from(
+        new Set(
+          ((existingPageOverrides || []) as Array<{ user_id: string }>)
+            .map((row) => row.user_id)
+            .filter((userId) => userId && !selectedSet.has(userId))
+        )
+      );
+      if (staleUserIds.length) {
+        const { error: staleDeleteError } = await supabase
+          .from("client_page_permissions")
+          .delete()
+          .eq("client_id", clientId)
+          .in("user_id", staleUserIds);
+        if (staleDeleteError && !isSupabaseMissingTableError(staleDeleteError)) {
+          redirect(`/clients/${clientId}?error=${encodeURIComponent(staleDeleteError.message)}`);
+        }
+      }
+    }
+
     revalidatePath(`/clients/${clientId}`);
     redirect(`/clients/${clientId}?success=Client%20members%20updated`);
+  }
+
+  async function updateClientPageAccess(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const authEmail = authData.user?.email;
+    if (!authEmail) {
+      redirect("/login");
+    }
+
+    const { data: editor } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", authEmail)
+      .maybeSingle();
+    if (editor?.role !== "admin") {
+      redirect(`/clients/${clientId}?error=Not%20allowed`);
+    }
+
+    const assignedMembersResult = await supabase
+      .from("client_users")
+      .select("user_id")
+      .eq("client_id", clientId);
+    if (assignedMembersResult.error) {
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(assignedMembersResult.error.message)}`);
+    }
+    const assignedMemberIds = Array.from(
+      new Set((assignedMembersResult.data || []).map((row) => row.user_id).filter(Boolean))
+    );
+    const configurablePageKeys = configurableClientTabs.map((tab) => tab.key);
+
+    if (!assignedMemberIds.length) {
+      const { error: deleteAllError } = await supabase
+        .from("client_page_permissions")
+        .delete()
+        .eq("client_id", clientId);
+      if (deleteAllError && !isSupabaseMissingTableError(deleteAllError)) {
+        redirect(`/clients/${clientId}?error=${encodeURIComponent(deleteAllError.message)}`);
+      }
+      revalidatePath(`/clients/${clientId}`);
+      redirect(`/clients/${clientId}?success=Client%20page%20access%20updated`);
+    }
+
+    const deniedRows = assignedMemberIds.flatMap((userId) =>
+      configurablePageKeys
+        .filter((pageKey) => formData.get(`page_access_${userId}_${pageKey}`) !== "on")
+        .map((pageKey) => ({
+          client_id: clientId,
+          user_id: userId,
+          page_key: pageKey,
+          access_level: "none" as const,
+          created_by_user_id: editor?.id || null,
+        }))
+    );
+
+    const { error: deleteExistingError } = await supabase
+      .from("client_page_permissions")
+      .delete()
+      .eq("client_id", clientId)
+      .in("user_id", assignedMemberIds)
+      .in("page_key", configurablePageKeys);
+    if (deleteExistingError && !isSupabaseMissingTableError(deleteExistingError)) {
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(deleteExistingError.message)}`);
+    }
+    if (deleteExistingError && isSupabaseMissingTableError(deleteExistingError)) {
+      redirect(
+        `/clients/${clientId}?error=${encodeURIComponent(
+          "Run sql/client_page_permissions.sql to configure client page access."
+        )}`
+      );
+    }
+
+    if (deniedRows.length) {
+      const { error: insertDeniedError } = await supabase
+        .from("client_page_permissions")
+        .insert(deniedRows);
+      if (insertDeniedError && !isSupabaseMissingTableError(insertDeniedError)) {
+        redirect(`/clients/${clientId}?error=${encodeURIComponent(insertDeniedError.message)}`);
+      }
+      if (insertDeniedError && isSupabaseMissingTableError(insertDeniedError)) {
+        redirect(
+          `/clients/${clientId}?error=${encodeURIComponent(
+            "Run sql/client_page_permissions.sql to configure client page access."
+          )}`
+        );
+      }
+    }
+
+    revalidatePath(`/clients/${clientId}`);
+    redirect(`/clients/${clientId}?success=Client%20page%20access%20updated`);
   }
 
   async function updateClient(formData: FormData) {
@@ -604,6 +765,75 @@ export default async function ClientOverviewPage(props: {
             ) : (
               <p className="mt-4 text-sm text-slate-500">No users found.</p>
             )}
+
+            <div className="mt-6 border-t border-slate-200 pt-6">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+                Client page access
+              </h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Assigned members get access to all client pages by default. Uncheck any pages they
+                should not access (for example, Billing).
+              </p>
+
+              {clientPagePermissionsTableMissing ? (
+                <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Run <code>sql/client_page_permissions.sql</code> to enable per-client page access
+                  controls.
+                </p>
+              ) : clientPagePermissionsLoadError ? (
+                <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  Failed to load client page access settings: {clientPagePermissionsLoadError}
+                </p>
+              ) : !assignedClientUsers.length ? (
+                <p className="mt-3 text-sm text-slate-500">
+                  Assign at least one client member to configure page access.
+                </p>
+              ) : (
+                <form action={updateClientPageAccess} className="mt-4 space-y-4">
+                  <div className="overflow-x-auto rounded-md border border-slate-200">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2">Member</th>
+                          {configurableClientTabs.map((tab) => (
+                            <th key={tab.key} className="px-3 py-2">
+                              {tab.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {assignedClientUsers.map((user) => {
+                          const deniedSet = deniedPageKeysByUserId[user.id] || new Set<ClientPageTabKey>();
+                          return (
+                            <tr key={`page-access-${user.id}`} className="border-t border-slate-200">
+                              <td className="px-3 py-2 font-medium text-slate-800">
+                                {user.full_name || user.email}
+                              </td>
+                              {configurableClientTabs.map((tab) => (
+                                <td key={`${user.id}-${tab.key}`} className="px-3 py-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    name={`page_access_${user.id}_${tab.key}`}
+                                    defaultChecked={!deniedSet.has(tab.key)}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Save page access
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         </details>
       ) : null}

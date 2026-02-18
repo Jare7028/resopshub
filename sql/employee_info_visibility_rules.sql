@@ -33,7 +33,7 @@ create policy employee_info_visibility_rules_select
   for select
   to authenticated
   using (
-    public.can_manage_employee_info_access()
+    public.is_admin()
     or user_id = public.current_app_user_id()
   );
 
@@ -42,22 +42,22 @@ create policy employee_info_visibility_rules_insert
   on public.employee_info_visibility_rules
   for insert
   to authenticated
-  with check (public.can_manage_employee_info_access());
+  with check (public.is_admin());
 
 drop policy if exists employee_info_visibility_rules_update on public.employee_info_visibility_rules;
 create policy employee_info_visibility_rules_update
   on public.employee_info_visibility_rules
   for update
   to authenticated
-  using (public.can_manage_employee_info_access())
-  with check (public.can_manage_employee_info_access());
+  using (public.is_admin())
+  with check (public.is_admin());
 
 drop policy if exists employee_info_visibility_rules_delete on public.employee_info_visibility_rules;
 create policy employee_info_visibility_rules_delete
   on public.employee_info_visibility_rules
   for delete
   to authenticated
-  using (public.can_manage_employee_info_access());
+  using (public.is_admin());
 
 grant select, insert, update, delete
   on table public.employee_info_visibility_rules

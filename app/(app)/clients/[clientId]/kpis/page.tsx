@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
+import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 export default async function ClientKpisPage(props: {
   params: Promise<{ clientId: string }>;
@@ -21,6 +22,11 @@ export default async function ClientKpisPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "kpis",
+  });
 
   const { data: kpis } = await supabase
     .from("client_kpis")

@@ -68,6 +68,16 @@ function toErrorMessage(error: unknown, fallback: string) {
   return message || fallback;
 }
 
+function buildSharedFormDetailUrl(
+  detailPath: string,
+  extra?: { error?: string; success?: string }
+) {
+  const sp = new URLSearchParams();
+  if (extra?.error) sp.set("error", extra.error);
+  if (extra?.success) sp.set("success", extra.success);
+  return sp.toString() ? `${detailPath}?${sp.toString()}` : detailPath;
+}
+
 export default async function SharedFormPage(props: {
   params: Promise<{ token: string }>;
   searchParams?: Promise<{ error?: string; success?: string }>;
@@ -81,12 +91,6 @@ export default async function SharedFormPage(props: {
 
   const supabase = createSupabaseServerClient();
   const detailPath = `/forms/share/${encodeURIComponent(safeToken)}`;
-  const buildDetailUrl = (extra?: { error?: string; success?: string }) => {
-    const sp = new URLSearchParams();
-    if (extra?.error) sp.set("error", extra.error);
-    if (extra?.success) sp.set("success", extra.success);
-    return sp.toString() ? `${detailPath}?${sp.toString()}` : detailPath;
-  };
 
   const resolveResult = await supabase.rpc("resolve_form_share_link", {
     p_token: safeToken,
@@ -136,7 +140,11 @@ export default async function SharedFormPage(props: {
       p_token: safeToken,
     });
     if (resolveResult.error) {
-      redirect(buildDetailUrl({ error: toErrorMessage(resolveResult.error, "Invalid form link.") }));
+      redirect(
+        buildSharedFormDetailUrl(detailPath, {
+          error: toErrorMessage(resolveResult.error, "Invalid form link."),
+        })
+      );
     }
     const resolvedRows = (resolveResult.data || []) as Array<{
       form_id: string;
@@ -145,7 +153,7 @@ export default async function SharedFormPage(props: {
     }>;
     const resolved = resolvedRows[0];
     if (!resolved?.form_id) {
-      redirect(buildDetailUrl({ error: "Invalid or inactive form link." }));
+      redirect(buildSharedFormDetailUrl(detailPath, { error: "Invalid or inactive form link." }));
     }
 
     const accessMode = normalizeShareAccessMode(resolved.access_mode);
@@ -171,11 +179,11 @@ export default async function SharedFormPage(props: {
       const value = rawValues[field.key] || "";
       if (field.required && !value) {
         const fieldLabel = field.label || formatFormLabel(field.key);
-        redirect(buildDetailUrl({ error: `Required field missing: ${fieldLabel}` }));
+        redirect(buildSharedFormDetailUrl(detailPath, { error: `Required field missing: ${fieldLabel}` }));
       }
       const validationError = validateFormFieldValue(field, value);
       if (validationError) {
-        redirect(buildDetailUrl({ error: validationError }));
+        redirect(buildSharedFormDetailUrl(detailPath, { error: validationError }));
       }
       values[field.key] = value;
     }
@@ -185,10 +193,14 @@ export default async function SharedFormPage(props: {
       p_values_json: values,
     });
     if (submitResult.error) {
-      redirect(buildDetailUrl({ error: toErrorMessage(submitResult.error, "Failed to submit form.") }));
+      redirect(
+        buildSharedFormDetailUrl(detailPath, {
+          error: toErrorMessage(submitResult.error, "Failed to submit form."),
+        })
+      );
     }
 
-    redirect(buildDetailUrl({ success: "Submission received." }));
+    redirect(buildSharedFormDetailUrl(detailPath, { success: "Submission received." }));
   }
 
   return (

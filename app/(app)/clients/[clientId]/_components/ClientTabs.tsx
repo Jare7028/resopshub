@@ -1,26 +1,34 @@
-﻿import Link from "next/link";
+import Link from "next/link";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
+import { CLIENT_PAGE_TABS, type ClientPageTabKey } from "./clientPageTabs";
 
-const tabs = [
-  { key: "overview", label: "Overview", suffix: "" },
-  { key: "contacts", label: "Contacts", suffix: "/contacts" },
-  { key: "billing", label: "Billing", suffix: "/billing" },
-  { key: "projects", label: "Projects", suffix: "/projects" },
-  { key: "tasks", label: "Tasks", suffix: "/tasks" },
-  { key: "notes", label: "Notes", suffix: "/notes" },
-  { key: "documents", label: "Documents", suffix: "/documents" },
-  { key: "requirements", label: "Requirements", suffix: "/requirements" },
-  { key: "kpis", label: "KPIs", suffix: "/kpis" },
-] as const;
-
-type TabKey = (typeof tabs)[number]["key"];
-
-export default function ClientTabs({
+export default async function ClientTabs({
   clientId,
   active,
 }: {
   clientId: string;
-  active: TabKey;
+  active: ClientPageTabKey;
 }) {
+  const supabase = createSupabaseServerClient();
+  const accessListResult = await supabase.rpc("client_page_access_list", {
+    client_uuid: clientId,
+  });
+  const shouldFallbackToAllTabs =
+    isSupabaseMissingFunctionError(accessListResult.error) || Boolean(accessListResult.error);
+
+  const accessByKey = new Map(
+    ((accessListResult.data || []) as Array<{ page_key: string | null; access_level: string | null }>).map(
+      (row) => [String(row.page_key || "").trim(), String(row.access_level || "none").trim()]
+    )
+  );
+  const tabs = shouldFallbackToAllTabs
+    ? CLIENT_PAGE_TABS
+    : CLIENT_PAGE_TABS.filter((tab) => {
+        const level = accessByKey.get(tab.key) || "none";
+        return level === "view" || level === "edit";
+      });
+
   return (
     <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
       {tabs.map((tab) => (
@@ -39,4 +47,3 @@ export default function ClientTabs({
     </nav>
   );
 }
-

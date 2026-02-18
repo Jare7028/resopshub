@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,11 @@ export default async function ClientNotesPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "notes",
+  });
 
   let supportsNotePages = true;
   let notes: ClientNoteRow[] | null = null;

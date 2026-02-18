@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const visibilityOptions = ["internal", "client_shared"] as const;
 
@@ -22,6 +23,11 @@ export default async function ClientDocumentsPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "documents",
+  });
 
   const { data: documents } = await supabase
     .from("documents")

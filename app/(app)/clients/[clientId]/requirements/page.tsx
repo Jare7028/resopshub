@@ -7,6 +7,7 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 
@@ -48,6 +49,11 @@ export default async function ClientRequirementsPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "requirements",
+  });
 
   const fullSelect = await supabase
     .from("requirements")

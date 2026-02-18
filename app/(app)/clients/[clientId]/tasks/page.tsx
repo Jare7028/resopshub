@@ -30,6 +30,7 @@ import TasksView from "../../../tasks/TasksView";
 import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
 import { parseTaskScheduleFormData } from "@/lib/taskSchedule";
 import { randomUUID } from "node:crypto";
+import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -140,6 +141,11 @@ export default async function ClientTasksPage(props: {
   if (!client) {
     notFound();
   }
+  await ensureClientPageViewAccess({
+    supabase,
+    clientId,
+    pageKey: "tasks",
+  });
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
   );
