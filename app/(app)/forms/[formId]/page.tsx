@@ -49,8 +49,8 @@ function normalizeSubmissionScope(value: string | null | undefined): SubmissionS
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
-  if (normalized === "all" || normalized === "open") return normalized;
-  return "completed";
+  if (normalized === "completed" || normalized === "open") return normalized;
+  return "all";
 }
 
 function normalizeSubmissionSortKey(value: string | null | undefined): SubmissionSortKey {

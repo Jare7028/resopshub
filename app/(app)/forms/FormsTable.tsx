@@ -253,7 +253,7 @@ export default function FormsTable({
                 <tr key={row.id}>
                   <td className="px-6 py-3 font-semibold text-slate-900">
                     <Link
-                      href={`/forms/${row.id}?tab=submissions&scope=completed${
+                      href={`/forms/${row.id}?tab=submissions&scope=all${
                         detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
                       }`}
                       className="hover:underline"
@@ -294,7 +294,7 @@ export default function FormsTable({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Link
-                  href={`/forms/${row.id}?tab=submissions&scope=completed${
+                  href={`/forms/${row.id}?tab=submissions&scope=all${
                     detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
                   }`}
                   className="text-base font-semibold text-slate-900 hover:underline"
@@ -313,7 +313,7 @@ export default function FormsTable({
                 <span>Updated {new Date(row.updated_at || row.created_at).toLocaleDateString()}</span>
               </div>
               <Link
-                href={`/forms/${row.id}?tab=submissions&scope=completed${
+                href={`/forms/${row.id}?tab=submissions&scope=all${
                   detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
                 }`}
                 className="mobile-card-action"
