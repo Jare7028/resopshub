@@ -1,8 +1,10 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import DashboardFilters from "./DashboardFilters";
-import { parseCsvParam } from "@/lib/queryParams";
+import DashboardCurrencySelect from "./DashboardCurrencySelect";
+import DashboardSnapshotCard from "./DashboardSnapshotCard";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import {
   TASK_STATUS_OPTIONS,
   coerceTaskStatusList,
@@ -10,6 +12,31 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatus,
 } from "@/lib/taskStatus";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
+import {
+  formatEmployeeInfoCurrencyAmount,
+  normalizeEmployeeInfoCurrencyCode,
+  type EmployeeInfoExchangeRateRow,
+} from "@/lib/employeeInfo";
+import {
+  computeClientBillingSnapshot,
+  convertSnapshotAmountsToCurrency,
+  hasStringId as hasBillingStringId,
+  type BillingProfileRevenueRow,
+  type EmployeeInfoColumnRow,
+  type EmployeeInfoRecordRow,
+  type EmployeeInfoValueRow,
+} from "@/lib/billing/billingSnapshot";
+import { DASHBOARD_DEFAULT_CURRENCY, normalizeDashboardCurrency } from "./filterState";
+import type {
+  DashboardFiltersState,
+  DashboardFocusKey,
+  DashboardSnapshotCard as DashboardSnapshotCardData,
+} from "./types";
 
 const taskStatuses = TASK_STATUS_OPTIONS;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
@@ -20,6 +47,16 @@ const rangeOptions = [
   { value: "30d", label: "Last 30 days" },
   { value: "90d", label: "Last 90 days" },
 ] as const;
+const dashboardFocusKeys = new Set<DashboardFocusKey>([
+  "finance",
+  "people",
+  "task_delivery",
+  "feature_requests",
+  "work_by_client",
+  "work_by_user",
+  "projects_glance",
+  "recent_activity",
+]);
 
 function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -40,9 +77,15 @@ export default async function DashboardPage(props: {
     user?: string | string[];
     status?: string | string[];
     priority?: string | string[];
+    currency?: string;
+    focus?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
+  const selectedFocusRaw = String(searchParams?.focus || "").trim();
+  const selectedFocus = dashboardFocusKeys.has(selectedFocusRaw as DashboardFocusKey)
+    ? (selectedFocusRaw as DashboardFocusKey)
+    : null;
   const supabase = createSupabaseServerClient();
 
   const { data: authData } = await supabase.auth.getUser();
@@ -120,6 +163,9 @@ export default async function DashboardPage(props: {
       : getSavedList("status");
 
   const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw);
+  const selectedCurrency = normalizeDashboardCurrency(
+    searchParams?.currency ?? getSaved("currency") ?? DASHBOARD_DEFAULT_CURRENCY
+  );
 
   let selectedPriorities =
     searchParams?.priority !== undefined
@@ -609,11 +655,335 @@ export default async function DashboardPage(props: {
   const { data: recentTasks } = await activityQuery;
 
   const recentActivity = (recentTasks || []).map((task) => ({
-  item: `Task created: ${task.title}`,
-  meta: `${getRelationName(task.clients, "No client")} · ${
-    task.created_at ? new Date(task.created_at).toLocaleDateString("en-US") : "-"
-  }`,
-}));
+    item: `Task created: ${task.title}`,
+    meta: `${getRelationName(task.clients, "No client")} - ${
+      task.created_at ? new Date(task.created_at).toLocaleDateString("en-US") : "-"
+    }`,
+  }));
+
+  let scopedTasksQuery = supabase
+    .from("tasks")
+    .select("id,client_id")
+    .is("parent_task_id", null);
+
+  if (filteredClientIds.length) {
+    scopedTasksQuery = scopedTasksQuery.in("client_id", filteredClientIds);
+  }
+
+  if (filteredProjectIds.length) {
+    scopedTasksQuery = scopedTasksQuery.in("project_id", filteredProjectIds);
+  }
+
+  if (filteredUserIds.length) {
+    scopedTasksQuery = scopedTasksQuery.in("assignee_user_id", filteredUserIds);
+  }
+
+  if (selectedStatuses.length) {
+    scopedTasksQuery = scopedTasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
+  }
+
+  if (selectedPriorities.length) {
+    scopedTasksQuery = scopedTasksQuery.in("priority", selectedPriorities);
+  }
+
+  if (!isAdmin) {
+    const scopedOrParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
+
+    if (explicitTaskIds.length) {
+      scopedOrParts.push(`id.in.(${explicitTaskIds.join(",")})`);
+    }
+
+    if (watchedProjectIds.length) {
+      scopedOrParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
+    }
+
+    scopedTasksQuery = scopedTasksQuery.or(scopedOrParts.join(","));
+  }
+
+  const { data: scopedTasksRaw } = await scopedTasksQuery;
+  const scopedClientIds = Array.from(
+    new Set(
+      ((scopedTasksRaw || []) as Array<{ client_id: string | null }>)
+        .map((row) => String(row.client_id || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  const clientNameById = (clients || []).reduce<Record<string, string>>((acc, client) => {
+    acc[client.id] = client.name;
+    return acc;
+  }, {});
+
+  const financeWarnings: string[] = [];
+  let financeSummary = {
+    currencyCode: selectedCurrency,
+    revenueTotal: 0,
+    costTotal: 0,
+    marginTotal: 0,
+    marginPercent: null as number | null,
+    scopedClientCount: scopedClientIds.length,
+    roleTopLabel: "-",
+    roleTopCount: 0,
+    activeEmployeeCount: 0,
+    clientsWithEmployees: 0,
+    risks: {
+      negativeMarginClients: 0,
+      missingBillingProfiles: 0,
+      missingExchangeRates: 0,
+    },
+    isEmptyScope: scopedClientIds.length === 0,
+  };
+
+  if (scopedClientIds.length) {
+    const monthStart = `${new Date().toISOString().slice(0, 7)}-01`;
+    let billingRows: Array<BillingProfileRevenueRow & { client_id: string }> = [];
+
+    let billingResult = (await supabase
+      .from("billing_profiles")
+      .select("client_id,currency,hourly_rate,total_billable_hours,revenue_charge_items,monthly_cost_items")
+      .in("client_id", scopedClientIds)) as unknown as {
+      data: Array<Record<string, unknown>> | null;
+      error: { message?: string; code?: string } | null;
+    };
+
+    if (isSupabaseMissingColumnError(billingResult.error)) {
+      const fallbackWithCharges = await supabase
+        .from("billing_profiles")
+        .select("client_id,currency,hourly_rate,total_billable_hours,revenue_charge_items")
+        .in("client_id", scopedClientIds);
+      if (isSupabaseMissingColumnError(fallbackWithCharges.error)) {
+        const fallbackMinimal = await supabase
+          .from("billing_profiles")
+          .select("client_id,currency,hourly_rate,total_billable_hours")
+          .in("client_id", scopedClientIds);
+        billingResult = {
+          data: (fallbackMinimal.data || []).map((row) => ({
+            ...row,
+            revenue_charge_items: [],
+            monthly_cost_items: [],
+          })),
+          error: fallbackMinimal.error,
+        };
+      } else {
+        billingResult = {
+          data: (fallbackWithCharges.data || []).map((row) => ({
+            ...row,
+            monthly_cost_items: [],
+          })),
+          error: fallbackWithCharges.error,
+        };
+      }
+    }
+
+    if (isSupabaseMissingTableError(billingResult.error)) {
+      financeWarnings.push("Billing profiles table is missing.");
+      billingRows = [];
+    } else if (billingResult.error) {
+      financeWarnings.push(`Could not load billing profiles (${billingResult.error.message}).`);
+      billingRows = [];
+    } else {
+      billingRows = ((billingResult.data || []) as Array<BillingProfileRevenueRow & { client_id: string }>).filter(
+        (row) => !!row.client_id
+      );
+    }
+
+    let employeeRecords: EmployeeInfoRecordRow[] = [];
+    const employeeRecordsResult = await supabase
+      .from("employee_info_records")
+      .select("id,full_name,client_id")
+      .in("client_id", scopedClientIds);
+    if (isSupabaseMissingTableError(employeeRecordsResult.error)) {
+      financeWarnings.push("Employee Info is not set up yet.");
+    } else if (employeeRecordsResult.error) {
+      financeWarnings.push(`Could not load Employee Info records (${employeeRecordsResult.error.message}).`);
+    } else {
+      employeeRecords = ((employeeRecordsResult.data || []) as EmployeeInfoRecordRow[]).filter((row) =>
+        hasBillingStringId(row)
+      );
+    }
+
+    let employeeColumns: EmployeeInfoColumnRow[] = [];
+    let employeeColumnsResult = (await supabase
+      .from("employee_info_columns")
+      .select("id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position")
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })) as unknown as {
+      data: Array<Record<string, unknown>> | null;
+      error: { message?: string; code?: string } | null;
+    };
+    if (isSupabaseMissingColumnError(employeeColumnsResult.error)) {
+      const fallbackColumns = await supabase
+        .from("employee_info_columns")
+        .select("id,key,label,column_kind,formula,options_json,position")
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: true });
+      employeeColumnsResult = {
+        data: (fallbackColumns.data || []).map((column) => ({
+          ...column,
+          formula_currency_mode: "display",
+          formula_currency_code: "USD",
+        })),
+        error: fallbackColumns.error,
+      };
+    }
+    if (isSupabaseMissingTableError(employeeColumnsResult.error)) {
+      financeWarnings.push("Employee Info columns table is missing.");
+    } else if (employeeColumnsResult.error) {
+      financeWarnings.push(`Could not load Employee Info columns (${employeeColumnsResult.error.message}).`);
+    } else {
+      employeeColumns = ((employeeColumnsResult.data || []) as EmployeeInfoColumnRow[]).filter((row) =>
+        hasBillingStringId(row)
+      );
+    }
+
+    let employeeValues: EmployeeInfoValueRow[] = [];
+    const employeeRecordIds = employeeRecords.map((row) => row.id).filter(Boolean);
+    if (employeeRecordIds.length) {
+      let employeeValuesResult = (await supabase
+        .from("employee_info_values")
+        .select("record_id,column_id,text_value,option_value,money_currency_code")
+        .in("record_id", employeeRecordIds)) as unknown as {
+        data: Array<Record<string, unknown>> | null;
+        error: { message?: string; code?: string } | null;
+      };
+      if (isSupabaseMissingColumnError(employeeValuesResult.error)) {
+        const fallbackValues = await supabase
+          .from("employee_info_values")
+          .select("record_id,column_id,text_value,option_value")
+          .in("record_id", employeeRecordIds);
+        employeeValuesResult = {
+          data: (fallbackValues.data || []).map((row) => ({
+            ...row,
+            money_currency_code: null,
+          })),
+          error: fallbackValues.error,
+        };
+      }
+      if (employeeValuesResult.error && !isSupabaseMissingTableError(employeeValuesResult.error)) {
+        financeWarnings.push(`Could not load Employee Info values (${employeeValuesResult.error.message}).`);
+      } else {
+        employeeValues = (employeeValuesResult.data || []) as EmployeeInfoValueRow[];
+      }
+    }
+
+    let exchangeRateRows: EmployeeInfoExchangeRateRow[] = [];
+    const exchangeRatesResult = await supabase
+      .from("employee_info_exchange_rates")
+      .select("base_currency_code,quote_currency_code,rate,effective_month_start")
+      .order("effective_month_start", { ascending: false });
+    if (exchangeRatesResult.error && !isSupabaseMissingTableError(exchangeRatesResult.error)) {
+      financeWarnings.push(`Could not load Employee Info FX rates (${exchangeRatesResult.error.message}).`);
+    } else {
+      exchangeRateRows = (exchangeRatesResult.data || []) as EmployeeInfoExchangeRateRow[];
+    }
+
+    const billingByClientId = new Map<string, BillingProfileRevenueRow>();
+    billingRows.forEach((row) => {
+      if (!billingByClientId.has(row.client_id)) {
+        billingByClientId.set(row.client_id, row);
+      }
+    });
+
+    const roleCounts = new Map<string, number>();
+    let revenueTotal = 0;
+    let costTotal = 0;
+    let marginTotal = 0;
+    let negativeMarginClients = 0;
+    let missingBillingProfiles = 0;
+    let missingFxClients = 0;
+
+    scopedClientIds.forEach((clientId) => {
+      const profile = billingByClientId.get(clientId) || null;
+      if (!profile) {
+        missingBillingProfiles += 1;
+      }
+      const clientRecords = employeeRecords.filter((record) => record.client_id === clientId);
+      const clientRecordIdSet = new Set(clientRecords.map((row) => row.id));
+      const clientValues = employeeValues.filter((row) => clientRecordIdSet.has(row.record_id));
+
+      const snapshot = computeClientBillingSnapshot({
+        clientId,
+        clientName: clientNameById[clientId] || "Unknown",
+        billingProfile: profile,
+        employeeRecords: clientRecords,
+        employeeColumns,
+        employeeValues: clientValues,
+        exchangeRateRows,
+        monthStart,
+      });
+      const converted = convertSnapshotAmountsToCurrency({
+        snapshot,
+        targetCurrencyCode: normalizeEmployeeInfoCurrencyCode(selectedCurrency),
+        exchangeRateRows,
+        monthStart,
+      });
+      revenueTotal += converted.estimatedMonthlyRevenue;
+      costTotal += converted.employeeMonthlyCosts;
+      marginTotal += converted.estimatedMonthlyMargin;
+      if (snapshot.estimatedMonthlyMargin < 0) {
+        negativeMarginClients += 1;
+      }
+      if (snapshot.employeeMonthlyCostSummary.hasMissingExchangeRate || converted.missingExchangeRate) {
+        missingFxClients += 1;
+      }
+      snapshot.employeeMonthlyCostSummary.breakdownRows.forEach((row) => {
+        roleCounts.set(row.roleLabel, (roleCounts.get(row.roleLabel) || 0) + row.employeeCount);
+      });
+    });
+
+    const activeEmployeeCountByClient: Record<string, number> = {};
+    const activeCountsResult = await supabase.rpc("client_active_employee_counts", {
+      p_client_ids: scopedClientIds,
+    });
+    if (!activeCountsResult.error) {
+      ((activeCountsResult.data || []) as Array<{ client_id: string | null; active_count: number | null }>).forEach(
+        (row) => {
+          const clientId = String(row.client_id || "").trim();
+          if (!clientId) return;
+          activeEmployeeCountByClient[clientId] = Math.max(0, Number(row.active_count || 0));
+        }
+      );
+    } else if (
+      !isSupabaseMissingFunctionError(activeCountsResult.error) &&
+      !isSupabaseMissingTableError(activeCountsResult.error)
+    ) {
+      financeWarnings.push(`Could not load active employee counts (${activeCountsResult.error.message}).`);
+    } else {
+      scopedClientIds.forEach((clientId) => {
+        activeEmployeeCountByClient[clientId] = employeeRecords.filter(
+          (record) => record.client_id === clientId
+        ).length;
+      });
+    }
+
+    const activeEmployeeCount = scopedClientIds.reduce(
+      (sum, clientId) => sum + Math.max(0, Number(activeEmployeeCountByClient[clientId] || 0)),
+      0
+    );
+    const clientsWithEmployees = scopedClientIds.filter(
+      (clientId) => Math.max(0, Number(activeEmployeeCountByClient[clientId] || 0)) > 0
+    ).length;
+    const topRoleEntry = Array.from(roleCounts.entries()).sort((a, b) => b[1] - a[1])[0] || ["-", 0];
+
+    financeSummary = {
+      currencyCode: selectedCurrency,
+      revenueTotal,
+      costTotal,
+      marginTotal,
+      marginPercent: revenueTotal > 0 ? (marginTotal / revenueTotal) * 100 : null,
+      scopedClientCount: scopedClientIds.length,
+      roleTopLabel: topRoleEntry[0],
+      roleTopCount: topRoleEntry[1],
+      activeEmployeeCount,
+      clientsWithEmployees,
+      risks: {
+        negativeMarginClients,
+        missingBillingProfiles,
+        missingExchangeRates: missingFxClients,
+      },
+      isEmptyScope: false,
+    };
+  }
 
   const newTasksLabel =
     selectedRange === "all"
@@ -652,71 +1022,275 @@ export default async function DashboardPage(props: {
   const completedCount = suggestionStatusCounts.get("completed") || 0;
   const rejectedCount = suggestionStatusCounts.get("rejected") || 0;
 
-  const taskSnapshotCards = [
-    { label: "Open tasks", value: openTasks.length.toString(), accent: "text-slate-900" },
-    { label: "Blocked tasks", value: blockedTasks.length.toString(), accent: "text-amber-600" },
-    { label: "Overdue tasks", value: overdueTasks.length.toString(), accent: "text-red-600" },
-    { label: "Due in 7 days", value: dueSoonTasks.length.toString(), accent: "text-amber-700" },
+  const filtersForQuery: DashboardFiltersState = {
+    range: selectedRange,
+    client: filteredClientIds,
+    project: filteredProjectIds,
+    user: filteredUserIds,
+    status: selectedStatuses,
+    priority: selectedPriorities,
+    currency: selectedCurrency,
+  };
+  const dashboardQueryParams = new URLSearchParams();
+  if (filtersForQuery.range && filtersForQuery.range !== "all") {
+    dashboardQueryParams.set("range", filtersForQuery.range);
+  }
+  if (filtersForQuery.client.length) {
+    dashboardQueryParams.set("client", filtersForQuery.client.join(","));
+  }
+  if (filtersForQuery.project.length) {
+    dashboardQueryParams.set("project", filtersForQuery.project.join(","));
+  }
+  if (filtersForQuery.user.length) {
+    dashboardQueryParams.set("user", filtersForQuery.user.join(","));
+  }
+  if (filtersForQuery.status.length) {
+    dashboardQueryParams.set("status", filtersForQuery.status.join(","));
+  }
+  if (filtersForQuery.priority.length) {
+    dashboardQueryParams.set("priority", filtersForQuery.priority.join(","));
+  }
+  if (filtersForQuery.currency !== DASHBOARD_DEFAULT_CURRENCY) {
+    dashboardQueryParams.set("currency", filtersForQuery.currency);
+  }
+
+  const buildDashboardSelfHref = (focusKey: DashboardFocusKey) => {
+    const params = new URLSearchParams(dashboardQueryParams.toString());
+    params.set("focus", focusKey);
+    return `/dashboard?${params.toString()}`;
+  };
+
+  const buildTasksHref = (options?: {
+    status?: string[];
+    due?: "overdue" | "next_7";
+  }) => {
+    const params = new URLSearchParams();
+    setCsvParam(params, "client", filteredClientIds);
+    setCsvParam(params, "project", filteredProjectIds);
+    setCsvParam(params, "assignee", filteredUserIds);
+    setCsvParam(params, "priority", selectedPriorities);
+    setCsvParam(params, "status", options?.status || selectedStatuses);
+    if (options?.due) {
+      params.set("due", options.due);
+    }
+    const query = params.toString();
+    return query ? `/tasks?${query}` : "/tasks";
+  };
+
+  const buildProjectsHref = (options?: { status?: string[] }) => {
+    const params = new URLSearchParams();
+    setCsvParam(params, "client", filteredClientIds);
+    setCsvParam(params, "assignee", filteredUserIds);
+    setCsvParam(params, "status", options?.status || []);
+    const query = params.toString();
+    return query ? `/projects?${query}` : "/projects";
+  };
+
+  const buildFeatureSuggestionsHref = (status?: string) => {
+    const params = new URLSearchParams();
+    if (status) {
+      params.set("status", status);
+      if (status === "completed" || status === "rejected") {
+        params.set("hide", "0");
+      }
+    }
+    const query = params.toString();
+    return query ? `/feature-suggestions?${query}` : "/feature-suggestions";
+  };
+
+  const taskSnapshotCards: DashboardSnapshotCardData[] = [
     {
+      key: "open_tasks",
+      label: "Open tasks",
+      value: openTasks.length.toString(),
+      accent: "text-slate-900",
+      href: buildTasksHref(),
+    },
+    {
+      key: "blocked_tasks",
+      label: "Blocked tasks",
+      value: blockedTasks.length.toString(),
+      accent: "text-amber-600",
+      href: buildTasksHref({ status: ["blocked"] }),
+    },
+    {
+      key: "overdue_tasks",
+      label: "Overdue tasks",
+      value: overdueTasks.length.toString(),
+      accent: "text-red-600",
+      href: buildTasksHref({ due: "overdue" }),
+    },
+    {
+      key: "due_7_days",
+      label: "Due in 7 days",
+      value: dueSoonTasks.length.toString(),
+      accent: "text-amber-700",
+      href: buildTasksHref({ due: "next_7" }),
+    },
+    {
+      key: "task_range_total",
       label: newTasksLabel,
       value: (tasks || []).length.toString(),
       accent: "text-slate-900",
+      href: buildTasksHref(),
     },
   ];
 
-  const projectSnapshotCards = [
+  const projectSnapshotCards: DashboardSnapshotCardData[] = [
     {
+      key: "planned_projects",
       label: "Planned projects",
       value: plannedProjectsCount.toString(),
       accent: "text-slate-900",
+      href: buildProjectsHref({ status: ["planned"] }),
     },
     {
+      key: "active_projects",
       label: "Active projects",
       value: activeProjectsCount.toString(),
       accent: "text-emerald-600",
+      href: buildProjectsHref({ status: ["active"] }),
     },
     {
+      key: "hold_projects",
       label: "On hold projects",
       value: onHoldProjectsCount.toString(),
       accent: "text-amber-700",
+      href: buildProjectsHref({ status: ["on_hold"] }),
     },
     {
+      key: "completed_projects",
       label: "Completed projects",
       value: completedProjectsCount.toString(),
       accent: "text-slate-500",
+      href: buildProjectsHref({ status: ["completed"] }),
     },
     {
+      key: "cancelled_projects",
       label: "Cancelled projects",
       value: cancelledProjectsCount.toString(),
       accent: "text-rose-500",
+      href: buildProjectsHref({ status: ["cancelled"] }),
     },
   ];
 
-  const featureSnapshotCards = [
+  const featureSnapshotCards: DashboardSnapshotCardData[] = [
     {
+      key: "ideas",
       label: "Ideas",
       value: ideasCount.toString(),
       accent: "text-slate-900",
+      href: buildFeatureSuggestionsHref("idea"),
     },
     {
+      key: "needs_checking",
       label: "Needs checking",
       value: needsCheckingCount.toString(),
       accent: "text-slate-900",
+      href: buildFeatureSuggestionsHref("needs_checking"),
     },
     {
+      key: "planned",
       label: "Planned",
       value: plannedCount.toString(),
       accent: "text-slate-900",
+      href: buildFeatureSuggestionsHref("planned"),
     },
     {
+      key: "completed",
       label: "Completed",
       value: completedCount.toString(),
       accent: "text-slate-500",
+      href: buildFeatureSuggestionsHref("completed"),
     },
     {
+      key: "rejected",
       label: "Rejected",
       value: rejectedCount.toString(),
       accent: "text-rose-500",
+      href: buildFeatureSuggestionsHref("rejected"),
+    },
+  ];
+
+  const financePeopleSnapshotCards: DashboardSnapshotCardData[] = [
+    {
+      key: "finance_revenue",
+      label: "Estimated monthly revenue",
+      value: formatEmployeeInfoCurrencyAmount(financeSummary.revenueTotal, financeSummary.currencyCode),
+      accent: "text-slate-900",
+      helper: financeSummary.isEmptyScope ? "No scoped clients from current filters" : "",
+      href: buildDashboardSelfHref("finance"),
+      focus: "finance",
+    },
+    {
+      key: "finance_cost",
+      label: "Employee monthly costs",
+      value: formatEmployeeInfoCurrencyAmount(financeSummary.costTotal, financeSummary.currencyCode),
+      accent: "text-slate-900",
+      href: buildDashboardSelfHref("finance"),
+      focus: "finance",
+    },
+    {
+      key: "finance_margin",
+      label: "Estimated gross margin",
+      value: formatEmployeeInfoCurrencyAmount(financeSummary.marginTotal, financeSummary.currencyCode),
+      accent: financeSummary.marginTotal < 0 ? "text-red-700" : "text-slate-900",
+      helper:
+        financeSummary.marginPercent === null
+          ? "-"
+          : `${financeSummary.marginPercent.toFixed(1).replace(/\.0$/, "")}%`,
+      href: buildDashboardSelfHref("finance"),
+      focus: "finance",
+    },
+    {
+      key: "people_active",
+      label: "Active employees in scope",
+      value: String(financeSummary.activeEmployeeCount),
+      accent: "text-slate-900",
+      href: buildDashboardSelfHref("people"),
+      focus: "people",
+    },
+    {
+      key: "people_clients",
+      label: "Clients with staff",
+      value: String(financeSummary.clientsWithEmployees),
+      accent: "text-slate-900",
+      helper: `${financeSummary.scopedClientCount} scoped clients`,
+      href: buildDashboardSelfHref("people"),
+      focus: "people",
+    },
+    {
+      key: "people_role",
+      label: "Top role mix",
+      value: financeSummary.roleTopLabel,
+      accent: "text-slate-900",
+      helper: financeSummary.roleTopCount ? `${financeSummary.roleTopCount} employees` : "No role data",
+      href: buildDashboardSelfHref("people"),
+      focus: "people",
+    },
+    {
+      key: "risk_negative",
+      label: "Negative-margin clients",
+      value: String(financeSummary.risks.negativeMarginClients),
+      accent: financeSummary.risks.negativeMarginClients > 0 ? "text-red-700" : "text-slate-900",
+      href: buildDashboardSelfHref("finance"),
+      focus: "finance",
+    },
+    {
+      key: "risk_profiles",
+      label: "Missing billing profiles",
+      value: String(financeSummary.risks.missingBillingProfiles),
+      accent: financeSummary.risks.missingBillingProfiles > 0 ? "text-amber-700" : "text-slate-900",
+      href: buildDashboardSelfHref("finance"),
+      focus: "finance",
+    },
+    {
+      key: "risk_fx",
+      label: "Missing FX clients",
+      value: String(financeSummary.risks.missingExchangeRates),
+      accent: financeSummary.risks.missingExchangeRates > 0 ? "text-amber-700" : "text-slate-900",
+      href: buildDashboardSelfHref("finance"),
+      focus: "finance",
     },
   ];
 
@@ -728,11 +1302,9 @@ export default async function DashboardPage(props: {
     .sort((a, b) => b.votes - a.votes || (a.created_at < b.created_at ? 1 : -1))
     .slice(0, 5);
 
-  const clientStatusCounts = new Map<string, number>();
-  (clients || []).forEach((client) => {
-    const status = client.status || "prospect";
-    clientStatusCounts.set(status, (clientStatusCounts.get(status) || 0) + 1);
-  });
+  const sectionFocusClass = (key: DashboardFocusKey) =>
+    selectedFocus === key ? "rounded-xl ring-2 ring-emerald-200 ring-offset-2 ring-offset-slate-50" : "";
+
   return (
     <div className="space-y-8">
       <section className="flex flex-wrap items-start justify-between gap-4">
@@ -742,9 +1314,10 @@ export default async function DashboardPage(props: {
           </p>
           <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
           <p className="text-sm text-slate-600">
-            Quick visibility into active work across clients, users, and projects.
+            Snapshot-first visibility across finance, people, and delivery.
           </p>
         </div>
+        <DashboardCurrencySelect filters={filtersForQuery} focus={selectedFocus} />
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
@@ -755,161 +1328,58 @@ export default async function DashboardPage(props: {
           users={users || []}
           statusOptions={taskStatuses}
           priorityOptions={taskPriorities}
-          initialFilters={{
-            range: selectedRange,
-            client: filteredClientIds,
-            project: filteredProjectIds,
-            user: filteredUserIds,
-            status: selectedStatuses,
-            priority: selectedPriorities,
-          }}
+          initialFilters={filtersForQuery}
         />
       </section>
 
-      <section className="space-y-6">
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Tasks
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-            {taskSnapshotCards.map((card) => (
-              <div
-                key={card.label}
-                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <p className="text-xs uppercase tracking-wide text-slate-400">
-                  {card.label}
-                </p>
-                <p className={`mt-2 text-2xl font-semibold ${card.accent}`}>{card.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+      {financeWarnings.length ? (
+        <section className="space-y-2">
+          {financeWarnings.map((warning) => (
+            <p
+              key={warning}
+              className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+            >
+              {warning}
+            </p>
+          ))}
+        </section>
+      ) : null}
 
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Projects
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-            {projectSnapshotCards.map((card) => (
-              <div
-                key={card.label}
-                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <p className="text-xs uppercase tracking-wide text-slate-400">
-                  {card.label}
-                </p>
-                <p className={`mt-2 text-2xl font-semibold ${card.accent}`}>{card.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Feature Requests
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-            {featureSnapshotCards.map((card) => (
-              <div
-                key={card.label}
-                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <p className="text-xs uppercase tracking-wide text-slate-400">
-                  {card.label}
-                </p>
-                <p className={`mt-2 text-2xl font-semibold ${card.accent}`}>{card.value}</p>
-              </div>
-            ))}
-          </div>
+      <section id="finance" className={`space-y-3 ${sectionFocusClass("finance")}`}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Finance + People
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {financePeopleSnapshotCards.map((card) => (
+            <DashboardSnapshotCard key={card.key} card={card} />
+          ))}
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Work by client</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-6 py-3">Client</th>
-                  <th className="px-6 py-3">Open</th>
-                  <th className="px-6 py-3">Blocked</th>
-                  <th className="px-6 py-3">Overdue</th>
-                  <th className="px-6 py-3">Projects</th>
-                  <th className="px-6 py-3">Last activity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clientWorkload.length ? (
-                  clientWorkload.map((row) => (
-                    <tr key={row.clientId} className="border-t border-slate-200">
-                      <td className="px-6 py-3 font-medium text-slate-900">
-                        <Link href={`/clients/${row.clientId}`} className="hover:underline">
-                          {row.clientName}
-                        </Link>
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">{row.open}</td>
-                      <td className="px-6 py-3 text-slate-600">{row.blocked}</td>
-                      <td className="px-6 py-3 text-slate-600">{row.overdue}</td>
-                      <td className="px-6 py-3 text-slate-600">{row.projects}</td>
-                      <td className="px-6 py-3 text-slate-600">
-                        {row.activity
-                          ? new Date(row.activity).toLocaleDateString("en-US")
-                          : "-"}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="px-6 py-6 text-slate-500" colSpan={6}>
-                      No client activity found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      <section id="task_delivery" className={`space-y-3 ${sectionFocusClass("task_delivery")}`}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Task + Delivery
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {taskSnapshotCards.map((card) => (
+            <DashboardSnapshotCard key={card.key} card={card} />
+          ))}
         </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {projectSnapshotCards.map((card) => (
+            <DashboardSnapshotCard key={card.key} card={card} />
+          ))}
+        </div>
+      </section>
 
-        <div className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-slate-900">Work by user</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-6 py-3">User</th>
-                  <th className="px-6 py-3">Open</th>
-                  <th className="px-6 py-3">Blocked</th>
-                  <th className="px-6 py-3">Overdue</th>
-                  <th className="px-6 py-3">Projects</th>
-                </tr>
-              </thead>
-              <tbody>
-                {userWorkload.length ? (
-                  userWorkload.map((row) => (
-                    <tr key={row.userId} className="border-t border-slate-200">
-                      <td className="px-6 py-3 font-medium text-slate-900">{row.userName}</td>
-                      <td className="px-6 py-3 text-slate-600">{row.open}</td>
-                      <td className="px-6 py-3 text-slate-600">{row.blocked}</td>
-                      <td className="px-6 py-3 text-slate-600">{row.overdue}</td>
-                      <td className="px-6 py-3 text-slate-600">{row.projects}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="px-6 py-6 text-slate-500" colSpan={5}>
-                      No user workload found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      <section id="feature_requests" className={`space-y-3 ${sectionFocusClass("feature_requests")}`}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Feature Requests
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {featureSnapshotCards.map((card) => (
+            <DashboardSnapshotCard key={card.key} card={card} />
+          ))}
         </div>
       </section>
 
@@ -962,7 +1432,93 @@ export default async function DashboardPage(props: {
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
+      <section className={`grid gap-6 lg:grid-cols-2 ${sectionFocusClass("work_by_client")}`}>
+        <details className="rounded-lg border border-slate-200 bg-white" open={false}>
+          <summary className="cursor-pointer select-none border-b border-slate-200 px-6 py-4 text-lg font-semibold text-slate-900">
+            Work by client ({clientWorkload.length})
+          </summary>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-6 py-3">Client</th>
+                  <th className="px-6 py-3">Open</th>
+                  <th className="px-6 py-3">Blocked</th>
+                  <th className="px-6 py-3">Overdue</th>
+                  <th className="px-6 py-3">Projects</th>
+                  <th className="px-6 py-3">Last activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clientWorkload.length ? (
+                  clientWorkload.map((row) => (
+                    <tr key={row.clientId} className="border-t border-slate-200">
+                      <td className="px-6 py-3 font-medium text-slate-900">
+                        <Link href={`/clients/${row.clientId}`} className="hover:underline">
+                          {row.clientName}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-3 text-slate-600">{row.open}</td>
+                      <td className="px-6 py-3 text-slate-600">{row.blocked}</td>
+                      <td className="px-6 py-3 text-slate-600">{row.overdue}</td>
+                      <td className="px-6 py-3 text-slate-600">{row.projects}</td>
+                      <td className="px-6 py-3 text-slate-600">
+                        {row.activity ? new Date(row.activity).toLocaleDateString("en-US") : "-"}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-6 py-6 text-slate-500" colSpan={6}>
+                      No client activity found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details className="rounded-lg border border-slate-200 bg-white" open={false}>
+          <summary className="cursor-pointer select-none border-b border-slate-200 px-6 py-4 text-lg font-semibold text-slate-900">
+            Work by user ({userWorkload.length})
+          </summary>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-6 py-3">User</th>
+                  <th className="px-6 py-3">Open</th>
+                  <th className="px-6 py-3">Blocked</th>
+                  <th className="px-6 py-3">Overdue</th>
+                  <th className="px-6 py-3">Projects</th>
+                </tr>
+              </thead>
+              <tbody>
+                {userWorkload.length ? (
+                  userWorkload.map((row) => (
+                    <tr key={row.userId} className="border-t border-slate-200">
+                      <td className="px-6 py-3 font-medium text-slate-900">{row.userName}</td>
+                      <td className="px-6 py-3 text-slate-600">{row.open}</td>
+                      <td className="px-6 py-3 text-slate-600">{row.blocked}</td>
+                      <td className="px-6 py-3 text-slate-600">{row.overdue}</td>
+                      <td className="px-6 py-3 text-slate-600">{row.projects}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-6 py-6 text-slate-500" colSpan={5}>
+                      No user workload found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+      <section className={`grid gap-6 lg:grid-cols-2 ${sectionFocusClass("feature_requests")}`}>
         <div className="rounded-lg border border-slate-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-slate-900">All tasks by status</h2>
           <div className="mt-4 space-y-3">
@@ -1039,10 +1595,10 @@ export default async function DashboardPage(props: {
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Projects at a glance</h2>
-        </div>
+      <details className={`rounded-lg border border-slate-200 bg-white ${sectionFocusClass("projects_glance")}`} open={false}>
+        <summary className="cursor-pointer select-none border-b border-slate-200 px-6 py-4 text-lg font-semibold text-slate-900">
+          Projects at a glance ({projectHealth.length})
+        </summary>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -1082,9 +1638,9 @@ export default async function DashboardPage(props: {
             </tbody>
           </table>
         </div>
-      </section>
+      </details>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
+      <section className={`rounded-lg border border-slate-200 bg-white p-6 ${sectionFocusClass("recent_activity")}`}>
         <h2 className="text-lg font-semibold text-slate-900">Recent activity</h2>
         <div className="mt-4 space-y-3">
           {recentActivity.length ? (
@@ -1105,3 +1661,4 @@ export default async function DashboardPage(props: {
     </div>
   );
 }
+

@@ -4,43 +4,16 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation";
 import MultiSelect from "../_components/MultiSelect";
 import { formatTaskStatusLabel } from "@/lib/taskStatus";
+import {
+  buildDashboardQuery,
+  writeDashboardFiltersCookie,
+} from "./filterState";
+import type { DashboardFiltersState } from "./types";
 
 type RangeOption = { value: string; label: string };
 type ClientOption = { id: string; name: string };
 type ProjectOption = { id: string; name: string };
 type UserOption = { id: string; full_name: string | null; email: string | null };
-
-type DashboardFiltersState = {
-  range: string;
-  client: string[];
-  project: string[];
-  user: string[];
-  status: string[];
-  priority: string[];
-};
-
-const COOKIE_NAME = "resopshub_dashboard_filters";
-
-function buildQuery(filters: DashboardFiltersState) {
-  const params = new URLSearchParams();
-  if (filters.range && filters.range !== "all") params.set("range", filters.range);
-  if (filters.client.length) params.set("client", filters.client.join(","));
-  if (filters.project.length) params.set("project", filters.project.join(","));
-  if (filters.user.length) params.set("user", filters.user.join(","));
-  if (filters.status.length) params.set("status", filters.status.join(","));
-  if (filters.priority.length) params.set("priority", filters.priority.join(","));
-  return params.toString();
-}
-
-function writeCookie(filters: DashboardFiltersState) {
-  const maxAgeSeconds = 60 * 60 * 24 * 365;
-  const encoded = encodeURIComponent(JSON.stringify(filters));
-  let cookie = `${COOKIE_NAME}=${encoded}; path=/dashboard; max-age=${maxAgeSeconds}; samesite=lax`;
-  if (typeof window !== "undefined" && window.location.protocol === "https:") {
-    cookie += "; secure";
-  }
-  document.cookie = cookie;
-}
 
 export default function DashboardFilters({
   rangeOptions,
@@ -74,8 +47,8 @@ export default function DashboardFilters({
 
   const apply = useCallback(
     (next: DashboardFiltersState) => {
-      writeCookie(next);
-      const query = buildQuery(next);
+      writeDashboardFiltersCookie(next);
+      const query = buildDashboardQuery(next);
       startTransition(() => {
         router.replace(query ? `/dashboard?${query}` : "/dashboard", {
           scroll: false,
@@ -103,7 +76,8 @@ export default function DashboardFilters({
         event.preventDefault();
         apply(filters);
       }}
-    >
+      >
+      <input type="hidden" name="currency" value={filters.currency} />
       <select
         name="range"
         value={filters.range}
