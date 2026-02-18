@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   EMPLOYEE_INFO_DISPLAY_CURRENCY_CODES,
@@ -25,13 +25,23 @@ export default function CurrencyDisplaySelect({
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
 
-  const normalizedValue = useMemo(
+  const serverValue = useMemo(
     () => normalizeEmployeeInfoDisplayCurrencyCode(value),
     [value]
   );
+  const urlValue = useMemo(
+    () => normalizeEmployeeInfoDisplayCurrencyCode(searchParams.get("display_currency") || serverValue),
+    [searchParams, serverValue]
+  );
+  const [localValue, setLocalValue] = useState<EmployeeInfoDisplayCurrencyCode>(urlValue);
+
+  useEffect(() => {
+    setLocalValue(urlValue);
+  }, [urlValue]);
 
   const handleValueChange = (nextValue: string) => {
     const normalized = normalizeEmployeeInfoDisplayCurrencyCode(nextValue);
+    setLocalValue(normalized);
     const params = new URLSearchParams(searchParams.toString());
 
     if (normalized === "ORIGINAL") {
@@ -46,7 +56,6 @@ export default function CurrencyDisplaySelect({
     const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
     startTransition(() => {
       router.replace(nextUrl, { scroll: false });
-      router.refresh();
     });
   };
 
@@ -54,7 +63,7 @@ export default function CurrencyDisplaySelect({
     <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
       <span>Currency</span>
       <select
-        value={normalizedValue}
+        value={localValue}
         onChange={(event) => handleValueChange(event.currentTarget.value)}
         className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700"
       >
