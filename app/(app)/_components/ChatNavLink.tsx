@@ -41,39 +41,9 @@ export default function ChatNavLink({
       return;
     }
 
-    // Fallback for environments that haven't applied sql/chat_unread_counts.sql yet.
-    const { data: membershipsRaw, error: membershipsError } = await supabase
-      .from("chat_conversation_members")
-      .select("conversation_id,last_read_at")
-      .eq("user_id", userId);
-
-    if (membershipsError || !(membershipsRaw || []).length) {
-      setUnreadCount(0);
-      return;
-    }
-
-    const memberships = (membershipsRaw || []) as Array<{
-      conversation_id: string;
-      last_read_at: string | null;
-    }>;
-
-    const unreadCounts = await Promise.all(
-      memberships.map(async (membership) => {
-        let query = supabase
-          .from("chat_messages")
-          .select("id", { count: "exact", head: true })
-          .eq("conversation_id", membership.conversation_id)
-          .neq("sender_id", userId);
-        if (membership.last_read_at) {
-          query = query.gt("created_at", membership.last_read_at);
-        }
-        const { count } = await query;
-        return count || 0;
-      })
-    );
-
-    setUnreadCount(unreadCounts.reduce((sum, value) => sum + value, 0));
-  }, [userId]);
+    // Avoid expensive N+1 fallback counts in the nav on every refresh.
+    setUnreadCount(0);
+  }, []);
 
   useEffect(() => {
     void refreshUnreadCount();

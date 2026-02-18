@@ -258,8 +258,27 @@ export function convertEmployeeInfoCurrencyAmount(args: {
   exchangeRateMap: EmployeeInfoExchangeRateMap;
 }) {
   const { amount, fromCurrencyCode, toCurrencyCode, exchangeRateMap } = args;
-  const numericAmount = Number(amount);
-  if (!Number.isFinite(numericAmount)) return null;
+  const normalizeNumericAmount = (value: number | string | null | undefined) => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : null;
+    }
+
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+
+    const hasParens = raw.startsWith("(") && raw.endsWith(")");
+    const stripped = raw
+      .replace(/[(),\s]/g, "")
+      .replace(/[^0-9.+-]/g, "");
+    if (!stripped) return null;
+
+    const parsed = Number(stripped);
+    if (!Number.isFinite(parsed)) return null;
+    return hasParens ? -Math.abs(parsed) : parsed;
+  };
+
+  const numericAmount = normalizeNumericAmount(amount);
+  if (numericAmount === null || !Number.isFinite(numericAmount)) return null;
 
   const exchangeRate = resolveEmployeeInfoExchangeRate(
     exchangeRateMap,

@@ -17,6 +17,12 @@ export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({
     request,
   });
+  const isPrefetchRequest =
+    request.headers.get("purpose") === "prefetch" ||
+    request.headers.get("next-router-prefetch") === "1";
+  if (isPrefetchRequest) {
+    return response;
+  }
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {

@@ -12,6 +12,7 @@ import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
 import GlobalSearchBar from "./_components/GlobalSearchBar";
+import AppResumeRefresh from "./_components/AppResumeRefresh";
 
 type NavIconName =
   | "dashboard"
@@ -274,6 +275,7 @@ export default async function AppLayout({
   const navLinks = baseNavLinks.filter((link) => canViewPage(link.pageKey));
   const canViewSettings = canViewPage("settings");
   const canViewPersonal = canViewPage("personal");
+  const canViewChat = canViewPage("chat");
 
   async function signOut() {
     "use server";
@@ -282,17 +284,31 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  const personalSectionsPromise = supabase
-    .from("personal_sections")
-    .select("id,title,owner_id,sort_order")
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
-  const personalPagesWithSortPromise = supabase
-    .from("personal_pages")
-    .select("id,title,owner_id,section_id,updated_at,sort_order")
-    .order("section_id", { ascending: true, nullsFirst: true })
-    .order("sort_order", { ascending: true })
-    .order("updated_at", { ascending: false });
+  const personalSectionsPromise = canViewPersonal
+    ? supabase
+        .from("personal_sections")
+        .select("id,title,owner_id,sort_order")
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+    : Promise.resolve({ data: [] as Array<{ id: string; title: string; owner_id: string }>, error: null });
+  const personalPagesWithSortPromise = canViewPersonal
+    ? supabase
+        .from("personal_pages")
+        .select("id,title,owner_id,section_id,updated_at,sort_order")
+        .order("section_id", { ascending: true, nullsFirst: true })
+        .order("sort_order", { ascending: true })
+        .order("updated_at", { ascending: false })
+    : Promise.resolve({
+        data: [] as Array<{
+          id: string;
+          title: string;
+          owner_id: string;
+          section_id: string | null;
+          updated_at: string | null;
+          sort_order?: number | null;
+        }>,
+        error: null as null,
+      });
 
   const [
     { data: personalSections },
@@ -322,56 +338,25 @@ export default async function AppLayout({
   }
 
   let unreadChatCount = 0;
-  const { data: unreadRowsRaw, error: unreadRowsError } = await withPerfTiming(
-    "layout.chat_unread.rpc",
-    () => supabase.rpc(
-      "chat_unread_counts"
-    )
-  );
-
-  if (!unreadRowsError) {
-    unreadChatCount = ((unreadRowsRaw || []) as Array<{ unread_count: number | null }>).reduce(
-      (sum, row) => sum + Number(row.unread_count || 0),
-      0
+  if (canViewChat) {
+    const { data: unreadRowsRaw, error: unreadRowsError } = await withPerfTiming(
+      "layout.chat_unread.rpc",
+      () => supabase.rpc("chat_unread_counts")
     );
-  } else if (isSupabaseMissingFunctionError(unreadRowsError)) {
-    // Fallback for environments that haven't applied sql/chat_unread_counts.sql yet.
-    const { data: myMembershipsRaw, error: myMembershipsError } = await supabase
-      .from("chat_conversation_members")
-      .select("conversation_id,last_read_at")
-      .eq("user_id", user.id);
 
-    if (!myMembershipsError && (myMembershipsRaw || []).length) {
-      const myMemberships = (myMembershipsRaw || []) as Array<{
-        conversation_id: string;
-        last_read_at: string | null;
-      }>;
-
-      const unreadCounts = await Promise.all(
-        myMemberships.map(async (membership) => {
-          let query = supabase
-            .from("chat_messages")
-            .select("id", { count: "exact", head: true })
-            .eq("conversation_id", membership.conversation_id)
-            .neq("sender_id", user.id);
-          if (membership.last_read_at) {
-            query = query.gt("created_at", membership.last_read_at);
-          }
-          const { count } = await query;
-          return count || 0;
-        })
+    if (!unreadRowsError) {
+      unreadChatCount = ((unreadRowsRaw || []) as Array<{ unread_count: number | null }>).reduce(
+        (sum, row) => sum + Number(row.unread_count || 0),
+        0
       );
-
-      unreadChatCount = unreadCounts.reduce((sum, count) => sum + count, 0);
-    } else if (myMembershipsError && !isSupabaseMissingTableError(myMembershipsError)) {
-      console.error("[layout.chat.unread.fallback]", myMembershipsError.message);
+    } else if (!isSupabaseMissingFunctionError(unreadRowsError) && !isSupabaseMissingTableError(unreadRowsError)) {
+      console.error("[layout.chat.unread.rpc]", unreadRowsError.message);
     }
-  } else if (!isSupabaseMissingTableError(unreadRowsError)) {
-    console.error("[layout.chat.unread.rpc]", unreadRowsError.message);
   }
 
   return (
     <div className="min-h-screen overflow-x-hidden app-bg text-slate-900">
+      <AppResumeRefresh />
       <div className="relative min-h-screen overflow-x-hidden">
         <input
           id="app-sidebar-collapsed"
