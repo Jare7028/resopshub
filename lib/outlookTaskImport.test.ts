@@ -60,7 +60,7 @@ describe("outlookTaskImport", () => {
     expect(prepared.normalizedNotesText).toContain("Source: Outlook email import");
     expect(prepared.normalizedNotesText).toContain("Summary\n- Subject: Follow up with client");
     expect(prepared.normalizedNotesText).toContain("\n\nFrom: alice@contoso.com");
-    expect(prepared.normalizedNotesText).toContain("\nBody:\nCan we review this by Friday?");
+    expect(prepared.normalizedNotesText).toContain("\n\nCan we review this by Friday?");
     expect(prepared.normalizedNotesText).not.toContain("Selected message ID:");
     expect(prepared.normalizedNotesText).not.toContain("Conversation ID:");
     expect(prepared.normalizedNotesText).not.toContain("Thread message count:");

@@ -462,7 +462,6 @@ export function buildOutlookImportReadableNotesText(args: {
       lines.push(line);
     });
     lines.push("");
-    lines.push("Body:");
     buildOutlookImportBodyLines(message.bodyText).forEach((line) => {
       lines.push(line);
     });
@@ -510,7 +509,6 @@ export function buildOutlookImportTaskContent(args: {
       nodes.push(paragraph(line));
     });
     nodes.push(paragraph());
-    nodes.push(paragraph("Body:"));
     buildOutlookImportBodyLines(message.bodyText).forEach((line) => {
       nodes.push(paragraph(line));
     });
