@@ -400,9 +400,25 @@ function buildOutlookImportMessageHeaderLines(message: OutlookImportThreadMessag
   return lines as string[];
 }
 
+function recoverEmailBodyLineBreaks(text: string) {
+  return String(text || "")
+    .replace(/([.!?])(?=[A-Z][a-z])/g, "$1\n")
+    .replace(/,(?=[A-Z][a-z]{2,})/g, ",\n")
+    .replace(/\s+(From:\s)/g, "\n\n$1")
+    .replace(/\s+(Sent:\s)/g, "\n$1")
+    .replace(/\s+(To:\s)/g, "\n$1")
+    .replace(/\s+(Cc:\s)/g, "\n$1")
+    .replace(/\s+(Subject:\s)/g, "\n$1")
+    .replace(/\s+(Date:\s)/g, "\n$1");
+}
+
 function buildOutlookImportBodyLines(bodyText: string) {
-  const normalized = String(bodyText || "")
-    .replace(/\r\n/g, "\n")
+  const normalized = recoverEmailBodyLineBreaks(
+    String(bodyText || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\u00A0/g, " ")
+  )
+    .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{4,}/g, "\n\n\n")
     .trim();
   if (!normalized) {

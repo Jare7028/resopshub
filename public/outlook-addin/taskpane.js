@@ -81,21 +81,41 @@
     loginLink.href = `/login?return_to=${encodeURIComponent(returnTo)}`;
   }
 
+  function recoverEmailLineBreaks(text) {
+    return String(text || "")
+      .replace(/([.!?])(?=[A-Z][a-z])/g, "$1\n")
+      .replace(/,(?=[A-Z][a-z]{2,})/g, ",\n")
+      .replace(/\s+(From:\s)/g, "\n\n$1")
+      .replace(/\s+(Sent:\s)/g, "\n$1")
+      .replace(/\s+(To:\s)/g, "\n$1")
+      .replace(/\s+(Cc:\s)/g, "\n$1")
+      .replace(/\s+(Subject:\s)/g, "\n$1")
+      .replace(/\s+(Date:\s)/g, "\n$1");
+  }
+
   function normalizeBodyText(raw) {
-    return String(raw || "")
-      .replace(/\r\n/g, "\n")
+    return recoverEmailLineBreaks(
+      String(raw || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\u00A0/g, " ")
+    )
       .replace(/[ \t]+\n/g, "\n")
-      .replace(/\u00A0/g, " ")
       .replace(/\n{4,}/g, "\n\n\n")
       .trim();
   }
 
   function extractTextFromHtml(html) {
     const parser = document.createElement("div");
-    parser.innerHTML = String(html || "");
+    const htmlWithBreaks = String(html || "")
+      .replace(/<\s*br\s*\/?>/gi, "\n")
+      .replace(
+        /<\s*\/\s*(p|div|li|tr|table|blockquote|h1|h2|h3|h4|h5|h6|section|article)\s*>/gi,
+        "</$1>\n"
+      );
+    parser.innerHTML = htmlWithBreaks;
     const junkNodes = parser.querySelectorAll("script, style, noscript");
     Array.prototype.forEach.call(junkNodes, (node) => node.remove());
-    return parser.innerText || parser.textContent || "";
+    return parser.textContent || parser.innerText || "";
   }
 
   function getMessageBody(item, coercionType) {

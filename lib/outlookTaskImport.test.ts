@@ -69,6 +69,23 @@ describe("outlookTaskImport", () => {
     expect(prepared.normalizedNotesText).toContain("Outlook thread link:");
   });
 
+  it("recovers line breaks for clumped email body text", () => {
+    const payload = buildPreviewPayload();
+    payload.thread[0].bodyText =
+      "Hi Jared, Thanks for confirming, can we drop Ashwinee's hours down to Saturdays?Will this come in with immediate effect?Many thanks,Calum From: Jared Clapham <jared@resolvable.com> Sent: 17 February 2026 16:45 To: Calum <calum@bigfurniturewarehouse.com> Subject: Hourly Rate: Hi Calum.";
+
+    const prepared = prepareOutlookImportPreview(payload, {
+      importedAtIso: "2026-02-18T12:00:00.000Z",
+    });
+
+    expect(prepared.normalizedNotesText).toContain("Saturdays?\nWill this come in with immediate effect?");
+    expect(prepared.normalizedNotesText).toContain("Many thanks,\nCalum");
+    expect(prepared.normalizedNotesText).toContain("\n\nFrom: Jared Clapham <jared@resolvable.com>");
+    expect(prepared.normalizedNotesText).toContain("\nSent: 17 February 2026 16:45");
+    expect(prepared.normalizedNotesText).toContain("\nTo: Calum <calum@bigfurniturewarehouse.com>");
+    expect(prepared.normalizedNotesText).toContain("\nSubject: Hourly Rate:");
+  });
+
   it("converts thread content into searchable tiptap text", () => {
     const payload = buildPreviewPayload();
     const content = buildOutlookImportTaskContent({
