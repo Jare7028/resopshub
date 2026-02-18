@@ -7,6 +7,7 @@ import {
   normalizeEmployeeInfoDisplayCurrencyCode,
   type EmployeeInfoDisplayCurrencyCode,
 } from "@/lib/employeeInfo";
+import { EMPLOYEE_INFO_DISPLAY_CURRENCY_SWITCH_INTENT } from "./events";
 
 const displayCurrencyLabelByCode: Record<EmployeeInfoDisplayCurrencyCode, string> = {
   ORIGINAL: "Original",
@@ -63,8 +64,13 @@ export default function CurrencyDisplaySelect({
     <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
       <span>Currency</span>
       <select
+        data-employee-info-currency-selector="true"
         value={localValue}
         onChange={(event) => handleValueChange(event.currentTarget.value)}
+        onPointerDownCapture={() => {
+          if (typeof window === "undefined") return;
+          window.dispatchEvent(new Event(EMPLOYEE_INFO_DISPLAY_CURRENCY_SWITCH_INTENT));
+        }}
         className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700"
       >
         {EMPLOYEE_INFO_DISPLAY_CURRENCY_CODES.map((code) => (

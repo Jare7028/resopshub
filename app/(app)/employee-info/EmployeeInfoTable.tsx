@@ -17,6 +17,7 @@ import FormulaAutocompleteInput, {
   type FormulaSuggestion,
 } from "./FormulaAutocompleteInput";
 import FormulaEditorDialog from "./FormulaEditorDialog";
+import { EMPLOYEE_INFO_DISPLAY_CURRENCY_SWITCH_INTENT } from "./events";
 import {
   EMPLOYEE_INFO_VISIBILITY_EVENT,
   persistEmployeeInfoVisibility,
@@ -80,6 +81,7 @@ const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   MUR: "MUR (Rs)",
 };
 const NONE_FILTER_VALUE = "__none__";
+const CURRENCY_SWITCH_INTENT_WINDOW_MS = 1500;
 
 function parseOptionsJson(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -169,6 +171,36 @@ function syncEditableCellHighlight(
   if (cell) {
     cell.classList.toggle("bg-red-50/60", isEmpty);
   }
+}
+
+function getEditableFormControls(form: HTMLFormElement) {
+  return Array.from(
+    form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+      'input[name="value"], select[name="value"], select[name="currency_code"]'
+    )
+  );
+}
+
+function getEditableControlDefaultValue(control: HTMLInputElement | HTMLSelectElement) {
+  if (control instanceof HTMLInputElement) {
+    return control.defaultValue;
+  }
+
+  const defaultOption = Array.from(control.options).find((option) => option.defaultSelected);
+  if (defaultOption) return defaultOption.value;
+  return control.options.item(0)?.value ?? "";
+}
+
+function isEditableFormDirty(form: HTMLFormElement) {
+  return getEditableFormControls(form).some(
+    (field) => field.value !== getEditableControlDefaultValue(field)
+  );
+}
+
+function resetEditableFormControlsToDefault(form: HTMLFormElement) {
+  getEditableFormControls(form).forEach((field) => {
+    field.value = getEditableControlDefaultValue(field);
+  });
 }
 
 function parseSortableNumber(value: string | null | undefined) {
@@ -582,6 +614,7 @@ export default function EmployeeInfoTable({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const hasLoadedVisibilityRef = useRef(false);
   const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
+  const currencySwitchIntentAtRef = useRef(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
@@ -669,6 +702,25 @@ export default function EmployeeInfoTable({
   }, [columns]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const markCurrencySwitchIntent = () => {
+      currencySwitchIntentAtRef.current = Date.now();
+    };
+
+    window.addEventListener(
+      EMPLOYEE_INFO_DISPLAY_CURRENCY_SWITCH_INTENT,
+      markCurrencySwitchIntent
+    );
+    return () => {
+      window.removeEventListener(
+        EMPLOYEE_INFO_DISPLAY_CURRENCY_SWITCH_INTENT,
+        markCurrencySwitchIntent
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!openMenu) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -745,6 +797,7 @@ export default function EmployeeInfoTable({
     syncEditableCellHighlight(control, shouldHighlight);
     const form = control.form;
     if (!form) return;
+    if (!isEditableFormDirty(form)) return;
     const formData = new FormData(form);
     startTransition(() => {
       void (async () => {
@@ -770,6 +823,22 @@ export default function EmployeeInfoTable({
   };
 
   const handleInputBlur = (event: FocusEvent<HTMLInputElement>) => {
+    const relatedTarget =
+      event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
+    const isCurrencySelectorTarget = Boolean(
+      relatedTarget?.closest('[data-employee-info-currency-selector="true"]')
+    );
+    const withinSwitchIntentWindow =
+      Date.now() - currencySwitchIntentAtRef.current < CURRENCY_SWITCH_INTENT_WINDOW_MS;
+    if (isCurrencySelectorTarget || withinSwitchIntentWindow) {
+      const form = event.currentTarget.form;
+      if (form) {
+        resetEditableFormControlsToDefault(form);
+      }
+      const shouldHighlight = getHighlightPolicyForControl(event.currentTarget);
+      syncEditableCellHighlight(event.currentTarget, shouldHighlight);
+      return;
+    }
     saveControlChange(event.currentTarget);
   };
 
