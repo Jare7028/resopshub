@@ -758,7 +758,6 @@ export default async function DashboardPage(props: {
     risks: {
       negativeMarginClients: 0,
       missingBillingProfiles: 0,
-      missingExchangeRates: 0,
     },
     isEmptyScope: scopedClientIds.length === 0,
   };
@@ -960,7 +959,6 @@ export default async function DashboardPage(props: {
     let marginTotal = 0;
     let negativeMarginClients = 0;
     let missingBillingProfiles = 0;
-    let missingFxClients = 0;
 
     scopedClientIds.forEach((clientId) => {
       const profile = billingByClientId.get(clientId) || null;
@@ -991,9 +989,6 @@ export default async function DashboardPage(props: {
       marginTotal += converted.estimatedMonthlyMargin;
       if (snapshot.estimatedMonthlyMargin < 0) {
         negativeMarginClients += 1;
-      }
-      if (snapshot.employeeMonthlyCostSummary.hasMissingExchangeRate || converted.missingExchangeRate) {
-        missingFxClients += 1;
       }
       snapshot.employeeMonthlyCostSummary.breakdownRows.forEach((row) => {
         let roleCostInTargetCurrency = row.totalAmount;
@@ -1044,7 +1039,6 @@ export default async function DashboardPage(props: {
       risks: {
         negativeMarginClients,
         missingBillingProfiles,
-        missingExchangeRates: missingFxClients,
       },
       isEmptyScope: false,
     };
@@ -1329,14 +1323,6 @@ export default async function DashboardPage(props: {
       label: "Missing billing profiles",
       value: String(financeSummary.risks.missingBillingProfiles),
       accent: financeSummary.risks.missingBillingProfiles > 0 ? "text-amber-700" : "text-slate-900",
-      href: buildDashboardSelfHref("finance"),
-      focus: "finance",
-    },
-    {
-      key: "risk_fx",
-      label: "Missing FX clients",
-      value: String(financeSummary.risks.missingExchangeRates),
-      accent: financeSummary.risks.missingExchangeRates > 0 ? "text-amber-700" : "text-slate-900",
       href: buildDashboardSelfHref("finance"),
       focus: "finance",
     },

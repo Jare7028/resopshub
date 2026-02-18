@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 
 type ConfirmDeleteProps = {
@@ -9,7 +10,7 @@ type ConfirmDeleteProps = {
   formAction?: (formData: FormData) => void;
   confirmLabel?: string;
   pendingLabel?: string;
-  triggerLabel?: string;
+  triggerLabel?: ReactNode;
 };
 
 export default function ConfirmDelete({
