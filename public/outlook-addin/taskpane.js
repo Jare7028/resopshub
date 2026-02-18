@@ -90,7 +90,11 @@
       .replace(/\s+(To:\s)/g, "\n$1")
       .replace(/\s+(Cc:\s)/g, "\n$1")
       .replace(/\s+(Subject:\s)/g, "\n$1")
-      .replace(/\s+(Date:\s)/g, "\n$1");
+      .replace(/\s+(Date:\s)/g, "\n$1")
+      .replace(
+        /(Subject:[^\n]*?:)\s+(?=(?:Hi|Hello|Dear|Thanks|Thank\s+you|Following|Please|Can|I|We)\b)/gi,
+        "$1\n\n"
+      );
   }
 
   function normalizeBodyText(raw) {

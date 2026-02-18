@@ -84,7 +84,7 @@ describe("outlookTaskImport", () => {
     expect(prepared.normalizedNotesText).toContain("\n\nFrom: Jared Clapham <jared@resolvable.com>");
     expect(prepared.normalizedNotesText).toContain("\nSent: 17 February 2026 16:45");
     expect(prepared.normalizedNotesText).toContain("\nTo: Calum <calum@bigfurniturewarehouse.com>");
-    expect(prepared.normalizedNotesText).toContain("\nSubject: Hourly Rate:");
+    expect(prepared.normalizedNotesText).toContain("\nSubject: Hourly Rate:\n\nHi Calum.");
   });
 
   it("converts thread content into searchable tiptap text", () => {

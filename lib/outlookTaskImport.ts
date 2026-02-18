@@ -409,7 +409,11 @@ function recoverEmailBodyLineBreaks(text: string) {
     .replace(/\s+(To:\s)/g, "\n$1")
     .replace(/\s+(Cc:\s)/g, "\n$1")
     .replace(/\s+(Subject:\s)/g, "\n$1")
-    .replace(/\s+(Date:\s)/g, "\n$1");
+    .replace(/\s+(Date:\s)/g, "\n$1")
+    .replace(
+      /(Subject:[^\n]*?:)\s+(?=(?:Hi|Hello|Dear|Thanks|Thank\s+you|Following|Please|Can|I|We)\b)/gi,
+      "$1\n\n"
+    );
 }
 
 function buildOutlookImportBodyLines(bodyText: string) {
@@ -434,8 +438,9 @@ function buildOutlookImportBodyLines(bodyText: string) {
       continue;
     }
 
+    const previousLine = String(rawLines[index - 1] || "").trim();
     const nextLine = String(rawLines[index + 1] || "").trim();
-    if (nextLine.startsWith("From:")) {
+    if (previousLine.startsWith("Subject:") || nextLine.startsWith("From:")) {
       lines.push("");
     }
   }

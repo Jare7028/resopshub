@@ -892,6 +892,8 @@ export default async function TaskDetailPage(props: {
                 itemType="Task"
                 triggerLabel="Delete task"
                 confirmLabel="Permanently delete"
+                pendingRedirectHref="/tasks?success=Task%20deleted"
+                pendingRedirectDelayMs={4500}
               />
             </form>
           </div>
