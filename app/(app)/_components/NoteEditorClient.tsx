@@ -1037,16 +1037,17 @@ const NoteShape = TiptapNode.create({
       };
 
       const commitNodeAttrs = (next: NoteShapeAttrs) => {
+        const normalizedNext = normalizeNoteShapeAttrs(next as unknown as Record<string, unknown>);
         const pos = resolveNodePositionByType(
           editor,
           typeof getPos === "function" ? getPos : undefined,
           dom,
-          "noteShape"
+          "noteShape",
+          normalizedNext.objectId
         );
         if (typeof pos !== "number") {
           return;
         }
-        const normalizedNext = normalizeNoteShapeAttrs(next as unknown as Record<string, unknown>);
         if (areNoteShapeAttrsEqual(normalizedNext, persistedAttrs)) {
           return;
         }
@@ -1383,18 +1384,19 @@ const NoteTextBox = TiptapNode.create({
       };
 
       const commitNodeAttrs = (next: NoteTextBoxAttrs) => {
+        const normalizedNext = normalizeNoteTextBoxAttrs(
+          next as unknown as Record<string, unknown>
+        );
         const pos = resolveNodePositionByType(
           editor,
           typeof getPos === "function" ? getPos : undefined,
           dom,
-          "noteTextBox"
+          "noteTextBox",
+          normalizedNext.objectId
         );
         if (typeof pos !== "number") {
           return;
         }
-        const normalizedNext = normalizeNoteTextBoxAttrs(
-          next as unknown as Record<string, unknown>
-        );
         if (areNoteTextBoxAttrsEqual(normalizedNext, persistedAttrs)) {
           return;
         }
@@ -1925,7 +1927,8 @@ function resolveNodePositionByType(
   editor: Editor,
   getPos: (() => number | undefined) | undefined,
   dom: HTMLElement,
-  nodeType: OverlayNodeType
+  nodeType: OverlayNodeType,
+  fallbackObjectId?: string | null
 ) {
   const resolveFromRawPos = (rawPos: number | null | undefined) => {
     if (typeof rawPos !== "number" || Number.isNaN(rawPos)) {
@@ -1964,8 +1967,30 @@ function resolveNodePositionByType(
   try {
     return resolveFromRawPos(editor.view.posAtDOM(dom, 0));
   } catch {
+    // Ignore DOM lookup errors and fall through to object-id search.
+  }
+
+  const targetObjectId =
+    typeof fallbackObjectId === "string" ? fallbackObjectId.trim() : "";
+  if (!targetObjectId) {
     return null;
   }
+
+  let matchedPos: number | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== nodeType) {
+      return true;
+    }
+    const attrs = node.attrs as Record<string, unknown> | null | undefined;
+    const nodeObjectId =
+      typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
+    if (nodeObjectId && nodeObjectId === targetObjectId) {
+      matchedPos = pos;
+      return false;
+    }
+    return true;
+  });
+  return matchedPos;
 }
 
 function resolveOverlayNodeFromContextMenuTarget(
@@ -2166,6 +2191,8 @@ export default function NoteEditorClient({
   const [defaultFontFamilyLabel, setDefaultFontFamilyLabel] = useState("Arial");
   const [defaultFontSizeLabel, setDefaultFontSizeLabel] = useState("14");
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const saveRequestVersionRef = useRef(0);
   const viewStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoredDraftRef = useRef(false);
   const draftStorageKey = useMemo(() => `${DRAFT_STORAGE_PREFIX}${entityId}`, [entityId]);
@@ -2192,7 +2219,7 @@ export default function NoteEditorClient({
     [draftStorageKey, entityId]
   );
 
-  const persistEditorSave = useCallback(
+  const persistEditorSaveNow = useCallback(
     async (json: unknown) => {
       setSaveState("saving");
       try {
@@ -2215,6 +2242,22 @@ export default function NoteEditorClient({
       }
     },
     [entityId, onSave, persistDraftSnapshot]
+  );
+
+  const persistEditorSave = useCallback(
+    (json: unknown) => {
+      const requestVersion = saveRequestVersionRef.current + 1;
+      saveRequestVersionRef.current = requestVersion;
+      saveChainRef.current = saveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (requestVersion !== saveRequestVersionRef.current) {
+            return;
+          }
+          await persistEditorSaveNow(json);
+        });
+    },
+    [persistEditorSaveNow]
   );
 
   const flushPendingSave = useCallback(() => {
