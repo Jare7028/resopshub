@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ResOpsHub Email Import</title>
+    <link rel="stylesheet" href="./taskpane.css" />
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script defer src="./taskpane.js"></script>
+  </head>
+  <body>
+    <main class="pane">
+      <header class="pane-header">
+        <h1>Import Email to ResOpsHub Task</h1>
+        <p>Create a task from the current email thread.</p>
+      </header>
+
+      <section id="state-idle" class="state-card">
+        <p>Read an email message in Outlook, then click start.</p>
+        <button id="start-import-button" class="btn btn-primary" type="button">Start Import</button>
+      </section>
+
+      <section id="state-loading" class="state-card is-hidden">
+        <p id="loading-text">Loading email thread...</p>
+      </section>
+
+      <section id="state-signed-out" class="state-card is-hidden">
+        <p>You are not signed in to ResOpsHub.</p>
+        <a id="login-link" class="btn btn-primary" href="/login" target="_blank" rel="noreferrer">Sign in to ResOpsHub</a>
+        <button id="signed-in-retry-button" class="btn" type="button">I signed in, retry</button>
+      </section>
+
+      <section id="state-error" class="state-card is-hidden">
+        <p id="error-text">Something went wrong.</p>
+        <button id="retry-button" class="btn btn-primary" type="button">Retry</button>
+      </section>
+
+      <section id="state-form" class="state-card is-hidden">
+        <div id="duplicate-warning" class="warning is-hidden">
+          <p class="warning-title">Possible duplicate detected</p>
+          <ul id="duplicate-list"></ul>
+          <label class="checkbox-row">
+            <input id="duplicate-confirm" type="checkbox" />
+            <span>Create anyway</span>
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="task-title">Title</label>
+          <input id="task-title" type="text" maxlength="240" />
+        </div>
+
+        <div class="field">
+          <label for="task-notes">Notes</label>
+          <textarea id="task-notes" rows="14"></textarea>
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label for="task-assignee-id">Assignee User ID</label>
+            <input id="task-assignee-id" type="text" placeholder="Leave blank to assign to yourself" />
+          </div>
+          <div class="field">
+            <label for="task-client-id">Client ID (optional)</label>
+            <input id="task-client-id" type="text" />
+          </div>
+          <div class="field">
+            <label for="task-project-id">Project ID (optional)</label>
+            <input id="task-project-id" type="text" />
+          </div>
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label for="task-due-date">Due Date</label>
+            <input id="task-due-date" type="date" />
+          </div>
+          <div class="field">
+            <label for="task-due-time">Due Time</label>
+            <input id="task-due-time" type="time" />
+          </div>
+        </div>
+
+        <p id="form-status" class="form-status"></p>
+        <div class="form-actions">
+          <button id="create-task-button" class="btn btn-primary" type="button">Create Task</button>
+          <button id="reload-preview-button" class="btn" type="button">Reload Preview</button>
+        </div>
+      </section>
+
+      <section id="state-success" class="state-card is-hidden">
+        <p>Task created successfully.</p>
+        <a id="open-task-link" class="btn btn-primary" href="/tasks" target="_blank" rel="noreferrer">Open Task</a>
+        <button id="import-another-button" class="btn" type="button">Import Another</button>
+      </section>
+    </main>
+  </body>
+</html>

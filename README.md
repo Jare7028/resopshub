@@ -42,6 +42,12 @@ npm run test:coverage
 
 Current coverage includes security-focused tests for cron authorization in `lib/cron.ts` and signed attachment URL handling in `lib/chatAttachments.ts`.
 
+## Outlook Email Import
+
+Outlook email-to-task import (preview/create APIs + add-in assets) is documented in:
+
+- `docs/outlook-email-import.md`
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
