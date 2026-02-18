@@ -7,7 +7,6 @@ import {
 } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
 import { type PagePermissionKey } from "@/lib/pagePermissions";
-import PersonalNavSections from "./PersonalNavSections";
 import NotificationBell from "./_components/NotificationBell";
 import ChatNavLink from "./_components/ChatNavLink";
 import GlobalSearchBar from "./_components/GlobalSearchBar";
@@ -33,16 +32,6 @@ type NavLink = {
   icon: NavIconName;
   pageKey: PagePermissionKey;
 };
-
-function isMissingColumnError(error: unknown) {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-  const anyError = error as { code?: unknown; message?: unknown };
-  const code = typeof anyError.code === "string" ? anyError.code : "";
-  const message = typeof anyError.message === "string" ? anyError.message : "";
-  return code === "42703" || message.includes("does not exist");
-}
 
 function SidebarIcon({ name }: { name: NavIconName }) {
   const iconClassName = "h-4 w-4 shrink-0";
@@ -274,7 +263,6 @@ export default async function AppLayout({
 
   const navLinks = baseNavLinks.filter((link) => canViewPage(link.pageKey));
   const canViewSettings = canViewPage("settings");
-  const canViewPersonal = canViewPage("personal");
   const canViewChat = canViewPage("chat");
 
   async function signOut() {
@@ -282,59 +270,6 @@ export default async function AppLayout({
     const supabase = createSupabaseServerClient();
     await supabase.auth.signOut();
     redirect("/login");
-  }
-
-  const personalSectionsPromise = canViewPersonal
-    ? supabase
-        .from("personal_sections")
-        .select("id,title,owner_id,sort_order")
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true })
-    : Promise.resolve({ data: [] as Array<{ id: string; title: string; owner_id: string }>, error: null });
-  const personalPagesWithSortPromise = canViewPersonal
-    ? supabase
-        .from("personal_pages")
-        .select("id,title,owner_id,section_id,updated_at,sort_order")
-        .order("section_id", { ascending: true, nullsFirst: true })
-        .order("sort_order", { ascending: true })
-        .order("updated_at", { ascending: false })
-    : Promise.resolve({
-        data: [] as Array<{
-          id: string;
-          title: string;
-          owner_id: string;
-          section_id: string | null;
-          updated_at: string | null;
-          sort_order?: number | null;
-        }>,
-        error: null as null,
-      });
-
-  const [
-    { data: personalSections },
-    { data: personalPagesWithSortRaw, error: personalPagesWithSortError },
-  ] = await Promise.all([
-    personalSectionsPromise,
-    personalPagesWithSortPromise,
-  ]);
-
-  let personalPages: Array<{
-    id: string;
-    title: string;
-    owner_id: string;
-    section_id: string | null;
-    updated_at: string | null;
-    sort_order?: number | null;
-  }> = [];
-
-  if (personalPagesWithSortError && isMissingColumnError(personalPagesWithSortError)) {
-    const { data: fallbackPagesRaw } = await supabase
-      .from("personal_pages")
-      .select("id,title,owner_id,section_id,updated_at")
-      .order("updated_at", { ascending: false });
-    personalPages = (fallbackPagesRaw || []) as typeof personalPages;
-  } else if (!personalPagesWithSortError) {
-    personalPages = (personalPagesWithSortRaw || []) as typeof personalPages;
   }
 
   let unreadChatCount = 0;
@@ -375,7 +310,7 @@ export default async function AppLayout({
           aria-label="Close navigation drawer"
         />
 
-        <aside className="fixed inset-y-0 left-0 z-40 flex h-screen w-[17.5rem] max-w-[85vw] -translate-x-full flex-col overflow-x-hidden border-r app-border app-surface transition-transform duration-200 peer-checked/drawer:translate-x-0 md:w-64 md:translate-x-0 md:transition-[width] md:duration-200 md:peer-checked/sidebar:w-16 md:peer-checked/sidebar:[&_.nav-label]:hidden md:peer-checked/sidebar:[&_.personal-nav-sections]:hidden md:peer-checked/sidebar:[&_.sidebar-logo]:hidden md:peer-checked/sidebar:[&_.sidebar-mini-logo]:inline-flex md:peer-checked/sidebar:[&_.nav-item]:justify-center md:peer-checked/sidebar:[&_.chat-badge]:absolute md:peer-checked/sidebar:[&_.chat-badge]:right-1 md:peer-checked/sidebar:[&_.chat-badge]:top-1">
+        <aside className="fixed inset-y-0 left-0 z-40 flex h-screen w-[17.5rem] max-w-[85vw] -translate-x-full flex-col overflow-x-hidden border-r app-border app-surface transition-transform duration-200 peer-checked/drawer:translate-x-0 md:w-64 md:translate-x-0 md:transition-[width] md:duration-200 md:peer-checked/sidebar:w-16 md:peer-checked/sidebar:[&_.nav-label]:hidden md:peer-checked/sidebar:[&_.sidebar-logo]:hidden md:peer-checked/sidebar:[&_.sidebar-mini-logo]:inline-flex md:peer-checked/sidebar:[&_.nav-item]:justify-center md:peer-checked/sidebar:[&_.chat-badge]:absolute md:peer-checked/sidebar:[&_.chat-badge]:right-1 md:peer-checked/sidebar:[&_.chat-badge]:top-1">
           <div className="px-4 py-4 md:py-5">
             <div className="flex items-center justify-between gap-2">
               <AppNavLink href="/clients" className="flex items-center gap-2">
@@ -463,15 +398,6 @@ export default async function AppLayout({
                 )
               )}
             </div>
-            {canViewPersonal ? (
-              <div className="personal-nav-sections">
-                <PersonalNavSections
-                  currentUserId={user.id}
-                  sections={personalSections || []}
-                  pages={personalPages || []}
-                />
-              </div>
-            ) : null}
           </nav>
 
           {canViewSettings ? (
