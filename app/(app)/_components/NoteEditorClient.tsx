@@ -3,6 +3,7 @@
 import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { createPortal } from "react-dom";
@@ -1930,6 +1931,22 @@ function resolveNodePositionByType(
   nodeType: OverlayNodeType,
   fallbackObjectId?: string | null
 ) {
+  const targetObjectId =
+    typeof fallbackObjectId === "string" ? fallbackObjectId.trim() : "";
+  const hasTargetObjectId = targetObjectId.length > 0;
+  const doesNodeMatch = (node: ProseMirrorNode | null | undefined) => {
+    if (!node || node.type.name !== nodeType) {
+      return false;
+    }
+    if (!hasTargetObjectId) {
+      return true;
+    }
+    const attrs = node.attrs as Record<string, unknown> | null | undefined;
+    const nodeObjectId =
+      typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
+    return nodeObjectId === targetObjectId;
+  };
+
   const resolveFromRawPos = (rawPos: number | null | undefined) => {
     if (typeof rawPos !== "number" || Number.isNaN(rawPos)) {
       return null;
@@ -1938,14 +1955,14 @@ function resolveNodePositionByType(
     const docSize = editor.state.doc.content.size;
     const safePos = Math.max(0, Math.min(rawPos, docSize));
     const directNode = editor.state.doc.nodeAt(safePos);
-    if (directNode && directNode.type.name === nodeType) {
+    if (doesNodeMatch(directNode)) {
       return safePos;
     }
 
     const resolvedPos = editor.state.doc.resolve(safePos);
     for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
       const node = resolvedPos.node(depth);
-      if (node.type.name === nodeType) {
+      if (doesNodeMatch(node)) {
         return resolvedPos.before(depth);
       }
     }
@@ -1973,25 +1990,17 @@ function resolveNodePositionByType(
     // Ignore DOM lookup errors and fall through to object-id search.
   }
 
-  const targetObjectId =
-    typeof fallbackObjectId === "string" ? fallbackObjectId.trim() : "";
-  if (!targetObjectId) {
+  if (!hasTargetObjectId) {
     return null;
   }
 
   let matchedPos: number | null = null;
   editor.state.doc.descendants((node, pos) => {
-    if (node.type.name !== nodeType) {
+    if (!doesNodeMatch(node)) {
       return true;
     }
-    const attrs = node.attrs as Record<string, unknown> | null | undefined;
-    const nodeObjectId =
-      typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
-    if (nodeObjectId && nodeObjectId === targetObjectId) {
-      matchedPos = pos;
-      return false;
-    }
-    return true;
+    matchedPos = pos;
+    return false;
   });
   return matchedPos;
 }
