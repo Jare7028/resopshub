@@ -404,7 +404,7 @@ function recoverEmailBodyLineBreaks(text: string) {
   return String(text || "")
     .replace(/([.!?])(?=[A-Z][a-z])/g, "$1\n")
     .replace(/((?:many )?thanks),([A-Z][a-z]+)/gi, "$1,\n$2")
-    .replace(/\s+(From:\s)/g, "\n$1")
+    .replace(/\s+(From:\s)/g, "\n\n$1")
     .replace(/\s+(Sent:\s)/g, "\n$1")
     .replace(/\s+(To:\s)/g, "\n$1")
     .replace(/\s+(Cc:\s)/g, "\n$1")
@@ -424,10 +424,22 @@ function buildOutlookImportBodyLines(bodyText: string) {
   if (!normalized) {
     return ["(No text body)"];
   }
-  return normalized
-    .split("\n")
-    .map((line) => line.replace(/\s+$/g, ""))
-    .filter((line) => line.trim().length > 0);
+  const rawLines = normalized.split("\n").map((line) => line.replace(/\s+$/g, ""));
+  const lines: string[] = [];
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const line = rawLines[index];
+    const isBlank = line.trim().length === 0;
+    if (!isBlank) {
+      lines.push(line);
+      continue;
+    }
+
+    const nextLine = String(rawLines[index + 1] || "").trim();
+    if (nextLine.startsWith("From:")) {
+      lines.push("");
+    }
+  }
+  return lines.length ? lines : ["(No text body)"];
 }
 
 export function buildOutlookImportReadableNotesText(args: {
@@ -446,7 +458,6 @@ export function buildOutlookImportReadableNotesText(args: {
   lines.push("");
 
   payload.thread.forEach((message, index) => {
-    lines.push(`Message ${index + 1}`);
     buildOutlookImportMessageHeaderLines(message).forEach((line) => {
       lines.push(line);
     });
@@ -495,7 +506,6 @@ export function buildOutlookImportTaskContent(args: {
   nodes.push(paragraph());
 
   payload.thread.forEach((message, index) => {
-    nodes.push(paragraph(`Message ${index + 1}`));
     buildOutlookImportMessageHeaderLines(message).forEach((line) => {
       nodes.push(paragraph(line));
     });

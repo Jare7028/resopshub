@@ -85,7 +85,7 @@
     return String(text || "")
       .replace(/([.!?])(?=[A-Z][a-z])/g, "$1\n")
       .replace(/((?:many )?thanks),([A-Z][a-z]+)/gi, "$1,\n$2")
-      .replace(/\s+(From:\s)/g, "\n$1")
+      .replace(/\s+(From:\s)/g, "\n\n$1")
       .replace(/\s+(Sent:\s)/g, "\n$1")
       .replace(/\s+(To:\s)/g, "\n$1")
       .replace(/\s+(Cc:\s)/g, "\n$1")

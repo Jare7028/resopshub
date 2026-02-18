@@ -59,11 +59,12 @@ describe("outlookTaskImport", () => {
     });
     expect(prepared.normalizedNotesText).toContain("Source: Outlook email import");
     expect(prepared.normalizedNotesText).toContain("Summary\n- Subject: Follow up with client");
-    expect(prepared.normalizedNotesText).toContain("\n\nMessage 1\nFrom: alice@contoso.com");
+    expect(prepared.normalizedNotesText).toContain("\n\nFrom: alice@contoso.com");
     expect(prepared.normalizedNotesText).toContain("\nBody:\nCan we review this by Friday?");
     expect(prepared.normalizedNotesText).not.toContain("Selected message ID:");
     expect(prepared.normalizedNotesText).not.toContain("Conversation ID:");
     expect(prepared.normalizedNotesText).not.toContain("Thread message count:");
+    expect(prepared.normalizedNotesText).not.toContain("Message 1");
     expect(prepared.normalizedNotesText).not.toContain("Message ID:");
     expect(prepared.normalizedNotesText).not.toContain("Attachments:");
     expect(prepared.normalizedNotesText).toContain("Outlook thread link:");
@@ -80,7 +81,7 @@ describe("outlookTaskImport", () => {
 
     expect(prepared.normalizedNotesText).toContain("Saturdays?\nWill this come in with immediate effect?");
     expect(prepared.normalizedNotesText).toContain("Many thanks,\nCalum");
-    expect(prepared.normalizedNotesText).toContain("\nFrom: Jared Clapham <jared@resolvable.com>");
+    expect(prepared.normalizedNotesText).toContain("\n\nFrom: Jared Clapham <jared@resolvable.com>");
     expect(prepared.normalizedNotesText).toContain("\nSent: 17 February 2026 16:45");
     expect(prepared.normalizedNotesText).toContain("\nTo: Calum <calum@bigfurniturewarehouse.com>");
     expect(prepared.normalizedNotesText).toContain("\nSubject: Hourly Rate:");
@@ -95,7 +96,7 @@ describe("outlookTaskImport", () => {
     const text = extractPlainText(content);
     expect(text).toContain("Source: Outlook email import");
     expect(text).toContain("Subject: Follow up with client");
-    expect(text).toContain("Message 1");
+    expect(text).toContain("From: alice@contoso.com");
     expect(text).toContain("Can we review this by Friday?");
     expect(text).not.toContain("Attachments:");
   });
