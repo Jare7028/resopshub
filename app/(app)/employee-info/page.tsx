@@ -24,6 +24,7 @@ import {
   normalizeEmployeeInfoColumnKind,
   parseEmployeeInfoCurrencyCodeFromOptions,
   parseEmployeeInfoCurrencyInput,
+  parseEmployeeInfoDateToSerial,
   toEmployeeInfoColumnKey,
   type EmployeeInfoCurrencyCode,
   type EmployeeInfoDisplayCurrencyCode,
@@ -419,7 +420,9 @@ function buildFormulaValueMap(args: {
       }
 
       const value = valuesByColumnId[column.id];
-      if (!value) return "";
+      if (!value) {
+        return column.column_kind === "date" ? 0 : "";
+      }
       if (column.column_kind === "dropdown") return value.option_value || "";
 
       if (column.column_kind === "currency") {
@@ -440,6 +443,10 @@ function buildFormulaValueMap(args: {
           return 0;
         }
         return convertedAmount;
+      }
+
+      if (column.column_kind === "date") {
+        return parseEmployeeInfoDateToSerial(value.text_value) ?? 0;
       }
 
       return value.text_value || "";

@@ -12,6 +12,7 @@ import {
   normalizeEmployeeInfoFormulaCurrencyMode,
   parseEmployeeInfoCurrencyCodeFromOptions,
   parseEmployeeInfoCurrencyInput,
+  parseEmployeeInfoDateToSerial,
 } from "./employeeInfo";
 
 describe("normalizeEmployeeInfoColumnKind", () => {
@@ -135,6 +136,19 @@ describe("employee info currency helpers", () => {
   });
 });
 
+describe("employee info date helpers", () => {
+  it("converts ISO dates into formula-friendly serial values", () => {
+    const firstDay = parseEmployeeInfoDateToSerial("2026-02-14");
+    const nextDay = parseEmployeeInfoDateToSerial("2026-02-15");
+
+    expect(firstDay).not.toBeNull();
+    expect(nextDay).not.toBeNull();
+    expect((nextDay || 0) - (firstDay || 0)).toBe(1);
+    expect(parseEmployeeInfoDateToSerial("")).toBeNull();
+    expect(parseEmployeeInfoDateToSerial("not-a-date")).toBeNull();
+  });
+});
+
 describe("evaluateEmployeeFormula", () => {
   it("keeps arithmetic formulas working with named references", () => {
     const result = evaluateEmployeeFormula(
@@ -206,5 +220,27 @@ describe("evaluateEmployeeFormula", () => {
     );
     expect(result).toBe("Employee: Casey Taylor");
     expect(formatFormulaResult(result)).toBe("Employee: Casey Taylor");
+  });
+
+  it("supports leave-date checks when date references are serialized", () => {
+    const leaverResult = evaluateEmployeeFormula(
+      "=IF(LEAVE_DATE>0,0,1)",
+      () => 0,
+      (reference) =>
+        String(reference || "").toLowerCase() === "leave_date"
+          ? parseEmployeeInfoDateToSerial("2026-02-15")
+          : undefined
+    );
+    const activeResult = evaluateEmployeeFormula(
+      "=IF(LEAVE_DATE>0,0,1)",
+      () => 0,
+      (reference) =>
+        String(reference || "").toLowerCase() === "leave_date"
+          ? parseEmployeeInfoDateToSerial(null)
+          : undefined
+    );
+
+    expect(leaverResult).toBe(0);
+    expect(activeResult).toBe(1);
   });
 });

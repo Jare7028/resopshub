@@ -29,6 +29,8 @@ const EMPLOYEE_INFO_CURRENCY_SYMBOL_BY_CODE: Record<EmployeeInfoCurrencyCode, st
   GBP: "\u00A3",
   MUR: "Rs",
 };
+const EMPLOYEE_INFO_EXCEL_EPOCH_UTC_MS = Date.UTC(1899, 11, 30);
+const EMPLOYEE_INFO_DAY_MS = 24 * 60 * 60 * 1000;
 
 export type EmployeeInfoExchangeRateRow = {
   base_currency_code: string;
@@ -172,6 +174,29 @@ export function parseEmployeeInfoCurrencyInput(
     amountText: String(parsed),
     currencyCode: detectedCurrencyCode || fallbackCode,
   };
+}
+
+export function parseEmployeeInfoDateToSerial(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T|\s)/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+
+  const utcMs = Date.UTC(year, month - 1, day);
+  const date = new Date(utcMs);
+  const isValidDate =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+  if (!isValidDate) return null;
+
+  return (utcMs - EMPLOYEE_INFO_EXCEL_EPOCH_UTC_MS) / EMPLOYEE_INFO_DAY_MS;
 }
 
 export function formatEmployeeInfoCurrencyAmount(

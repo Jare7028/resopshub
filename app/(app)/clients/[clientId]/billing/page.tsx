@@ -17,6 +17,7 @@ import {
   normalizeEmployeeInfoCurrencyCode,
   normalizeEmployeeInfoFormulaCurrencyMode,
   parseEmployeeInfoCurrencyCodeFromOptions,
+  parseEmployeeInfoDateToSerial,
   toEmployeeInfoColumnKey,
   toFormulaNumber,
   type EmployeeInfoCurrencyCode,
@@ -882,7 +883,9 @@ export default async function ClientBillingPage(props: {
             }
 
             const cellValue = valuesByColumnId[dynamicColumn.id];
-            if (!cellValue) return "";
+            if (!cellValue) {
+              return dynamicColumn.column_kind === "date" ? 0 : "";
+            }
             if (dynamicColumn.column_kind === "dropdown") return cellValue.option_value || "";
 
             if (dynamicColumn.column_kind === "currency") {
@@ -904,6 +907,10 @@ export default async function ClientBillingPage(props: {
                 return 0;
               }
               return convertedAmount;
+            }
+
+            if (dynamicColumn.column_kind === "date") {
+              return parseEmployeeInfoDateToSerial(cellValue.text_value) ?? 0;
             }
 
             return cellValue.text_value || "";
