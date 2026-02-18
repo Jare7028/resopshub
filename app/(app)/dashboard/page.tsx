@@ -14,10 +14,11 @@ import {
 } from "@/lib/taskStatus";
 import {
   isSupabaseMissingColumnError,
-  isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
 import {
+  buildEmployeeInfoExchangeRateMap,
+  convertEmployeeInfoCurrencyAmount,
   formatEmployeeInfoCurrencyAmount,
   normalizeEmployeeInfoCurrencyCode,
   type EmployeeInfoExchangeRateRow,
@@ -661,53 +662,83 @@ export default async function DashboardPage(props: {
     }`,
   }));
 
-  let scopedTasksQuery = supabase
-    .from("tasks")
-    .select("id,client_id")
-    .is("parent_task_id", null);
-
-  if (filteredClientIds.length) {
-    scopedTasksQuery = scopedTasksQuery.in("client_id", filteredClientIds);
-  }
-
-  if (filteredProjectIds.length) {
-    scopedTasksQuery = scopedTasksQuery.in("project_id", filteredProjectIds);
-  }
-
-  if (filteredUserIds.length) {
-    scopedTasksQuery = scopedTasksQuery.in("assignee_user_id", filteredUserIds);
-  }
-
-  if (selectedStatuses.length) {
-    scopedTasksQuery = scopedTasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
-  }
-
-  if (selectedPriorities.length) {
-    scopedTasksQuery = scopedTasksQuery.in("priority", selectedPriorities);
-  }
-
-  if (!isAdmin) {
-    const scopedOrParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
-
-    if (explicitTaskIds.length) {
-      scopedOrParts.push(`id.in.(${explicitTaskIds.join(",")})`);
-    }
-
-    if (watchedProjectIds.length) {
-      scopedOrParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
-    }
-
-    scopedTasksQuery = scopedTasksQuery.or(scopedOrParts.join(","));
-  }
-
-  const { data: scopedTasksRaw } = await scopedTasksQuery;
-  const scopedClientIds = Array.from(
+  const allVisibleClientIds = (clients || [])
+    .map((client) => String(client.id || "").trim())
+    .filter(Boolean);
+  const hasClientScopeFilter = filteredClientIds.length > 0;
+  const hasProjectScopeFilter = filteredProjectIds.length > 0;
+  const hasTaskMetaScopeFilter =
+    filteredUserIds.length > 0 || selectedStatuses.length > 0 || selectedPriorities.length > 0;
+  const projectClientByProjectId = new Map(
+    (projects || []).map((project) => [project.id, String(project.client_id || "").trim()])
+  );
+  const projectScopedClientIds = Array.from(
     new Set(
-      ((scopedTasksRaw || []) as Array<{ client_id: string | null }>)
-        .map((row) => String(row.client_id || "").trim())
+      filteredProjectIds
+        .map((projectId) => projectClientByProjectId.get(projectId) || "")
         .filter(Boolean)
     )
   );
+
+  let scopedClientIds: string[] = [];
+  if (!hasClientScopeFilter && !hasProjectScopeFilter && !hasTaskMetaScopeFilter) {
+    scopedClientIds = allVisibleClientIds;
+  } else if (hasClientScopeFilter && !hasProjectScopeFilter && !hasTaskMetaScopeFilter) {
+    scopedClientIds = filteredClientIds;
+  } else if (!hasClientScopeFilter && hasProjectScopeFilter && !hasTaskMetaScopeFilter) {
+    scopedClientIds = projectScopedClientIds;
+  } else {
+    let scopedTasksQuery = supabase
+      .from("tasks")
+      .select("id,client_id")
+      .is("parent_task_id", null);
+
+    if (filteredClientIds.length) {
+      scopedTasksQuery = scopedTasksQuery.in("client_id", filteredClientIds);
+    }
+
+    if (filteredProjectIds.length) {
+      scopedTasksQuery = scopedTasksQuery.in("project_id", filteredProjectIds);
+    }
+
+    if (filteredUserIds.length) {
+      scopedTasksQuery = scopedTasksQuery.in("assignee_user_id", filteredUserIds);
+    }
+
+    if (selectedStatuses.length) {
+      scopedTasksQuery = scopedTasksQuery.in(
+        "status",
+        expandTaskStatusFilterForQuery(selectedStatuses)
+      );
+    }
+
+    if (selectedPriorities.length) {
+      scopedTasksQuery = scopedTasksQuery.in("priority", selectedPriorities);
+    }
+
+    if (!isAdmin) {
+      const scopedOrParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
+
+      if (explicitTaskIds.length) {
+        scopedOrParts.push(`id.in.(${explicitTaskIds.join(",")})`);
+      }
+
+      if (watchedProjectIds.length) {
+        scopedOrParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
+      }
+
+      scopedTasksQuery = scopedTasksQuery.or(scopedOrParts.join(","));
+    }
+
+    const { data: scopedTasksRaw } = await scopedTasksQuery;
+    scopedClientIds = Array.from(
+      new Set(
+        ((scopedTasksRaw || []) as Array<{ client_id: string | null }>)
+          .map((row) => String(row.client_id || "").trim())
+          .filter(Boolean)
+      )
+    );
+  }
 
   const clientNameById = (clients || []).reduce<Record<string, string>>((acc, client) => {
     acc[client.id] = client.name;
@@ -715,6 +746,7 @@ export default async function DashboardPage(props: {
   }, {});
 
   const financeWarnings: string[] = [];
+  let financeRoleCostRows: Array<{ roleLabel: string; totalCost: number; employeeCount: number }> = [];
   let financeSummary = {
     currencyCode: selectedCurrency,
     revenueTotal: 0,
@@ -722,10 +754,7 @@ export default async function DashboardPage(props: {
     marginTotal: 0,
     marginPercent: null as number | null,
     scopedClientCount: scopedClientIds.length,
-    roleTopLabel: "-",
-    roleTopCount: 0,
     activeEmployeeCount: 0,
-    clientsWithEmployees: 0,
     risks: {
       negativeMarginClients: 0,
       missingBillingProfiles: 0,
@@ -737,11 +766,36 @@ export default async function DashboardPage(props: {
   if (scopedClientIds.length) {
     const monthStart = `${new Date().toISOString().slice(0, 7)}-01`;
     let billingRows: Array<BillingProfileRevenueRow & { client_id: string }> = [];
+    const [
+      billingResultBase,
+      employeeRecordsResult,
+      employeeColumnsResultBase,
+      exchangeRatesResult,
+    ] = await Promise.all([
+      supabase
+        .from("billing_profiles")
+        .select(
+          "client_id,currency,hourly_rate,total_billable_hours,revenue_charge_items,monthly_cost_items"
+        )
+        .in("client_id", scopedClientIds),
+      supabase
+        .from("employee_info_records")
+        .select("id,full_name,client_id")
+        .in("client_id", scopedClientIds),
+      supabase
+        .from("employee_info_columns")
+        .select(
+          "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
+        )
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("employee_info_exchange_rates")
+        .select("base_currency_code,quote_currency_code,rate,effective_month_start")
+        .order("effective_month_start", { ascending: false }),
+    ]);
 
-    let billingResult = (await supabase
-      .from("billing_profiles")
-      .select("client_id,currency,hourly_rate,total_billable_hours,revenue_charge_items,monthly_cost_items")
-      .in("client_id", scopedClientIds)) as unknown as {
+    let billingResult = billingResultBase as unknown as {
       data: Array<Record<string, unknown>> | null;
       error: { message?: string; code?: string } | null;
     };
@@ -788,10 +842,6 @@ export default async function DashboardPage(props: {
     }
 
     let employeeRecords: EmployeeInfoRecordRow[] = [];
-    const employeeRecordsResult = await supabase
-      .from("employee_info_records")
-      .select("id,full_name,client_id")
-      .in("client_id", scopedClientIds);
     if (isSupabaseMissingTableError(employeeRecordsResult.error)) {
       financeWarnings.push("Employee Info is not set up yet.");
     } else if (employeeRecordsResult.error) {
@@ -803,11 +853,7 @@ export default async function DashboardPage(props: {
     }
 
     let employeeColumns: EmployeeInfoColumnRow[] = [];
-    let employeeColumnsResult = (await supabase
-      .from("employee_info_columns")
-      .select("id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position")
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true })) as unknown as {
+    let employeeColumnsResult = employeeColumnsResultBase as unknown as {
       data: Array<Record<string, unknown>> | null;
       error: { message?: string; code?: string } | null;
     };
@@ -867,10 +913,6 @@ export default async function DashboardPage(props: {
     }
 
     let exchangeRateRows: EmployeeInfoExchangeRateRow[] = [];
-    const exchangeRatesResult = await supabase
-      .from("employee_info_exchange_rates")
-      .select("base_currency_code,quote_currency_code,rate,effective_month_start")
-      .order("effective_month_start", { ascending: false });
     if (exchangeRatesResult.error && !isSupabaseMissingTableError(exchangeRatesResult.error)) {
       financeWarnings.push(`Could not load Employee Info FX rates (${exchangeRatesResult.error.message}).`);
     } else {
@@ -884,7 +926,35 @@ export default async function DashboardPage(props: {
       }
     });
 
-    const roleCounts = new Map<string, number>();
+    const targetCurrencyCode = normalizeEmployeeInfoCurrencyCode(selectedCurrency);
+    const exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, monthStart);
+    const employeeRecordsByClientId = new Map<string, EmployeeInfoRecordRow[]>();
+    const recordClientByRecordId = new Map<string, string>();
+    employeeRecords.forEach((record) => {
+      const clientId = String(record.client_id || "").trim();
+      if (!clientId) {
+        return;
+      }
+      if (!employeeRecordsByClientId.has(clientId)) {
+        employeeRecordsByClientId.set(clientId, []);
+      }
+      employeeRecordsByClientId.get(clientId)?.push(record);
+      recordClientByRecordId.set(record.id, clientId);
+    });
+
+    const employeeValuesByClientId = new Map<string, EmployeeInfoValueRow[]>();
+    employeeValues.forEach((valueRow) => {
+      const clientId = recordClientByRecordId.get(valueRow.record_id);
+      if (!clientId) {
+        return;
+      }
+      if (!employeeValuesByClientId.has(clientId)) {
+        employeeValuesByClientId.set(clientId, []);
+      }
+      employeeValuesByClientId.get(clientId)?.push(valueRow);
+    });
+
+    const roleCostTotals = new Map<string, { roleLabel: string; totalCost: number; employeeCount: number }>();
     let revenueTotal = 0;
     let costTotal = 0;
     let marginTotal = 0;
@@ -897,9 +967,8 @@ export default async function DashboardPage(props: {
       if (!profile) {
         missingBillingProfiles += 1;
       }
-      const clientRecords = employeeRecords.filter((record) => record.client_id === clientId);
-      const clientRecordIdSet = new Set(clientRecords.map((row) => row.id));
-      const clientValues = employeeValues.filter((row) => clientRecordIdSet.has(row.record_id));
+      const clientRecords = employeeRecordsByClientId.get(clientId) || [];
+      const clientValues = employeeValuesByClientId.get(clientId) || [];
 
       const snapshot = computeClientBillingSnapshot({
         clientId,
@@ -913,7 +982,7 @@ export default async function DashboardPage(props: {
       });
       const converted = convertSnapshotAmountsToCurrency({
         snapshot,
-        targetCurrencyCode: normalizeEmployeeInfoCurrencyCode(selectedCurrency),
+        targetCurrencyCode,
         exchangeRateRows,
         monthStart,
       });
@@ -927,43 +996,42 @@ export default async function DashboardPage(props: {
         missingFxClients += 1;
       }
       snapshot.employeeMonthlyCostSummary.breakdownRows.forEach((row) => {
-        roleCounts.set(row.roleLabel, (roleCounts.get(row.roleLabel) || 0) + row.employeeCount);
-      });
-    });
-
-    const activeEmployeeCountByClient: Record<string, number> = {};
-    const activeCountsResult = await supabase.rpc("client_active_employee_counts", {
-      p_client_ids: scopedClientIds,
-    });
-    if (!activeCountsResult.error) {
-      ((activeCountsResult.data || []) as Array<{ client_id: string | null; active_count: number | null }>).forEach(
-        (row) => {
-          const clientId = String(row.client_id || "").trim();
-          if (!clientId) return;
-          activeEmployeeCountByClient[clientId] = Math.max(0, Number(row.active_count || 0));
+        let roleCostInTargetCurrency = row.totalAmount;
+        if (snapshot.billingCurrencyCode !== targetCurrencyCode) {
+          const convertedRoleCost = convertEmployeeInfoCurrencyAmount({
+            amount: row.totalAmount,
+            fromCurrencyCode: snapshot.billingCurrencyCode,
+            toCurrencyCode: targetCurrencyCode,
+            exchangeRateMap,
+          });
+          if (convertedRoleCost === null) {
+            return;
+          }
+          roleCostInTargetCurrency = convertedRoleCost;
         }
-      );
-    } else if (
-      !isSupabaseMissingFunctionError(activeCountsResult.error) &&
-      !isSupabaseMissingTableError(activeCountsResult.error)
-    ) {
-      financeWarnings.push(`Could not load active employee counts (${activeCountsResult.error.message}).`);
-    } else {
-      scopedClientIds.forEach((clientId) => {
-        activeEmployeeCountByClient[clientId] = employeeRecords.filter(
-          (record) => record.client_id === clientId
-        ).length;
+        const roleLabel = row.roleLabel || "Unspecified role";
+        const currentRoleTotals = roleCostTotals.get(roleLabel) || {
+          roleLabel,
+          totalCost: 0,
+          employeeCount: 0,
+        };
+        currentRoleTotals.totalCost += roleCostInTargetCurrency;
+        currentRoleTotals.employeeCount += row.employeeCount;
+        roleCostTotals.set(roleLabel, currentRoleTotals);
       });
-    }
-
-    const activeEmployeeCount = scopedClientIds.reduce(
-      (sum, clientId) => sum + Math.max(0, Number(activeEmployeeCountByClient[clientId] || 0)),
-      0
-    );
-    const clientsWithEmployees = scopedClientIds.filter(
-      (clientId) => Math.max(0, Number(activeEmployeeCountByClient[clientId] || 0)) > 0
-    ).length;
-    const topRoleEntry = Array.from(roleCounts.entries()).sort((a, b) => b[1] - a[1])[0] || ["-", 0];
+    });
+    const activeEmployeeCount = employeeRecords.length;
+    financeRoleCostRows = Array.from(roleCostTotals.values())
+      .sort((left, right) => {
+        if (right.totalCost !== left.totalCost) {
+          return right.totalCost - left.totalCost;
+        }
+        if (right.employeeCount !== left.employeeCount) {
+          return right.employeeCount - left.employeeCount;
+        }
+        return left.roleLabel.localeCompare(right.roleLabel);
+      })
+      .slice(0, 3);
 
     financeSummary = {
       currencyCode: selectedCurrency,
@@ -972,10 +1040,7 @@ export default async function DashboardPage(props: {
       marginTotal,
       marginPercent: revenueTotal > 0 ? (marginTotal / revenueTotal) * 100 : null,
       scopedClientCount: scopedClientIds.length,
-      roleTopLabel: topRoleEntry[0],
-      roleTopCount: topRoleEntry[1],
       activeEmployeeCount,
-      clientsWithEmployees,
       risks: {
         negativeMarginClients,
         missingBillingProfiles,
@@ -990,14 +1055,15 @@ export default async function DashboardPage(props: {
       ? "Total tasks"
       : `New tasks (${rangeOptions.find((option) => option.value === selectedRange)?.label ?? ""})`;
 
-  const { data: suggestionRows } = await supabase
-    .from("feature_suggestions")
-    .select("id,title,status,created_at")
-    .order("created_at", { ascending: false });
-
-  const { data: suggestionVotes } = await supabase
-    .from("feature_suggestion_votes")
-    .select("suggestion_id");
+  const [{ data: suggestionRows }, { data: suggestionVotes }] = await Promise.all([
+    supabase
+      .from("feature_suggestions")
+      .select("id,title,status,created_at")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("feature_suggestion_votes")
+      .select("suggestion_id"),
+  ]);
 
   const suggestionVoteCounts = new Map<string, number>();
   (suggestionVotes || []).forEach((vote) => {
@@ -1244,27 +1310,9 @@ export default async function DashboardPage(props: {
     },
     {
       key: "people_active",
-      label: "Active employees in scope",
+      label: "Employees in scope",
       value: String(financeSummary.activeEmployeeCount),
       accent: "text-slate-900",
-      href: buildDashboardSelfHref("people"),
-      focus: "people",
-    },
-    {
-      key: "people_clients",
-      label: "Clients with staff",
-      value: String(financeSummary.clientsWithEmployees),
-      accent: "text-slate-900",
-      helper: `${financeSummary.scopedClientCount} scoped clients`,
-      href: buildDashboardSelfHref("people"),
-      focus: "people",
-    },
-    {
-      key: "people_role",
-      label: "Top role mix",
-      value: financeSummary.roleTopLabel,
-      accent: "text-slate-900",
-      helper: financeSummary.roleTopCount ? `${financeSummary.roleTopCount} employees` : "No role data",
       href: buildDashboardSelfHref("people"),
       focus: "people",
     },
@@ -1353,6 +1401,42 @@ export default async function DashboardPage(props: {
           {financePeopleSnapshotCards.map((card) => (
             <DashboardSnapshotCard key={card.key} card={card} />
           ))}
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Total Cost by Role</h3>
+            <span className="text-xs text-slate-500">{financeSummary.currencyCode} per month</span>
+          </div>
+          {financeRoleCostRows.length ? (
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-2 py-2 font-medium">Role</th>
+                    <th className="px-2 py-2 text-right font-medium">Employees</th>
+                    <th className="px-2 py-2 text-right font-medium">Monthly cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {financeRoleCostRows.map((row) => (
+                    <tr key={row.roleLabel} className="border-t border-slate-100">
+                      <td className="px-2 py-2 font-medium text-slate-900">{row.roleLabel}</td>
+                      <td className="px-2 py-2 text-right text-slate-700">{row.employeeCount}</td>
+                      <td className="px-2 py-2 text-right font-semibold text-slate-900">
+                        {formatEmployeeInfoCurrencyAmount(row.totalCost, financeSummary.currencyCode)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">
+              {financeSummary.isEmptyScope
+                ? "No scoped clients from current filters."
+                : "No role cost data yet."}
+            </p>
+          )}
         </div>
       </section>
 
