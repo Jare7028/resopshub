@@ -114,6 +114,7 @@ function normalizeColumnToken(value: string | null | undefined) {
 }
 
 const EMPTY_HIGHLIGHT_EXCLUDED_COLUMN_TOKENS = new Set(["leave_date", "reason_for_leaving"]);
+const LEAVE_DATE_COLUMN_TOKENS = new Set(["leave_date", "leaving_date", "date_of_leaving"]);
 
 function shouldHighlightEmptyStateForColumn(column: EmployeeInfoColumnRow) {
   const keyToken = normalizeColumnToken(column.key);
@@ -121,6 +122,17 @@ function shouldHighlightEmptyStateForColumn(column: EmployeeInfoColumnRow) {
   return (
     !EMPTY_HIGHLIGHT_EXCLUDED_COLUMN_TOKENS.has(keyToken) &&
     !EMPTY_HIGHLIGHT_EXCLUDED_COLUMN_TOKENS.has(labelToken)
+  );
+}
+
+function isLeaveDateColumn(column: EmployeeInfoColumnRow) {
+  const keyToken = normalizeColumnToken(column.key);
+  const labelToken = normalizeColumnToken(column.label);
+  return [keyToken, labelToken].some(
+    (token) =>
+      LEAVE_DATE_COLUMN_TOKENS.has(token) ||
+      token.includes("leave_date") ||
+      token.includes("date_of_leave")
   );
 }
 
@@ -658,6 +670,25 @@ export default function EmployeeInfoTable({
       }, {}),
     [clients]
   );
+  const leaveDateColumnIds = useMemo(
+    () => columns.filter((column) => isLeaveDateColumn(column)).map((column) => column.id),
+    [columns]
+  );
+  const recordIdsWithLeaveDate = useMemo(() => {
+    if (!leaveDateColumnIds.length) return new Set<string>();
+    const next = new Set<string>();
+    records.forEach((record) => {
+      const valuesByColumnId = valuesByRecordId[record.id] || {};
+      const hasLeaveDate = leaveDateColumnIds.some((columnId) => {
+        const rawValue = valuesByColumnId[columnId]?.text_value;
+        return Boolean(toDateInputValue(rawValue) || String(rawValue || "").trim());
+      });
+      if (hasLeaveDate) {
+        next.add(record.id);
+      }
+    });
+    return next;
+  }, [leaveDateColumnIds, records, valuesByRecordId]);
 
   useEffect(() => {
     if (hasLoadedVisibilityRef.current) return;
@@ -1473,9 +1504,14 @@ export default function EmployeeInfoTable({
               filteredAndSortedRecords.map((record) => {
                 const valuesByColumnId = valuesByRecordId[record.id] || {};
                 const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
+                const rowHasLeaveDate = recordIdsWithLeaveDate.has(record.id);
                 return (
-                  <tr key={record.id}>
-                    <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3">
+                  <tr key={record.id} className={rowHasLeaveDate ? "bg-rose-50/35" : ""}>
+                    <td
+                      className={`sticky left-0 z-10 border-r border-slate-200 px-4 py-3 ${
+                        rowHasLeaveDate ? "bg-rose-50/35" : "bg-white"
+                      }`}
+                    >
                       <form>
                         <input type="hidden" name="record_id" value={record.id} />
                         <input type="hidden" name="base_field" value="full_name" />
