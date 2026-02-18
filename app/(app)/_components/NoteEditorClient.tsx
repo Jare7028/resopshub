@@ -1965,7 +1965,10 @@ function resolveNodePositionByType(
   }
 
   try {
-    return resolveFromRawPos(editor.view.posAtDOM(dom, 0));
+    const domPos = resolveFromRawPos(editor.view.posAtDOM(dom, 0));
+    if (typeof domPos === "number") {
+      return domPos;
+    }
   } catch {
     // Ignore DOM lookup errors and fall through to object-id search.
   }
