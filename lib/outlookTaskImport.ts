@@ -381,32 +381,12 @@ export function normalizeOutlookImportPreviewRequest(
   };
 }
 
-function formatAttachmentLine(attachment: OutlookImportAttachment) {
-  const parts = [attachment.name];
-  if (attachment.contentType) {
-    parts.push(`type=${attachment.contentType}`);
-  }
-  if (typeof attachment.size === "number") {
-    parts.push(`size=${attachment.size}`);
-  }
-  if (attachment.webLink) {
-    parts.push(`link=${attachment.webLink}`);
-  }
-  return parts.join(" | ");
-}
-
 function buildOutlookImportSummaryLines(payload: OutlookImportPreviewRequest, importedAtIso: string) {
-  const lines = [
+  return [
     `Subject: ${normalizeOutlookImportTitle(payload.subject)}`,
     `Imported at: ${importedAtIso}`,
     `Mailbox: ${payload.mailbox.userEmail}`,
-    `Selected message ID: ${payload.selectedMessageId}`,
   ];
-  if (payload.conversationId) {
-    lines.push(`Conversation ID: ${payload.conversationId}`);
-  }
-  lines.push(`Thread message count: ${payload.thread.length}`);
-  return lines;
 }
 
 function buildOutlookImportMessageHeaderLines(message: OutlookImportThreadMessage) {
@@ -458,15 +438,6 @@ export function buildOutlookImportReadableNotesText(args: {
       lines.push(line);
     });
 
-    const attachmentItems = (message.attachments || []).map(formatAttachmentLine);
-    if (attachmentItems.length) {
-      lines.push("");
-      lines.push("Attachments:");
-      attachmentItems.forEach((item) => {
-        lines.push(`- ${item}`);
-      });
-    }
-
     if (message.webLink) {
       lines.push("");
       lines.push(`Message link: ${message.webLink}`);
@@ -515,16 +486,6 @@ export function buildOutlookImportTaskContent(args: {
     buildOutlookImportBodyLines(message.bodyText).forEach((line) => {
       nodes.push(paragraph(line));
     });
-
-    const attachmentItems = (message.attachments || []).map(formatAttachmentLine);
-    if (attachmentItems.length) {
-      nodes.push(paragraph());
-      nodes.push(paragraph("Attachments:"));
-      const list = bulletList(attachmentItems);
-      if (list) {
-        nodes.push(list);
-      }
-    }
 
     if (message.webLink) {
       nodes.push(paragraph());
