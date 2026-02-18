@@ -331,6 +331,101 @@ export const HELP_GUIDES: HelpGuide[] = [
     related: ["settings", "projects", "dashboard"],
   },
   {
+    slug: "outlook-add-in",
+    title: "Outlook Add-In Setup Guide",
+    summary:
+      "Install and run the ResOpsHub Outlook add-in so users can import the current email into a task.",
+    appPath: "/tasks",
+    audience: "Ops leads, admins, end users",
+    estimatedTime: "10-15 min",
+    keywords: [
+      "outlook",
+      "plugin",
+      "add-in",
+      "manifest",
+      "sideload",
+      "desktop",
+      "outlook web",
+      "import email",
+      "resopshub task",
+    ],
+    prerequisites: [
+      "ResOpsHub deployed over HTTPS (for example https://resopshub-p1pi.vercel.app)",
+      "Access to Outlook with add-in install permissions",
+      "Manifest file at public/outlook-addin/manifest.xml",
+      "SQL migrations applied: sql/task_email_sources.sql and sql/outlook_import_events.sql",
+    ],
+    sections: [
+      {
+        id: "prepare-manifest",
+        title: "1. Prepare the manifest",
+        summary: "Point all add-in URLs to your deployed ResOpsHub origin before sideloading.",
+        steps: [
+          "Open public/outlook-addin/manifest.xml.",
+          "Confirm every URL points to your deployed HTTPS origin (IconUrl, SupportUrl, Commands.Url, Taskpane.Url).",
+          "Make sure AppDomains includes the same origin.",
+          "Save the file and keep a local copy ready for Add from file.",
+        ],
+        tips: [
+          "Do not use localhost in production/testing across team devices.",
+          "If installation fails, validate that the manifest URLs are reachable in a normal browser tab.",
+        ],
+      },
+      {
+        id: "install-web",
+        title: "2. Install in Outlook on the web",
+        summary: "Use this as the fastest baseline test path.",
+        steps: [
+          "Open Outlook on the web and go to add-in management (Get Add-ins / Manage add-ins).",
+          "Choose My add-ins then Add a custom add-in.",
+          "Use Add from file and select manifest.xml (or Add from URL if hosted).",
+          "Open any email in read mode and confirm the ResOpsHub command appears.",
+        ],
+      },
+      {
+        id: "install-desktop",
+        title: "3. Install in desktop Outlook",
+        summary:
+          "The add-in works in new Outlook, classic Outlook (Windows), and Outlook for Mac when sideloaded correctly.",
+        steps: [
+          "In desktop Outlook, open add-in management and choose to add a custom add-in.",
+          "Start with Add from file using manifest.xml.",
+          "If desktop install fails, complete install in Outlook on the web first, then restart desktop Outlook.",
+          "Open an email in read mode and run Import to Task.",
+        ],
+        tips: [
+          "A work mailbox is expected in v1; shared mailbox import is out of scope.",
+          "If desktop still does not show the add-in, verify your account policy allows custom add-ins.",
+        ],
+      },
+      {
+        id: "first-run",
+        title: "4. First run and authentication",
+        summary: "Users must be signed in to ResOpsHub inside the add-in pane before import.",
+        steps: [
+          "Open an email, click Import to Task, and wait for the pane to load.",
+          "If prompted, click Login and sign in to ResOpsHub.",
+          "Click I've logged in, try again to reload preview.",
+          "Review prefilled title/notes and create the task.",
+          "Use Open Task on success to verify task creation.",
+        ],
+      },
+      {
+        id: "troubleshooting",
+        title: "5. Troubleshooting",
+        summary: "Use these checks for common install/runtime issues.",
+        steps: [
+          "Add-in installation failed: re-check manifest URLs and HTTPS reachability, then retry Add from file.",
+          "Import button missing: confirm you opened a message in read mode, not compose mode.",
+          "Authentication loop in desktop pane: ensure deployed build includes embedded-pane auth cookie settings and re-login.",
+          "Delete appears stuck at Deleting...: refresh or navigate to /tasks; latest build includes a fallback redirect after delete.",
+          "Preview errors about schema missing: apply sql/task_email_sources.sql and sql/outlook_import_events.sql.",
+        ],
+      },
+    ],
+    related: ["tasks", "settings-admin", "getting-started"],
+  },
+  {
     slug: "forms",
     title: "Forms Guide",
     summary:
