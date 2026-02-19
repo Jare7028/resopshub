@@ -9,6 +9,27 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  const normalizedOrigin = String(origin || "").trim();
+  const isExtensionOrigin =
+    normalizedOrigin.startsWith("chrome-extension://") ||
+    normalizedOrigin.startsWith("edge-extension://") ||
+    normalizedOrigin.startsWith("moz-extension://");
+  if (!isExtensionOrigin) {
+    return {
+      Vary: "Origin",
+    };
+  }
+  const headers: Record<string, string> = {
+    Vary: "Origin",
+    "Access-Control-Allow-Origin": normalizedOrigin,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "POST,OPTIONS",
+    "Access-Control-Allow-Headers": "content-type",
+  };
+  return headers;
+}
+
 function formatDbError(
   context: string,
   error:
@@ -24,11 +45,22 @@ function formatDbError(
   return parts.join(" | ");
 }
 
+export async function OPTIONS(request: Request) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: getCorsHeaders(request.headers.get("origin")),
+  });
+}
+
 export async function POST(request: Request) {
+  const corsHeaders = getCorsHeaders(request.headers.get("origin"));
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401, headers: corsHeaders }
+    );
   }
   const authUser = authData.user;
 
@@ -36,7 +68,10 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid JSON body" },
+      { status: 400, headers: corsHeaders }
+    );
   }
 
   try {
@@ -63,13 +98,13 @@ export async function POST(request: Request) {
             assigneeLookupError
           ),
         },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
     if (!assigneeRow) {
       return NextResponse.json(
         { error: "Assignee user was not found or is not accessible." },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -102,7 +137,7 @@ export async function POST(request: Request) {
         {
           error: formatDbError("browser.capture.create.tasks.insert", taskInsertError),
         },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -125,7 +160,7 @@ export async function POST(request: Request) {
             assigneeInsertError
           ),
         },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -134,7 +169,7 @@ export async function POST(request: Request) {
       taskHref: `/tasks/${taskId}`,
     };
 
-    return NextResponse.json(response);
+    return NextResponse.json(response, { headers: corsHeaders });
   } catch (error) {
     const message =
       error instanceof BrowserTaskCaptureValidationError
@@ -144,8 +179,10 @@ export async function POST(request: Request) {
           : "Failed to create task from browser capture.";
     return NextResponse.json(
       { error: message },
-      { status: error instanceof BrowserTaskCaptureValidationError ? 400 : 500 }
+      {
+        status: error instanceof BrowserTaskCaptureValidationError ? 400 : 500,
+        headers: corsHeaders,
+      }
     );
   }
 }
-
