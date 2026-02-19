@@ -137,6 +137,7 @@ type NoteEditorClientProps = {
   initialRibbonTab?: RibbonTabId;
   initialZoomPercent?: number;
   initialFocusMode?: boolean;
+  editorHeightMode?: "default" | "fill";
   onViewStateChange?: (state: {
     ribbonTab: RibbonTabId;
     zoomPercent: number;
@@ -2136,6 +2137,7 @@ export default function NoteEditorClient({
   initialRibbonTab = "home",
   initialZoomPercent = 100,
   initialFocusMode = false,
+  editorHeightMode = "default",
   onViewStateChange,
 }: NoteEditorClientProps) {
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>(() => {
@@ -4387,6 +4389,10 @@ export default function NoteEditorClient({
       : contextMenu.overlayNodeType === "noteTextBox"
       ? "Delete text box"
       : "Delete item";
+  const editorContentStyle =
+    editorHeightMode === "fill"
+      ? { minHeight: "clamp(420px, 62vh, 980px)" }
+      : undefined;
 
   return (
     <section
@@ -5002,7 +5008,7 @@ export default function NoteEditorClient({
               width: `${100 / editorScale}%`,
             }}
           >
-            <EditorContent editor={editor} />
+            <EditorContent editor={editor} style={editorContentStyle} />
           </div>
         </div>
       </div>

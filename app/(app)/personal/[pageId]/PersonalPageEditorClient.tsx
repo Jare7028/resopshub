@@ -79,6 +79,7 @@ export default function PersonalPageEditorClient({
       initialRibbonTab={initialRibbonTab}
       initialZoomPercent={initialZoomPercent}
       initialFocusMode={initialFocusMode}
+      editorHeightMode="fill"
       onViewStateChange={handleViewStateChange}
     />
   );
