@@ -426,6 +426,83 @@ export const HELP_GUIDES: HelpGuide[] = [
     related: ["tasks", "settings-admin", "getting-started"],
   },
   {
+    slug: "browser-add-task",
+    title: "Browser Right-Click Add Task Guide",
+    summary:
+      "Install the browser tool and create tasks by highlighting text, right-clicking, and pressing Add Task.",
+    appPath: "/tasks",
+    audience: "All users",
+    estimatedTime: "5-10 min",
+    keywords: [
+      "browser",
+      "chrome",
+      "edge",
+      "right click",
+      "add task",
+      "highlight text",
+      "extension",
+    ],
+    prerequisites: [
+      "A ResOpsHub account",
+      "Google Chrome or Microsoft Edge",
+      "ResOpsHub web app URL: https://resopshub-p1pi.vercel.app",
+      "Extension files in project folder: downloads/resopshub-add-task-extension-package",
+    ],
+    sections: [
+      {
+        id: "install-tool",
+        title: "1. Install the Add Task tool",
+        summary: "Load the tool into your browser once.",
+        steps: [
+          "Open Chrome or Edge.",
+          "Click the address bar, type chrome://extensions (or edge://extensions), then press Enter.",
+          "Turn on Developer mode.",
+          "Click Load unpacked.",
+          "Choose this folder: downloads/resopshub-add-task-extension-package.",
+          "Confirm you can see ResOpsHub Add Task in your extensions list.",
+        ],
+      },
+      {
+        id: "set-url",
+        title: "2. Set your app URL",
+        summary: "Tell the tool where to create the task.",
+        steps: [
+          "On the extensions page, find ResOpsHub Add Task and click Details.",
+          "Click Extension options.",
+          "In the ResOpsHub URL box, type: https://resopshub-p1pi.vercel.app",
+          "Click Save settings.",
+          "Open https://resopshub-p1pi.vercel.app in a normal tab and sign in.",
+        ],
+      },
+      {
+        id: "create-task",
+        title: "3. Create a task from highlighted text",
+        summary: "Use right-click from any normal webpage.",
+        steps: [
+          "Open any normal webpage.",
+          "Highlight the text you want to turn into a task.",
+          "Right-click the highlighted text.",
+          "Click Add Task.",
+          "Wait for the task-created message.",
+          "The task page should open automatically.",
+        ],
+      },
+      {
+        id: "if-not-working",
+        title: "4. If nothing happens",
+        summary: "Use these quick checks in order.",
+        steps: [
+          "Go back to chrome://extensions (or edge://extensions).",
+          "Click Reload on ResOpsHub Add Task.",
+          "Make sure you are still signed in at https://resopshub-p1pi.vercel.app.",
+          "Try again on a normal website page (not browser settings pages).",
+          "If it still fails, open Extension details, open Service worker, and check the first red error message.",
+        ],
+      },
+    ],
+    related: ["tasks", "outlook-add-in", "getting-started"],
+  },
+  {
     slug: "forms",
     title: "Forms Guide",
     summary:
