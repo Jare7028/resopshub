@@ -1,23 +1,22 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { HELP_GUIDES, getHelpGuideBySlug } from "../_data/guides";
+import { loadHelpGuides } from "@/lib/helpGuidesStore";
 
-export function generateStaticParams() {
-  return HELP_GUIDES.map((guide) => ({ slug: guide.slug }));
-}
+export const dynamic = "force-dynamic";
 
 export default async function HelpGuidePage(props: {
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await props.params;
-  const guide = getHelpGuideBySlug(slug);
+  const { guides } = await loadHelpGuides();
+  const guide = guides.find((entry) => entry.slug === slug) || null;
 
   if (!guide) {
     notFound();
   }
 
   const relatedGuides = guide.related
-    .map((relatedSlug) => getHelpGuideBySlug(relatedSlug))
+    .map((relatedSlug) => guides.find((entry) => entry.slug === relatedSlug) || null)
     .filter(Boolean);
 
   return (

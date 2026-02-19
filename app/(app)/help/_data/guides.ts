@@ -839,3 +839,124 @@ export const HELP_GUIDE_BY_SLUG = HELP_GUIDES.reduce<Record<string, HelpGuide>>(
 export function getHelpGuideBySlug(slug: string) {
   return HELP_GUIDE_BY_SLUG[slug] || null;
 }
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeString(value: unknown, maxLength = 4000) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxLength) return normalized;
+  return normalized.slice(0, maxLength);
+}
+
+function normalizeStringArray(value: unknown, maxItemLength = 4000) {
+  if (!Array.isArray(value)) return [] as string[];
+  return value
+    .map((item) => normalizeString(item, maxItemLength))
+    .filter(Boolean);
+}
+
+function normalizeSlug(value: unknown) {
+  const normalized = normalizeString(value, 160)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized;
+}
+
+function normalizeSectionLinks(value: unknown): Array<{ label: string; href: string }> {
+  if (!Array.isArray(value)) return [];
+  const links: Array<{ label: string; href: string }> = [];
+  value.forEach((entry) => {
+    if (!isObjectRecord(entry)) return;
+    const label = normalizeString(entry.label, 200);
+    const href = normalizeString(entry.href, 2048);
+    if (!label || !href) return;
+    if (!href.startsWith("/") && !/^https?:\/\//i.test(href)) return;
+    links.push({ label, href });
+  });
+  return links;
+}
+
+export function normalizeHelpGuideSection(value: unknown): HelpGuideSection | null {
+  if (!isObjectRecord(value)) return null;
+
+  const id = normalizeSlug(value.id);
+  const title = normalizeString(value.title, 240);
+  const summary = normalizeString(value.summary, 2000);
+  const steps = normalizeStringArray(value.steps, 3000);
+
+  if (!id || !title || !summary || !steps.length) {
+    return null;
+  }
+
+  const tips = normalizeStringArray(value.tips, 2000);
+  const links = normalizeSectionLinks(value.links);
+
+  const normalized: HelpGuideSection = {
+    id,
+    title,
+    summary,
+    steps,
+  };
+  if (tips.length) {
+    normalized.tips = tips;
+  }
+  if (links.length) {
+    normalized.links = links;
+  }
+  return normalized;
+}
+
+export function normalizeHelpGuide(value: unknown): HelpGuide | null {
+  if (!isObjectRecord(value)) return null;
+
+  const slug = normalizeSlug(value.slug);
+  const title = normalizeString(value.title, 240);
+  const summary = normalizeString(value.summary, 3000);
+  const appPathRaw = normalizeString(value.appPath, 2048);
+  const appPath = appPathRaw.startsWith("/") ? appPathRaw : "/help";
+  const audience = normalizeString(value.audience, 240);
+  const estimatedTime = normalizeString(value.estimatedTime, 120);
+  const keywords = normalizeStringArray(value.keywords, 120);
+  const prerequisites = normalizeStringArray(value.prerequisites, 4000);
+  const related = normalizeStringArray(value.related, 160).map((item) =>
+    normalizeSlug(item)
+  );
+  const sections = Array.isArray(value.sections)
+    ? value.sections
+        .map((section) => normalizeHelpGuideSection(section))
+        .filter(
+          (section): section is HelpGuideSection => section !== null
+        )
+    : [];
+
+  if (
+    !slug ||
+    !title ||
+    !summary ||
+    !audience ||
+    !estimatedTime ||
+    !keywords.length ||
+    !prerequisites.length ||
+    !sections.length
+  ) {
+    return null;
+  }
+
+  return {
+    slug,
+    title,
+    summary,
+    appPath,
+    audience,
+    estimatedTime,
+    keywords,
+    prerequisites,
+    sections,
+    related: related.filter(Boolean),
+  };
+}

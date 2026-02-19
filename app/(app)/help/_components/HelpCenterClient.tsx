@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { HELP_GUIDES, HELP_QUICKSTART } from "../_data/guides";
+import { HELP_QUICKSTART, type HelpGuide } from "../_data/guides";
 
-function includesQuery(guide: (typeof HELP_GUIDES)[number], query: string) {
+function includesQuery(guide: HelpGuide, query: string) {
   if (!query) {
     return true;
   }
@@ -28,12 +28,12 @@ function includesQuery(guide: (typeof HELP_GUIDES)[number], query: string) {
   return haystack.includes(normalizedQuery);
 }
 
-export default function HelpCenterClient() {
+export default function HelpCenterClient({ guides }: { guides: HelpGuide[] }) {
   const [query, setQuery] = useState("");
 
   const filteredGuides = useMemo(
-    () => HELP_GUIDES.filter((guide) => includesQuery(guide, query)),
-    [query]
+    () => guides.filter((guide) => includesQuery(guide, query)),
+    [guides, query]
   );
 
   return (
