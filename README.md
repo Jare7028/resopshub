@@ -48,6 +48,12 @@ Outlook email-to-task import (preview/create APIs + add-in assets) is documented
 
 - `docs/outlook-email-import.md`
 
+## Browser Text Capture Extension
+
+Right-click text capture into tasks is documented in:
+
+- `docs/browser-extension.md`
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
