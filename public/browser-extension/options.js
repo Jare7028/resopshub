@@ -1,5 +1,5 @@
 const DEFAULT_SETTINGS = {
-  baseUrl: "",
+  baseUrl: "https://resopshub-p1pi.vercel.app",
   openTaskAfterCreate: true,
 };
 
@@ -74,4 +74,3 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", saveSettings);
   }
 });
-

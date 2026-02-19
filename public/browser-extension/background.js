@@ -1,7 +1,8 @@
 const MENU_ID = "resopshub_add_task";
 const CAPTURE_ENDPOINT = "/api/integrations/browser/tasks/capture";
+const DEFAULT_BASE_URL = "https://resopshub-p1pi.vercel.app";
 const DEFAULT_SETTINGS = {
-  baseUrl: "",
+  baseUrl: DEFAULT_BASE_URL,
   openTaskAfterCreate: true,
 };
 
@@ -109,6 +110,18 @@ async function createTask(baseUrl, payload) {
 
 chrome.runtime.onInstalled.addListener(() => {
   createContextMenu();
+  getStorageValues(["baseUrl", "openTaskAfterCreate"]).then((values) => {
+    const updates = {};
+    if (!normalizeBaseUrl(values.baseUrl)) {
+      updates.baseUrl = DEFAULT_SETTINGS.baseUrl;
+    }
+    if (typeof values.openTaskAfterCreate !== "boolean") {
+      updates.openTaskAfterCreate = DEFAULT_SETTINGS.openTaskAfterCreate;
+    }
+    if (Object.keys(updates).length) {
+      chrome.storage.sync.set(updates);
+    }
+  });
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -161,4 +174,3 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     showNotification("ResOpsHub Add Task", message);
   }
 });
-
