@@ -23,6 +23,20 @@ import { selectedRect } from "prosemirror-tables";
 import { createEmptyDoc } from "@/lib/editorContent";
 
 type OverlayNodeType = "noteShape" | "noteTextBox";
+type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
+type OverlayResolveStrategy =
+  | "known_pos"
+  | "get_pos"
+  | "dom"
+  | "object_id"
+  | "nearest_type"
+  | "unresolved";
+type OverlayCommitMeta = {
+  nodeType: OverlayNodeType;
+  objectId: string;
+  result: OverlayCommitResult;
+  resolvedPos: number | null;
+};
 
 type ContextMenuState = {
   open: boolean;
@@ -435,6 +449,9 @@ type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
 type RibbonTabId = "home" | "insert" | "layout" | "review" | "view";
 
 const NOTE_CRITICAL_SAVE_META_KEY = "note-critical-save";
+const NOTE_OVERLAY_COMMIT_META_KEY = "note-overlay-commit";
+const NOTE_OVERLAY_DEBUG_STORAGE_KEY = "note-editor:overlay-debug";
+const NOTE_OVERLAY_SAVE_ERROR_MESSAGE = "Could not save object position. Move it again.";
 const DRAFT_STORAGE_PREFIX = "note-editor-draft-v2:";
 
 const RIBBON_TABS: ReadonlyArray<{ id: RibbonTabId; label: string }> = [
@@ -1039,25 +1056,20 @@ const NoteShape = TiptapNode.create({
       };
 
       const commitNodeAttrs = (next: NoteShapeAttrs) => {
-        const normalizedNext = normalizeNoteShapeAttrs(next as unknown as Record<string, unknown>);
-        const pos = resolveNodePositionByType(
+        const committed = commitOverlayNodeAttrs<NoteShapeAttrs>({
           editor,
-          typeof getPos === "function" ? getPos : undefined,
+          nodeType: "noteShape",
           dom,
-          "noteShape",
-          normalizedNext.objectId
-        );
-        if (typeof pos !== "number") {
-          return;
+          getPos: typeof getPos === "function" ? getPos : undefined,
+          fallbackObjectId: next.objectId,
+          previousAttrs: persistedAttrs,
+          nextAttrs: next,
+          normalize: normalizeNoteShapeAttrs,
+          equals: areNoteShapeAttrsEqual,
+        });
+        if (committed.result === "saved") {
+          persistedAttrs = committed.normalizedNext;
         }
-        if (areNoteShapeAttrsEqual(normalizedNext, persistedAttrs)) {
-          return;
-        }
-        const tr = editor.state.tr
-          .setNodeMarkup(pos, undefined, normalizedNext)
-          .setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-        editor.view.dispatch(tr);
-        persistedAttrs = normalizedNext;
       };
 
       const bindPointerDrag = (
@@ -1386,27 +1398,20 @@ const NoteTextBox = TiptapNode.create({
       };
 
       const commitNodeAttrs = (next: NoteTextBoxAttrs) => {
-        const normalizedNext = normalizeNoteTextBoxAttrs(
-          next as unknown as Record<string, unknown>
-        );
-        const pos = resolveNodePositionByType(
+        const committed = commitOverlayNodeAttrs<NoteTextBoxAttrs>({
           editor,
-          typeof getPos === "function" ? getPos : undefined,
+          nodeType: "noteTextBox",
           dom,
-          "noteTextBox",
-          normalizedNext.objectId
-        );
-        if (typeof pos !== "number") {
-          return;
+          getPos: typeof getPos === "function" ? getPos : undefined,
+          fallbackObjectId: next.objectId,
+          previousAttrs: persistedAttrs,
+          nextAttrs: next,
+          normalize: normalizeNoteTextBoxAttrs,
+          equals: areNoteTextBoxAttrsEqual,
+        });
+        if (committed.result === "saved") {
+          persistedAttrs = committed.normalizedNext;
         }
-        if (areNoteTextBoxAttrsEqual(normalizedNext, persistedAttrs)) {
-          return;
-        }
-        const tr = editor.state.tr
-          .setNodeMarkup(pos, undefined, normalizedNext)
-          .setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-        editor.view.dispatch(tr);
-        persistedAttrs = normalizedNext;
       };
 
       const bindPointerDrag = (
@@ -1925,44 +1930,102 @@ function isOverlayNodeTypeName(name: string): name is OverlayNodeType {
   return name === "noteShape" || name === "noteTextBox";
 }
 
+function shouldLogOverlayCommitDebug() {
+  if (process.env.NODE_ENV === "production" || typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(NOTE_OVERLAY_DEBUG_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function logOverlayCommitDebug(payload: {
+  nodeType: OverlayNodeType;
+  objectId: string;
+  resolvedPos: number | null;
+  previousAttrs: NoteShapeAttrs | NoteTextBoxAttrs;
+  nextAttrs: NoteShapeAttrs | NoteTextBoxAttrs;
+  result: OverlayCommitResult;
+  strategy: OverlayResolveStrategy;
+}) {
+  if (!shouldLogOverlayCommitDebug()) {
+    return;
+  }
+  console.debug("[noteEditor.overlay.commit]", payload);
+}
+
+function getNodeObjectId(node: ProseMirrorNode | null | undefined) {
+  const attrs = node?.attrs as Record<string, unknown> | null | undefined;
+  return typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
+}
+
+function findNearestNodePositionByType(
+  editor: Editor,
+  nodeType: OverlayNodeType,
+  referencePos: number
+) {
+  const safeReference = Math.max(
+    0,
+    Math.min(referencePos, editor.state.doc.content.size)
+  );
+  let nearestPos: number | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== nodeType) {
+      return true;
+    }
+    const distance = Math.abs(pos - safeReference);
+    if (
+      distance < nearestDistance ||
+      (distance === nearestDistance && (nearestPos === null || pos < nearestPos))
+    ) {
+      nearestDistance = distance;
+      nearestPos = pos;
+    }
+    return true;
+  });
+  return nearestPos;
+}
+
 function resolveNodePositionByType(
   editor: Editor,
   getPos: (() => number | undefined) | undefined,
-  dom: HTMLElement,
+  dom: HTMLElement | null,
   nodeType: OverlayNodeType,
-  fallbackObjectId?: string | null
-) {
+  fallbackObjectId?: string | null,
+  options?: {
+    knownPos?: number | null;
+  }
+): {
+  pos: number | null;
+  strategy: OverlayResolveStrategy;
+} {
   const targetObjectId =
     typeof fallbackObjectId === "string" ? fallbackObjectId.trim() : "";
   const hasTargetObjectId = targetObjectId.length > 0;
-  const doesNodeTypeMatch = (node: ProseMirrorNode | null | undefined) =>
-    Boolean(node && node.type.name === nodeType);
-  const doesNodeObjectIdMatch = (node: ProseMirrorNode | null | undefined) => {
-    if (!doesNodeTypeMatch(node) || !hasTargetObjectId) {
+  const doesNodeMatch = (
+    node: ProseMirrorNode | null | undefined,
+    allowTypeFallback: boolean
+  ) => {
+    if (!node || node.type.name !== nodeType) {
       return false;
     }
-    const attrs = node?.attrs as Record<string, unknown> | null | undefined;
-    const nodeObjectId =
-      typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
-    return nodeObjectId === targetObjectId;
-  };
-  const hasObjectIdMatchInDoc = (() => {
     if (!hasTargetObjectId) {
-      return false;
-    }
-    let matched = false;
-    editor.state.doc.descendants((node) => {
-      if (doesNodeObjectIdMatch(node)) {
-        matched = true;
-        return false;
-      }
       return true;
-    });
-    return matched;
-  })();
-  const allowTypeOnlyFallback = !hasObjectIdMatchInDoc;
+    }
+    const nodeObjectId = getNodeObjectId(node);
+    if (nodeObjectId === targetObjectId) {
+      return true;
+    }
+    return allowTypeFallback;
+  };
 
-  const resolveFromRawPos = (rawPos: number | null | undefined) => {
+  const resolveFromRawPos = (
+    rawPos: number | null | undefined,
+    allowTypeFallback: boolean
+  ) => {
     if (typeof rawPos !== "number" || Number.isNaN(rawPos)) {
       return null;
     }
@@ -1970,20 +2033,14 @@ function resolveNodePositionByType(
     const docSize = editor.state.doc.content.size;
     const safePos = Math.max(0, Math.min(rawPos, docSize));
     const directNode = editor.state.doc.nodeAt(safePos);
-    if (
-      doesNodeObjectIdMatch(directNode) ||
-      (allowTypeOnlyFallback && doesNodeTypeMatch(directNode))
-    ) {
+    if (doesNodeMatch(directNode, allowTypeFallback)) {
       return safePos;
     }
 
     const resolvedPos = editor.state.doc.resolve(safePos);
     for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
       const node = resolvedPos.node(depth);
-      if (
-        doesNodeObjectIdMatch(node) ||
-        (allowTypeOnlyFallback && doesNodeTypeMatch(node))
-      ) {
+      if (doesNodeMatch(node, allowTypeFallback)) {
         return resolvedPos.before(depth);
       }
     }
@@ -1991,39 +2048,170 @@ function resolveNodePositionByType(
     return null;
   };
 
+  const candidatePositions: Array<{ rawPos: number; strategy: OverlayResolveStrategy }> = [];
+  if (typeof options?.knownPos === "number" && Number.isFinite(options.knownPos)) {
+    candidatePositions.push({ rawPos: options.knownPos, strategy: "known_pos" });
+  }
+
   if (typeof getPos === "function") {
     try {
-      const pos = resolveFromRawPos(getPos());
-      if (typeof pos === "number") {
-        return pos;
+      const rawPos = getPos();
+      if (typeof rawPos === "number" && Number.isFinite(rawPos)) {
+        candidatePositions.push({ rawPos, strategy: "get_pos" });
       }
     } catch {
-      // Fall back to DOM-based lookup when NodeView position is stale.
+      // Fall through to other lookup strategies.
     }
   }
 
-  try {
-    const domPos = resolveFromRawPos(editor.view.posAtDOM(dom, 0));
-    if (typeof domPos === "number") {
-      return domPos;
+  if (dom) {
+    try {
+      const rawPos = editor.view.posAtDOM(dom, 0);
+      if (typeof rawPos === "number" && Number.isFinite(rawPos)) {
+        candidatePositions.push({ rawPos, strategy: "dom" });
+      }
+    } catch {
+      // Ignore DOM lookup errors and continue.
     }
-  } catch {
-    // Ignore DOM lookup errors and fall through to object-id search.
   }
 
-  if (!hasTargetObjectId) {
-    return null;
+  for (const candidate of candidatePositions) {
+    const pos = resolveFromRawPos(candidate.rawPos, false);
+    if (typeof pos === "number") {
+      return { pos, strategy: candidate.strategy };
+    }
   }
 
-  let matchedPos: number | null = null;
-  editor.state.doc.descendants((node, pos) => {
-    if (!doesNodeObjectIdMatch(node)) {
-      return true;
+  if (hasTargetObjectId) {
+    let matchedPos: number | null = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name !== nodeType || getNodeObjectId(node) !== targetObjectId) {
+        return true;
+      }
+      matchedPos = pos;
+      return false;
+    });
+    if (typeof matchedPos === "number") {
+      return { pos: matchedPos, strategy: "object_id" };
     }
-    matchedPos = pos;
-    return false;
+  }
+
+  const referencePos =
+    candidatePositions.length > 0
+      ? candidatePositions[0].rawPos
+      : editor.state.selection.from;
+  const nearestTypePos = findNearestNodePositionByType(editor, nodeType, referencePos);
+  if (typeof nearestTypePos === "number") {
+    const pos = resolveFromRawPos(nearestTypePos, true);
+    if (typeof pos === "number") {
+      return { pos, strategy: "nearest_type" };
+    }
+  }
+
+  return {
+    pos: null,
+    strategy: "unresolved",
+  };
+}
+
+function commitOverlayNodeAttrs<T extends NoteShapeAttrs | NoteTextBoxAttrs>(params: {
+  editor: Editor;
+  nodeType: OverlayNodeType;
+  dom: HTMLElement | null;
+  getPos?: (() => number | undefined) | undefined;
+  fallbackObjectId?: string | null;
+  knownPos?: number | null;
+  previousAttrs: T;
+  nextAttrs: T;
+  normalize: (attrs: Record<string, unknown> | null | undefined) => T;
+  equals: (left: T, right: T) => boolean;
+}) {
+  const normalizedPrevious = params.normalize(
+    params.previousAttrs as unknown as Record<string, unknown>
+  );
+  const normalizedNext = params.normalize(
+    params.nextAttrs as unknown as Record<string, unknown>
+  );
+  const objectId = normalizedNext.objectId.trim();
+  const resolution = resolveNodePositionByType(
+    params.editor,
+    params.getPos,
+    params.dom,
+    params.nodeType,
+    params.fallbackObjectId ?? objectId,
+    {
+      knownPos: params.knownPos ?? null,
+    }
+  );
+  const resolvedPos = resolution.pos;
+
+  if (typeof resolvedPos !== "number") {
+    params.editor.view.dispatch(
+      params.editor.state.tr.setMeta(NOTE_OVERLAY_COMMIT_META_KEY, {
+        nodeType: params.nodeType,
+        objectId,
+        result: "resolve_failed",
+        resolvedPos: null,
+      } satisfies OverlayCommitMeta)
+    );
+    logOverlayCommitDebug({
+      nodeType: params.nodeType,
+      objectId,
+      resolvedPos: null,
+      previousAttrs: normalizedPrevious,
+      nextAttrs: normalizedNext,
+      result: "resolve_failed",
+      strategy: resolution.strategy,
+    });
+    return {
+      result: "resolve_failed" as OverlayCommitResult,
+      normalizedNext,
+      resolvedPos: null,
+    };
+  }
+
+  if (params.equals(normalizedNext, normalizedPrevious)) {
+    logOverlayCommitDebug({
+      nodeType: params.nodeType,
+      objectId,
+      resolvedPos,
+      previousAttrs: normalizedPrevious,
+      nextAttrs: normalizedNext,
+      result: "no_change",
+      strategy: resolution.strategy,
+    });
+    return {
+      result: "no_change" as OverlayCommitResult,
+      normalizedNext,
+      resolvedPos,
+    };
+  }
+
+  const tr = params.editor.state.tr
+    .setNodeMarkup(resolvedPos, undefined, normalizedNext)
+    .setMeta(NOTE_CRITICAL_SAVE_META_KEY, true)
+    .setMeta(NOTE_OVERLAY_COMMIT_META_KEY, {
+      nodeType: params.nodeType,
+      objectId,
+      result: "saved",
+      resolvedPos,
+    } satisfies OverlayCommitMeta);
+  params.editor.view.dispatch(tr);
+  logOverlayCommitDebug({
+    nodeType: params.nodeType,
+    objectId,
+    resolvedPos,
+    previousAttrs: normalizedPrevious,
+    nextAttrs: normalizedNext,
+    result: "saved",
+    strategy: resolution.strategy,
   });
-  return matchedPos;
+
+  return {
+    result: "saved" as OverlayCommitResult,
+    normalizedNext,
+    resolvedPos,
+  };
 }
 
 function resolveOverlayNodeFromContextMenuTarget(
@@ -2294,18 +2482,44 @@ export default function NoteEditorClient({
     [persistEditorSaveNow]
   );
 
-  const flushPendingSave = useCallback(() => {
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    const currentEditor = editorRef.current;
-    if (!currentEditor) {
-      return;
-    }
-    const json = currentEditor.getJSON();
-    void persistEditorSave(json);
-  }, [persistEditorSave]);
+  const persistEditorSaveImmediate = useCallback(
+    (json: unknown) => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      const requestVersion = saveRequestVersionRef.current + 1;
+      saveRequestVersionRef.current = requestVersion;
+      saveChainRef.current = Promise.resolve().then(async () => {
+        if (requestVersion !== saveRequestVersionRef.current) {
+          return;
+        }
+        await persistEditorSaveNow(json);
+      });
+    },
+    [persistEditorSaveNow]
+  );
+
+  const flushPendingSave = useCallback(
+    (options?: { immediate?: boolean }) => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      const currentEditor = editorRef.current;
+      if (!currentEditor) {
+        return;
+      }
+      const json = currentEditor.getJSON();
+      persistDraftSnapshot(json, true);
+      if (options?.immediate) {
+        void persistEditorSaveImmediate(json);
+        return;
+      }
+      void persistEditorSave(json);
+    },
+    [persistDraftSnapshot, persistEditorSave, persistEditorSaveImmediate]
+  );
 
   const [taskCreator, setTaskCreator] = useState<{
     open: boolean;
@@ -2970,7 +3184,7 @@ export default function NoteEditorClient({
       const isCriticalSave = Boolean(transaction.getMeta(NOTE_CRITICAL_SAVE_META_KEY));
       if (isCriticalSave) {
         startTransition(() => {
-          void persistEditorSave(json);
+          void persistEditorSaveImmediate(json);
         });
         return;
       }
@@ -2980,6 +3194,20 @@ export default function NoteEditorClient({
           void persistEditorSave(json);
         });
       }, 600);
+    },
+    onTransaction: ({ transaction }) => {
+      const overlayCommitMeta = transaction.getMeta(
+        NOTE_OVERLAY_COMMIT_META_KEY
+      ) as OverlayCommitMeta | null;
+      if (!overlayCommitMeta || overlayCommitMeta.result !== "resolve_failed") {
+        return;
+      }
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      setSaveError(NOTE_OVERLAY_SAVE_ERROR_MESSAGE);
+      setSaveState("error");
     },
     onSelectionUpdate: ({ editor }) => {
       updateSlashMenu(editor);
@@ -3105,7 +3333,7 @@ export default function NoteEditorClient({
 
   useEffect(() => {
     return () => {
-      flushPendingSave();
+      flushPendingSave({ immediate: true });
       if (saveStatusTimerRef.current) {
         clearTimeout(saveStatusTimerRef.current);
       }
@@ -3128,10 +3356,10 @@ export default function NoteEditorClient({
   }, [flushPendingSave]);
 
   useEffect(() => {
-    const handlePageHide = () => flushPendingSave();
+    const handlePageHide = () => flushPendingSave({ immediate: true });
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        flushPendingSave();
+        flushPendingSave({ immediate: true });
       }
     };
 
@@ -3413,15 +3641,34 @@ export default function NoteEditorClient({
           ? normalizeNoteShapeAttrs(selected.node.attrs as Record<string, unknown>)
           : normalizeNoteTextBoxAttrs(selected.node.attrs as Record<string, unknown>);
       const next = mutator(normalizedCurrent, nodeType);
-      const normalizedNext =
-        nodeType === "noteShape"
-          ? normalizeNoteShapeAttrs(next as Record<string, unknown>)
-          : normalizeNoteTextBoxAttrs(next as Record<string, unknown>);
-      const tr = editor.state.tr
-        .setNodeMarkup(selected.pos, undefined, normalizedNext)
-        .setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-      editor.view.dispatch(tr);
-      return true;
+      if (nodeType === "noteShape") {
+        const currentShapeAttrs = normalizedCurrent as NoteShapeAttrs;
+        const committed = commitOverlayNodeAttrs<NoteShapeAttrs>({
+          editor,
+          nodeType: "noteShape",
+          dom: null,
+          knownPos: selected.pos,
+          fallbackObjectId: currentShapeAttrs.objectId,
+          previousAttrs: currentShapeAttrs,
+          nextAttrs: next as NoteShapeAttrs,
+          normalize: normalizeNoteShapeAttrs,
+          equals: areNoteShapeAttrsEqual,
+        });
+        return committed.result !== "resolve_failed";
+      }
+      const currentTextBoxAttrs = normalizedCurrent as NoteTextBoxAttrs;
+      const committed = commitOverlayNodeAttrs<NoteTextBoxAttrs>({
+        editor,
+        nodeType: "noteTextBox",
+        dom: null,
+        knownPos: selected.pos,
+        fallbackObjectId: currentTextBoxAttrs.objectId,
+        previousAttrs: currentTextBoxAttrs,
+        nextAttrs: next as NoteTextBoxAttrs,
+        normalize: normalizeNoteTextBoxAttrs,
+        equals: areNoteTextBoxAttrsEqual,
+      });
+      return committed.result !== "resolve_failed";
     },
     [editor]
   );
