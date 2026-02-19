@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { plainTextToTiptapDoc } from "@/lib/plainTextToTiptapDoc";
 import ClientNoteEditorClient from "./ClientNoteEditorClient";
 import ConfirmDelete from "../../../../_components/ConfirmDelete";
-import { ensureClientPageViewAccess } from "../../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../../_lib/clientPageAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -107,6 +107,12 @@ export default async function ClientNotePage(props: {
   async function updateNoteDetails(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "notes",
+      redirectPath: `/clients/${clientId}/notes/${noteId}`,
+    });
     const title = String(formData.get("title") || "").trim();
     const visibility = String(formData.get("visibility") || "internal");
 
@@ -165,6 +171,12 @@ export default async function ClientNotePage(props: {
   async function deleteNote() {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "notes",
+      redirectPath: `/clients/${clientId}/notes/${noteId}`,
+    });
 
     const { error } = await supabase
       .from("notes")

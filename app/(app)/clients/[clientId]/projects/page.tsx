@@ -14,7 +14,7 @@ import {
 } from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ProjectsTable from "../../../projects/ProjectsTable";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const toProjectCode = (value: string) =>
@@ -239,6 +239,12 @@ export default async function ClientProjectsPage(props: {
   async function createProject(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "projects",
+      redirectPath: `/clients/${clientId}/projects`,
+    });
     const { data: authData } = await supabase.auth.getUser();
     const creatorId = authData.user?.id;
     if (!creatorId) {
@@ -673,6 +679,12 @@ export default async function ClientProjectsPage(props: {
   async function updateProjectInline(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "projects",
+      redirectPath: `/clients/${clientId}/projects`,
+    });
     const projectId = String(formData.get("project_id") || "").trim();
     const formClientId = String(formData.get("client_id") || "").trim();
     const status = String(formData.get("status") || "").trim();

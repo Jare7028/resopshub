@@ -590,11 +590,11 @@ export default function ClientsTable({
                       name={client.name}
                       itemType="Client"
                       triggerLabel={
-                        <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center">
                           <svg
                             aria-hidden="true"
                             viewBox="0 0 24 24"
-                            className="h-3.5 w-3.5"
+                            className="h-3 w-3"
                             fill="none"
                             stroke="currentColor"
                             strokeWidth="2"
@@ -607,7 +607,7 @@ export default function ClientsTable({
                             <path d="M10 11v6" />
                             <path d="M14 11v6" />
                           </svg>
-                          delete
+                          <span className="sr-only">Delete</span>
                         </span>
                       }
                     />

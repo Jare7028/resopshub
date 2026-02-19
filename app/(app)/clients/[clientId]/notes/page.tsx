@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -130,6 +130,12 @@ export default async function ClientNotesPage(props: {
   async function createNoteLegacy(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "notes",
+      redirectPath: `/clients/${clientId}/notes`,
+    });
     const content = String(formData.get("content") || "").trim();
     const visibility = String(formData.get("visibility") || "internal");
 
@@ -166,6 +172,12 @@ export default async function ClientNotesPage(props: {
   async function createNotePage(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "notes",
+      redirectPath: `/clients/${clientId}/notes`,
+    });
     const title = String(formData.get("title") || "").trim();
     const visibility = String(formData.get("visibility") || "internal");
 
@@ -215,6 +227,12 @@ export default async function ClientNotesPage(props: {
   async function deleteNote(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "notes",
+      redirectPath: `/clients/${clientId}/notes`,
+    });
     const noteId = String(formData.get("note_id") || "");
 
     if (!noteId) {

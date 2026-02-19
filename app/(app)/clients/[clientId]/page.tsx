@@ -5,7 +5,7 @@ import ClientTabs from "./_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { CLIENT_PAGE_TABS, type ClientPageTabKey } from "./_components/clientPageTabs";
-import { ensureClientPageViewAccess } from "./_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "./_lib/clientPageAccess";
 import {
   normalizeCustomFieldKind,
   toCustomFieldKey,
@@ -47,10 +47,12 @@ type ClientPagePermissionRow = {
   page_key: string;
   access_level: "none" | "view" | "edit";
 };
+type ClientPageAccessLevel = ClientPagePermissionRow["access_level"];
 
 const configurableClientTabs = CLIENT_PAGE_TABS.filter(
   (tab) => tab.key !== "overview"
 ) as Array<{ key: Exclude<ClientPageTabKey, "overview">; label: string; suffix: string }>;
+const clientPageAccessOptions: ClientPageAccessLevel[] = ["edit", "view", "none"];
 
 function isMissingColumnError(error: unknown) {
   if (!error || typeof error !== "object") {
@@ -269,16 +271,16 @@ export default async function ClientOverviewPage(props: {
     isAdmin && clientPagePermissionsError && !isSupabaseMissingTableError(clientPagePermissionsError)
       ? clientPagePermissionsError.message
       : null;
-  const deniedPageKeysByUserId = ((clientPagePermissionsTableMissing
+  const accessLevelByUserId = ((clientPagePermissionsTableMissing
     ? []
     : clientPagePermissionsRaw || []) as ClientPagePermissionRow[]).reduce<
-    Record<string, Set<ClientPageTabKey>>
+    Record<string, Partial<Record<ClientPageTabKey, ClientPageAccessLevel>>>
   >((acc, row) => {
-    if (row.access_level !== "none") return acc;
+    if (!clientPageAccessOptions.includes(row.access_level)) return acc;
     const pageKey = String(row.page_key || "").trim() as ClientPageTabKey;
     if (!CLIENT_PAGE_TABS.some((tab) => tab.key === pageKey)) return acc;
-    acc[row.user_id] ||= new Set<ClientPageTabKey>();
-    acc[row.user_id].add(pageKey);
+    acc[row.user_id] ||= {};
+    acc[row.user_id][pageKey] = row.access_level;
     return acc;
   }, {});
 
@@ -393,16 +395,29 @@ export default async function ClientOverviewPage(props: {
       redirect(`/clients/${clientId}?success=Client%20page%20access%20updated`);
     }
 
-    const deniedRows = assignedMemberIds.flatMap((userId) =>
-      configurablePageKeys
-        .filter((pageKey) => formData.get(`page_access_${userId}_${pageKey}`) !== "on")
-        .map((pageKey) => ({
-          client_id: clientId,
-          user_id: userId,
-          page_key: pageKey,
-          access_level: "none" as const,
-          created_by_user_id: editor?.id || null,
-        }))
+    const overrideRows = assignedMemberIds.flatMap((userId) =>
+      configurablePageKeys.flatMap((pageKey) => {
+        const rawLevel = String(formData.get(`page_access_${userId}_${pageKey}`) || "edit")
+          .trim()
+          .toLowerCase();
+        const accessLevel: ClientPageAccessLevel = clientPageAccessOptions.includes(
+          rawLevel as ClientPageAccessLevel
+        )
+          ? (rawLevel as ClientPageAccessLevel)
+          : "edit";
+        if (accessLevel === "edit") {
+          return [];
+        }
+        return [
+          {
+            client_id: clientId,
+            user_id: userId,
+            page_key: pageKey,
+            access_level: accessLevel,
+            created_by_user_id: editor?.id || null,
+          },
+        ];
+      })
     );
 
     const { error: deleteExistingError } = await supabase
@@ -422,10 +437,10 @@ export default async function ClientOverviewPage(props: {
       );
     }
 
-    if (deniedRows.length) {
+    if (overrideRows.length) {
       const { error: insertDeniedError } = await supabase
         .from("client_page_permissions")
-        .insert(deniedRows);
+        .insert(overrideRows);
       if (insertDeniedError && !isSupabaseMissingTableError(insertDeniedError)) {
         redirect(`/clients/${clientId}?error=${encodeURIComponent(insertDeniedError.message)}`);
       }
@@ -445,6 +460,12 @@ export default async function ClientOverviewPage(props: {
   async function updateClient(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "overview",
+      redirectPath: `/clients/${clientId}`,
+    });
     const name = String(formData.get("name") || "").trim();
     const status = String(formData.get("status") || "active");
     const industry = String(formData.get("industry") || "").trim();
@@ -555,6 +576,12 @@ export default async function ClientOverviewPage(props: {
   async function createClientCustomField(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "overview",
+      redirectPath: `/clients/${clientId}`,
+    });
     const label = String(formData.get("label") || "").trim();
     const fieldKind = normalizeCustomFieldKind(
       String(formData.get("field_kind") || "").trim().toLowerCase()
@@ -633,6 +660,12 @@ export default async function ClientOverviewPage(props: {
   async function deleteClientCustomField(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "overview",
+      redirectPath: `/clients/${clientId}`,
+    });
     const id = String(formData.get("id") || "").trim();
     if (!id) {
       redirect(`/clients/${clientId}?error=Missing%20custom%20field%20id`);
@@ -653,6 +686,12 @@ export default async function ClientOverviewPage(props: {
   async function deleteNote(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "notes",
+      redirectPath: `/clients/${clientId}`,
+    });
     const noteId = String(formData.get("note_id") || "");
 
     if (!noteId) {
@@ -676,6 +715,12 @@ export default async function ClientOverviewPage(props: {
   async function createNoteLegacy(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "notes",
+      redirectPath: `/clients/${clientId}`,
+    });
     const content = String(formData.get("content") || "").trim();
     const visibility = String(formData.get("visibility") || "internal");
 
@@ -771,8 +816,10 @@ export default async function ClientOverviewPage(props: {
                 Client page access
               </h3>
               <p className="mt-2 text-sm text-slate-600">
-                Assigned members get access to all client pages by default. Uncheck any pages they
-                should not access (for example, Billing).
+                Assigned members default to <span className="font-semibold">edit</span> on every
+                client page. Set each page to <span className="font-semibold">edit</span>,{" "}
+                <span className="font-semibold">view</span>, or{" "}
+                <span className="font-semibold">none</span>.
               </p>
 
               {clientPagePermissionsTableMissing ? (
@@ -804,19 +851,23 @@ export default async function ClientOverviewPage(props: {
                       </thead>
                       <tbody>
                         {assignedClientUsers.map((user) => {
-                          const deniedSet = deniedPageKeysByUserId[user.id] || new Set<ClientPageTabKey>();
+                          const accessByPage = accessLevelByUserId[user.id] || {};
                           return (
                             <tr key={`page-access-${user.id}`} className="border-t border-slate-200">
                               <td className="px-3 py-2 font-medium text-slate-800">
                                 {user.full_name || user.email}
                               </td>
                               {configurableClientTabs.map((tab) => (
-                                <td key={`${user.id}-${tab.key}`} className="px-3 py-2 text-center">
-                                  <input
-                                    type="checkbox"
+                                <td key={`${user.id}-${tab.key}`} className="px-3 py-2">
+                                  <select
                                     name={`page_access_${user.id}_${tab.key}`}
-                                    defaultChecked={!deniedSet.has(tab.key)}
-                                  />
+                                    defaultValue={accessByPage[tab.key] || "edit"}
+                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+                                  >
+                                    <option value="edit">Edit</option>
+                                    <option value="view">View</option>
+                                    <option value="none">None</option>
+                                  </select>
                                 </td>
                               ))}
                             </tr>

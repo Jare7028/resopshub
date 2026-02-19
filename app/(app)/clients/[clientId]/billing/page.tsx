@@ -19,7 +19,7 @@ import RevenueChargesEditor from "./RevenueChargesEditor";
 import EmployeeMonthlyCostBreakdownPopover from "./EmployeeMonthlyCostBreakdownPopover";
 import EstimatedMonthlyRevenueBreakdownPopover from "./EstimatedMonthlyRevenueBreakdownPopover";
 import MonthlyCostSourcesEditor from "./MonthlyCostSourcesEditor";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -666,6 +666,12 @@ export default async function ClientBillingPage(props: {
   async function saveRevenueModel(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "billing",
+      redirectPath: `/clients/${clientId}/billing`,
+    });
 
     if (!canEditBilling) {
       redirect(

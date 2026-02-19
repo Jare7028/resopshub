@@ -7,7 +7,7 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 
@@ -82,6 +82,12 @@ export default async function ClientRequirementsPage(props: {
   async function createRequirement(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "requirements",
+      redirectPath: `/clients/${clientId}/requirements`,
+    });
     const startDate = String(formData.get("start_date") || "");
     const endDate = String(formData.get("end_date") || "").trim();
     const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
@@ -144,6 +150,12 @@ export default async function ClientRequirementsPage(props: {
   async function updateRequirement(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "requirements",
+      redirectPath: `/clients/${clientId}/requirements`,
+    });
     const requirementId = String(formData.get("requirement_id") || "").trim();
     const startDate = String(formData.get("start_date") || "").trim();
     const endDate = String(formData.get("end_date") || "").trim();
@@ -198,6 +210,12 @@ export default async function ClientRequirementsPage(props: {
   async function deleteRequirement(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "requirements",
+      redirectPath: `/clients/${clientId}/requirements`,
+    });
     const requirementId = String(formData.get("requirement_id") || "").trim();
 
     if (!requirementId) {

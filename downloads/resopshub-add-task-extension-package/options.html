@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ResOpsHub Add Task Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>ResOpsHub Add Task</h1>
+      <p class="subtitle">Configure where the extension should create tasks.</p>
+
+      <form id="settings-form" novalidate>
+        <label for="base-url">ResOpsHub URL</label>
+        <input
+          id="base-url"
+          name="base-url"
+          type="url"
+          required
+          placeholder="https://your-resopshub-domain.com"
+        />
+        <p class="hint">Use your deployed app URL or local URL (for example, http://localhost:3000).</p>
+
+        <label class="checkbox-row" for="open-task-after-create">
+          <input id="open-task-after-create" name="open-task-after-create" type="checkbox" />
+          <span>Open the created task automatically</span>
+        </label>
+
+        <div class="actions">
+          <button type="submit">Save settings</button>
+        </div>
+      </form>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
+

@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 export default async function ClientKpisPage(props: {
   params: Promise<{ clientId: string }>;
@@ -37,6 +37,12 @@ export default async function ClientKpisPage(props: {
   async function updateKpi(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "kpis",
+      redirectPath: `/clients/${clientId}/kpis`,
+    });
     const kpiId = String(formData.get("kpi_id") || "").trim();
     const name = String(formData.get("name") || "").trim();
     const value = String(formData.get("value") || "").trim();
@@ -75,6 +81,12 @@ export default async function ClientKpisPage(props: {
   async function deleteKpi(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "kpis",
+      redirectPath: `/clients/${clientId}/kpis`,
+    });
     const kpiId = String(formData.get("kpi_id") || "").trim();
 
     if (!kpiId) {
@@ -98,6 +110,12 @@ export default async function ClientKpisPage(props: {
   async function addKpi(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "kpis",
+      redirectPath: `/clients/${clientId}/kpis`,
+    });
     const name = String(formData.get("name") || "").trim();
     const value = String(formData.get("value") || "").trim();
     const note = String(formData.get("note") || "").trim();

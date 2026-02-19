@@ -7,6 +7,22 @@ import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
+import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
+
+async function assertClientPageEditAccess(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  clientId: string,
+  pageKey: "notes" | "tasks"
+) {
+  const result = await supabase.rpc("can_edit_client_page", {
+    client_uuid: clientId,
+    p_page_key: pageKey,
+  });
+  if (isSupabaseMissingFunctionError(result.error)) return;
+  if (result.error || !result.data) {
+    throw new Error(`You do not have edit access to client ${pageKey}.`);
+  }
+}
 
 export async function updateClientNoteContent(
   clientId: string,
@@ -14,6 +30,7 @@ export async function updateClientNoteContent(
   content: unknown
 ) {
   const supabase = createSupabaseServerClient();
+  await assertClientPageEditAccess(supabase, clientId, "notes");
   const { data: authData } = await supabase.auth.getUser();
   const editorId = authData.user?.id ?? null;
   const now = new Date().toISOString();
@@ -108,6 +125,7 @@ export async function createTaskFromClientNote(input: {
   };
 
   const supabase = createSupabaseServerClient();
+  await assertClientPageEditAccess(supabase, input.clientId, "tasks");
   const { data: authData } = await supabase.auth.getUser();
   const authUser = authData.user;
 

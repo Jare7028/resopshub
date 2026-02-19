@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "ResOpsHub Add Task",
+  "short_name": "Add Task",
+  "description": "Create a ResOpsHub task from selected text using a right-click menu.",
+  "version": "0.1.0",
+  "permissions": ["contextMenus", "storage", "notifications"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "ResOpsHub Add Task"
+  }
+}
+

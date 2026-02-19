@@ -1,0 +1,52 @@
+RESOPSHUB "ADD TASK" BROWSER TOOL
+SIMPLE SETUP + USE GUIDE
+
+FOLLOW THESE STEPS EXACTLY
+
+1) Open Chrome or Edge.
+
+2) In the top address bar, type:
+chrome://extensions
+Then press Enter.
+
+3) Turn ON "Developer mode" (top right).
+
+4) Click "Load unpacked".
+
+5) Pick this folder:
+resopshub/public/browser-extension
+
+6) Find "ResOpsHub Add Task" on the page.
+Click "Details".
+Click "Extension options".
+
+7) In the "ResOpsHub URL" box, type:
+https://resopshub-p1pi.vercel.app
+
+8) Click "Save settings".
+
+9) Open this page in a normal tab and log in:
+https://resopshub-p1pi.vercel.app
+
+10) Go to any website page.
+Highlight text with your mouse.
+Right-click the highlighted text.
+Click "Add Task".
+
+11) Wait a moment.
+You should see a message that the task was created.
+The task page should open.
+
+
+IF NOTHING HAPPENS
+
+1) Go back to:
+chrome://extensions
+
+2) Click "Reload" on "ResOpsHub Add Task".
+
+3) Make sure you are logged in at:
+https://resopshub-p1pi.vercel.app
+
+4) Try again on a normal website page (not a browser settings page).
+

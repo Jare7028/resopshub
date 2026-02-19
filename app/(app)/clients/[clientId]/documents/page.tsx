@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 const visibilityOptions = ["internal", "client_shared"] as const;
 
@@ -40,6 +40,12 @@ export default async function ClientDocumentsPage(props: {
   async function uploadDocument(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "documents",
+      redirectPath: `/clients/${clientId}/documents`,
+    });
     const { data: authData } = await supabase.auth.getUser();
     const uploaderId = authData.user?.id;
     if (!uploaderId) {
@@ -92,6 +98,12 @@ export default async function ClientDocumentsPage(props: {
   async function addLinkDocument(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "documents",
+      redirectPath: `/clients/${clientId}/documents`,
+    });
     const { data: authData } = await supabase.auth.getUser();
     const uploaderId = authData.user?.id;
     if (!uploaderId) {

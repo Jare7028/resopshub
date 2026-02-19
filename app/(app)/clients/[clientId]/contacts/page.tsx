@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
-import { ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
 
 export default async function ClientContactsPage(props: {
   params: Promise<{ clientId: string }>;
@@ -37,6 +37,12 @@ export default async function ClientContactsPage(props: {
   async function createContact(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "contacts",
+      redirectPath: `/clients/${clientId}/contacts`,
+    });
     const fullName = String(formData.get("full_name") || "").trim();
     const title = String(formData.get("title") || "").trim();
     const email = String(formData.get("email") || "").trim();
@@ -67,6 +73,12 @@ export default async function ClientContactsPage(props: {
   async function updateContact(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "contacts",
+      redirectPath: `/clients/${clientId}/contacts`,
+    });
     const contactId = String(formData.get("contact_id") || "");
     const fullName = String(formData.get("full_name") || "").trim();
     const title = String(formData.get("title") || "").trim();
@@ -100,6 +112,12 @@ export default async function ClientContactsPage(props: {
   async function deleteContact(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "contacts",
+      redirectPath: `/clients/${clientId}/contacts`,
+    });
     const contactId = String(formData.get("contact_id") || "");
 
     if (!contactId) {

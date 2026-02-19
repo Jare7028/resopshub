@@ -1934,18 +1934,32 @@ function resolveNodePositionByType(
   const targetObjectId =
     typeof fallbackObjectId === "string" ? fallbackObjectId.trim() : "";
   const hasTargetObjectId = targetObjectId.length > 0;
-  const doesNodeMatch = (node: ProseMirrorNode | null | undefined) => {
-    if (!node || node.type.name !== nodeType) {
+  const doesNodeTypeMatch = (node: ProseMirrorNode | null | undefined) =>
+    Boolean(node && node.type.name === nodeType);
+  const doesNodeObjectIdMatch = (node: ProseMirrorNode | null | undefined) => {
+    if (!doesNodeTypeMatch(node) || !hasTargetObjectId) {
       return false;
     }
-    if (!hasTargetObjectId) {
-      return true;
-    }
-    const attrs = node.attrs as Record<string, unknown> | null | undefined;
+    const attrs = node?.attrs as Record<string, unknown> | null | undefined;
     const nodeObjectId =
       typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
     return nodeObjectId === targetObjectId;
   };
+  const hasObjectIdMatchInDoc = (() => {
+    if (!hasTargetObjectId) {
+      return false;
+    }
+    let matched = false;
+    editor.state.doc.descendants((node) => {
+      if (doesNodeObjectIdMatch(node)) {
+        matched = true;
+        return false;
+      }
+      return true;
+    });
+    return matched;
+  })();
+  const allowTypeOnlyFallback = !hasObjectIdMatchInDoc;
 
   const resolveFromRawPos = (rawPos: number | null | undefined) => {
     if (typeof rawPos !== "number" || Number.isNaN(rawPos)) {
@@ -1955,14 +1969,20 @@ function resolveNodePositionByType(
     const docSize = editor.state.doc.content.size;
     const safePos = Math.max(0, Math.min(rawPos, docSize));
     const directNode = editor.state.doc.nodeAt(safePos);
-    if (doesNodeMatch(directNode)) {
+    if (
+      doesNodeObjectIdMatch(directNode) ||
+      (allowTypeOnlyFallback && doesNodeTypeMatch(directNode))
+    ) {
       return safePos;
     }
 
     const resolvedPos = editor.state.doc.resolve(safePos);
     for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
       const node = resolvedPos.node(depth);
-      if (doesNodeMatch(node)) {
+      if (
+        doesNodeObjectIdMatch(node) ||
+        (allowTypeOnlyFallback && doesNodeTypeMatch(node))
+      ) {
         return resolvedPos.before(depth);
       }
     }
@@ -1996,7 +2016,7 @@ function resolveNodePositionByType(
 
   let matchedPos: number | null = null;
   editor.state.doc.descendants((node, pos) => {
-    if (!doesNodeMatch(node)) {
+    if (!doesNodeObjectIdMatch(node)) {
       return true;
     }
     matchedPos = pos;
