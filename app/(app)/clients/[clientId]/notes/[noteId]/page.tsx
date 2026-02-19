@@ -282,6 +282,7 @@ export default async function ClientNotePage(props: {
         clientId={clientId}
         noteId={noteId}
         sourcePersonalPageId={linkedPersonalPageId}
+        sourcePersonalPageUpdatedAt={linkedPersonalPage?.updated_at || null}
         initialContent={initialContent}
         lastEditedAtLabel={lastEditedAtLabel}
         lastEditedByLabel={lastEditedByLabel}

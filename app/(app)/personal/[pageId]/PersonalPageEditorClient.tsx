@@ -2,7 +2,7 @@
 
 import NoteEditorClient from "../../_components/NoteEditorClient";
 import type { ContextMenuFavoriteActionId } from "../../_components/NoteEditorClient";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   createTaskFromPersonalPage,
   savePersonalContextMenuFavorites,
@@ -21,6 +21,7 @@ export default function PersonalPageEditorClient({
   lastEditedByLabel,
   initialContextMenuFavorites,
   persistContextMenuFavorites,
+  initialUpdatedAt = null,
   initialRibbonTab = "home",
   initialZoomPercent = 100,
   initialFocusMode = false,
@@ -31,19 +32,35 @@ export default function PersonalPageEditorClient({
   lastEditedByLabel?: string | null;
   initialContextMenuFavorites: ContextMenuFavoriteActionId[];
   persistContextMenuFavorites: boolean;
+  initialUpdatedAt?: string | null;
   initialRibbonTab?: PersonalWorkspaceRibbonTab;
   initialZoomPercent?: number;
   initialFocusMode?: boolean;
 }) {
+  const expectedUpdatedAtRef = useRef<string | null>(initialUpdatedAt ?? null);
+
   useEffect(() => {
     void recordPersonalPageOpened({ pageId }).catch(() => undefined);
   }, [pageId]);
+
+  useEffect(() => {
+    expectedUpdatedAtRef.current = initialUpdatedAt ?? null;
+  }, [initialUpdatedAt, pageId]);
 
   const handleCreateTask = useCallback(
     (input: { title: string; dueDate: string | null; dueTime: string | null; assignToMe: boolean }) =>
       createTaskFromPersonalPage({ pageId, ...input }),
     [pageId]
   );
+  const handleSave = useCallback(async (entityId: string, content: unknown) => {
+    const result = await updatePersonalPageContent(entityId, content, {
+      expectedUpdatedAt: expectedUpdatedAtRef.current,
+    });
+    if (result.status === "conflict") {
+      throw new Error(result.message);
+    }
+    expectedUpdatedAtRef.current = result.updatedAt;
+  }, []);
   const handleSaveContextMenuFavorites = useCallback(
     (favorites: string[]) => savePersonalContextMenuFavorites({ favorites }),
     []
@@ -65,7 +82,7 @@ export default function PersonalPageEditorClient({
       initialContent={initialContent}
       title="Page"
       placeholder="Start writing your page..."
-      onSave={updatePersonalPageContent}
+      onSave={handleSave}
       onCreateTask={handleCreateTask}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}

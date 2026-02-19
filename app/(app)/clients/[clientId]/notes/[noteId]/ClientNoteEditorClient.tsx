@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import NoteEditorClient from "../../../../_components/NoteEditorClient";
 import { createTaskFromClientNote, updateClientNoteContent } from "./editorActions";
 import {
@@ -12,6 +12,7 @@ export default function ClientNoteEditorClient({
   clientId,
   noteId,
   sourcePersonalPageId,
+  sourcePersonalPageUpdatedAt,
   initialContent,
   lastEditedAtLabel,
   lastEditedByLabel,
@@ -19,16 +20,32 @@ export default function ClientNoteEditorClient({
   clientId: string;
   noteId: string;
   sourcePersonalPageId: string | null;
+  sourcePersonalPageUpdatedAt?: string | null;
   initialContent: unknown;
   lastEditedAtLabel?: string | null;
   lastEditedByLabel?: string | null;
 }) {
+  const sourcePageExpectedUpdatedAtRef = useRef<string | null>(
+    sourcePersonalPageUpdatedAt ?? null
+  );
+
+  useEffect(() => {
+    sourcePageExpectedUpdatedAtRef.current = sourcePersonalPageUpdatedAt ?? null;
+  }, [sourcePersonalPageId, sourcePersonalPageUpdatedAt]);
+
   const handleSave = useCallback(
-    (entityId: string, content: unknown) => {
+    async (entityId: string, content: unknown) => {
       if (sourcePersonalPageId) {
-        return updatePersonalPageContent(sourcePersonalPageId, content);
+        const result = await updatePersonalPageContent(sourcePersonalPageId, content, {
+          expectedUpdatedAt: sourcePageExpectedUpdatedAtRef.current,
+        });
+        if (result.status === "conflict") {
+          throw new Error(result.message);
+        }
+        sourcePageExpectedUpdatedAtRef.current = result.updatedAt;
+        return;
       }
-      return updateClientNoteContent(clientId, entityId, content);
+      await updateClientNoteContent(clientId, entityId, content);
     },
     [clientId, sourcePersonalPageId]
   );

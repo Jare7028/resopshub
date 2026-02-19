@@ -1120,6 +1120,7 @@ export default async function PersonalPage(props: {
             lastEditedByLabel={lastEditedByLabel}
             initialContextMenuFavorites={initialContextMenuFavorites}
             persistContextMenuFavorites={persistContextMenuFavorites}
+            initialUpdatedAt={page.updated_at || null}
             initialRibbonTab={initialRibbonTab}
             initialZoomPercent={initialZoomPercent}
             initialFocusMode={initialFocusMode}

@@ -50,7 +50,28 @@ function normalizeContextMenuFavorites(value: unknown) {
   return Array.from(new Set(next));
 }
 
-export async function updatePersonalPageContent(pageId: string, content: unknown) {
+function normalizeTimestamp(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length ? normalized : null;
+}
+
+export type UpdatePersonalPageContentOptions = {
+  expectedUpdatedAt?: string | null;
+  forceOverwrite?: boolean;
+};
+
+export type UpdatePersonalPageContentResult =
+  | { status: "saved"; updatedAt: string | null }
+  | { status: "conflict"; updatedAt: string | null; message: string };
+
+export async function updatePersonalPageContent(
+  pageId: string,
+  content: unknown,
+  options?: UpdatePersonalPageContentOptions
+): Promise<UpdatePersonalPageContentResult> {
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const now = new Date().toISOString();
@@ -70,7 +91,13 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
     pageTitle = String(existingPage?.title || "").trim() || null;
   }
 
-  const { error: updateError } = await supabase
+  const hasExpectedUpdatedAt = Boolean(
+    options && Object.prototype.hasOwnProperty.call(options, "expectedUpdatedAt")
+  );
+  const expectedUpdatedAt = normalizeTimestamp(options?.expectedUpdatedAt);
+  const forceOverwrite = Boolean(options?.forceOverwrite);
+
+  let updateQuery = supabase
     .from("personal_pages")
     .update({
       content,
@@ -81,9 +108,39 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
     })
     .eq("id", pageId);
 
+  if (!forceOverwrite && hasExpectedUpdatedAt) {
+    updateQuery =
+      expectedUpdatedAt === null
+        ? updateQuery.is("updated_at", null)
+        : updateQuery.eq("updated_at", expectedUpdatedAt);
+  }
+
+  const { data: updatedPages, error: updateError } = await updateQuery.select("id,updated_at");
   if (updateError) {
     throw new Error(updateError.message);
   }
+
+  if (!updatedPages?.length) {
+    const { data: latestPage, error: latestPageError } = await supabase
+      .from("personal_pages")
+      .select("updated_at")
+      .eq("id", pageId)
+      .maybeSingle();
+    if (latestPageError) {
+      throw new Error(latestPageError.message);
+    }
+    if (!latestPage) {
+      throw new Error("Personal page not found");
+    }
+    return {
+      status: "conflict",
+      updatedAt: normalizeTimestamp(latestPage.updated_at),
+      message:
+        "Someone else updated this page before your last save. Refresh this page to load the latest version before continuing.",
+    };
+  }
+
+  const savedUpdatedAt = normalizeTimestamp(updatedPages[0]?.updated_at) || now;
 
   const { data: linkedNotesSynced, error: linkedNotesSyncError } = await supabase
     .from("notes")
@@ -147,6 +204,8 @@ export async function updatePersonalPageContent(pageId: string, content: unknown
 
   revalidatePath(`/personal/${pageId}`);
   revalidatePath("/personal");
+
+  return { status: "saved", updatedAt: savedUpdatedAt };
 }
 
 export async function savePersonalContextMenuFavorites(input: { favorites: string[] }) {
