@@ -39,18 +39,6 @@ export default async function AdminPage() {
           Manage users
         </Link>
       </div>
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Help guide management</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Edit Help & Walkthrough guide content from the admin panel.
-        </p>
-        <Link
-          href="/admin/help-guides"
-          className="mt-4 inline-flex rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-        >
-          Manage guides
-        </Link>
-      </div>
     </div>
   );
 }

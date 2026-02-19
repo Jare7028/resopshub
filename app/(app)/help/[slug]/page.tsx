@@ -1,20 +1,38 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { loadHelpGuides } from "@/lib/helpGuidesStore";
+import HelpRichContent from "../_components/HelpRichContent";
+import HelpGuideEditorClient from "./HelpGuideEditorClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function HelpGuidePage(props: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ edit?: string }>;
 }) {
   const { slug } = await props.params;
-  const { guides } = await loadHelpGuides();
+  const searchParams = await props.searchParams;
+  const { guides, overrideSlugs } = await loadHelpGuides();
   const guide = guides.find((entry) => entry.slug === slug) || null;
 
   if (!guide) {
     notFound();
   }
 
+  const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = String(authData.user?.id || "").trim();
+  let isAdmin = false;
+  if (authUserId) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", authUserId)
+      .maybeSingle();
+    isAdmin = profile?.role === "admin";
+  }
+  const isEditMode = isAdmin && String(searchParams?.edit || "") === "1";
   const relatedGuides = guide.related
     .map((relatedSlug) => guides.find((entry) => entry.slug === relatedSlug) || null)
     .filter(Boolean);
@@ -50,6 +68,14 @@ export default async function HelpGuidePage(props: {
           >
             Back To All Guides
           </Link>
+          {isAdmin && !isEditMode ? (
+            <Link
+              href={`/help/${guide.slug}?edit=1`}
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+            >
+              Edit guide
+            </Link>
+          ) : null}
         </div>
       </section>
 
@@ -75,56 +101,47 @@ export default async function HelpGuidePage(props: {
         </ol>
       </section>
 
-      <div className="space-y-5">
-        {guide.sections.map((section) => (
-          <section
-            key={`${guide.slug}-${section.id}`}
-            id={section.id}
-            className="rounded-lg border border-slate-200 bg-white p-6"
-          >
-            <h2 className="text-xl font-semibold text-slate-900">{section.title}</h2>
-            <p className="mt-1 text-sm text-slate-600">{section.summary}</p>
-            <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-700">
-              {section.steps.map((step) => (
-                <li key={`${guide.slug}-${section.id}-${step}`}>{step}</li>
-              ))}
-            </ol>
+      {isEditMode ? (
+        <HelpGuideEditorClient
+          initialGuide={guide}
+          initialHasOverride={overrideSlugs.has(guide.slug)}
+        />
+      ) : (
+        <div className="space-y-5">
+          {guide.sections.map((section) => (
+            <section
+              key={`${guide.slug}-${section.id}`}
+              id={section.id}
+              className="rounded-lg border border-slate-200 bg-white p-6"
+            >
+              <h2 className="text-xl font-semibold text-slate-900">{section.title}</h2>
+              <div className="mt-3">
+                <HelpRichContent content={section.content} />
+              </div>
 
-            {section.links?.length ? (
-              <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Download Links
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {section.links.map((link) => (
-                    <a
-                      key={`${guide.slug}-${section.id}-link-${link.href}`}
-                      href={link.href}
-                      download
-                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-                    >
-                      {link.label}
-                    </a>
-                  ))}
+              {section.links?.length ? (
+                <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Download Links
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {section.links.map((link) => (
+                      <a
+                        key={`${guide.slug}-${section.id}-link-${link.href}`}
+                        href={link.href}
+                        download
+                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                      >
+                        {link.label}
+                      </a>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : null}
-
-            {section.tips?.length ? (
-              <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">
-                  Tips
-                </p>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-sky-900">
-                  {section.tips.map((tip) => (
-                    <li key={`${guide.slug}-${section.id}-tip-${tip}`}>{tip}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </section>
-        ))}
-      </div>
+              ) : null}
+            </section>
+          ))}
+        </div>
+      )}
 
       {relatedGuides.length ? (
         <section className="rounded-lg border border-slate-200 bg-white p-6">

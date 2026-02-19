@@ -1,13 +1,15 @@
+import { extractPlainText } from "../../../../lib/tiptapText";
+
+export type HelpGuideSectionLink = {
+  label: string;
+  href: string;
+};
+
 export type HelpGuideSection = {
   id: string;
   title: string;
-  summary: string;
-  steps: string[];
-  tips?: string[];
-  links?: Array<{
-    label: string;
-    href: string;
-  }>;
+  content: unknown;
+  links?: HelpGuideSectionLink[];
 };
 
 export type HelpGuide = {
@@ -32,7 +34,7 @@ export const HELP_QUICKSTART: string[] = [
   "Use Feature Suggestions to submit any product improvement ideas.",
 ];
 
-export const HELP_GUIDES: HelpGuide[] = [
+const HELP_GUIDE_DEFINITIONS: unknown[] = [
   {
     slug: "getting-started",
     title: "Getting Started",
@@ -828,18 +830,6 @@ export const HELP_GUIDES: HelpGuide[] = [
   },
 ];
 
-export const HELP_GUIDE_BY_SLUG = HELP_GUIDES.reduce<Record<string, HelpGuide>>(
-  (acc, guide) => {
-    acc[guide.slug] = guide;
-    return acc;
-  },
-  {}
-);
-
-export function getHelpGuideBySlug(slug: string) {
-  return HELP_GUIDE_BY_SLUG[slug] || null;
-}
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -867,9 +857,9 @@ function normalizeSlug(value: unknown) {
   return normalized;
 }
 
-function normalizeSectionLinks(value: unknown): Array<{ label: string; href: string }> {
+function normalizeSectionLinks(value: unknown): HelpGuideSectionLink[] {
   if (!Array.isArray(value)) return [];
-  const links: Array<{ label: string; href: string }> = [];
+  const links: HelpGuideSectionLink[] = [];
   value.forEach((entry) => {
     if (!isObjectRecord(entry)) return;
     const label = normalizeString(entry.label, 200);
@@ -881,34 +871,156 @@ function normalizeSectionLinks(value: unknown): Array<{ label: string; href: str
   return links;
 }
 
+function createParagraphNode(text: string) {
+  return {
+    type: "paragraph",
+    content: [{ type: "text", text }],
+  };
+}
+
+function createListNode(type: "orderedList" | "bulletList", items: string[]) {
+  return {
+    type,
+    content: items.map((item) => ({
+      type: "listItem",
+      content: [createParagraphNode(item)],
+    })),
+  };
+}
+
+function buildLegacySectionContent(input: {
+  summary: string;
+  steps: string[];
+  tips: string[];
+}) {
+  const content: Array<Record<string, unknown>> = [
+    createParagraphNode(input.summary),
+    createListNode("orderedList", input.steps),
+  ];
+  if (input.tips.length) {
+    content.push(createParagraphNode("Tips"));
+    content.push(createListNode("bulletList", input.tips));
+  }
+  return {
+    type: "doc",
+    content,
+  };
+}
+
+function normalizeTiptapMarks(value: unknown, depth: number) {
+  if (!Array.isArray(value)) return undefined;
+  const marks = value
+    .map((entry) => normalizeTiptapNode(entry, depth + 1))
+    .filter((mark): mark is Record<string, unknown> => mark !== null);
+  return marks.length ? marks : undefined;
+}
+
+function normalizeTiptapAttrs(value: unknown) {
+  if (!isObjectRecord(value)) return undefined;
+  try {
+    const json = JSON.parse(JSON.stringify(value));
+    return isObjectRecord(json) ? json : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeTiptapNode(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (!isObjectRecord(value) || depth > 24) return null;
+
+  const type = normalizeString(value.type, 100);
+  if (!type) return null;
+
+  const normalized: Record<string, unknown> = { type };
+  const attrs = normalizeTiptapAttrs(value.attrs);
+  if (attrs) {
+    normalized.attrs = attrs;
+  }
+
+  if (typeof value.text === "string") {
+    normalized.text = value.text.slice(0, 16000);
+  }
+
+  const marks = normalizeTiptapMarks(value.marks, depth);
+  if (marks?.length) {
+    normalized.marks = marks;
+  }
+
+  if (Array.isArray(value.content)) {
+    const content = value.content
+      .map((node) => normalizeTiptapNode(node, depth + 1))
+      .filter((node): node is Record<string, unknown> => node !== null);
+    normalized.content = content;
+  }
+
+  if (type === "text" && typeof normalized.text !== "string") {
+    return null;
+  }
+
+  return normalized;
+}
+
+function normalizeTiptapContent(value: unknown): unknown | null {
+  const normalized = normalizeTiptapNode(value);
+  if (!normalized || normalized.type !== "doc") {
+    return null;
+  }
+  if (!Array.isArray(normalized.content)) {
+    normalized.content = [{ type: "paragraph" }];
+  }
+  return normalized;
+}
+
 export function normalizeHelpGuideSection(value: unknown): HelpGuideSection | null {
   if (!isObjectRecord(value)) return null;
 
   const id = normalizeSlug(value.id);
   const title = normalizeString(value.title, 240);
-  const summary = normalizeString(value.summary, 2000);
-  const steps = normalizeStringArray(value.steps, 3000);
+  const links = normalizeSectionLinks(value.links);
+  let content = normalizeTiptapContent(value.content);
 
-  if (!id || !title || !summary || !steps.length) {
-    return null;
+  if (!content) {
+    const summary = normalizeString(value.summary, 2000);
+    const steps = normalizeStringArray(value.steps, 3000);
+    const tips = normalizeStringArray(value.tips, 2000);
+    if (!summary || !steps.length) {
+      return null;
+    }
+    content = buildLegacySectionContent({
+      summary,
+      steps,
+      tips,
+    });
   }
 
-  const tips = normalizeStringArray(value.tips, 2000);
-  const links = normalizeSectionLinks(value.links);
+  if (!id || !title) {
+    return null;
+  }
 
   const normalized: HelpGuideSection = {
     id,
     title,
-    summary,
-    steps,
-  };
-  if (tips.length) {
-    normalized.tips = tips;
+    content,
   }
   if (links.length) {
     normalized.links = links;
   }
   return normalized;
+}
+
+export function getHelpGuideSearchText(guide: HelpGuide) {
+  return [
+    guide.title,
+    guide.summary,
+    guide.audience,
+    guide.keywords.join(" "),
+    guide.sections.map((section) => section.title).join(" "),
+    guide.sections.map((section) => extractPlainText(section.content)).join(" "),
+  ]
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 export function normalizeHelpGuide(value: unknown): HelpGuide | null {
@@ -960,3 +1072,20 @@ export function normalizeHelpGuide(value: unknown): HelpGuide | null {
     related: related.filter(Boolean),
   };
 }
+
+export const HELP_GUIDES: HelpGuide[] = HELP_GUIDE_DEFINITIONS.map((guide) =>
+  normalizeHelpGuide(guide)
+).filter((guide): guide is HelpGuide => guide !== null);
+
+export const HELP_GUIDE_BY_SLUG = HELP_GUIDES.reduce<Record<string, HelpGuide>>(
+  (acc, guide) => {
+    acc[guide.slug] = guide;
+    return acc;
+  },
+  {}
+);
+
+export function getHelpGuideBySlug(slug: string) {
+  return HELP_GUIDE_BY_SLUG[slug] || null;
+}
+

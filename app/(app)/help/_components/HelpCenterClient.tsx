@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { HELP_QUICKSTART, type HelpGuide } from "../_data/guides";
+import {
+  HELP_QUICKSTART,
+  getHelpGuideSearchText,
+  type HelpGuide,
+} from "../_data/guides";
 
 function includesQuery(guide: HelpGuide, query: string) {
   if (!query) {
@@ -13,17 +17,7 @@ function includesQuery(guide: HelpGuide, query: string) {
     return true;
   }
 
-  const haystack = [
-    guide.title,
-    guide.summary,
-    guide.audience,
-    guide.keywords.join(" "),
-    guide.sections.map((section) => section.title).join(" "),
-    guide.sections.map((section) => section.summary).join(" "),
-    guide.sections.map((section) => section.steps.join(" ")).join(" "),
-  ]
-    .join(" ")
-    .toLowerCase();
+  const haystack = getHelpGuideSearchText(guide);
 
   return haystack.includes(normalizedQuery);
 }
