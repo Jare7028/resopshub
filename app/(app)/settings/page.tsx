@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { withPerfTiming } from "@/lib/perf";
 import {
   buildStatusOptions,
   DEFAULT_PROJECT_STATUS_OPTIONS,
@@ -128,40 +129,41 @@ export default async function SettingsPage(props: {
   )}`;
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
+  const { data: authData } = await withPerfTiming("settings.auth", () =>
+    supabase.auth.getUser()
+  );
   const user = authData.user;
 
   if (!user) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("id,email,full_name,role")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: profile } = await withPerfTiming("settings.profile", () =>
+    supabase.from("users").select("id,email,full_name,role").eq("id", user.id).maybeSingle()
+  );
 
   if (!profile) {
     redirect("/dashboard?error=Missing%20profile");
   }
 
-  const { data: usersRaw } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
+  const { data: usersRaw } = await withPerfTiming("settings.users", () =>
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
+  );
   const users = usersRaw || [];
   const userNameById = users.reduce<Record<string, string>>((acc, row) => {
     acc[row.id] = row.full_name || row.email || "Unknown user";
     return acc;
   }, {});
 
-  const { data: prefsRaw } = await supabase
-    .from("user_notification_preferences")
-    .select(
-      "user_id,task_assigned,task_updated,task_due_today,task_overdue,feature_suggestion_comment,feature_suggestion_status"
-    )
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data: prefsRaw } = await withPerfTiming("settings.notification_prefs", () =>
+    supabase
+      .from("user_notification_preferences")
+      .select(
+        "user_id,task_assigned,task_updated,task_due_today,task_overdue,feature_suggestion_comment,feature_suggestion_status"
+      )
+      .eq("user_id", user.id)
+      .maybeSingle()
+  );
 
   const prefsDb = (prefsRaw || null) as NotificationPrefsDbRow | null;
   const prefs: NotificationPrefs = {

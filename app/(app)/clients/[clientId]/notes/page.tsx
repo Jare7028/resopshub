@@ -3,14 +3,20 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { withPerfTiming } from "@/lib/perf";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../_lib/clientPageAccess";
 
 export const dynamic = "force-dynamic";
 
 const visibilityOptions = ["internal", "client_shared"] as const;
+const notesPageSize = 50;
 
 type ClientNoteRow = {
   id: string;
@@ -52,53 +58,74 @@ function truncate(value: string, max = 140) {
 
 export default async function ClientNotesPage(props: {
   params: Promise<{ clientId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; page?: string }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
+  const pageParam = Number.parseInt(String(searchParams?.page || "1"), 10);
+  const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const notesRangeFrom = (currentPage - 1) * notesPageSize;
+  const notesRangeTo = notesRangeFrom + notesPageSize;
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select("id,name")
-    .eq("id", clientId)
-    .single();
+  const { data: client } = await withPerfTiming("clients.notes.client", () =>
+    supabase.from("clients").select("id,name").eq("id", clientId).single()
+  );
 
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await withPerfTiming(
+    "clients.notes.page_access",
+    () => getClientPageAccessData({ supabase, clientId })
+  );
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "notes",
+    accessByKey: clientPageAccessByKey,
   });
 
   let supportsNotePages = true;
   let notes: ClientNoteRow[] | null = null;
   let notesError: unknown = null;
+  let hasNextPage = false;
+  const hasPreviousPage = currentPage > 1;
 
-  const { data: notePageRows, error: notePageError } = await supabase
-    .from("notes")
-    .select(
-      "id,title,content,visibility,created_at,last_edited_at,last_edited_by_user_id,user_id"
-    )
-    .eq("client_id", clientId)
-    .order("last_edited_at", { ascending: false })
-    .order("created_at", { ascending: false });
+  const { data: notePageRows, error: notePageError } = await withPerfTiming("clients.notes.rows", () =>
+    supabase
+      .from("notes")
+      .select(
+        "id,title,content,visibility,created_at,last_edited_at,last_edited_by_user_id,user_id"
+      )
+      .eq("client_id", clientId)
+      .order("last_edited_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .range(notesRangeFrom, notesRangeTo)
+  );
 
   if (notePageError && isMissingColumnError(notePageError)) {
     supportsNotePages = false;
-    const { data: legacyRows, error: legacyError } = await supabase
-      .from("notes")
-      .select("id,content,visibility,created_at,user_id")
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: false });
+    const { data: legacyRows, error: legacyError } = await withPerfTiming(
+      "clients.notes.legacy_rows",
+      () =>
+        supabase
+          .from("notes")
+          .select("id,content,visibility,created_at,user_id")
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: false })
+          .range(notesRangeFrom, notesRangeTo)
+    );
 
-    notes = legacyRows as ClientNoteRow[] | null;
+    const pagedLegacyRows = (legacyRows || []) as ClientNoteRow[];
+    hasNextPage = pagedLegacyRows.length > notesPageSize;
+    notes = pagedLegacyRows.slice(0, notesPageSize);
     notesError = legacyError;
   } else {
-    notes = notePageRows as ClientNoteRow[] | null;
+    const pagedNoteRows = (notePageRows || []) as ClientNoteRow[];
+    hasNextPage = pagedNoteRows.length > notesPageSize;
+    notes = pagedNoteRows.slice(0, notesPageSize);
     notesError = notePageError;
   }
 
@@ -114,10 +141,9 @@ export default async function ClientNotesPage(props: {
 
   const { data: editorUsers } =
     supportsNotePages && lastEditorIds.length
-      ? await supabase
-          .from("users")
-          .select("id,full_name,email")
-          .in("id", lastEditorIds)
+      ? await withPerfTiming("clients.notes.editor_users", () =>
+          supabase.from("users").select("id,full_name,email").in("id", lastEditorIds)
+        )
       : { data: [] as EditorUserRow[] };
 
   const editorMap = new Map<string, string>(
@@ -126,6 +152,17 @@ export default async function ClientNotesPage(props: {
       user.full_name || user.email || "Unknown user",
     ])
   );
+  const buildNotesPageUrl = (pageNumber: number) => {
+    const normalizedPage = Number.isFinite(pageNumber) && pageNumber > 1 ? Math.floor(pageNumber) : 1;
+    const sp = new URLSearchParams();
+    if (normalizedPage > 1) {
+      sp.set("page", String(normalizedPage));
+    }
+    const qs = sp.toString();
+    return qs ? `/clients/${clientId}/notes?${qs}` : `/clients/${clientId}/notes`;
+  };
+  const previousPageUrl = hasPreviousPage ? buildNotesPageUrl(currentPage - 1) : null;
+  const nextPageUrl = hasNextPage ? buildNotesPageUrl(currentPage + 1) : null;
 
   async function createNoteLegacy(formData: FormData) {
     "use server";
@@ -261,7 +298,7 @@ export default async function ClientNotesPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Notes
         </h1>
-        <ClientTabs clientId={clientId} active="notes" />
+        <ClientTabs clientId={clientId} active="notes" tabs={visibleTabs} />
       </section>
 
       {searchParams?.error ? (
@@ -470,6 +507,27 @@ export default async function ClientNotesPage(props: {
           </section>
         </>
       )}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-500">Page {currentPage}</p>
+        <div className="flex items-center gap-2">
+          {previousPageUrl ? (
+            <Link
+              href={previousPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Previous
+            </Link>
+          ) : null}
+          {nextPageUrl ? (
+            <Link
+              href={nextPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Next
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

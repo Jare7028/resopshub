@@ -7,7 +7,11 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../_lib/clientPageAccess";
 
 const statusOptions = TASK_STATUS_OPTIONS;
 
@@ -49,10 +53,15 @@ export default async function ClientRequirementsPage(props: {
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await getClientPageAccessData({
+    supabase,
+    clientId,
+  });
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "requirements",
+    accessByKey: clientPageAccessByKey,
   });
 
   const fullSelect = await supabase
@@ -242,7 +251,7 @@ export default async function ClientRequirementsPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Requirements
         </h1>
-        <ClientTabs clientId={clientId} active="requirements" />
+        <ClientTabs clientId={clientId} active="requirements" tabs={visibleTabs} />
       </section>
 
       {(searchParams?.error || searchParams?.success) ? (

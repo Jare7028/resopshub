@@ -2,7 +2,11 @@
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../_lib/clientPageAccess";
 
 const visibilityOptions = ["internal", "client_shared"] as const;
 
@@ -23,10 +27,15 @@ export default async function ClientDocumentsPage(props: {
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await getClientPageAccessData({
+    supabase,
+    clientId,
+  });
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "documents",
+    accessByKey: clientPageAccessByKey,
   });
 
   const { data: documents } = await supabase
@@ -191,7 +200,7 @@ export default async function ClientDocumentsPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Documents
         </h1>
-        <ClientTabs clientId={clientId} active="documents" />
+        <ClientTabs clientId={clientId} active="documents" tabs={visibleTabs} />
       </section>
 
       {searchParams?.error ? (

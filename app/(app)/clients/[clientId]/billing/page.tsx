@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { withPerfTiming } from "@/lib/perf";
 import {
   isSupabaseMissingColumnError,
   isSupabaseMissingFunctionError,
@@ -19,7 +20,11 @@ import RevenueChargesEditor from "./RevenueChargesEditor";
 import EmployeeMonthlyCostBreakdownPopover from "./EmployeeMonthlyCostBreakdownPopover";
 import EstimatedMonthlyRevenueBreakdownPopover from "./EstimatedMonthlyRevenueBreakdownPopover";
 import MonthlyCostSourcesEditor from "./MonthlyCostSourcesEditor";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../_lib/clientPageAccess";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -394,28 +399,33 @@ export default async function ClientBillingPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
-  const { data: client } = await supabase
-    .from("clients")
-    .select("id,name")
-    .eq("id", clientId)
-    .single();
+  const { data: client } = await withPerfTiming("clients.billing.client", () =>
+    supabase.from("clients").select("id,name").eq("id", clientId).single()
+  );
 
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await withPerfTiming(
+    "clients.billing.page_access",
+    () => getClientPageAccessData({ supabase, clientId })
+  );
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "billing",
+    accessByKey: clientPageAccessByKey,
   });
   const clientName = client.name;
   const clientRecordId = client.id;
   let canEditBilling = true;
   let billingPermissionErrorMessage: string | null = null;
 
-  const canEditBillingResult = await supabase.rpc("can_edit_client_billing", {
-    client_uuid: clientId,
-  });
+  const canEditBillingResult = await withPerfTiming("clients.billing.can_edit", () =>
+    supabase.rpc("can_edit_client_billing", {
+      client_uuid: clientId,
+    })
+  );
   if (isSupabaseMissingFunctionError(canEditBillingResult.error)) {
     canEditBilling = true;
   } else if (canEditBillingResult.error) {
@@ -430,11 +440,15 @@ export default async function ClientBillingPage(props: {
   let billingRevenueColumnsMissing = false;
   let billingProfilesTableMissing = false;
 
-  let { data: billingProfileRaw, error: billingProfileError } = await supabase
-    .from("billing_profiles")
-    .select("id,currency,hourly_rate,total_billable_hours,revenue_charge_items,monthly_cost_items")
-    .eq("client_id", clientId)
-    .maybeSingle();
+  let { data: billingProfileRaw, error: billingProfileError } = await withPerfTiming(
+    "clients.billing.profile",
+    () =>
+      supabase
+        .from("billing_profiles")
+        .select("id,currency,hourly_rate,total_billable_hours,revenue_charge_items,monthly_cost_items")
+        .eq("client_id", clientId)
+        .maybeSingle()
+  );
 
   if (isSupabaseMissingColumnError(billingProfileError)) {
     billingRevenueColumnsMissing = true;
@@ -521,23 +535,31 @@ export default async function ClientBillingPage(props: {
     exchangeRateRows: [],
   });
 
-  const { data: employeeRecordsRaw, error: employeeRecordsError } = await supabase
-    .from("employee_info_records")
-    .select("id,full_name,client_id")
-    .eq("client_id", clientId);
+  const { data: employeeRecordsRaw, error: employeeRecordsError } = await withPerfTiming(
+    "clients.billing.employee_records",
+    () =>
+      supabase
+        .from("employee_info_records")
+        .select("id,full_name,client_id")
+        .eq("client_id", clientId)
+  );
 
   if (isSupabaseMissingTableError(employeeRecordsError)) {
     employeeMonthlyCostSummary.errorMessage = "Employee Info is not set up yet.";
   } else if (employeeRecordsError) {
     employeeMonthlyCostSummary.errorMessage = `Could not load Employee Info rows (${employeeRecordsError.message}).`;
   } else {
-    let { data: employeeColumnsRaw, error: employeeColumnsError } = await supabase
-      .from("employee_info_columns")
-      .select(
-        "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
-      )
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true });
+    let { data: employeeColumnsRaw, error: employeeColumnsError } = await withPerfTiming(
+      "clients.billing.employee_columns",
+      () =>
+        supabase
+          .from("employee_info_columns")
+          .select(
+            "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
+          )
+          .order("position", { ascending: true })
+          .order("created_at", { ascending: true })
+    );
 
     if (isSupabaseMissingColumnError(employeeColumnsError)) {
       const fallbackColumns = await supabase
@@ -571,10 +593,12 @@ export default async function ClientBillingPage(props: {
       if (employeeRecordIds.length) {
         let employeeValuesRaw: EmployeeInfoValueRow[] = [];
         let employeeValuesError: { message?: string; code?: string } | null = null;
-        const employeeValuesResult = await supabase
-          .from("employee_info_values")
-          .select("record_id,column_id,text_value,option_value,money_currency_code")
-          .in("record_id", employeeRecordIds);
+        const employeeValuesResult = await withPerfTiming("clients.billing.employee_values", () =>
+          supabase
+            .from("employee_info_values")
+            .select("record_id,column_id,text_value,option_value,money_currency_code")
+            .in("record_id", employeeRecordIds)
+        );
         employeeValuesRaw = (employeeValuesResult.data || []) as EmployeeInfoValueRow[];
         employeeValuesError = employeeValuesResult.error;
 
@@ -604,10 +628,14 @@ export default async function ClientBillingPage(props: {
       }
 
       let exchangeRateRows: EmployeeInfoExchangeRateRow[] = [];
-      const { data: exchangeRateRowsRaw, error: exchangeRateError } = await supabase
-        .from("employee_info_exchange_rates")
-        .select("base_currency_code,quote_currency_code,rate,effective_month_start")
-        .order("effective_month_start", { ascending: false });
+      const { data: exchangeRateRowsRaw, error: exchangeRateError } = await withPerfTiming(
+        "clients.billing.exchange_rates",
+        () =>
+          supabase
+            .from("employee_info_exchange_rates")
+            .select("base_currency_code,quote_currency_code,rate,effective_month_start")
+            .order("effective_month_start", { ascending: false })
+      );
 
       if (exchangeRateError && !isSupabaseMissingTableError(exchangeRateError)) {
         employeeMonthlyCostSummary.errorMessage = `Could not load Employee Info exchange rates (${exchangeRateError.message}).`;
@@ -767,7 +795,7 @@ export default async function ClientBillingPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {clientName} - Billing
         </h1>
-        <ClientTabs clientId={clientId} active="billing" />
+        <ClientTabs clientId={clientId} active="billing" tabs={visibleTabs} />
       </section>
 
       {searchParams?.error ? (

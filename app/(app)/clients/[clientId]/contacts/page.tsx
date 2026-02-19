@@ -3,7 +3,11 @@ import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../_lib/clientPageAccess";
 
 export default async function ClientContactsPage(props: {
   params: Promise<{ clientId: string }>;
@@ -22,10 +26,15 @@ export default async function ClientContactsPage(props: {
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await getClientPageAccessData({
+    supabase,
+    clientId,
+  });
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "contacts",
+    accessByKey: clientPageAccessByKey,
   });
 
   const { data: contacts } = await supabase
@@ -143,7 +152,7 @@ export default async function ClientContactsPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} · Contacts
         </h1>
-        <ClientTabs clientId={clientId} active="contacts" />
+        <ClientTabs clientId={clientId} active="contacts" tabs={visibleTabs} />
       </section>
 
       {(searchParams?.error || searchParams?.success) && (

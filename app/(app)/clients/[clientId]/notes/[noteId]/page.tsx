@@ -3,10 +3,15 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { withPerfTiming } from "@/lib/perf";
 import { plainTextToTiptapDoc } from "@/lib/plainTextToTiptapDoc";
 import ClientNoteEditorClient from "./ClientNoteEditorClient";
 import ConfirmDelete from "../../../../_components/ConfirmDelete";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../../_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../../_lib/clientPageAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -32,19 +37,22 @@ export default async function ClientNotePage(props: {
   const noteId = params.noteId;
   const supabase = createSupabaseServerClient();
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select("id,name")
-    .eq("id", clientId)
-    .single();
+  const { data: client } = await withPerfTiming("clients.note_detail.client", () =>
+    supabase.from("clients").select("id,name").eq("id", clientId).single()
+  );
 
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await withPerfTiming(
+    "clients.note_detail.page_access",
+    () => getClientPageAccessData({ supabase, clientId })
+  );
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "notes",
+    accessByKey: clientPageAccessByKey,
   });
 
   const { data: note, error: noteError } = await supabase
@@ -260,7 +268,7 @@ export default async function ClientNotePage(props: {
         </div>
       </section>
 
-      <ClientTabs clientId={clientId} active="notes" />
+      <ClientTabs clientId={clientId} active="notes" tabs={visibleTabs} />
 
       {searchParams?.error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">

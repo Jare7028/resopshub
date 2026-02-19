@@ -30,7 +30,12 @@ import TasksView from "../../../tasks/TasksView";
 import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
 import { parseTaskScheduleFormData } from "@/lib/taskSchedule";
 import { randomUUID } from "node:crypto";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import { withPerfTiming } from "@/lib/perf";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../_lib/clientPageAccess";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -50,6 +55,7 @@ const addTaskPanelClass =
   "rounded-xl border border-slate-200 bg-slate-50/70 p-4 md:p-5";
 const addTaskPanelTitleClass =
   "text-xs font-semibold uppercase tracking-wide text-slate-500";
+const tasksPageSize = 50;
 
 function isTemplateStatusEnumError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -86,24 +92,29 @@ export default async function ClientTasksPage(props: {
     tab?: string;
     create_mode?: string;
     template_task_id?: string;
+    page?: string;
   }>;
 }) {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
+  const { data: authData } = await withPerfTiming("clients.tasks.auth", () =>
+    supabase.auth.getUser()
+  );
   const authUserId = authData.user?.id;
   const authEmail = String(authData.user?.email || "").trim().toLowerCase();
   if (!authUserId) {
     redirect("/login");
   }
-  const { data: statusOptionsRaw } = await supabase
-    .from("status_options")
-    .select("entity_type,value,position")
-    .order("entity_type", { ascending: true })
-    .order("position", { ascending: true })
-    .order("value", { ascending: true });
+  const { data: statusOptionsRaw } = await withPerfTiming("clients.tasks.status_options", () =>
+    supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .order("entity_type", { ascending: true })
+      .order("position", { ascending: true })
+      .order("value", { ascending: true })
+  );
   const statusOptions = buildStatusOptions(
     "task",
     (statusOptionsRaw || []) as StatusOptionRow[],
@@ -142,19 +153,26 @@ export default async function ClientTasksPage(props: {
     typeof searchParams?.sort !== "undefined" ||
     typeof searchParams?.dir !== "undefined" ||
     hasExplicitView;
-  const { data: client } = await supabase
-    .from("clients")
-    .select("id,name")
-    .eq("id", params.clientId)
-    .single();
+  const pageParam = Number.parseInt(String(searchParams?.page || "1"), 10);
+  const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const tasksRangeFrom = (currentPage - 1) * tasksPageSize;
+  const tasksRangeTo = tasksRangeFrom + tasksPageSize;
+  const { data: client } = await withPerfTiming("clients.tasks.client", () =>
+    supabase.from("clients").select("id,name").eq("id", params.clientId).single()
+  );
 
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await withPerfTiming(
+    "clients.tasks.page_access",
+    () => getClientPageAccessData({ supabase, clientId })
+  );
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "tasks",
+    accessByKey: clientPageAccessByKey,
   });
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
@@ -163,16 +181,20 @@ export default async function ClientTasksPage(props: {
     selectedDue = "all";
   }
 
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id,name")
-    .eq("client_id", clientId)
-    .order("created_at", { ascending: false });
-
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
+  const [projectsResult, usersResult] = await Promise.all([
+    withPerfTiming("clients.tasks.projects", () =>
+      supabase
+        .from("projects")
+        .select("id,name")
+        .eq("client_id", clientId)
+        .order("created_at", { ascending: false })
+    ),
+    withPerfTiming("clients.tasks.users", () =>
+      supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
+    ),
+  ]);
+  const projects = projectsResult.data;
+  const users = usersResult.data;
 
   const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw).filter((status) =>
     statusOptions.includes(status)
@@ -204,6 +226,9 @@ export default async function ClientTasksPage(props: {
   returnParams.set("hide", hideCompleted ? "1" : "0");
   returnParams.set("sort", sortKey);
   returnParams.set("dir", sortDir);
+  if (currentPage > 1) {
+    returnParams.set("page", String(currentPage));
+  }
   if (selectedView !== "table") {
     returnParams.set("view", selectedView);
   }
@@ -250,6 +275,17 @@ export default async function ClientTasksPage(props: {
 
     const qs = sp.toString();
     return qs ? `/clients/${clientId}/tasks?${qs}` : `/clients/${clientId}/tasks?tab=add`;
+  };
+  const buildTaskListPageUrl = (pageNumber: number) => {
+    const normalizedPage = Number.isFinite(pageNumber) && pageNumber > 1 ? Math.floor(pageNumber) : 1;
+    const sp = new URLSearchParams(returnParams);
+    if (normalizedPage > 1) {
+      sp.set("page", String(normalizedPage));
+    } else {
+      sp.delete("page");
+    }
+    const qs = sp.toString();
+    return qs ? `/clients/${clientId}/tasks?${qs}` : `/clients/${clientId}/tasks`;
   };
   const tasksTabUrls = {
     list: buildClientTasksUrl("list"),
@@ -310,15 +346,20 @@ export default async function ClientTasksPage(props: {
     tasksRequest = tasksRequest.is("due_date", null);
   }
 
-  const { data: tasks } = await tasksRequest;
+  tasksRequest = tasksRequest.range(tasksRangeFrom, tasksRangeTo);
+  const { data: tasksRaw } = await withPerfTiming("clients.tasks.rows", () => tasksRequest);
+  const hasNextPage = (tasksRaw || []).length > tasksPageSize;
+  const hasPreviousPage = currentPage > 1;
+  const tasks = (tasksRaw || []).slice(0, tasksPageSize);
+  const previousPageUrl = hasPreviousPage ? buildTaskListPageUrl(currentPage - 1) : null;
+  const nextPageUrl = hasNextPage ? buildTaskListPageUrl(currentPage + 1) : null;
 
   const taskIds = (tasks || []).map((task) => task.id).filter(Boolean);
   const assigneesByTask: Record<string, string[]> = {};
   if (taskIds.length) {
-    const { data: assigneeRows } = await supabase
-      .from("task_assignees")
-      .select("task_id,user_id")
-      .in("task_id", taskIds);
+    const { data: assigneeRows } = await withPerfTiming("clients.tasks.assignees", () =>
+      supabase.from("task_assignees").select("task_id,user_id").in("task_id", taskIds)
+    );
     (assigneeRows || []).forEach((row) => {
       if (!assigneesByTask[row.task_id]) {
         assigneesByTask[row.task_id] = [];
@@ -347,11 +388,15 @@ export default async function ClientTasksPage(props: {
   const openSubtaskCountByTaskId: Record<string, number> = {};
   const taskIdsForSubtaskCounts = (sortedTasks || []).map((t) => t.id).filter(Boolean) as string[];
   if (taskIdsForSubtaskCounts.length) {
-    const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await supabase
-      .from("tasks")
-      .select("parent_task_id")
-      .in("parent_task_id", taskIdsForSubtaskCounts)
-      .not("status", "in", "(completed,cancelled)");
+    const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await withPerfTiming(
+      "clients.tasks.open_subtask_counts",
+      () =>
+        supabase
+          .from("tasks")
+          .select("parent_task_id")
+          .in("parent_task_id", taskIdsForSubtaskCounts)
+          .not("status", "in", "(completed,cancelled)")
+    );
 
     if (!subtasksForCountsError) {
       const subtasksForCounts = (subtasksForCountsRaw || []) as Array<{
@@ -366,12 +411,14 @@ export default async function ClientTasksPage(props: {
   }
   const taskTemplatesFromTasksResponse =
     createMode === "template"
-      ? await supabase
-          .from("tasks")
-          .select("id,title,status,priority,due_time,recurrence_frequency,recurrence_lead_days")
-          .eq("status", "template")
-          .is("parent_task_id", null)
-          .order("title", { ascending: true })
+      ? await withPerfTiming("clients.tasks.templates", () =>
+          supabase
+            .from("tasks")
+            .select("id,title,status,priority,due_time,recurrence_frequency,recurrence_lead_days")
+            .eq("status", "template")
+            .is("parent_task_id", null)
+            .order("title", { ascending: true })
+        )
       : {
           data: [] as Array<{
             id: string;
@@ -680,7 +727,7 @@ export default async function ClientTasksPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} . Tasks
         </h1>
-        <ClientTabs clientId={clientId} active="tasks" />
+        <ClientTabs clientId={clientId} active="tasks" tabs={visibleTabs} />
       </section>
 
       {searchParams?.error ? (
@@ -936,6 +983,29 @@ export default async function ClientTasksPage(props: {
           hasExplicitFilterParams={hasExplicitFilterParams}
         />
       </section>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-500">
+          Page {currentPage}
+        </p>
+        <div className="flex items-center gap-2">
+          {previousPageUrl ? (
+            <Link
+              href={previousPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Previous
+            </Link>
+          ) : null}
+          {nextPageUrl ? (
+            <Link
+              href={nextPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Next
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

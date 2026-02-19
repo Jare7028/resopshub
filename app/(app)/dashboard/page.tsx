@@ -5,6 +5,7 @@ import DashboardFilters from "./DashboardFilters";
 import DashboardCurrencySelect from "./DashboardCurrencySelect";
 import DashboardSnapshotCard from "./DashboardSnapshotCard";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { withPerfTiming } from "@/lib/perf";
 import {
   TASK_STATUS_OPTIONS,
   coerceTaskStatusList,
@@ -110,7 +111,9 @@ export default async function DashboardPage(props: {
     : null;
   const supabase = createSupabaseServerClient();
 
-  const { data: authData } = await supabase.auth.getUser();
+  const { data: authData } = await withPerfTiming("dashboard.auth", () =>
+    supabase.auth.getUser()
+  );
   const authEmail = authData.user?.email;
   if (!authEmail) {
     return (
@@ -121,11 +124,9 @@ export default async function DashboardPage(props: {
     );
   }
 
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
+  const { data: currentUser } = await withPerfTiming("dashboard.current_user", () =>
+    supabase.from("users").select("id,role").eq("email", authEmail).maybeSingle()
+  );
 
   const currentUserId = currentUser?.id || null;
   const isAdmin = currentUser?.role === "admin";
@@ -205,10 +206,12 @@ export default async function DashboardPage(props: {
     taskPriorities.includes(priority as (typeof taskPriorities)[number])
   );
 
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("id,name,status,start_date")
-    .order("name", { ascending: true });
+  const { data: clients } = await withPerfTiming("dashboard.clients", () =>
+    supabase
+      .from("clients")
+      .select("id,name,status,start_date")
+      .order("name", { ascending: true })
+  );
 
   let visibleProjectIds: string[] = [];
   let watchedProjectIds: string[] = [];

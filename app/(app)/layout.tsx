@@ -168,7 +168,9 @@ export default async function AppLayout({
   children: React.ReactNode;
 }>) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
+  const { data: authData } = await withPerfTiming("layout.auth", () =>
+    supabase.auth.getUser()
+  );
   const user = authData.user;
 
   if (!user) {
@@ -179,11 +181,9 @@ export default async function AppLayout({
   let currentProfile: { id: string; role: string; status: string } | null = null;
 
   if (email) {
-    const { data: profile } = await supabase
-      .from("users")
-      .select("id,role,status")
-      .eq("id", user.id)
-      .maybeSingle();
+    const { data: profile } = await withPerfTiming("layout.profile", () =>
+      supabase.from("users").select("id,role,status").eq("id", user.id).maybeSingle()
+    );
 
     if (!profile) {
       const { count } = await supabase
@@ -235,10 +235,14 @@ export default async function AppLayout({
 
   let pagePermissionByKey = new Map<PagePermissionKey, "none" | "view" | "edit">();
   if (currentProfile && currentProfile.role !== "admin") {
-    const { data: pagePermissionRows, error: pagePermissionError } = await supabase
-      .from("user_page_permissions")
-      .select("page_key,access_level")
-      .eq("user_id", currentProfile.id);
+    const { data: pagePermissionRows, error: pagePermissionError } = await withPerfTiming(
+      "layout.user_page_permissions",
+      () =>
+        supabase
+          .from("user_page_permissions")
+          .select("page_key,access_level")
+          .eq("user_id", currentProfile.id)
+    );
 
     if (pagePermissionError) {
       if (!isSupabaseMissingTableError(pagePermissionError)) {

@@ -5,6 +5,7 @@ import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import { withPerfTiming } from "@/lib/perf";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import {
@@ -14,9 +15,14 @@ import {
 } from "@/lib/statusOptions";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ProjectsTable from "../../../projects/ProjectsTable";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "../_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "../_lib/clientPageAccess";
 
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
+const projectsPageSize = 50;
 const toProjectCode = (value: string) =>
   value
     .toLowerCase()
@@ -61,6 +67,7 @@ export default async function ClientProjectsPage(props: {
     hide?: string;
     create_mode?: string;
     template_project_id?: string;
+    page?: string;
   }>;
 }) {
   const params = await props.params;
@@ -79,30 +86,34 @@ export default async function ClientProjectsPage(props: {
   const createMode: "new" | "template" =
     createModeRaw === "template" ? "template" : "new";
   const templateProjectId = String(searchParams?.template_project_id || "").trim();
-  const { data: authData } = await supabase.auth.getUser();
+  const pageParam = Number.parseInt(String(searchParams?.page || "1"), 10);
+  const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const projectRangeFrom = (currentPage - 1) * projectsPageSize;
+  const projectRangeTo = projectRangeFrom + projectsPageSize;
+  const { data: authData } = await withPerfTiming("clients.projects.auth", () =>
+    supabase.auth.getUser()
+  );
   const authEmail = authData.user?.email;
   if (!authEmail) {
     redirect("/login");
   }
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
+  const { data: currentUser } = await withPerfTiming("clients.projects.current_user", () =>
+    supabase.from("users").select("id,role").eq("email", authEmail).maybeSingle()
+  );
   const currentUserId = currentUser?.id;
   const isAdmin = currentUser?.role === "admin";
-  const { data: client } = await supabase
-    .from("clients")
-    .select("id,name")
-    .eq("id", params.clientId)
-    .single();
+  const { data: client } = await withPerfTiming("clients.projects.client", () =>
+    supabase.from("clients").select("id,name").eq("id", params.clientId).single()
+  );
 
-  const { data: statusOptionsRaw } = await supabase
-    .from("status_options")
-    .select("entity_type,value,position")
-    .order("entity_type", { ascending: true })
-    .order("position", { ascending: true })
-    .order("value", { ascending: true });
+  const { data: statusOptionsRaw } = await withPerfTiming("clients.projects.status_options", () =>
+    supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .order("entity_type", { ascending: true })
+      .order("position", { ascending: true })
+      .order("value", { ascending: true })
+  );
   const projectStatusOptions = buildStatusOptions(
     "project",
     (statusOptionsRaw || []) as StatusOptionRow[],
@@ -112,10 +123,15 @@ export default async function ClientProjectsPage(props: {
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await withPerfTiming(
+    "clients.projects.page_access",
+    () => getClientPageAccessData({ supabase, clientId })
+  );
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "projects",
+    accessByKey: clientPageAccessByKey,
   });
   const selectedClientIds = selectedClientIdsRaw.filter((id) => id === clientId);
   const selectedStatuses = selectedStatusesRaw.filter((value) =>
@@ -123,6 +139,9 @@ export default async function ClientProjectsPage(props: {
   );
   setCsvParam(returnParams, "client", selectedClientIds);
   setCsvParam(returnParams, "status", selectedStatuses);
+  if (currentPage > 1) {
+    returnParams.set("page", String(currentPage));
+  }
   const returnTo = returnParams.toString()
     ? `/clients/${clientId}/projects?${returnParams}`
     : `/clients/${clientId}/projects`;
@@ -131,6 +150,17 @@ export default async function ClientProjectsPage(props: {
   const toggleUrl = toggleParams.toString()
     ? `/clients/${clientId}/projects?${toggleParams}`
     : `/clients/${clientId}/projects`;
+  const buildProjectsPageUrl = (pageNumber: number) => {
+    const normalizedPage = Number.isFinite(pageNumber) && pageNumber > 1 ? Math.floor(pageNumber) : 1;
+    const sp = new URLSearchParams(returnParams);
+    if (normalizedPage > 1) {
+      sp.set("page", String(normalizedPage));
+    } else {
+      sp.delete("page");
+    }
+    const qs = sp.toString();
+    return qs ? `/clients/${clientId}/projects?${qs}` : `/clients/${clientId}/projects`;
+  };
 
   let projects: Array<{
     id: string;
@@ -141,6 +171,8 @@ export default async function ClientProjectsPage(props: {
     client_id: string | null;
     clients?: { name?: string | null } | { name?: string | null }[] | null;
   }> = [];
+  let hasNextPage = false;
+  const hasPreviousPage = currentPage > 1;
 
   const projectsQuery = supabase
     .from("projects")
@@ -157,31 +189,44 @@ export default async function ClientProjectsPage(props: {
   }
 
   if (isAdmin) {
-    const { data } = await filteredProjectsQuery;
-    projects = data || [];
+    const { data } = await withPerfTiming("clients.projects.rows", () =>
+      filteredProjectsQuery.range(projectRangeFrom, projectRangeTo)
+    );
+    const pagedRows = data || [];
+    hasNextPage = pagedRows.length > projectsPageSize;
+    projects = pagedRows.slice(0, projectsPageSize);
   } else if (currentUserId) {
-    const { data: assignments } = await supabase
-      .from("project_users")
-      .select("project_id")
-      .eq("user_id", currentUserId);
+    const { data: assignments } = await withPerfTiming("clients.projects.assignments", () =>
+      supabase.from("project_users").select("project_id").eq("user_id", currentUserId)
+    );
     const assignedIds = (assignments || [])
       .map((assignment) => assignment.project_id)
       .filter(Boolean) as string[];
     if (assignedIds.length) {
-      const { data } = await filteredProjectsQuery.in("id", assignedIds);
-      projects = data || [];
+      const { data } = await withPerfTiming("clients.projects.rows", () =>
+        filteredProjectsQuery.in("id", assignedIds).range(projectRangeFrom, projectRangeTo)
+      );
+      const pagedRows = data || [];
+      hasNextPage = pagedRows.length > projectsPageSize;
+      projects = pagedRows.slice(0, projectsPageSize);
     }
   }
+  const previousPageUrl = hasPreviousPage ? buildProjectsPageUrl(currentPage - 1) : null;
+  const nextPageUrl = hasNextPage ? buildProjectsPageUrl(currentPage + 1) : null;
 
   const openTaskCountByProjectId: Record<string, number> = {};
   const projectIdsForCounts = projects.map((p) => p.id).filter(Boolean) as string[];
   if (projectIdsForCounts.length) {
-    const { data: tasksForCountsRaw, error: tasksForCountsError } = await supabase
-      .from("tasks")
-      .select("project_id,parent_task_id")
-      .in("project_id", projectIdsForCounts)
-      .is("parent_task_id", null)
-      .not("status", "in", "(completed,cancelled)");
+    const { data: tasksForCountsRaw, error: tasksForCountsError } = await withPerfTiming(
+      "clients.projects.open_task_counts",
+      () =>
+        supabase
+          .from("tasks")
+          .select("project_id,parent_task_id")
+          .in("project_id", projectIdsForCounts)
+          .is("parent_task_id", null)
+          .not("status", "in", "(completed,cancelled)")
+    );
 
     if (!tasksForCountsError) {
       const tasksForCounts = (tasksForCountsRaw || []) as Array<{
@@ -204,10 +249,12 @@ export default async function ClientProjectsPage(props: {
 
   const { data: projectTemplatesRaw, error: projectTemplatesError } =
     createMode === "template"
-      ? await supabase
-          .from("project_templates")
-          .select("id,name,description,status")
-          .order("name", { ascending: true })
+      ? await withPerfTiming("clients.projects.templates", () =>
+          supabase
+            .from("project_templates")
+            .select("id,name,description,status")
+            .order("name", { ascending: true })
+        )
       : {
           data: [] as ProjectTemplateRow[],
           error: null,
@@ -733,7 +780,7 @@ export default async function ClientProjectsPage(props: {
         <h1 className="text-2xl font-semibold text-slate-900">
           {client.name} · Projects
         </h1>
-        <ClientTabs clientId={clientId} active="projects" />
+        <ClientTabs clientId={clientId} active="projects" tabs={visibleTabs} />
       </section>
 
       {searchParams?.error ? (
@@ -932,6 +979,27 @@ export default async function ClientProjectsPage(props: {
           basePath={`/clients/${clientId}/projects`}
         />
       </section>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-500">Page {currentPage}</p>
+        <div className="flex items-center gap-2">
+          {previousPageUrl ? (
+            <Link
+              href={previousPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Previous
+            </Link>
+          ) : null}
+          {nextPageUrl ? (
+            <Link
+              href={nextPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Next
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

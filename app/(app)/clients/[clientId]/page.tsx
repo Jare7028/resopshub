@@ -4,8 +4,13 @@ import { revalidatePath } from "next/cache";
 import ClientTabs from "./_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { withPerfTiming } from "@/lib/perf";
 import { CLIENT_PAGE_TABS, type ClientPageTabKey } from "./_components/clientPageTabs";
-import { ensureClientPageEditAccess, ensureClientPageViewAccess } from "./_lib/clientPageAccess";
+import {
+  ensureClientPageEditAccess,
+  ensureClientPageViewAccess,
+  getClientPageAccessData,
+} from "./_lib/clientPageAccess";
 import {
   normalizeCustomFieldKind,
   toCustomFieldKey,
@@ -105,42 +110,53 @@ export default async function ClientOverviewPage(props: {
   const clientId = params.clientId;
   const showAddFieldModal = searchParams?.add_field === "1";
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
+  const { data: authData } = await withPerfTiming("clients.overview.auth", () =>
+    supabase.auth.getUser()
+  );
   const authEmail = authData.user?.email;
   if (!authEmail) {
     redirect("/login");
   }
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
+  const { data: currentUser } = await withPerfTiming("clients.overview.current_user", () =>
+    supabase.from("users").select("id,role").eq("email", authEmail).maybeSingle()
+  );
   const isAdmin = currentUser?.role === "admin";
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select(
-      "id,name,code,status,industry,account_owner,website,notes,created_at,start_date,contract_renewal_date,hq_address"
-    )
-    .eq("id", params.clientId)
-    .single();
+  const { data: client } = await withPerfTiming("clients.overview.client", () =>
+    supabase
+      .from("clients")
+      .select(
+        "id,name,code,status,industry,account_owner,website,notes,created_at,start_date,contract_renewal_date,hq_address"
+      )
+      .eq("id", params.clientId)
+      .single()
+  );
 
   if (!client) {
     notFound();
   }
+  const { accessByKey: clientPageAccessByKey, visibleTabs } = await withPerfTiming(
+    "clients.overview.page_access",
+    () => getClientPageAccessData({ supabase, clientId })
+  );
   await ensureClientPageViewAccess({
     supabase,
     clientId,
     pageKey: "overview",
+    accessByKey: clientPageAccessByKey,
   });
 
-  const { data: customFieldsRaw, error: customFieldsError } = await supabase
-    .from("custom_fields")
-    .select("id,entity_type,entity_id,key,label,field_kind,position")
-    .eq("entity_type", "client")
-    .eq("entity_id", clientId)
-    .order("position", { ascending: true })
-    .order("label", { ascending: true });
+  const { data: customFieldsRaw, error: customFieldsError } = await withPerfTiming(
+    "clients.overview.custom_fields",
+    () =>
+      supabase
+        .from("custom_fields")
+        .select("id,entity_type,entity_id,key,label,field_kind,position")
+        .eq("entity_type", "client")
+        .eq("entity_id", clientId)
+        .order("position", { ascending: true })
+        .order("label", { ascending: true })
+  );
   const customFields = (
     customFieldsError && isSupabaseMissingTableError(customFieldsError)
       ? []
@@ -182,14 +198,18 @@ export default async function ClientOverviewPage(props: {
   let clientNotes: ClientNoteRow[] | null = null;
   let clientNotesError: unknown = null;
 
-  const { data: notePageRows, error: notePageError } = await supabase
-    .from("notes")
-    .select(
-      "id,title,content,created_at,last_edited_at,last_edited_by_user_id,user_id,visibility"
-    )
-    .eq("client_id", clientId)
-    .order("last_edited_at", { ascending: false })
-    .order("created_at", { ascending: false });
+  const { data: notePageRows, error: notePageError } = await withPerfTiming(
+    "clients.overview.notes",
+    () =>
+      supabase
+        .from("notes")
+        .select(
+          "id,title,content,created_at,last_edited_at,last_edited_by_user_id,user_id,visibility"
+        )
+        .eq("client_id", clientId)
+        .order("last_edited_at", { ascending: false })
+        .order("created_at", { ascending: false })
+  );
 
   if (notePageError && isMissingColumnError(notePageError)) {
     supportsNotePages = false;
@@ -218,10 +238,9 @@ export default async function ClientOverviewPage(props: {
 
   const { data: editorUsers } =
     supportsNotePages && lastEditorIds.length
-      ? await supabase
-          .from("users")
-          .select("id,full_name,email")
-          .in("id", lastEditorIds)
+      ? await withPerfTiming("clients.overview.editor_users", () =>
+          supabase.from("users").select("id,full_name,email").in("id", lastEditorIds)
+        )
       : { data: [] as EditorUserRow[] };
 
   const editorMap = new Map<string, string>(
@@ -231,17 +250,12 @@ export default async function ClientOverviewPage(props: {
     ])
   );
 
-  const { data: users } = isAdmin
-    ? await supabase
-        .from("users")
-        .select("id,full_name,email")
-        .order("full_name", { ascending: true })
-    : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
-
-  const { data: ownerUsers } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
+  const { data: ownerUsers } = await withPerfTiming("clients.overview.owner_users", () =>
+    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
+  );
+  const users = isAdmin
+    ? ((ownerUsers || []) as { id: string; full_name: string | null; email: string | null }[])
+    : [];
   const accountOwnerOptions = (ownerUsers || [])
     .map((user) => user.full_name || user.email || "")
     .filter(Boolean);
@@ -760,7 +774,7 @@ export default async function ClientOverviewPage(props: {
         <h1 className="text-3xl font-semibold text-slate-900">{client.name}</h1>
       </section>
 
-      <ClientTabs clientId={clientId} active="overview" />
+      <ClientTabs clientId={clientId} active="overview" tabs={visibleTabs} />
 
       {searchParams?.error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">

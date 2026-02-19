@@ -11,3 +11,4 @@ export const CLIENT_PAGE_TABS = [
 ] as const;
 
 export type ClientPageTabKey = (typeof CLIENT_PAGE_TABS)[number]["key"];
+export type ClientPageTab = (typeof CLIENT_PAGE_TABS)[number];

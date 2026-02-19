@@ -1,9 +1,12 @@
-﻿import { revalidatePath } from "next/cache";
+import { revalidatePath } from "next/cache";
+import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { parseCsvParam } from "@/lib/queryParams";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { withPerfTiming } from "@/lib/perf";
 import NotesView from "./NotesView";
 
 export const dynamic = "force-dynamic";
+const notesPageSize = 50;
 
 type NoteRow = {
   id: string;
@@ -44,18 +47,27 @@ export default async function NotesPage(props: {
     user?: string | string[];
     date_from?: string;
     date_to?: string;
+    page?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const pageParam = Number.parseInt(String(searchParams?.page || "1"), 10);
+  const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const notesRangeFrom = (currentPage - 1) * notesPageSize;
+  const notesRangeTo = notesRangeFrom + notesPageSize;
   const selectedClientIds = parseCsvParam(searchParams?.client);
   const selectedUserIds = parseCsvParam(searchParams?.user);
   const dateFrom = (searchParams?.date_from || "").trim();
   const dateTo = (searchParams?.date_to || "").trim();
 
   const [{ data: clients }, { data: users }] = await Promise.all([
-    supabase.from("clients").select("id,name").order("name", { ascending: true }),
-    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+    withPerfTiming("notes.clients", () =>
+      supabase.from("clients").select("id,name").order("name", { ascending: true })
+    ),
+    withPerfTiming("notes.users", () =>
+      supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
+    ),
   ]);
 
   let supportsNotePages = true;
@@ -105,8 +117,11 @@ export default async function NotesPage(props: {
 
   let notes: NoteRow[] | null = null;
   let notesError: unknown = null;
+  let hasNextPage = false;
+  const hasPreviousPage = currentPage > 1;
 
-  const { data: notePageRows, error: notePageError } = await request;
+  request = request.range(notesRangeFrom, notesRangeTo);
+  const { data: notePageRows, error: notePageError } = await withPerfTiming("notes.rows", () => request);
 
   if (notePageError && isMissingColumnError(notePageError)) {
     supportsNotePages = false;
@@ -131,13 +146,40 @@ export default async function NotesPage(props: {
       legacyRequest = legacyRequest.lte("created_at", `${dateTo}T23:59:59.999Z`);
     }
 
-    const { data: legacyRows, error: legacyError } = await legacyRequest;
-    notes = legacyRows as NoteRow[] | null;
+    legacyRequest = legacyRequest.range(notesRangeFrom, notesRangeTo);
+    const { data: legacyRows, error: legacyError } = await withPerfTiming(
+      "notes.legacy_rows",
+      () => legacyRequest
+    );
+    const pagedLegacyRows = (legacyRows || []) as NoteRow[];
+    hasNextPage = pagedLegacyRows.length > notesPageSize;
+    notes = pagedLegacyRows.slice(0, notesPageSize);
     notesError = legacyError;
   } else {
-    notes = notePageRows as NoteRow[] | null;
+    const pagedRows = (notePageRows || []) as NoteRow[];
+    hasNextPage = pagedRows.length > notesPageSize;
+    notes = pagedRows.slice(0, notesPageSize);
     notesError = notePageError;
   }
+  const buildNotesPageUrl = (pageNumber: number) => {
+    const normalizedPage = Number.isFinite(pageNumber) && pageNumber > 1 ? Math.floor(pageNumber) : 1;
+    const sp = new URLSearchParams();
+    setCsvParam(sp, "client", selectedClientIds);
+    setCsvParam(sp, "user", selectedUserIds);
+    if (dateFrom) {
+      sp.set("date_from", dateFrom);
+    }
+    if (dateTo) {
+      sp.set("date_to", dateTo);
+    }
+    if (normalizedPage > 1) {
+      sp.set("page", String(normalizedPage));
+    }
+    const qs = sp.toString();
+    return qs ? `/notes?${qs}` : "/notes";
+  };
+  const previousPageUrl = hasPreviousPage ? buildNotesPageUrl(currentPage - 1) : null;
+  const nextPageUrl = hasNextPage ? buildNotesPageUrl(currentPage + 1) : null;
 
 
   const editorMap = new Map<string, string>(
@@ -198,6 +240,29 @@ export default async function NotesPage(props: {
         }}
         onDelete={deleteNote}
       />
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-500">Page {currentPage}</p>
+        <div className="flex items-center gap-2">
+          {previousPageUrl ? (
+            <Link
+              href={previousPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Previous
+            </Link>
+          ) : null}
+          {nextPageUrl ? (
+            <Link
+              href={nextPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Next
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
+
+
