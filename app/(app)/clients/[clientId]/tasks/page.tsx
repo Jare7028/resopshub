@@ -36,6 +36,7 @@ import {
   ensureClientPageViewAccess,
   getClientPageAccessData,
 } from "../_lib/clientPageAccess";
+import RouteModalOverlay from "../../../_components/RouteModalOverlay";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -752,22 +753,20 @@ export default async function ClientTasksPage(props: {
       </div>
 
       {activeTab === "add" ? (
-        <div className="fixed inset-0 z-50">
-          <Link
-            href={tasksTabUrls.list}
-            aria-label="Close add task dialog"
-            className="absolute inset-0 block bg-slate-900/35 backdrop-blur-[2px]"
-          />
+        <RouteModalOverlay
+          closeHref={tasksTabUrls.list}
+          overlayLabel="Close add task dialog"
+        >
           <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pb-8 md:pt-8 lg:p-10">
             <section className="w-full max-h-[92vh] max-w-none overflow-y-auto rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:max-w-5xl md:rounded-2xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
                 <h2 className="text-lg font-semibold text-slate-900">Add task</h2>
-                <Link
+                <a
                   href={tasksTabUrls.list}
                   className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
                 >
                   Close
-                </Link>
+                </a>
               </div>
               <div className="px-4 pb-5 md:px-6 md:pb-6">
                 <div className="w-full">
@@ -940,7 +939,7 @@ export default async function ClientTasksPage(props: {
               </div>
             </section>
           </div>
-        </div>
+        </RouteModalOverlay>
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">

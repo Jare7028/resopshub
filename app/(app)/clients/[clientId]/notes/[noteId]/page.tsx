@@ -37,17 +37,19 @@ export default async function ClientNotePage(props: {
   const noteId = params.noteId;
   const supabase = createSupabaseServerClient();
 
-  const { data: client } = await withPerfTiming("clients.note_detail.client", () =>
-    supabase.from("clients").select("id,name").eq("id", clientId).single()
-  );
+  const [{ data: client }, { accessByKey: clientPageAccessByKey, visibleTabs }] =
+    await Promise.all([
+      withPerfTiming("clients.note_detail.client", () =>
+        supabase.from("clients").select("id,name").eq("id", clientId).single()
+      ),
+      withPerfTiming("clients.note_detail.page_access", () =>
+        getClientPageAccessData({ supabase, clientId })
+      ),
+    ]);
 
   if (!client) {
     notFound();
   }
-  const { accessByKey: clientPageAccessByKey, visibleTabs } = await withPerfTiming(
-    "clients.note_detail.page_access",
-    () => getClientPageAccessData({ supabase, clientId })
-  );
   await ensureClientPageViewAccess({
     supabase,
     clientId,
@@ -55,14 +57,16 @@ export default async function ClientNotePage(props: {
     accessByKey: clientPageAccessByKey,
   });
 
-  const { data: note, error: noteError } = await supabase
-    .from("notes")
-    .select(
-      "id,client_id,title,content,content_json,visibility,created_at,last_edited_at,last_edited_by_user_id,user_id,source_personal_page_id"
-    )
-    .eq("id", noteId)
-    .eq("client_id", clientId)
-    .single();
+  const { data: note, error: noteError } = await withPerfTiming("clients.note_detail.note", () =>
+    supabase
+      .from("notes")
+      .select(
+        "id,client_id,title,content,content_json,visibility,created_at,last_edited_at,last_edited_by_user_id,user_id,source_personal_page_id"
+      )
+      .eq("id", noteId)
+      .eq("client_id", clientId)
+      .single()
+  );
 
   if (noteError && isMissingColumnError(noteError)) {
     redirect(
@@ -78,11 +82,13 @@ export default async function ClientNotePage(props: {
 
   const linkedPersonalPageId = note.source_personal_page_id || null;
   const { data: linkedPersonalPage } = linkedPersonalPageId
-    ? await supabase
-        .from("personal_pages")
-        .select("id,title,content,updated_at,last_edited_at,last_edited_by_user_id")
-        .eq("id", linkedPersonalPageId)
-        .maybeSingle()
+    ? await withPerfTiming("clients.note_detail.linked_personal_page", () =>
+        supabase
+          .from("personal_pages")
+          .select("id,title,content,updated_at,last_edited_at,last_edited_by_user_id")
+          .eq("id", linkedPersonalPageId)
+          .maybeSingle()
+      )
     : { data: null };
   const linkedPersonalPageMissing = Boolean(linkedPersonalPageId && !linkedPersonalPage);
   const resolvedTitle = linkedPersonalPage?.title || note.title || "Untitled";
@@ -100,13 +106,29 @@ export default async function ClientNotePage(props: {
 
   const lastEditorId =
     linkedPersonalPage?.last_edited_by_user_id || note.last_edited_by_user_id || note.user_id || null;
-  const { data: lastEditor } = lastEditorId
-    ? await supabase
-        .from("users")
-        .select("full_name,email")
-        .eq("id", lastEditorId)
-        .maybeSingle()
+  const editorCandidateIds = Array.from(
+    new Set(
+      [
+        linkedPersonalPage?.last_edited_by_user_id || null,
+        note.last_edited_by_user_id || null,
+        note.user_id || null,
+      ].filter((value): value is string => Boolean(value))
+    )
+  );
+  const { data: editorRows } = editorCandidateIds.length
+    ? await withPerfTiming("clients.note_detail.editors", () =>
+        supabase
+          .from("users")
+          .select("id,full_name,email")
+          .in("id", editorCandidateIds)
+      )
     : { data: null };
+  const lastEditor =
+    lastEditorId && editorRows
+      ? (
+          editorRows as Array<{ id: string; full_name: string | null; email: string | null }>
+        ).find((row) => row.id === lastEditorId) || null
+      : null;
 
   const lastEditedByLabel = lastEditor
     ? lastEditor.full_name || lastEditor.email || null
