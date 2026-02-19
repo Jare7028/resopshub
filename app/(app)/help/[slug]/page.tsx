@@ -91,6 +91,26 @@ export default async function HelpGuidePage(props: {
               ))}
             </ol>
 
+            {section.links?.length ? (
+              <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Download Links
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {section.links.map((link) => (
+                    <a
+                      key={`${guide.slug}-${section.id}-link-${link.href}`}
+                      href={link.href}
+                      download
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                    >
+                      {link.label}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {section.tips?.length ? (
               <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">

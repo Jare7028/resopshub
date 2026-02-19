@@ -4,6 +4,10 @@ export type HelpGuideSection = {
   summary: string;
   steps: string[];
   tips?: string[];
+  links?: Array<{
+    label: string;
+    href: string;
+  }>;
 };
 
 export type HelpGuide = {
@@ -351,7 +355,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     ],
     prerequisites: [
       "You can open Outlook on web or desktop",
-      "You have this setup file: public/outlook-addin/manifest.xml",
+      "Download the Outlook setup file from this guide",
       "Your ResOpsHub URL is https://resopshub-p1pi.vercel.app",
     ],
     sections: [
@@ -360,10 +364,17 @@ export const HELP_GUIDES: HelpGuide[] = [
         title: "Prepare the setup file",
         summary: "Make sure the setup file points to your ResOpsHub site.",
         steps: [
-          "Open this file: public/outlook-addin/manifest.xml.",
+          "Click Download Outlook setup file below.",
+          "Save the file on your computer.",
           "Check that links in the file use: https://resopshub-p1pi.vercel.app",
           "Save the file.",
           "Keep the file ready because you will pick it in Outlook.",
+        ],
+        links: [
+          {
+            label: "Download Outlook setup file (manifest.xml)",
+            href: "/downloads/outlook-manifest.xml",
+          },
         ],
         tips: [
           "If your team uses a different site URL, use that URL instead.",
@@ -447,25 +458,33 @@ export const HELP_GUIDES: HelpGuide[] = [
       "A ResOpsHub account",
       "Google Chrome or Microsoft Edge",
       "ResOpsHub web app URL: https://resopshub-p1pi.vercel.app",
-      "Extension files in project folder: downloads/resopshub-add-task-extension-package",
+      "Download the browser Add Task file from this guide",
     ],
     sections: [
       {
         id: "install-tool",
-        title: "1. Install the Add Task tool",
+        title: "Install the Add Task tool",
         summary: "Load the tool into your browser once.",
         steps: [
+          "Click Download browser Add Task file below.",
+          "Save the zip file, then unzip it.",
           "Open Chrome or Edge.",
           "Click the address bar, type chrome://extensions (or edge://extensions), then press Enter.",
           "Turn on Developer mode.",
           "Click Load unpacked.",
-          "Choose this folder: downloads/resopshub-add-task-extension-package.",
+          "Choose the folder you just unzipped.",
           "Confirm you can see ResOpsHub Add Task in your extensions list.",
+        ],
+        links: [
+          {
+            label: "Download browser Add Task file (.zip)",
+            href: "/downloads/resopshub-add-task-extension.zip",
+          },
         ],
       },
       {
         id: "set-url",
-        title: "2. Set your app URL",
+        title: "Set your app URL",
         summary: "Tell the tool where to create the task.",
         steps: [
           "On the extensions page, find ResOpsHub Add Task and click Details.",
@@ -477,7 +496,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       },
       {
         id: "create-task",
-        title: "3. Create a task from highlighted text",
+        title: "Create a task from highlighted text",
         summary: "Use right-click from any normal webpage.",
         steps: [
           "Open any normal webpage.",
@@ -490,7 +509,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       },
       {
         id: "if-not-working",
-        title: "4. If nothing happens",
+        title: "If nothing happens",
         summary: "Use these quick checks in order.",
         steps: [
           "Go back to chrome://extensions (or edge://extensions).",
