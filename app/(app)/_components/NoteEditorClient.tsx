@@ -1018,6 +1018,7 @@ const NoteShape = TiptapNode.create({
     return ({ node, editor, getPos }) => {
       let persistedAttrs = normalizeNoteShapeAttrs(node.attrs as Record<string, unknown>);
       let currentAttrs = persistedAttrs;
+      let activeDragFinalize: (() => void) | null = null;
       const dom = document.createElement("div");
       dom.className = "note-shape-node";
 
@@ -1086,6 +1087,9 @@ const NoteShape = TiptapNode.create({
         if (startEvent.button !== 0 && startEvent.button !== -1) {
           return null;
         }
+        if (activeDragFinalize) {
+          activeDragFinalize();
+        }
         startEvent.preventDefault();
         startEvent.stopPropagation();
         const pointerTarget =
@@ -1118,11 +1122,7 @@ const NoteShape = TiptapNode.create({
           }
         };
 
-        const finish = () => {
-          if (finished) {
-            return;
-          }
-          finished = true;
+        const detach = () => {
           window.removeEventListener("pointermove", handleMove);
           window.removeEventListener("pointerup", handleUp);
           window.removeEventListener("pointercancel", handleUp);
@@ -1135,10 +1135,22 @@ const NoteShape = TiptapNode.create({
               // Ignore release failures when capture was not active.
             }
           }
+          if (activeDragFinalize === finish) {
+            activeDragFinalize = null;
+          }
+        };
+
+        const finish = () => {
+          if (finished) {
+            return;
+          }
+          finished = true;
+          detach();
           commitNodeAttrs(liveAttrs);
         };
 
         const handleUp = () => finish();
+        activeDragFinalize = finish;
 
         window.addEventListener("pointermove", handleMove);
         window.addEventListener("pointerup", handleUp);
@@ -1165,6 +1177,9 @@ const NoteShape = TiptapNode.create({
         if (startEvent.button !== 0) {
           return;
         }
+        if (activeDragFinalize) {
+          activeDragFinalize();
+        }
         startEvent.preventDefault();
         startEvent.stopPropagation();
         const startState = {
@@ -1187,19 +1202,27 @@ const NoteShape = TiptapNode.create({
           }
         };
 
+        const detach = () => {
+          window.removeEventListener("mousemove", handleMove);
+          window.removeEventListener("mouseup", handleUp);
+          window.removeEventListener("blur", handleUp);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
+          if (activeDragFinalize === finish) {
+            activeDragFinalize = null;
+          }
+        };
+
         const finish = () => {
           if (finished) {
             return;
           }
           finished = true;
-          window.removeEventListener("mousemove", handleMove);
-          window.removeEventListener("mouseup", handleUp);
-          window.removeEventListener("blur", handleUp);
-          document.removeEventListener("visibilitychange", handleVisibilityChange);
+          detach();
           commitNodeAttrs(liveAttrs);
         };
 
         const handleUp = () => finish();
+        activeDragFinalize = finish;
 
         window.addEventListener("mousemove", handleMove);
         window.addEventListener("mouseup", handleUp);
@@ -1325,6 +1348,10 @@ const NoteShape = TiptapNode.create({
           );
         },
         destroy() {
+          if (activeDragFinalize) {
+            activeDragFinalize();
+            activeDragFinalize = null;
+          }
           dragHandle.removeEventListener("pointerdown", handleDragPointerDown);
           dragHandle.removeEventListener("mousedown", handleDragMouseDown);
           resizeHandle.removeEventListener("pointerdown", handleResizePointerDown);
@@ -1362,6 +1389,7 @@ const NoteTextBox = TiptapNode.create({
     return ({ node, editor, getPos }) => {
       let persistedAttrs = normalizeNoteTextBoxAttrs(node.attrs as Record<string, unknown>);
       let currentAttrs = persistedAttrs;
+      let activeDragFinalize: (() => void) | null = null;
 
       const dom = document.createElement("div");
       dom.className = "note-textbox-node";
@@ -1428,6 +1456,9 @@ const NoteTextBox = TiptapNode.create({
         if (startEvent.button !== 0 && startEvent.button !== -1) {
           return;
         }
+        if (activeDragFinalize) {
+          activeDragFinalize();
+        }
         startEvent.preventDefault();
         startEvent.stopPropagation();
         const pointerTarget =
@@ -1460,11 +1491,7 @@ const NoteTextBox = TiptapNode.create({
           }
         };
 
-        const finish = () => {
-          if (finished) {
-            return;
-          }
-          finished = true;
+        const detach = () => {
           window.removeEventListener("pointermove", handleMove);
           window.removeEventListener("pointerup", handleUp);
           window.removeEventListener("pointercancel", handleUp);
@@ -1477,10 +1504,22 @@ const NoteTextBox = TiptapNode.create({
               // Ignore release failures when capture was not active.
             }
           }
+          if (activeDragFinalize === finish) {
+            activeDragFinalize = null;
+          }
+        };
+
+        const finish = () => {
+          if (finished) {
+            return;
+          }
+          finished = true;
+          detach();
           commitNodeAttrs(liveAttrs);
         };
 
         const handleUp = () => finish();
+        activeDragFinalize = finish;
 
         window.addEventListener("pointermove", handleMove);
         window.addEventListener("pointerup", handleUp);
@@ -1505,6 +1544,9 @@ const NoteTextBox = TiptapNode.create({
         if (startEvent.button !== 0) {
           return;
         }
+        if (activeDragFinalize) {
+          activeDragFinalize();
+        }
         startEvent.preventDefault();
         startEvent.stopPropagation();
         const startState = {
@@ -1527,19 +1569,27 @@ const NoteTextBox = TiptapNode.create({
           }
         };
 
+        const detach = () => {
+          window.removeEventListener("mousemove", handleMove);
+          window.removeEventListener("mouseup", handleUp);
+          window.removeEventListener("blur", handleUp);
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
+          if (activeDragFinalize === finish) {
+            activeDragFinalize = null;
+          }
+        };
+
         const finish = () => {
           if (finished) {
             return;
           }
           finished = true;
-          window.removeEventListener("mousemove", handleMove);
-          window.removeEventListener("mouseup", handleUp);
-          window.removeEventListener("blur", handleUp);
-          document.removeEventListener("visibilitychange", handleVisibilityChange);
+          detach();
           commitNodeAttrs(liveAttrs);
         };
 
         const handleUp = () => finish();
+        activeDragFinalize = finish;
 
         window.addEventListener("mousemove", handleMove);
         window.addEventListener("mouseup", handleUp);
@@ -1646,6 +1696,10 @@ const NoteTextBox = TiptapNode.create({
           );
         },
         destroy() {
+          if (activeDragFinalize) {
+            activeDragFinalize();
+            activeDragFinalize = null;
+          }
           dragHandle.removeEventListener("pointerdown", handleDragPointerDown);
           dragHandle.removeEventListener("mousedown", handleDragMouseDown);
           resizeHandle.removeEventListener("pointerdown", handleResizePointerDown);
@@ -3378,6 +3432,23 @@ export default function NoteEditorClient({
     const timer = window.setTimeout(() => taskTitleRef.current?.focus(), 0);
     return () => window.clearTimeout(timer);
   }, [taskCreator.open]);
+
+  useEffect(() => {
+    if (!taskCreator.open) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeTaskCreator();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [closeTaskCreator, taskCreator.open]);
 
   useEffect(() => {
     if (!taskToast) {
