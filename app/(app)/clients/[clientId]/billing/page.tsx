@@ -915,7 +915,7 @@ export default async function ClientBillingPage(props: {
         ) : null}
 
         <form action={saveRevenueModel} className="space-y-4">
-          <details open className="group rounded-lg border border-slate-200 bg-white">
+          <details className="group rounded-lg border border-slate-200 bg-white">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Revenue model</h2>
@@ -996,7 +996,7 @@ export default async function ClientBillingPage(props: {
             </div>
           </details>
 
-          <details open className="group rounded-lg border border-slate-200 bg-white">
+          <details className="group rounded-lg border border-slate-200 bg-white">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Monthly costs</h2>

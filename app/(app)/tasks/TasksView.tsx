@@ -625,26 +625,28 @@ export default function TasksView({
   };
 
   const toggleSubtasks = (taskId: string) => {
-    const nextExpandedTaskIds = new Set(expandedTaskIds);
-    if (nextExpandedTaskIds.has(taskId)) {
-      nextExpandedTaskIds.delete(taskId);
-    } else {
-      nextExpandedTaskIds.add(taskId);
-    }
+    setExpandedTaskIds((current) => {
+      const nextExpandedTaskIds = new Set(current);
+      if (nextExpandedTaskIds.has(taskId)) {
+        nextExpandedTaskIds.delete(taskId);
+      } else {
+        nextExpandedTaskIds.add(taskId);
+      }
 
-    setExpandedTaskIds(nextExpandedTaskIds);
+      const nextQuery = buildQuery(
+        filters,
+        sortKey,
+        sortDir,
+        view,
+        hideCompleted,
+        nextExpandedTaskIds
+      );
+      const nextUrl = nextQuery ? `${basePath}?${nextQuery}` : basePath;
+      if (typeof window !== "undefined") {
+        window.history.replaceState(window.history.state, "", nextUrl);
+      }
 
-    const nextQuery = buildQuery(
-      filters,
-      sortKey,
-      sortDir,
-      view,
-      hideCompleted,
-      nextExpandedTaskIds
-    );
-    const nextUrl = nextQuery ? `${basePath}?${nextQuery}` : basePath;
-    startTransition(() => {
-      router.replace(nextUrl, { scroll: false });
+      return nextExpandedTaskIds;
     });
   };
 
