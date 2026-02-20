@@ -1722,21 +1722,6 @@ function normalizeImageFloat(value: string | null | undefined): ImageFloatMode {
   return "none";
 }
 
-function createImageUploadToken() {
-  try {
-    if (
-      typeof globalThis !== "undefined" &&
-      globalThis.crypto &&
-      typeof globalThis.crypto.randomUUID === "function"
-    ) {
-      return globalThis.crypto.randomUUID();
-    }
-  } catch {
-    // Ignore unsupported randomUUID environments.
-  }
-  return `img_${Math.random().toString(36).slice(2, 11)}`;
-}
-
 function normalizeFontFamilyLabel(value: string) {
   const firstFamily = String(value || "")
     .split(",")[0]
@@ -1905,18 +1890,6 @@ const FloatingImage = Image.extend({
             (attributes as { float?: string | null }).float
           );
           return float === "none" ? {} : { "data-float": float };
-        },
-      },
-      uploadToken: {
-        default: null,
-        parseHTML: (element) => {
-          const value = element.getAttribute("data-upload-token");
-          return typeof value === "string" && value.trim() ? value.trim() : null;
-        },
-        renderHTML: (attributes) => {
-          const value = String((attributes as { uploadToken?: string | null }).uploadToken || "")
-            .trim();
-          return value ? { "data-upload-token": value } : {};
         },
       },
     };
@@ -3308,108 +3281,53 @@ export default function NoteEditorClient({
     };
   }, [mentionMenu.open, mentionMenu.query]);
 
-  const insertImageWithCriticalSave = useCallback(
-    (src: string, options?: { uploadToken?: string | null }) => {
-      const nextSrc = String(src || "").trim();
-      if (!nextSrc) {
-        return;
-      }
-      const uploadToken = String(options?.uploadToken || "").trim();
-      const imageAttrs: Record<string, unknown> = {
-        src: nextSrc,
-        float: "none",
-      };
-      if (uploadToken) {
-        imageAttrs.uploadToken = uploadToken;
-      }
-      editorRef.current
-        ?.chain()
-        .focus()
-        .command(({ tr }) => {
-          tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-          return true;
-        })
-        .insertContent({
-          type: "image",
-          attrs: imageAttrs,
-        })
-        .run();
-    },
-    []
-  );
-
-  const replaceImageSrcByUploadToken = useCallback((uploadToken: string, uploadedSrc: string) => {
-    const normalizedToken = String(uploadToken || "").trim();
-    const normalizedSrc = String(uploadedSrc || "").trim();
-    if (!normalizedToken || !normalizedSrc) {
-      return false;
+  const insertImageWithCriticalSave = useCallback((src: string) => {
+    const nextSrc = String(src || "").trim();
+    if (!nextSrc) {
+      return;
     }
-    const currentEditor = editorRef.current;
-    if (!currentEditor) {
-      return false;
-    }
-
-    let replaced = false;
-    const tr = currentEditor.state.tr;
-    currentEditor.state.doc.descendants((node, pos) => {
-      if (replaced || node.type.name !== "image") {
-        return !replaced;
-      }
-      const attrs = node.attrs as Record<string, unknown>;
-      const nodeUploadToken = String(attrs.uploadToken || "").trim();
-      if (nodeUploadToken !== normalizedToken) {
+    editorRef.current
+      ?.chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
         return true;
-      }
-      tr.setNodeMarkup(pos, undefined, {
-        ...attrs,
-        src: normalizedSrc,
-        uploadToken: null,
-      });
-      replaced = true;
-      return false;
-    });
-
-    if (!replaced) {
-      return false;
-    }
-
-    tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-    currentEditor.view.dispatch(tr);
-    return true;
+      })
+      .insertContent({
+        type: "image",
+        attrs: {
+          src: nextSrc,
+          float: "none",
+        },
+      })
+      .run();
   }, []);
-
-  const uploadImageAndSwapNode = useCallback(
-    async (file: File, uploadToken: string) => {
-      if (!onUploadImageFile) {
-        return;
-      }
-      try {
-        const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
-        if (!uploadedSrc) {
-          return;
-        }
-        replaceImageSrcByUploadToken(uploadToken, uploadedSrc);
-      } catch (error) {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn(
-            "[noteEditor.image.upload]",
-            error instanceof Error ? error.message : String(error)
-          );
-        }
-      }
-    },
-    [onUploadImageFile, replaceImageSrcByUploadToken]
-  );
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
-      const uploadToken = createImageUploadToken();
+      if (onUploadImageFile) {
+        try {
+          const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
+          if (uploadedSrc) {
+            insertImageWithCriticalSave(uploadedSrc);
+            return;
+          }
+        } catch (error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn(
+              "[noteEditor.image.upload]",
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+          // Fall back to inline insertion so users never lose pasted images if upload fails.
+        }
+      }
+
       const inlineSrc = await optimizeImageForInlineInsert(file);
       assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
-      insertImageWithCriticalSave(inlineSrc, { uploadToken });
-      void uploadImageAndSwapNode(file, uploadToken);
+      insertImageWithCriticalSave(inlineSrc);
     },
-    [insertImageWithCriticalSave, uploadImageAndSwapNode]
+    [insertImageWithCriticalSave, onUploadImageFile]
   );
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {

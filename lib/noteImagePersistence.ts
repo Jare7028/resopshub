@@ -6,7 +6,6 @@ const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 const IMAGE_UPLOAD_TIMEOUT_MS = 2500;
 
 export type NoteImagePersistenceScope =
-  | "personal_page"
   | "client_note"
   | "task_note"
   | "help_guide";
