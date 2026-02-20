@@ -3422,16 +3422,12 @@ export default function NoteEditorClient({
       persistDraftSnapshot(json, true);
       const isCriticalSave = Boolean(transaction.getMeta(NOTE_CRITICAL_SAVE_META_KEY));
       if (isCriticalSave) {
-        startTransition(() => {
-          void persistEditorSaveImmediate(json);
-        });
+        void persistEditorSaveImmediate(json);
         return;
       }
       saveTimer.current = setTimeout(() => {
         saveTimer.current = null;
-        startTransition(() => {
-          void persistEditorSave(json);
-        });
+        void persistEditorSave(json);
       }, 600);
     },
     onTransaction: ({ transaction }) => {
