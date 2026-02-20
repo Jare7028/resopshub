@@ -784,6 +784,10 @@ function createOverlayObjectId() {
   return `overlay_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function createImageUploadMarker() {
+  return `img_upload_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function getDefaultShapeSize(kind: NoteShapeKind) {
   if (kind === "arrow") {
     return { width: 220, height: 86 };
@@ -2434,6 +2438,7 @@ export default function NoteEditorClient({
   const [showOutline, setShowOutline] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [pendingImageUploads, setPendingImageUploads] = useState(0);
   const [defaultFontFamilyLabel, setDefaultFontFamilyLabel] = useState("Arial");
   const [defaultFontSizeLabel, setDefaultFontSizeLabel] = useState("14");
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3074,41 +3079,116 @@ export default function NoteEditorClient({
     };
   }, [mentionMenu.open, mentionMenu.query]);
 
-  const insertImageWithCriticalSave = useCallback((src: string) => {
-    const nextSrc = String(src || "").trim();
-    if (!nextSrc) {
-      return;
-    }
-    editorRef.current
-      ?.chain()
-      .focus()
-      .command(({ tr }) => {
-        tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-        return true;
-      })
-      .insertContent({
-        type: "image",
-        attrs: {
-          src: nextSrc,
-          float: "none",
-        },
-      })
-      .run();
-  }, []);
+  const insertImageWithCriticalSave = useCallback(
+    (src: string, options?: { uploadMarker?: string }) => {
+      const nextSrc = String(src || "").trim();
+      if (!nextSrc) {
+        return;
+      }
+      const uploadMarker = String(options?.uploadMarker || "").trim();
+      editorRef.current
+        ?.chain()
+        .focus()
+        .command(({ tr }) => {
+          tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+          return true;
+        })
+        .insertContent({
+          type: "image",
+          attrs: {
+            src: nextSrc,
+            float: "none",
+            title: uploadMarker || null,
+          },
+        })
+        .run();
+    },
+    []
+  );
 
-  const resolveImageInsertSrc = useCallback(
+  const replaceImageUploadPlaceholder = useCallback(
+    (uploadMarker: string, nextSrc: string) => {
+      const marker = String(uploadMarker || "").trim();
+      const normalizedSrc = String(nextSrc || "").trim();
+      if (!marker || !normalizedSrc) {
+        return false;
+      }
+      const currentEditor = editorRef.current;
+      if (!currentEditor) {
+        return false;
+      }
+      let transaction = currentEditor.state.tr;
+      let didReplace = false;
+      currentEditor.state.doc.descendants((node, pos) => {
+        if (node.type.name !== "image") {
+          return true;
+        }
+        const attrs = node.attrs as { title?: string | null; src?: string | null; float?: string | null };
+        if (String(attrs.title || "").trim() !== marker) {
+          return true;
+        }
+        transaction = transaction.setNodeMarkup(pos, undefined, {
+          ...attrs,
+          src: normalizedSrc,
+          title: null,
+          float: normalizeImageFloat(attrs.float),
+        });
+        didReplace = true;
+        return true;
+      });
+      if (!didReplace) {
+        return false;
+      }
+      transaction = transaction.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+      currentEditor.view.dispatch(transaction);
+      return true;
+    },
+    []
+  );
+
+  const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
-      if (onUploadImageFile) {
-        const uploadedSrc = await onUploadImageFile(file);
-        const normalizedUploadedSrc = String(uploadedSrc || "").trim();
-        if (!normalizedUploadedSrc) {
+      if (!onUploadImageFile) {
+        const inlineSrc = await optimizeImageForInlineInsert(file);
+        insertImageWithCriticalSave(inlineSrc);
+        return;
+      }
+
+      const uploadMarker = createImageUploadMarker();
+      let insertedPlaceholder = false;
+      setPendingImageUploads((current) => current + 1);
+      setSaveState("saving");
+
+      try {
+        const uploadedSrcPromise = onUploadImageFile(file);
+
+        try {
+          const inlineFallbackSrc = await optimizeImageForInlineInsert(file);
+          insertImageWithCriticalSave(inlineFallbackSrc, { uploadMarker });
+          insertedPlaceholder = true;
+        } catch {
+          // If inline fallback fails, continue with upload-only insertion.
+        }
+
+        const uploadedSrc = String(await uploadedSrcPromise).trim();
+        if (!uploadedSrc) {
           throw new Error("Image upload did not return a URL.");
         }
-        return normalizedUploadedSrc;
+
+        if (insertedPlaceholder) {
+          const didReplace = replaceImageUploadPlaceholder(uploadMarker, uploadedSrc);
+          if (!didReplace) {
+            insertImageWithCriticalSave(uploadedSrc);
+          }
+          return;
+        }
+
+        insertImageWithCriticalSave(uploadedSrc);
+      } finally {
+        setPendingImageUploads((current) => Math.max(0, current - 1));
       }
-      return optimizeImageForInlineInsert(file);
     },
-    [onUploadImageFile]
+    [insertImageWithCriticalSave, onUploadImageFile, replaceImageUploadPlaceholder]
   );
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
@@ -3149,8 +3229,7 @@ export default function NoteEditorClient({
           continue;
         }
         try {
-          const src = await resolveImageInsertSrc(file);
-          insertImageWithCriticalSave(src);
+          await insertImageFromFileWithSave(file);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Unable to paste image.";
@@ -3160,7 +3239,7 @@ export default function NoteEditorClient({
     })();
 
     return true;
-  }, [insertImageWithCriticalSave, resolveImageInsertSrc]);
+  }, [insertImageFromFileWithSave]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -4566,8 +4645,7 @@ export default function NoteEditorClient({
       void (async () => {
         if (isImageFile) {
           try {
-            const src = await resolveImageInsertSrc(file);
-            insertImageWithCriticalSave(src);
+            await insertImageFromFileWithSave(file);
           } catch (error) {
             const message =
               error instanceof Error ? error.message : "Unable to insert image.";
@@ -4593,7 +4671,7 @@ export default function NoteEditorClient({
           .run();
       })();
     },
-    [editor, insertImageWithCriticalSave, onUploadImageFile, resolveImageInsertSrc]
+    [editor, insertImageFromFileWithSave, onUploadImageFile]
   );
 
   const bubbleActions = useMemo(() => {
@@ -4784,7 +4862,11 @@ export default function NoteEditorClient({
       ) : null}
 
       <div className={`mt-2 text-xs font-medium ${saveState === "error" ? "text-red-600" : "text-slate-500"}`}>
-        {saveState === "saving"
+        {pendingImageUploads > 0
+          ? pendingImageUploads > 1
+            ? `Uploading ${pendingImageUploads} images...`
+            : "Uploading image..."
+          : saveState === "saving"
           ? "Saving..."
           : saveState === "saved"
           ? "Saved"
