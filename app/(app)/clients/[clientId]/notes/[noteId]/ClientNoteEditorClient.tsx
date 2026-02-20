@@ -59,6 +59,39 @@ export default function ClientNoteEditorClient({
     },
     [clientId, noteId, sourcePersonalPageId]
   );
+  const handleUploadImageFile = useCallback(
+    async (file: File) => {
+      if (!sourcePersonalPageId) {
+        throw new Error("Image uploads are not configured for this note.");
+      }
+
+      const formData = new FormData();
+      formData.set("file", file);
+
+      const response = await fetch(
+        `/api/personal/pages/${encodeURIComponent(sourcePersonalPageId)}/images`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | { image?: { url?: string | null }; error?: string }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Unable to upload image.");
+      }
+
+      const url = String(payload?.image?.url || "").trim();
+      if (!url) {
+        throw new Error("Upload succeeded but no image URL was returned.");
+      }
+
+      return url;
+    },
+    [sourcePersonalPageId]
+  );
 
   return (
     <NoteEditorClient
@@ -67,6 +100,7 @@ export default function ClientNoteEditorClient({
       title="Note"
       placeholder="Start writing your note..."
       onSave={handleSave}
+      onUploadImageFile={sourcePersonalPageId ? handleUploadImageFile : undefined}
       onCreateTask={handleCreateTask}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}

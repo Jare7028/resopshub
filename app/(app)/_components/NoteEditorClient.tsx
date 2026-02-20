@@ -133,6 +133,7 @@ type NoteEditorClientProps = {
   title: string;
   placeholder: string;
   onSave: (entityId: string, content: unknown) => Promise<void>;
+  onUploadImageFile?: (file: File) => Promise<string>;
   onCreateTask?: (input: {
     title: string;
     dueDate: string | null;
@@ -453,6 +454,7 @@ const NOTE_OVERLAY_COMMIT_META_KEY = "note-overlay-commit";
 const NOTE_OVERLAY_DEBUG_STORAGE_KEY = "note-editor:overlay-debug";
 const NOTE_OVERLAY_SAVE_ERROR_MESSAGE = "Could not save object position. Move it again.";
 const DRAFT_STORAGE_PREFIX = "note-editor-draft-v2:";
+const MAX_UPLOADED_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const RIBBON_TABS: ReadonlyArray<{ id: RibbonTabId; label: string }> = [
   { id: "home", label: "Home" },
@@ -2334,6 +2336,7 @@ export default function NoteEditorClient({
   title,
   placeholder,
   onSave,
+  onUploadImageFile,
   onCreateTask,
   lastEditedAtLabel,
   lastEditedByLabel,
@@ -3066,6 +3069,37 @@ export default function NoteEditorClient({
     };
   }, [mentionMenu.open, mentionMenu.query]);
 
+  const insertImageWithCriticalSave = useCallback((src: string) => {
+    const nextSrc = String(src || "").trim();
+    if (!nextSrc) {
+      return;
+    }
+    editorRef.current
+      ?.chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+        return true;
+      })
+      .setImage({ src: nextSrc })
+      .run();
+  }, []);
+
+  const resolveImageInsertSrc = useCallback(
+    async (file: File) => {
+      if (onUploadImageFile) {
+        const uploadedSrc = await onUploadImageFile(file);
+        const normalizedUploadedSrc = String(uploadedSrc || "").trim();
+        if (!normalizedUploadedSrc) {
+          throw new Error("Image upload did not return a URL.");
+        }
+        return normalizedUploadedSrc;
+      }
+      return optimizeImageForInlineInsert(file);
+    },
+    [onUploadImageFile]
+  );
+
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
     const clipboard = event.clipboardData;
     if (!clipboard) {
@@ -3104,8 +3138,8 @@ export default function NoteEditorClient({
           continue;
         }
         try {
-          const src = await optimizeImageForInlineInsert(file);
-          editorRef.current?.chain().focus().setImage({ src }).run();
+          const src = await resolveImageInsertSrc(file);
+          insertImageWithCriticalSave(src);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Unable to paste image.";
@@ -3115,7 +3149,7 @@ export default function NoteEditorClient({
     })();
 
     return true;
-  }, []);
+  }, [insertImageWithCriticalSave, resolveImageInsertSrc]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -4432,8 +4466,8 @@ export default function NoteEditorClient({
     if (!trimmedSrc) {
       return;
     }
-    editor.chain().focus().setImage({ src: trimmedSrc }).run();
-  }, [editor]);
+    insertImageWithCriticalSave(trimmedSrc);
+  }, [editor, insertImageWithCriticalSave]);
 
   const insertSectionBox = useCallback(() => {
     if (!editor) {
@@ -4487,15 +4521,22 @@ export default function NoteEditorClient({
       if (!file || !editor) {
         return;
       }
-      if (file.size > 5 * 1024 * 1024) {
-        window.alert("Attachment is too large. Use files up to 5 MB.");
+      const isImageFile = file.type.startsWith("image/");
+      const maxAttachmentBytes =
+        isImageFile && onUploadImageFile ? MAX_UPLOADED_IMAGE_BYTES : 5 * 1024 * 1024;
+      if (file.size > maxAttachmentBytes) {
+        window.alert(
+          isImageFile && onUploadImageFile
+            ? "Image is too large. Use images up to 10 MB."
+            : "Attachment is too large. Use files up to 5 MB."
+        );
         return;
       }
       void (async () => {
-        if (file.type.startsWith("image/")) {
+        if (isImageFile) {
           try {
-            const src = await optimizeImageForInlineInsert(file);
-            editor.chain().focus().setImage({ src }).run();
+            const src = await resolveImageInsertSrc(file);
+            insertImageWithCriticalSave(src);
           } catch (error) {
             const message =
               error instanceof Error ? error.message : "Unable to insert image.";
@@ -4521,7 +4562,7 @@ export default function NoteEditorClient({
           .run();
       })();
     },
-    [editor]
+    [editor, insertImageWithCriticalSave, onUploadImageFile, resolveImageInsertSrc]
   );
 
   const bubbleActions = useMemo(() => {
