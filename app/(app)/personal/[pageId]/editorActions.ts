@@ -120,13 +120,11 @@ export async function updatePersonalPageContent(
   // Personal pages persist content as-authored to avoid image-loss from server-side transforms.
   const canonicalContent = content;
   const inputImageSummary = summarizeImageSources(canonicalContent);
-  if (inputImageSummary.total > 0) {
-    console.info("[personal.image.debug] update_start", {
-      pageId,
-      editorId,
-      inputImageSummary,
-    });
-  }
+  console.error("[personal.image.debug] update_start", {
+    pageId,
+    editorId,
+    inputImageSummary,
+  });
   const contentText = extractPlainText(canonicalContent);
   const mentionHandles = extractMentionHandles(contentText);
   let previousContentText: string | null = null;
@@ -256,14 +254,12 @@ export async function updatePersonalPageContent(
   revalidatePath(`/personal/${pageId}`);
   revalidatePath("/personal");
 
-  if (inputImageSummary.total > 0) {
-    console.info("[personal.image.debug] update_saved", {
-      pageId,
-      editorId,
-      updatedAt: savedUpdatedAt,
-      imageCount: inputImageSummary.total,
-    });
-  }
+  console.error("[personal.image.debug] update_saved", {
+    pageId,
+    editorId,
+    updatedAt: savedUpdatedAt,
+    imageCount: inputImageSummary.total,
+  });
 
   return {
     status: "saved",

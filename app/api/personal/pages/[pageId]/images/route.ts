@@ -100,12 +100,12 @@ export async function POST(
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    console.warn("[personal.image.debug] upload_missing_file", { pageId, userId: user.id });
+    console.error("[personal.image.debug] upload_missing_file", { pageId, userId: user.id });
     return NextResponse.json({ error: "Missing image file" }, { status: 400 });
   }
 
   if (!file.type.startsWith("image/")) {
-    console.warn("[personal.image.debug] upload_invalid_type", {
+    console.error("[personal.image.debug] upload_invalid_type", {
       pageId,
       userId: user.id,
       type: file.type,
@@ -114,7 +114,7 @@ export async function POST(
   }
 
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    console.warn("[personal.image.debug] upload_file_too_large", {
+    console.error("[personal.image.debug] upload_file_too_large", {
       pageId,
       userId: user.id,
       size: file.size,
@@ -138,7 +138,7 @@ export async function POST(
   }
 
   if (!page) {
-    console.warn("[personal.image.debug] upload_page_not_found", { pageId, userId: user.id });
+    console.error("[personal.image.debug] upload_page_not_found", { pageId, userId: user.id });
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
@@ -169,7 +169,7 @@ export async function POST(
   }
 
   if (!canEdit) {
-    console.warn("[personal.image.debug] upload_forbidden", { pageId, userId: user.id });
+    console.error("[personal.image.debug] upload_forbidden", { pageId, userId: user.id });
     return NextResponse.json({ error: "You do not have permission to edit this page" }, { status: 403 });
   }
 
@@ -210,7 +210,7 @@ export async function POST(
     return NextResponse.json({ error: "Unable to create image URL" }, { status: 500 });
   }
 
-  console.info("[personal.image.debug] upload_success", {
+  console.error("[personal.image.debug] upload_success", {
     pageId,
     userId: user.id,
     storagePath,

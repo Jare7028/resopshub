@@ -305,12 +305,10 @@ export default async function PersonalPage(props: {
   const pageTitle = page.title || "Personal page";
   const pageContent = page.content ?? null;
   const imageSummary = summarizeImageSources(pageContent);
-  if (imageSummary.total > 0) {
-    console.info("[personal.image.debug] page_load_content", {
-      pageId,
-      imageSummary,
-    });
-  }
+  console.error("[personal.image.debug] page_load_content", {
+    pageId,
+    imageSummary,
+  });
   const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
   const panelParam = String(searchParams?.panel || "")
     .trim()
