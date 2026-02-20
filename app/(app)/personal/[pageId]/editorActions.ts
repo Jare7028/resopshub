@@ -5,7 +5,6 @@ import { randomUUID } from "node:crypto";
 import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
-import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -77,14 +76,8 @@ export async function updatePersonalPageContent(
   const { data: authData } = await supabase.auth.getUser();
   const now = new Date().toISOString();
   const editorId = authData.user?.id ?? null;
-  const persistedContent = await normalizeAndPersistNoteImages({
-    content,
-    scope: "personal_page",
-    entityId: pageId,
-    userId: editorId,
-    supabase,
-  });
-  const canonicalContent = persistedContent.content;
+  // Personal pages persist content as-authored to avoid image-loss from server-side transforms.
+  const canonicalContent = content;
   const contentText = extractPlainText(canonicalContent);
   const mentionHandles = extractMentionHandles(contentText);
   let previousContentText: string | null = null;
@@ -218,7 +211,7 @@ export async function updatePersonalPageContent(
     status: "saved",
     updatedAt: savedUpdatedAt,
     content: canonicalContent,
-    warnings: persistedContent.warnings,
+    warnings: [],
   };
 }
 

@@ -139,7 +139,9 @@ type NoteEditorClientProps = {
   title: string;
   placeholder: string;
   onSave: (entityId: string, content: unknown) => Promise<NoteSaveResult | void>;
-  // Deprecated for note editing flows: image persistence now runs via save actions.
+  // Optional client-side image upload hook.
+  // When provided, pasted/attached images upload first and inserted src becomes the returned URL.
+  // When omitted or upload fails, editor falls back to inline data URLs.
   onUploadImageFile?: (file: File) => Promise<string>;
   onCreateTask?: (input: {
     title: string;
@@ -227,6 +229,7 @@ type NoteTextBoxAttrs = {
   zIndex: number;
 };
 const MAX_INLINE_IMAGE_BYTES = 1_800_000;
+const MAX_INLINE_IMAGE_DATA_URL_BYTES = 2_600_000;
 const MAX_INLINE_IMAGE_DIMENSION = 1800;
 const MIN_INLINE_IMAGE_DIMENSION = 640;
 const NAVIGATION_SAVE_TIMEOUT_MS = 12000;
@@ -1757,6 +1760,17 @@ function readBlobAsDataUrl(blob: Blob) {
   });
 }
 
+function assertDataUrlSize(dataUrl: string, maxBytes: number) {
+  const normalized = String(dataUrl || "");
+  if (!normalized) {
+    throw new Error("Unable to read image data");
+  }
+  const byteSize = new Blob([normalized]).size;
+  if (byteSize > maxBytes) {
+    throw new Error("Image is too large. Try a smaller image.");
+  }
+}
+
 function loadImageElement(src: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new window.Image();
@@ -2370,6 +2384,7 @@ export default function NoteEditorClient({
   title,
   placeholder,
   onSave,
+  onUploadImageFile,
   onCreateTask,
   lastEditedAtLabel,
   lastEditedByLabel,
@@ -3279,10 +3294,27 @@ export default function NoteEditorClient({
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
+      if (onUploadImageFile) {
+        try {
+          const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
+          if (uploadedSrc) {
+            insertImageWithCriticalSave(uploadedSrc);
+            return;
+          }
+        } catch (error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn(
+              "[noteEditor.imageUpload] Falling back to inline image after upload failure:",
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        }
+      }
       const inlineSrc = await optimizeImageForInlineInsert(file);
+      assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
       insertImageWithCriticalSave(inlineSrc);
     },
-    [insertImageWithCriticalSave]
+    [insertImageWithCriticalSave, onUploadImageFile]
   );
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
