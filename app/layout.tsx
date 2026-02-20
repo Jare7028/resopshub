@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import GlobalLoadingIndicator from "./GlobalLoadingIndicator";
 
@@ -20,6 +21,7 @@ export default function RootLayout({
           <GlobalLoadingIndicator />
         </Suspense>
         {children}
+        <Analytics />
       </body>
     </html>
   );
