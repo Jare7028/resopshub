@@ -1,4 +1,5 @@
 import { extractPlainText } from "../../../../lib/tiptapText";
+import { normalizeHelpGuideDownloadHref } from "../../../../lib/helpGuideDownloads";
 import type { HelpGuide, HelpGuideSection, HelpGuideSectionLink } from "../_data/guides";
 
 type TiptapNode = Record<string, unknown>;
@@ -69,7 +70,7 @@ function normalizeHref(value: unknown) {
     return "";
   }
   if (/^(https?:\/\/|\/)/i.test(href)) {
-    return href;
+    return normalizeHelpGuideDownloadHref(href);
   }
   return "";
 }

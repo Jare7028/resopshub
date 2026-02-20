@@ -169,11 +169,11 @@ describe("guide single-document helpers", () => {
 
     const doc = buildGuideSingleDoc(guide);
     const linksInDoc = collectLinkHrefs(doc);
-    expect(linksInDoc).toContain("/downloads/outlook-manifest.xml");
+    expect(linksInDoc).toContain("/api/help/downloads/outlook-manifest.xml");
 
     const parsed = parseGuideSingleDoc(doc, guide);
     expect(parsed.sections[0].links?.length || 0).toBe(1);
-    expect(parsed.sections[0].links?.[0]?.href).toBe("/downloads/outlook-manifest.xml");
+    expect(parsed.sections[0].links?.[0]?.href).toBe("/api/help/downloads/outlook-manifest.xml");
   });
 
   it("recovers legacy download-links text blocks into structured section links", () => {
@@ -214,7 +214,7 @@ describe("guide single-document helpers", () => {
     );
 
     expect(parsed.sections[0].links?.length || 0).toBe(1);
-    expect(parsed.sections[0].links?.[0]?.href).toBe("/downloads/outlook-manifest.xml");
+    expect(parsed.sections[0].links?.[0]?.href).toBe("/api/help/downloads/outlook-manifest.xml");
     expect(extractPlainText(parsed.sections[0].content)).not.toContain("/downloads/outlook-manifest.xml");
   });
 

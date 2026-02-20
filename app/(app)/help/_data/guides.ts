@@ -375,7 +375,7 @@ const HELP_GUIDE_DEFINITIONS: unknown[] = [
         links: [
           {
             label: "Download Outlook setup file (manifest.xml)",
-            href: "/downloads/outlook-manifest.xml",
+            href: "/api/help/downloads/outlook-manifest.xml",
           },
         ],
         tips: [
@@ -480,7 +480,7 @@ const HELP_GUIDE_DEFINITIONS: unknown[] = [
         links: [
           {
             label: "Download browser Add Task file (.zip)",
-            href: "/downloads/resopshub-add-task-extension.zip",
+            href: "/api/help/downloads/resopshub-add-task-extension.zip",
           },
         ],
       },
