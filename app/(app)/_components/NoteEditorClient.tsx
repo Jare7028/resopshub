@@ -3613,7 +3613,7 @@ export default function NoteEditorClient({
   const insertImageWithCriticalSave = useCallback((src: string) => {
     const nextSrc = String(src || "").trim();
     if (!nextSrc) {
-      return;
+      return false;
     }
     if (debugImagePersistence) {
       console.info("[noteEditor.image.debug] insert_image", {
@@ -3621,27 +3621,68 @@ export default function NoteEditorClient({
         src: nextSrc.slice(0, 180),
       });
     }
-    editorRef.current
+    const currentEditor = editorRef.current;
+    if (!currentEditor) {
+      if (debugImagePersistence) {
+        console.warn("[noteEditor.image.debug] insert_image_no_editor", { entityId });
+      }
+      return false;
+    }
+
+    const baseImageNode = {
+      type: "image",
+      attrs: {
+        src: nextSrc,
+        float: "none",
+      },
+    };
+
+    let inserted = currentEditor
       ?.chain()
       .focus()
       .command(({ tr }) => {
         tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
         return true;
       })
-      .insertContent({
-        type: "image",
-        attrs: {
-          src: nextSrc,
-          float: "none",
-        },
-      })
+      .insertContent(baseImageNode)
       .run();
+
+    if (!inserted) {
+      const docEndPos = Math.max(0, currentEditor.state.doc.content.size);
+      inserted = currentEditor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+          return true;
+        })
+        .insertContentAt(docEndPos, baseImageNode)
+        .run();
+      if (debugImagePersistence) {
+        console.info("[noteEditor.image.debug] insert_image_fallback", {
+          entityId,
+          docEndPos,
+          inserted,
+        });
+      }
+    }
+
+    if (!inserted && debugImagePersistence) {
+      console.error("[noteEditor.image.debug] insert_image_failed", {
+        entityId,
+        src: nextSrc.slice(0, 180),
+      });
+    }
+    return inserted;
   }, [debugImagePersistence, entityId]);
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
       const persistedSrc = await resolveImageSourceFromFile(file);
-      insertImageWithCriticalSave(persistedSrc);
+      const inserted = insertImageWithCriticalSave(persistedSrc);
+      if (!inserted) {
+        throw new Error("Unable to insert pasted image into this note.");
+      }
     },
     [insertImageWithCriticalSave, resolveImageSourceFromFile]
   );
@@ -3686,7 +3727,10 @@ export default function NoteEditorClient({
           const resolved = await resolveEphemeralImageSourceForSave(source);
           const persistedSrc = String(resolved.src || "").trim();
           if (persistedSrc && persistedSrc !== source) {
-            insertImageWithCriticalSave(persistedSrc);
+            const inserted = insertImageWithCriticalSave(persistedSrc);
+            if (!inserted) {
+              unresolvedCount += 1;
+            }
             continue;
           }
           unresolvedCount += 1;
