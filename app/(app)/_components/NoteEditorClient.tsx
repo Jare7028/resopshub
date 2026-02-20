@@ -1879,7 +1879,21 @@ async function optimizeImageForInlineInsert(file: File) {
 const FloatingImage = Image.extend({
   addAttributes() {
     return {
-      ...this.parent?.(),
+      src: {
+        default: null,
+      },
+      alt: {
+        default: null,
+      },
+      title: {
+        default: null,
+      },
+      width: {
+        default: null,
+      },
+      height: {
+        default: null,
+      },
       float: {
         default: "none",
         parseHTML: (element) =>
