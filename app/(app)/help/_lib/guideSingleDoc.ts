@@ -428,36 +428,28 @@ export function parseGuideSingleDoc(docContent: unknown, previousGuide: HelpGuid
     const title = parseMetadataLine(text, METADATA_LABELS.title, 240);
     if (title !== null) {
       consumedNodeIndexes.add(index);
-      if (title) {
-        metadata.title = title;
-      }
+      metadata.title = title;
       return;
     }
 
     const summary = parseMetadataLine(text, METADATA_LABELS.summary, 3000);
     if (summary !== null) {
       consumedNodeIndexes.add(index);
-      if (summary) {
-        metadata.summary = summary;
-      }
+      metadata.summary = summary;
       return;
     }
 
     const audience = parseMetadataLine(text, METADATA_LABELS.audience, 240);
     if (audience !== null) {
       consumedNodeIndexes.add(index);
-      if (audience) {
-        metadata.audience = audience;
-      }
+      metadata.audience = audience;
       return;
     }
 
     const estimatedTime = parseMetadataLine(text, METADATA_LABELS.estimatedTime, 120);
     if (estimatedTime !== null) {
       consumedNodeIndexes.add(index);
-      if (estimatedTime) {
-        metadata.estimatedTime = estimatedTime;
-      }
+      metadata.estimatedTime = estimatedTime;
     }
   });
 

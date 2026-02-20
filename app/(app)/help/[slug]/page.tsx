@@ -35,6 +35,7 @@ export default async function HelpGuidePage(props: {
   }
   const isEditMode = isAdmin && String(searchParams?.edit || "") === "1";
   const guideDoc = buildGuideSingleDoc(guide);
+  const displayTitle = String(guide.title || "").trim() || "Untitled guide";
 
   return (
     <div className="space-y-8">
@@ -42,7 +43,7 @@ export default async function HelpGuidePage(props: {
         <Link href="/help" className="hover:underline">
           Help Center
         </Link>{" "}
-        / <span className="text-slate-800">{guide.title}</span>
+        / <span className="text-slate-800">{displayTitle}</span>
       </nav>
 
       <section className="space-y-4">

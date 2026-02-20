@@ -16,6 +16,11 @@ export type NoteSavePendingInput = {
   latestScheduledVersion: number;
 };
 
+export type NoteSaveActiveInput = {
+  hasDebounceTimer: boolean;
+  inFlightSaveCount: number;
+};
+
 export function getNextSaveVersion(currentVersion: number) {
   return Math.max(0, Math.floor(Number(currentVersion) || 0)) + 1;
 }
@@ -53,8 +58,12 @@ export function shouldSurfaceSaveError(input: {
   return requestVersion === latestScheduledVersion;
 }
 
-export function hasPendingSaveCoordinatorWork(input: NoteSavePendingInput) {
+export function hasActiveSaveCoordinatorWork(input: NoteSaveActiveInput) {
   const inFlightSaveCount = Math.max(0, Math.floor(Number(input.inFlightSaveCount) || 0));
+  return Boolean(input.hasDebounceTimer) || inFlightSaveCount > 0;
+}
+
+export function hasPendingSaveCoordinatorWork(input: NoteSavePendingInput) {
   const lastCommittedVersion = Math.max(
     0,
     Math.floor(Number(input.lastCommittedVersion) || 0)
@@ -63,9 +72,5 @@ export function hasPendingSaveCoordinatorWork(input: NoteSavePendingInput) {
     0,
     Math.floor(Number(input.latestScheduledVersion) || 0)
   );
-  return (
-    Boolean(input.hasDebounceTimer) ||
-    inFlightSaveCount > 0 ||
-    lastCommittedVersion !== latestScheduledVersion
-  );
+  return hasActiveSaveCoordinatorWork(input) || lastCommittedVersion !== latestScheduledVersion;
 }

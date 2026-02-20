@@ -1048,10 +1048,6 @@ export function normalizeHelpGuide(value: unknown): HelpGuide | null {
 
   if (
     !slug ||
-    !title ||
-    !summary ||
-    !audience ||
-    !estimatedTime ||
     !keywords.length ||
     !prerequisites.length ||
     !sections.length

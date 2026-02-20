@@ -96,7 +96,7 @@ export async function PATCH(
     return NextResponse.json(
       {
         error:
-          "Guide format is invalid. Include title, summary, audience, estimated time, keywords, prerequisites, and at least one section.",
+          "Guide format is invalid. Include slug, keywords, prerequisites, and at least one section.",
       },
       { status: 400 }
     );

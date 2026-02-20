@@ -61,6 +61,37 @@ describe("help guide normalization", () => {
     expect(extractPlainText(guide?.sections[0]?.content)).toContain("Formatted text content");
   });
 
+  it("allows blank top metadata fields for editable guide headers", () => {
+    const guide = normalizeHelpGuide({
+      ...createBaseGuide(),
+      title: "",
+      summary: "",
+      audience: "",
+      estimatedTime: "",
+      sections: [
+        {
+          id: "rich",
+          title: "Rich section",
+          content: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "Formatted text content" }],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(guide).not.toBeNull();
+    expect(guide?.title).toBe("");
+    expect(guide?.summary).toBe("");
+    expect(guide?.audience).toBe("");
+    expect(guide?.estimatedTime).toBe("");
+  });
+
   it("rejects invalid guide payloads", () => {
     const missingRequiredFields = normalizeHelpGuide({
       slug: "invalid-guide",

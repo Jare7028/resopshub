@@ -32,6 +32,29 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function hasImagesRequiringNormalization(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasImagesRequiringNormalization(item));
+  }
+
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+
+  if (value.type === "image" && isObjectRecord(value.attrs)) {
+    const src = normalizeText((value.attrs as Record<string, unknown>).src);
+    if (!src) {
+      return true;
+    }
+    if (isHttpUrl(src) || isRelativeUrl(src) || isNoteImagesStorageUrl(src)) {
+      return false;
+    }
+    return true;
+  }
+
+  return Object.values(value).some((entry) => hasImagesRequiringNormalization(entry));
+}
+
 function cloneJson<T>(value: T): T {
   try {
     return JSON.parse(JSON.stringify(value)) as T;
@@ -172,6 +195,13 @@ async function uploadImageBytesWithTimeout(input: {
 export async function normalizeAndPersistNoteImages(
   input: NormalizeAndPersistNoteImagesInput
 ): Promise<NormalizeAndPersistNoteImagesResult> {
+  if (!hasImagesRequiringNormalization(input.content)) {
+    return {
+      content: input.content,
+      warnings: [],
+    };
+  }
+
   const warnings = new Set<string>();
   const uploadCache = new Map<string, string>();
   const normalizedContent = cloneJson(input.content);

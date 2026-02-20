@@ -189,6 +189,7 @@ export default function HelpGuideEditorClient({
       : saveState === "error"
       ? "Save failed"
       : "Edit mode";
+  const displayTitle = String(guide.title || "").trim() || "Untitled";
 
   return (
     <div className="space-y-4">
@@ -232,7 +233,7 @@ export default function HelpGuideEditorClient({
         <NoteEditorClient
           entityId={`help-guide-${storageSlug}`}
           initialContent={editorInitialContent}
-          title={`${guide.title} guide`}
+          title={`${displayTitle} guide`}
           placeholder="Start writing..."
           onSave={async (_entityId, content) => {
             return updateGuideFromDocument(content);

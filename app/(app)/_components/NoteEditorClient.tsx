@@ -23,7 +23,7 @@ import { selectedRect } from "prosemirror-tables";
 import { createEmptyDoc } from "@/lib/editorContent";
 import {
   getNextSaveVersion,
-  hasPendingSaveCoordinatorWork,
+  hasActiveSaveCoordinatorWork,
   resolveSaveCompletion,
   shouldSurfaceSaveError,
 } from "@/lib/noteSaveCoordinator";
@@ -2860,16 +2860,14 @@ export default function NoteEditorClient({
     [logSaveDebug, persistEditorSaveNow]
   );
 
-  const hasPendingSaveWork = useCallback(
+  const hasActiveSaveWork = useCallback(
     (options?: { hasDebounceTimer?: boolean }) =>
-      hasPendingSaveCoordinatorWork({
+      hasActiveSaveCoordinatorWork({
         hasDebounceTimer:
           typeof options?.hasDebounceTimer === "boolean"
             ? options.hasDebounceTimer
             : Boolean(saveTimer.current),
         inFlightSaveCount: inFlightSaveCountRef.current,
-        lastCommittedVersion: lastCommittedVersionRef.current,
-        latestScheduledVersion: saveRequestVersionRef.current,
       }),
     []
   );
@@ -2909,14 +2907,14 @@ export default function NoteEditorClient({
       }
 
       const currentEditor = editorRef.current;
-      const hadPendingWork = hasPendingSaveWork({ hasDebounceTimer: hadDebounceTimer });
-      if (currentEditor && hadPendingWork) {
+      const hadActiveWork = hasActiveSaveWork({ hasDebounceTimer: hadDebounceTimer });
+      if (currentEditor && hadActiveWork) {
         const json = currentEditor.getJSON();
         persistDraftSnapshot(json, true);
         persistEditorSaveImmediate(json);
       }
 
-      if (!hasPendingSaveWork({ hasDebounceTimer: false })) {
+      if (!hasActiveSaveWork({ hasDebounceTimer: false })) {
         logSaveDebug("flush_wait_not_needed");
         return true;
       }
@@ -2924,7 +2922,7 @@ export default function NoteEditorClient({
       logSaveDebug("flush_wait_start", { timeoutMs });
       const waitForLatestSave = saveChainRef.current
         .catch(() => undefined)
-        .then(() => !hasPendingSaveWork({ hasDebounceTimer: false }));
+        .then(() => !hasActiveSaveWork({ hasDebounceTimer: false }));
 
       const didCommitLatest = await new Promise<boolean>((resolve) => {
         let settled = false;
@@ -2953,7 +2951,7 @@ export default function NoteEditorClient({
       return didCommitLatest;
     },
     [
-      hasPendingSaveWork,
+      hasActiveSaveWork,
       logSaveDebug,
       persistDraftSnapshot,
       persistEditorSaveImmediate,
@@ -3911,7 +3909,7 @@ export default function NoteEditorClient({
         return;
       }
 
-      if (!hasPendingSaveWork()) {
+      if (!hasActiveSaveWork()) {
         return;
       }
 
@@ -3926,12 +3924,19 @@ export default function NoteEditorClient({
       void flushPendingSaveAndWait({ timeoutMs: NAVIGATION_SAVE_TIMEOUT_MS })
         .then((didCommitLatest) => {
           if (!didCommitLatest) {
+            if (!hasActiveSaveWork()) {
+              window.location.assign(nextUrl.toString());
+              return;
+            }
             logSaveDebug("navigation_guard_wait_timeout_blocked", {
               href: nextUrl.toString(),
             });
-            window.alert(
-              "Still saving your latest changes. Please wait a few seconds and try again."
+            const shouldLeaveWithoutSave = window.confirm(
+              "Still saving your latest changes. Leave anyway? Your latest edits may be lost."
             );
+            if (shouldLeaveWithoutSave) {
+              window.location.assign(nextUrl.toString());
+            }
             return;
           }
           window.location.assign(nextUrl.toString());
@@ -3948,7 +3953,7 @@ export default function NoteEditorClient({
   }, [
     blockNavigationWhileSaving,
     flushPendingSaveAndWait,
-    hasPendingSaveWork,
+    hasActiveSaveWork,
     logSaveDebug,
   ]);
 

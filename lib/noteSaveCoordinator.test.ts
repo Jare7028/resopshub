@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getNextSaveVersion,
+  hasActiveSaveCoordinatorWork,
   hasPendingSaveCoordinatorWork,
   resolveSaveCompletion,
   shouldSurfaceSaveError,
@@ -79,6 +80,29 @@ describe("noteSaveCoordinator", () => {
         inFlightSaveCount: 0,
         lastCommittedVersion: 1,
         latestScheduledVersion: 2,
+      })
+    ).toBe(true);
+  });
+
+  it("detects active save work without version bookkeeping", () => {
+    expect(
+      hasActiveSaveCoordinatorWork({
+        hasDebounceTimer: false,
+        inFlightSaveCount: 0,
+      })
+    ).toBe(false);
+
+    expect(
+      hasActiveSaveCoordinatorWork({
+        hasDebounceTimer: true,
+        inFlightSaveCount: 0,
+      })
+    ).toBe(true);
+
+    expect(
+      hasActiveSaveCoordinatorWork({
+        hasDebounceTimer: false,
+        inFlightSaveCount: 1,
       })
     ).toBe(true);
   });

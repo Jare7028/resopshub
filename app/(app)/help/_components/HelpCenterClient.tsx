@@ -22,6 +22,11 @@ function includesQuery(guide: HelpGuide, query: string) {
   return haystack.includes(normalizedQuery);
 }
 
+function displayValue(value: string, fallback: string) {
+  const trimmed = String(value || "").trim();
+  return trimmed || fallback;
+}
+
 export default function HelpCenterClient({ guides }: { guides: HelpGuide[] }) {
   const [query, setQuery] = useState("");
 
@@ -79,7 +84,20 @@ export default function HelpCenterClient({ guides }: { guides: HelpGuide[] }) {
 
         {filteredGuides.length ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            {filteredGuides.map((guide) => (
+            {filteredGuides.map((guide) => {
+              const displayTitle = displayValue(guide.title, "Untitled guide");
+              const summary = String(guide.summary || "").trim();
+              const audience = String(guide.audience || "").trim();
+              const estimatedTime = String(guide.estimatedTime || "").trim();
+              const metadataParts: string[] = [];
+              if (audience) {
+                metadataParts.push(`Audience: ${audience}`);
+              }
+              if (estimatedTime) {
+                metadataParts.push(`Time: ${estimatedTime}`);
+              }
+
+              return (
               <article
                 key={guide.slug}
                 className="rounded-lg border border-slate-200 bg-white p-5"
@@ -87,15 +105,19 @@ export default function HelpCenterClient({ guides }: { guides: HelpGuide[] }) {
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <h3 className="text-base font-semibold text-slate-900">
-                      {guide.title}
+                      {displayTitle}
                     </h3>
-                    <p className="text-sm text-slate-600">{guide.summary}</p>
+                    {summary ? (
+                      <p className="text-sm text-slate-600">{summary}</p>
+                    ) : null}
                   </div>
                 </div>
 
-                <p className="mt-3 text-xs text-slate-500">
-                  Audience: {guide.audience} | Time: {guide.estimatedTime}
-                </p>
+                {metadataParts.length ? (
+                  <p className="mt-3 text-xs text-slate-500">
+                    {metadataParts.join(" | ")}
+                  </p>
+                ) : null}
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {guide.keywords.slice(0, 5).map((keyword) => (
@@ -134,7 +156,8 @@ export default function HelpCenterClient({ guides }: { guides: HelpGuide[] }) {
                   </Link>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">

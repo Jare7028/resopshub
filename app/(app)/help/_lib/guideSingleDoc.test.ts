@@ -123,7 +123,7 @@ describe("guide single-document helpers", () => {
     expect(parsed.slug).toBe("better-guide-name");
   });
 
-  it("falls back to previous metadata when labels are blank or missing", () => {
+  it("clears metadata values when labeled lines are blank", () => {
     const guide = createGuide();
     const parsed = parseGuideSingleDoc(
       {
@@ -133,6 +133,40 @@ describe("guide single-document helpers", () => {
             type: "paragraph",
             content: [{ type: "text", text: "Title: " }],
           },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Summary: " }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Audience: " }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Estimated time: " }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Random line that is not metadata" }],
+          },
+        ],
+      },
+      guide
+    );
+
+    expect(parsed.title).toBe("");
+    expect(parsed.summary).toBe("");
+    expect(parsed.audience).toBe("");
+    expect(parsed.estimatedTime).toBe("");
+    expect(parsed.slug).toBe(guide.slug);
+  });
+
+  it("falls back to previous metadata when labels are missing", () => {
+    const guide = createGuide();
+    const parsed = parseGuideSingleDoc(
+      {
+        type: "doc",
+        content: [
           {
             type: "paragraph",
             content: [{ type: "text", text: "Random line that is not metadata" }],
