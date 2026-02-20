@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { normalizeHelpGuide } from "@/app/(app)/help/_data/guides";
+import {
+  ensureUniqueGuideRouteSlug,
+  normalizeGuideRouteSlugFromTitle,
+} from "@/app/(app)/help/_lib/guideSingleDoc";
+import { loadHelpGuides } from "@/lib/helpGuidesStore";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 
-function normalizeRouteSlug(value: unknown) {
+function normalizeStorageSlug(value: unknown) {
   const normalized = String(value || "")
     .trim()
     .toLowerCase()
@@ -61,10 +66,10 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ slug: string }> }
 ) {
-  const { slug: rawSlug } = await context.params;
-  const slug = normalizeRouteSlug(rawSlug);
-  if (!slug) {
-    return NextResponse.json({ error: "Guide slug is required." }, { status: 400 });
+  const { slug: rawStorageSlug } = await context.params;
+  const storageSlug = normalizeStorageSlug(rawStorageSlug);
+  if (!storageSlug) {
+    return NextResponse.json({ error: "Guide storage slug is required." }, { status: 400 });
   }
 
   const admin = await requireAdmin();
@@ -83,10 +88,7 @@ export async function PATCH(
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
       : {};
-  const normalizedGuide = normalizeHelpGuide({
-    ...payloadObject,
-    slug,
-  });
+  const normalizedGuide = normalizeHelpGuide(payloadObject);
 
   if (!normalizedGuide) {
     return NextResponse.json(
@@ -98,10 +100,27 @@ export async function PATCH(
     );
   }
 
+  const { guides } = await loadHelpGuides();
+  const existingGuide = guides.find((guide) => guide.storageSlug === storageSlug) || null;
+  const previousRouteSlug = existingGuide?.slug || storageSlug;
+
+  const usedRouteSlugs = new Set(
+    guides
+      .filter((guide) => guide.storageSlug !== storageSlug)
+      .map((guide) => guide.slug)
+  );
+
+  const desiredRouteSlug = normalizeGuideRouteSlugFromTitle(normalizedGuide.title);
+  const nextRouteSlug = ensureUniqueGuideRouteSlug(desiredRouteSlug, usedRouteSlugs);
+  const guideToSave = {
+    ...normalizedGuide,
+    slug: nextRouteSlug,
+  };
+
   const { error } = await admin.supabase.from("help_guides").upsert(
     {
-      slug,
-      guide: normalizedGuide,
+      slug: storageSlug,
+      guide: guideToSave,
       updated_by_user_id: admin.appUserId,
     },
     { onConflict: "slug" }
@@ -117,19 +136,20 @@ export async function PATCH(
   }
 
   revalidatePath("/help");
-  revalidatePath(`/help/${slug}`);
+  revalidatePath(`/help/${previousRouteSlug}`);
+  revalidatePath(`/help/${nextRouteSlug}`);
 
-  return NextResponse.json({ guide: normalizedGuide });
+  return NextResponse.json({ guide: guideToSave, storageSlug });
 }
 
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ slug: string }> }
 ) {
-  const { slug: rawSlug } = await context.params;
-  const slug = normalizeRouteSlug(rawSlug);
-  if (!slug) {
-    return NextResponse.json({ error: "Guide slug is required." }, { status: 400 });
+  const { slug: rawStorageSlug } = await context.params;
+  const storageSlug = normalizeStorageSlug(rawStorageSlug);
+  if (!storageSlug) {
+    return NextResponse.json({ error: "Guide storage slug is required." }, { status: 400 });
   }
 
   const admin = await requireAdmin();
@@ -137,13 +157,19 @@ export async function DELETE(
     return admin.response;
   }
 
-  const { error } = await admin.supabase.from("help_guides").delete().eq("slug", slug);
+  const { guides } = await loadHelpGuides();
+  const previousRouteSlug =
+    guides.find((guide) => guide.storageSlug === storageSlug)?.slug || storageSlug;
+
+  const { error } = await admin.supabase.from("help_guides").delete().eq("slug", storageSlug);
   if (error && !isSupabaseMissingTableError(error)) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   revalidatePath("/help");
-  revalidatePath(`/help/${slug}`);
+  revalidatePath(`/help/${storageSlug}`);
+  revalidatePath(`/help/${previousRouteSlug}`);
 
   return NextResponse.json({ ok: true });
 }
+

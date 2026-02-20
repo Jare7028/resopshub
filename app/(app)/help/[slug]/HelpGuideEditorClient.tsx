@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import NoteEditorClient from "../../_components/NoteEditorClient";
-import type { HelpGuide, HelpGuideSection } from "../_data/guides";
+import type { HelpGuide } from "../_data/guides";
+import { normalizeHelpGuide } from "../_data/guides";
+import { buildGuideSingleDoc, parseGuideSingleDoc } from "../_lib/guideSingleDoc";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -18,184 +20,27 @@ function parseErrorMessage(errorBody: unknown) {
   return "Unable to save guide.";
 }
 
-function isSameJson(left: unknown, right: unknown) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function normalizeSectionId(value: string) {
-  const normalized = String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return normalized;
-}
-
-function createParagraphNode(text = "") {
-  if (!text) {
-    return { type: "paragraph" } as Record<string, unknown>;
-  }
-  return {
-    type: "paragraph",
-    content: [{ type: "text", text }],
-  } as Record<string, unknown>;
-}
-
-function createHeadingNode(text: string) {
-  return {
-    type: "heading",
-    attrs: { level: 2 },
-    content: [{ type: "text", text }],
-  } as Record<string, unknown>;
-}
-
-function normalizeDoc(value: unknown) {
-  if (isObjectRecord(value) && value.type === "doc" && Array.isArray(value.content)) {
-    return cloneJson(value) as { type: "doc"; content: Array<Record<string, unknown>> };
-  }
-  return {
-    type: "doc",
-    content: [createParagraphNode()],
-  } as { type: "doc"; content: Array<Record<string, unknown>> };
-}
-
-function extractPlainText(value: unknown): string {
-  if (!isObjectRecord(value)) return "";
-  if (typeof value.text === "string") {
-    return value.text;
-  }
-  if (!Array.isArray(value.content)) {
-    return "";
-  }
-  return value.content.map((item) => extractPlainText(item)).join(" ");
-}
-
-function isSectionHeadingNode(node: Record<string, unknown>) {
-  if (node.type !== "heading") return false;
-  const attrs = isObjectRecord(node.attrs) ? node.attrs : null;
-  const levelRaw = attrs?.level;
-  const level = typeof levelRaw === "number" ? levelRaw : Number(levelRaw || 0);
-  return Number.isFinite(level) && level >= 1 && level <= 2;
-}
-
-function buildEditorDocumentFromGuide(guide: HelpGuide) {
-  const content: Array<Record<string, unknown>> = [];
-  guide.sections.forEach((section) => {
-    const headingText = String(section.title || "").trim() || "Section";
-    content.push(createHeadingNode(headingText));
-    const sectionDoc = normalizeDoc(section.content);
-    if (sectionDoc.content.length) {
-      content.push(...sectionDoc.content);
-    } else {
-      content.push(createParagraphNode());
-    }
-  });
-
-  if (!content.length) {
-    content.push(createParagraphNode());
-  }
-
-  return {
-    type: "doc",
-    content,
-  };
-}
-
-function buildGuideSectionsFromDocument(docContent: unknown, previousGuide: HelpGuide) {
-  const doc = normalizeDoc(docContent);
-  const previousSectionsById = new Map(previousGuide.sections.map((section) => [section.id, section]));
-
-  const draftSections: Array<{ title: string; nodes: Array<Record<string, unknown>> }> = [];
-  let currentSection: { title: string; nodes: Array<Record<string, unknown>> } | null = null;
-
-  const defaultTitle = String(previousGuide.sections[0]?.title || "Guide").trim() || "Guide";
-
-  doc.content.forEach((node) => {
-    if (isSectionHeadingNode(node)) {
-      const headingText = extractPlainText(node).replace(/\s+/g, " ").trim();
-      const nextTitle = headingText || `Section ${draftSections.length + 1}`;
-      currentSection = { title: nextTitle, nodes: [] };
-      draftSections.push(currentSection);
-      return;
-    }
-
-    if (!currentSection) {
-      currentSection = { title: defaultTitle, nodes: [] };
-      draftSections.push(currentSection);
-    }
-    currentSection.nodes.push(node);
-  });
-
-  if (!draftSections.length) {
-    draftSections.push({
-      title: defaultTitle,
-      nodes: doc.content,
-    });
-  }
-
-  const usedIds = new Set<string>();
-  const nextSections: HelpGuideSection[] = draftSections.map((draft, index) => {
-    const title = draft.title.trim() || `Section ${index + 1}`;
-    const baseId = normalizeSectionId(title) || `section-${index + 1}`;
-    let id = baseId;
-    let suffix = 2;
-    while (usedIds.has(id)) {
-      id = `${baseId}-${suffix}`;
-      suffix += 1;
-    }
-    usedIds.add(id);
-
-    const existingById = previousSectionsById.get(id);
-    const existingByIndex = previousGuide.sections[index];
-    const links = existingById?.links || existingByIndex?.links;
-    const sectionContent = draft.nodes.length ? draft.nodes : [createParagraphNode()];
-
-    const nextSection: HelpGuideSection = {
-      id,
-      title,
-      content: {
-        type: "doc",
-        content: sectionContent,
-      },
-    };
-    if (links?.length) {
-      nextSection.links = cloneJson(links);
-    }
-    return nextSection;
-  });
-
-  return nextSections.length
-    ? nextSections
-    : [
-        {
-          id: "guide",
-          title: "Guide",
-          content: {
-            type: "doc",
-            content: [createParagraphNode()],
-          },
-        },
-      ];
+function isSameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export default function HelpGuideEditorClient({
   initialGuide,
+  initialStorageSlug,
   initialHasOverride,
 }: {
   initialGuide: HelpGuide;
+  initialStorageSlug: string;
   initialHasOverride: boolean;
 }) {
   const [guide, setGuide] = useState<HelpGuide>(initialGuide);
+  const [storageSlug, setStorageSlug] = useState(initialStorageSlug);
   const [editorInitialContent, setEditorInitialContent] = useState<unknown>(() =>
-    buildEditorDocumentFromGuide(initialGuide)
+    buildGuideSingleDoc(initialGuide)
   );
   const [hasOverride, setHasOverride] = useState(initialHasOverride);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -206,9 +51,10 @@ export default function HelpGuideEditorClient({
 
   useEffect(() => {
     setGuide(initialGuide);
-    setEditorInitialContent(buildEditorDocumentFromGuide(initialGuide));
+    setStorageSlug(initialStorageSlug);
+    setEditorInitialContent(buildGuideSingleDoc(initialGuide));
     setHasOverride(initialHasOverride);
-  }, [initialGuide, initialHasOverride]);
+  }, [initialGuide, initialStorageSlug, initialHasOverride]);
 
   useEffect(() => {
     return () => {
@@ -218,57 +64,72 @@ export default function HelpGuideEditorClient({
     };
   }, []);
 
-  const persistGuide = useCallback(async (nextGuide: HelpGuide) => {
-    const requestId = latestSaveRequestRef.current + 1;
-    latestSaveRequestRef.current = requestId;
-    setSaveState("saving");
-    setSaveError("");
+  const persistGuide = useCallback(
+    async (nextGuide: HelpGuide) => {
+      const requestId = latestSaveRequestRef.current + 1;
+      latestSaveRequestRef.current = requestId;
+      setSaveState("saving");
+      setSaveError("");
 
-    let response: Response;
-    try {
-      response = await fetch(`/api/help/guides/${encodeURIComponent(nextGuide.slug)}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(nextGuide),
-      });
-    } catch {
+      let response: Response;
+      try {
+        response = await fetch(`/api/help/guides/${encodeURIComponent(storageSlug)}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(nextGuide),
+        });
+      } catch {
+        if (requestId !== latestSaveRequestRef.current) return;
+        setSaveState("error");
+        setSaveError("Unable to save guide. Check your connection and retry.");
+        return;
+      }
+
+      const body = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok) {
+        if (requestId !== latestSaveRequestRef.current) return;
+        setSaveState("error");
+        setSaveError(parseErrorMessage(body));
+        return;
+      }
+
       if (requestId !== latestSaveRequestRef.current) return;
-      setSaveState("error");
-      setSaveError("Unable to save guide. Check your connection and retry.");
-      return;
-    }
 
-    const body = (await response.json().catch(() => null)) as unknown;
-    if (!response.ok) {
-      if (requestId !== latestSaveRequestRef.current) return;
-      setSaveState("error");
-      setSaveError(parseErrorMessage(body));
-      return;
-    }
+      let savedGuide = nextGuide;
+      let savedStorageSlug = storageSlug;
 
-    if (requestId !== latestSaveRequestRef.current) return;
-    setHasOverride(true);
-    setSaveState("saved");
-    if (savedTimerRef.current) {
-      clearTimeout(savedTimerRef.current);
-    }
-    savedTimerRef.current = setTimeout(() => {
-      setSaveState((current) => (current === "saved" ? "idle" : current));
-    }, 1500);
-  }, []);
+      if (isObjectRecord(body)) {
+        const normalized = normalizeHelpGuide(body.guide);
+        if (normalized) {
+          savedGuide = normalized;
+        }
+        if (typeof body.storageSlug === "string" && body.storageSlug.trim()) {
+          savedStorageSlug = body.storageSlug.trim();
+        }
+      }
+
+      setGuide(savedGuide);
+      setStorageSlug(savedStorageSlug);
+      setHasOverride(true);
+      setSaveState("saved");
+      if (savedTimerRef.current) {
+        clearTimeout(savedTimerRef.current);
+      }
+      savedTimerRef.current = setTimeout(() => {
+        setSaveState((current) => (current === "saved" ? "idle" : current));
+      }, 1500);
+    },
+    [storageSlug]
+  );
 
   const updateGuideFromDocument = useCallback(
     async (content: unknown) => {
-      const nextSections = buildGuideSectionsFromDocument(content, guide);
-      if (isSameJson(nextSections, guide.sections)) {
+      const nextGuide = parseGuideSingleDoc(content, guide);
+      if (isSameJson(nextGuide, guide)) {
         return;
       }
-      const nextGuide: HelpGuide = {
-        ...guide,
-        sections: nextSections,
-      };
       setGuide(nextGuide);
       await persistGuide(nextGuide);
     },
@@ -285,7 +146,7 @@ export default function HelpGuideEditorClient({
     setIsResetting(true);
     setSaveError("");
     try {
-      const response = await fetch(`/api/help/guides/${encodeURIComponent(guide.slug)}`, {
+      const response = await fetch(`/api/help/guides/${encodeURIComponent(storageSlug)}`, {
         method: "DELETE",
       });
       const body = (await response.json().catch(() => null)) as unknown;
@@ -295,29 +156,30 @@ export default function HelpGuideEditorClient({
         setIsResetting(false);
         return;
       }
-      window.location.href = `/help/${guide.slug}`;
+      window.location.href = `/help/${storageSlug}`;
     } catch {
       setSaveState("error");
       setSaveError("Unable to reset guide right now. Try again.");
       setIsResetting(false);
     }
-  }, [guide.slug]);
+  }, [storageSlug]);
 
   const saveStateLabel =
     saveState === "saving"
       ? "Saving..."
       : saveState === "saved"
-        ? "Saved"
-        : saveState === "error"
-          ? "Save failed"
-          : "Edit mode";
+      ? "Saved"
+      : saveState === "error"
+      ? "Save failed"
+      : "Edit mode";
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <p className="font-semibold">Guide edit mode</p>
         <p className="mt-1">
-          Single-page editor mode (same style as Personal pages). Use headings and lists freely.
+          Edit this as one page. Keep top metadata lines as: Title, Summary, Audience, Estimated
+          time.
         </p>
       </div>
 
@@ -350,11 +212,8 @@ export default function HelpGuideEditorClient({
       ) : null}
 
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-        <p className="text-xs text-slate-500">
-          Tip: use a level-2 heading to start a new section in the saved guide.
-        </p>
         <NoteEditorClient
-          entityId={`help-guide-${guide.slug}`}
+          entityId={`help-guide-${storageSlug}`}
           initialContent={editorInitialContent}
           title={`${guide.title} guide`}
           placeholder="Start writing..."
@@ -371,3 +230,4 @@ export default function HelpGuideEditorClient({
     </div>
   );
 }
+

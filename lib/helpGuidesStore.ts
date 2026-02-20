@@ -13,20 +13,41 @@ type HelpGuideOverrideRow = {
   guide: unknown;
 };
 
+export type LoadedHelpGuide = HelpGuide & {
+  storageSlug: string;
+};
+
 type LoadedHelpGuides = {
-  guides: HelpGuide[];
+  guides: LoadedHelpGuide[];
   tableAvailable: boolean;
   overrideSlugs: Set<string>;
 };
 
-function mergeGuideOverrides(overrides: Map<string, HelpGuide>) {
-  const defaultBySlug = new Map(HELP_GUIDES.map((guide) => [guide.slug, guide]));
-  const mergedDefaults = HELP_GUIDES.map(
-    (defaultGuide) => overrides.get(defaultGuide.slug) || defaultGuide
-  );
-  const customOnlyGuides = Array.from(overrides.values())
-    .filter((guide) => !defaultBySlug.has(guide.slug))
+function mergeGuideOverrides(overridesByStorageSlug: Map<string, HelpGuide>) {
+  const defaultByStorageSlug = new Map(HELP_GUIDES.map((guide) => [guide.slug, guide]));
+
+  const mergedDefaults: LoadedHelpGuide[] = HELP_GUIDES.map((defaultGuide) => {
+    const override = overridesByStorageSlug.get(defaultGuide.slug);
+    if (!override) {
+      return {
+        ...defaultGuide,
+        storageSlug: defaultGuide.slug,
+      };
+    }
+    return {
+      ...override,
+      storageSlug: defaultGuide.slug,
+    };
+  });
+
+  const customOnlyGuides: LoadedHelpGuide[] = Array.from(overridesByStorageSlug.entries())
+    .filter(([storageSlug]) => !defaultByStorageSlug.has(storageSlug))
+    .map(([storageSlug, guide]) => ({
+      ...guide,
+      storageSlug,
+    }))
     .sort((left, right) => left.title.localeCompare(right.title));
+
   return [...mergedDefaults, ...customOnlyGuides];
 }
 
@@ -41,28 +62,30 @@ export async function loadHelpGuides(): Promise<LoadedHelpGuides> {
       console.error("[help.guides.load]", error.message);
     }
     return {
-      guides: HELP_GUIDES,
+      guides: HELP_GUIDES.map((guide) => ({
+        ...guide,
+        storageSlug: guide.slug,
+      })),
       tableAvailable: !isSupabaseMissingTableError(error),
       overrideSlugs: new Set<string>(),
     };
   }
 
-  const overrides = new Map<string, HelpGuide>();
+  const overridesByStorageSlug = new Map<string, HelpGuide>();
   ((rowsRaw || []) as HelpGuideOverrideRow[]).forEach((row) => {
-    const slug = String(row.slug || "").trim();
-    if (!slug) return;
+    const storageSlug = String(row.slug || "").trim();
+    if (!storageSlug) return;
     const normalized = normalizeHelpGuide(row.guide);
     if (!normalized) return;
-    overrides.set(slug, {
+    overridesByStorageSlug.set(storageSlug, {
       ...normalized,
-      slug,
     });
   });
 
   return {
-    guides: mergeGuideOverrides(overrides),
+    guides: mergeGuideOverrides(overridesByStorageSlug),
     tableAvailable: true,
-    overrideSlugs: new Set(overrides.keys()),
+    overrideSlugs: new Set(overridesByStorageSlug.keys()),
   };
 }
 
