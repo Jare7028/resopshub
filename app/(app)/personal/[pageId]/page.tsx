@@ -49,6 +49,19 @@ function formatDateTime(value: string | null) {
   return date.toLocaleString("en-US");
 }
 
+function buildSharePanelUrl(
+  pageId: string,
+  focusFromQuery: boolean,
+  extra?: { error?: string; success?: string }
+) {
+  const sp = new URLSearchParams();
+  sp.set("panel", "share");
+  if (focusFromQuery) sp.set("focus", "1");
+  if (extra?.error) sp.set("error", extra.error);
+  if (extra?.success) sp.set("success", extra.success);
+  return `/personal/${pageId}?${sp.toString()}`;
+}
+
 async function syncPageShareMode(
   supabase: SupabaseServerClient,
   pageId: string,
@@ -452,14 +465,6 @@ export default async function PersonalPage(props: {
     }
     const query = sp.toString();
     return query ? `/personal/${pageId}?${query}` : `/personal/${pageId}`;
-  };
-  const sharePanelUrl = (extra?: { error?: string; success?: string }) => {
-    const sp = new URLSearchParams();
-    sp.set("panel", "share");
-    if (focusFromQuery) sp.set("focus", "1");
-    if (extra?.error) sp.set("error", extra.error);
-    if (extra?.success) sp.set("success", extra.success);
-    return `/personal/${pageId}?${sp.toString()}`;
   };
 
   async function updatePageDetails(formData: FormData) {
@@ -1030,7 +1035,7 @@ export default async function PersonalPage(props: {
     const supabase = createSupabaseServerClient();
     if (personalPageShareLinksSchemaMissing) {
       redirect(
-        sharePanelUrl({
+        buildSharePanelUrl(pageId, focusFromQuery, {
           error: "External share links need sql/personal_page_share_links.sql in Supabase.",
         })
       );
@@ -1042,7 +1047,11 @@ export default async function PersonalPage(props: {
       redirect("/login");
     }
     if (pageOwnerId !== currentUser.id) {
-      redirect(sharePanelUrl({ error: "Only the page owner can create external links." }));
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: "Only the page owner can create external links.",
+        })
+      );
     }
 
     let lastErrorMessage = "Failed to create external share link.";
@@ -1056,7 +1065,11 @@ export default async function PersonalPage(props: {
       });
       if (!error) {
         revalidatePath(`/personal/${pageId}`);
-        redirect(sharePanelUrl({ success: "External share link created." }));
+        redirect(
+          buildSharePanelUrl(pageId, focusFromQuery, {
+            success: "External share link created.",
+          })
+        );
       }
       if (error.code !== "23505") {
         lastErrorMessage = error.message;
@@ -1065,7 +1078,11 @@ export default async function PersonalPage(props: {
       lastErrorMessage = error.message;
     }
 
-    redirect(sharePanelUrl({ error: lastErrorMessage }));
+    redirect(
+      buildSharePanelUrl(pageId, focusFromQuery, {
+        error: lastErrorMessage,
+      })
+    );
   }
 
   async function toggleExternalShareLink(formData: FormData) {
@@ -1073,7 +1090,7 @@ export default async function PersonalPage(props: {
     const supabase = createSupabaseServerClient();
     if (personalPageShareLinksSchemaMissing) {
       redirect(
-        sharePanelUrl({
+        buildSharePanelUrl(pageId, focusFromQuery, {
           error: "External share links need sql/personal_page_share_links.sql in Supabase.",
         })
       );
@@ -1085,13 +1102,21 @@ export default async function PersonalPage(props: {
       redirect("/login");
     }
     if (pageOwnerId !== currentUser.id) {
-      redirect(sharePanelUrl({ error: "Only the page owner can manage external links." }));
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: "Only the page owner can manage external links.",
+        })
+      );
     }
 
     const linkId = String(formData.get("link_id") || "").trim();
     const nextIsActive = String(formData.get("next_is_active") || "").trim() === "true";
     if (!linkId) {
-      redirect(sharePanelUrl({ error: "Missing external share link id." }));
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: "Missing external share link id.",
+        })
+      );
     }
 
     const { error } = await supabase
@@ -1101,12 +1126,16 @@ export default async function PersonalPage(props: {
       .eq("page_id", pageId);
 
     if (error) {
-      redirect(sharePanelUrl({ error: error.message }));
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: error.message,
+        })
+      );
     }
 
     revalidatePath(`/personal/${pageId}`);
     redirect(
-      sharePanelUrl({
+      buildSharePanelUrl(pageId, focusFromQuery, {
         success: nextIsActive ? "External share link activated." : "External share link deactivated.",
       })
     );
