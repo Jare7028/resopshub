@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "./_components/ClientTabs";
+import ClientDetailsAutosaveForm from "./_components/ClientDetailsAutosaveForm";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
@@ -584,7 +585,7 @@ export default async function ClientOverviewPage(props: {
 
     revalidatePath(`/clients/${clientId}`);
     revalidatePath(`/clients/${clientId}/notes`);
-    redirect(`/clients/${clientId}?success=Saved`);
+    revalidatePath("/clients");
   }
 
   async function createClientCustomField(formData: FormData) {
@@ -913,7 +914,7 @@ export default async function ClientOverviewPage(props: {
             Add field
           </Link>
         </div>
-        <form action={updateClient} className="mt-4 grid gap-4 md:grid-cols-2">
+        <ClientDetailsAutosaveForm action={updateClient} className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700" htmlFor="name">
               Name
@@ -1088,15 +1089,7 @@ export default async function ClientOverviewPage(props: {
               </div>
             );
           })}
-          <div className="md:col-span-2">
-            <button
-              type="submit"
-              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-            >
-              Save changes
-            </button>
-          </div>
-        </form>
+        </ClientDetailsAutosaveForm>
         {showAddFieldModal ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
             <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
