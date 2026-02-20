@@ -87,6 +87,7 @@ export default function ClientNoteEditorClient({
       onCreateTask={handleCreateTask}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
+      debugImagePersistence={Boolean(sourcePersonalPageId)}
     />
   );
 }

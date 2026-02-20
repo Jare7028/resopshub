@@ -166,6 +166,7 @@ type NoteEditorClientProps = {
     zoomPercent: number;
     focusMode: boolean;
   }) => Promise<void>;
+  debugImagePersistence?: boolean;
 };
 
 export type NoteSaveResult = {
@@ -863,6 +864,66 @@ function containsEphemeralImageSource(value: unknown): boolean {
     }
   }
   return Object.values(value).some((entry) => containsEphemeralImageSource(entry));
+}
+
+type ImageSourceSummary = {
+  total: number;
+  data: number;
+  blob: number;
+  file: number;
+  http: number;
+  relative: number;
+  other: number;
+  samples: string[];
+};
+
+function summarizeImageSources(value: unknown, maxSamples = 3): ImageSourceSummary {
+  const summary: ImageSourceSummary = {
+    total: 0,
+    data: 0,
+    blob: 0,
+    file: 0,
+    http: 0,
+    relative: 0,
+    other: 0,
+    samples: [],
+  };
+
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!isObjectRecord(node)) {
+      return;
+    }
+
+    if (node.type === "image" && isObjectRecord(node.attrs)) {
+      const src = String((node.attrs as Record<string, unknown>).src || "").trim();
+      summary.total += 1;
+      if (src.startsWith("data:")) {
+        summary.data += 1;
+      } else if (src.startsWith("blob:")) {
+        summary.blob += 1;
+      } else if (src.startsWith("file:")) {
+        summary.file += 1;
+      } else if (/^https?:\/\//i.test(src)) {
+        summary.http += 1;
+      } else if (src.startsWith("/")) {
+        summary.relative += 1;
+      } else {
+        summary.other += 1;
+      }
+      if (src && summary.samples.length < maxSamples) {
+        summary.samples.push(src.slice(0, 180));
+      }
+    }
+
+    Object.values(node).forEach(visit);
+  };
+
+  visit(value);
+  return summary;
 }
 
 function normalizeNoteShapeKind(value: string | null | undefined): NoteShapeKind {
@@ -2499,6 +2560,7 @@ export default function NoteEditorClient({
   initialFocusMode = false,
   editorHeightMode = "default",
   onViewStateChange,
+  debugImagePersistence = false,
 }: NoteEditorClientProps) {
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>(() => {
     if (
@@ -2638,13 +2700,34 @@ export default function NoteEditorClient({
 
   const resolveImageSourceFromFile = useCallback(
     async (file: File) => {
+      if (debugImagePersistence) {
+        console.info("[noteEditor.image.debug] resolve_source_start", {
+          entityId,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          hasUploadHandler: Boolean(onUploadImageFile),
+        });
+      }
       if (onUploadImageFile) {
         try {
           const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
           if (uploadedSrc) {
+            if (debugImagePersistence) {
+              console.info("[noteEditor.image.debug] resolve_source_uploaded", {
+                entityId,
+                src: uploadedSrc.slice(0, 180),
+              });
+            }
             return uploadedSrc;
           }
         } catch (error) {
+          if (debugImagePersistence) {
+            console.warn("[noteEditor.image.debug] resolve_source_upload_failed", {
+              entityId,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
           if (process.env.NODE_ENV !== "production") {
             console.warn(
               "[noteEditor.image.upload]",
@@ -2657,9 +2740,15 @@ export default function NoteEditorClient({
 
       const inlineSrc = await optimizeImageForInlineInsert(file);
       assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
+      if (debugImagePersistence) {
+        console.info("[noteEditor.image.debug] resolve_source_inline_fallback", {
+          entityId,
+          dataUrlLength: inlineSrc.length,
+        });
+      }
       return inlineSrc;
     },
-    [onUploadImageFile]
+    [debugImagePersistence, entityId, onUploadImageFile]
   );
 
   const resolveEphemeralImageSourceForSave = useCallback(
@@ -2757,6 +2846,16 @@ export default function NoteEditorClient({
       try {
         const normalizedSaveInput = await normalizeEphemeralImagesForSave(json);
         const savePayload = normalizedSaveInput.content;
+        if (debugImagePersistence) {
+          const payloadSummary = summarizeImageSources(savePayload);
+          if (payloadSummary.total > 0) {
+            console.info("[noteEditor.image.debug] save_payload", {
+              entityId,
+              requestVersion,
+              payloadSummary,
+            });
+          }
+        }
         const saveResultRaw = await onSave(entityId, savePayload);
         const saveResult =
           saveResultRaw && typeof saveResultRaw === "object"
@@ -2767,6 +2866,16 @@ export default function NoteEditorClient({
           hasCanonicalContent
             ? normalizeContent((saveResult as NoteSaveResult).content)
             : savePayload;
+        if (debugImagePersistence) {
+          const canonicalSummary = summarizeImageSources(canonicalContent);
+          if (canonicalSummary.total > 0) {
+            console.info("[noteEditor.image.debug] save_canonical_content", {
+              entityId,
+              requestVersion,
+              canonicalSummary,
+            });
+          }
+        }
         const warnings = mergeSaveWarnings(normalizedSaveInput.warnings, saveResult?.warnings);
 
         const completion = resolveSaveCompletion({
@@ -2798,6 +2907,17 @@ export default function NoteEditorClient({
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unable to save your changes.";
+        if (debugImagePersistence) {
+          const payloadSummary = summarizeImageSources(json);
+          if (payloadSummary.total > 0) {
+            console.error("[noteEditor.image.debug] save_error_with_images", {
+              entityId,
+              requestVersion,
+              message,
+              payloadSummary,
+            });
+          }
+        }
         const shouldShowError = shouldSurfaceSaveError({
           requestVersion,
           latestScheduledVersion: saveRequestVersionRef.current,
@@ -2815,7 +2935,14 @@ export default function NoteEditorClient({
         inFlightSaveCountRef.current = Math.max(0, inFlightSaveCountRef.current - 1);
       }
     },
-    [entityId, logSaveDebug, normalizeEphemeralImagesForSave, onSave, persistDraftSnapshot]
+    [
+      debugImagePersistence,
+      entityId,
+      logSaveDebug,
+      normalizeEphemeralImagesForSave,
+      onSave,
+      persistDraftSnapshot,
+    ]
   );
 
   const persistEditorSave = useCallback(
@@ -3488,6 +3615,12 @@ export default function NoteEditorClient({
     if (!nextSrc) {
       return;
     }
+    if (debugImagePersistence) {
+      console.info("[noteEditor.image.debug] insert_image", {
+        entityId,
+        src: nextSrc.slice(0, 180),
+      });
+    }
     editorRef.current
       ?.chain()
       .focus()
@@ -3503,7 +3636,7 @@ export default function NoteEditorClient({
         },
       })
       .run();
-  }, []);
+  }, [debugImagePersistence, entityId]);
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {

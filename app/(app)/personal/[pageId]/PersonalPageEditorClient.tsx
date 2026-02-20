@@ -111,6 +111,7 @@ export default function PersonalPageEditorClient({
       initialFocusMode={initialFocusMode}
       editorHeightMode="fill"
       onViewStateChange={handleViewStateChange}
+      debugImagePersistence
     />
   );
 }

@@ -100,14 +100,25 @@ export async function POST(
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
+    console.warn("[personal.image.debug] upload_missing_file", { pageId, userId: user.id });
     return NextResponse.json({ error: "Missing image file" }, { status: 400 });
   }
 
   if (!file.type.startsWith("image/")) {
+    console.warn("[personal.image.debug] upload_invalid_type", {
+      pageId,
+      userId: user.id,
+      type: file.type,
+    });
     return NextResponse.json({ error: "Only image files are supported" }, { status: 400 });
   }
 
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    console.warn("[personal.image.debug] upload_file_too_large", {
+      pageId,
+      userId: user.id,
+      size: file.size,
+    });
     return NextResponse.json({ error: "Image exceeds 10MB limit" }, { status: 400 });
   }
 
@@ -118,10 +129,16 @@ export async function POST(
     .maybeSingle();
 
   if (pageError) {
+    console.error("[personal.image.debug] upload_page_lookup_error", {
+      pageId,
+      userId: user.id,
+      message: pageError.message,
+    });
     return NextResponse.json({ error: pageError.message }, { status: 500 });
   }
 
   if (!page) {
+    console.warn("[personal.image.debug] upload_page_not_found", { pageId, userId: user.id });
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
@@ -138,6 +155,11 @@ export async function POST(
       user.id
     );
   } catch (error) {
+    console.error("[personal.image.debug] upload_permission_check_error", {
+      pageId,
+      userId: user.id,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unable to verify page permissions",
@@ -147,6 +169,7 @@ export async function POST(
   }
 
   if (!canEdit) {
+    console.warn("[personal.image.debug] upload_forbidden", { pageId, userId: user.id });
     return NextResponse.json({ error: "You do not have permission to edit this page" }, { status: 403 });
   }
 
@@ -165,6 +188,12 @@ export async function POST(
     });
 
   if (uploadError) {
+    console.error("[personal.image.debug] upload_storage_error", {
+      pageId,
+      userId: user.id,
+      storagePath,
+      message: uploadError.message,
+    });
     return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
@@ -173,8 +202,22 @@ export async function POST(
     .getPublicUrl(storagePath);
   const publicUrl = String(publicUrlData.publicUrl || "").trim();
   if (!publicUrl) {
+    console.error("[personal.image.debug] upload_public_url_missing", {
+      pageId,
+      userId: user.id,
+      storagePath,
+    });
     return NextResponse.json({ error: "Unable to create image URL" }, { status: 500 });
   }
+
+  console.info("[personal.image.debug] upload_success", {
+    pageId,
+    userId: user.id,
+    storagePath,
+    publicUrl: publicUrl.slice(0, 180),
+    sizeBytes: file.size,
+    mimeType: file.type,
+  });
 
   return NextResponse.json({
     image: {

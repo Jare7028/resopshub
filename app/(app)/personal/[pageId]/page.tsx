@@ -217,6 +217,47 @@ function normalizeContextMenuFavorites(value: unknown) {
   return Array.from(new Set(next));
 }
 
+function summarizeImageSources(value: unknown, maxSamples = 3) {
+  const summary = {
+    total: 0,
+    data: 0,
+    blob: 0,
+    file: 0,
+    http: 0,
+    relative: 0,
+    other: 0,
+    samples: [] as string[],
+  };
+
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!node || typeof node !== "object") {
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    if (record.type === "image" && record.attrs && typeof record.attrs === "object") {
+      const src = String((record.attrs as Record<string, unknown>).src || "").trim();
+      summary.total += 1;
+      if (src.startsWith("data:")) summary.data += 1;
+      else if (src.startsWith("blob:")) summary.blob += 1;
+      else if (src.startsWith("file:")) summary.file += 1;
+      else if (/^https?:\/\//i.test(src)) summary.http += 1;
+      else if (src.startsWith("/")) summary.relative += 1;
+      else summary.other += 1;
+      if (src && summary.samples.length < maxSamples) {
+        summary.samples.push(src.slice(0, 180));
+      }
+    }
+    Object.values(record).forEach(visit);
+  };
+
+  visit(value);
+  return summary;
+}
+
 type PersonalPageTabKey = "notes" | "section_members" | "page_members";
 
 function normalizePersonalPageTabKey(value: string | null | undefined): PersonalPageTabKey {
@@ -263,6 +304,13 @@ export default async function PersonalPage(props: {
   const pageId = page.id;
   const pageTitle = page.title || "Personal page";
   const pageContent = page.content ?? null;
+  const imageSummary = summarizeImageSources(pageContent);
+  if (imageSummary.total > 0) {
+    console.info("[personal.image.debug] page_load_content", {
+      pageId,
+      imageSummary,
+    });
+  }
   const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
   const panelParam = String(searchParams?.panel || "")
     .trim()
