@@ -229,7 +229,7 @@ type NoteTextBoxAttrs = {
 const MAX_INLINE_IMAGE_BYTES = 1_800_000;
 const MAX_INLINE_IMAGE_DIMENSION = 1800;
 const MIN_INLINE_IMAGE_DIMENSION = 640;
-const NAVIGATION_SAVE_TIMEOUT_MS = 4000;
+const NAVIGATION_SAVE_TIMEOUT_MS = 12000;
 const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
 const NOTE_SHAPE_DEFAULT_STROKE = "#0f172a";
 const NOTE_SHAPE_DEFAULT_FILL = "#ffffff";
@@ -3667,10 +3667,22 @@ export default function NoteEditorClient({
       }
       navigationGuardInFlightRef.current = true;
       logSaveDebug("navigation_guard_wait_start", { href: nextUrl.toString() });
-      void flushPendingSaveAndWait({ timeoutMs: NAVIGATION_SAVE_TIMEOUT_MS }).finally(() => {
-        navigationGuardInFlightRef.current = false;
-        window.location.assign(nextUrl.toString());
-      });
+      void flushPendingSaveAndWait({ timeoutMs: NAVIGATION_SAVE_TIMEOUT_MS })
+        .then((didCommitLatest) => {
+          if (!didCommitLatest) {
+            logSaveDebug("navigation_guard_wait_timeout_blocked", {
+              href: nextUrl.toString(),
+            });
+            window.alert(
+              "Still saving your latest changes. Please wait a few seconds and try again."
+            );
+            return;
+          }
+          window.location.assign(nextUrl.toString());
+        })
+        .finally(() => {
+          navigationGuardInFlightRef.current = false;
+        });
     };
 
     document.addEventListener("click", onDocumentClick, true);

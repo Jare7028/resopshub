@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const NOTE_IMAGES_BUCKET = "note-images";
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+const IMAGE_UPLOAD_TIMEOUT_MS = 2500;
 
 export type NoteImagePersistenceScope =
   | "personal_page"
@@ -152,6 +153,23 @@ async function uploadImageBytes(input: {
   return { url, error: "" };
 }
 
+async function uploadImageBytesWithTimeout(input: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  userId: string;
+  scope: NoteImagePersistenceScope;
+  entityId: string;
+  bytes: Uint8Array;
+  mimeType: string;
+}) {
+  const uploadPromise = uploadImageBytes(input);
+  const timeoutPromise = new Promise<{ url: string; error: string }>((resolve) => {
+    setTimeout(() => {
+      resolve({ url: "", error: "upload timeout" });
+    }, IMAGE_UPLOAD_TIMEOUT_MS);
+  });
+  return Promise.race([uploadPromise, timeoutPromise]);
+}
+
 export async function normalizeAndPersistNoteImages(
   input: NormalizeAndPersistNoteImagesInput
 ): Promise<NormalizeAndPersistNoteImagesResult> {
@@ -213,7 +231,7 @@ export async function normalizeAndPersistNoteImages(
       return src;
     }
 
-    const upload = await uploadImageBytes({
+    const upload = await uploadImageBytesWithTimeout({
       supabase: input.supabase,
       userId: normalizedUserId,
       scope: input.scope,
@@ -262,4 +280,3 @@ export async function normalizeAndPersistNoteImages(
     warnings: Array.from(warnings),
   };
 }
-
