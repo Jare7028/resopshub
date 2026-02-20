@@ -21,6 +21,12 @@ import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table
 import Placeholder from "@tiptap/extension-placeholder";
 import { selectedRect } from "prosemirror-tables";
 import { createEmptyDoc } from "@/lib/editorContent";
+import {
+  getNextSaveVersion,
+  hasPendingSaveCoordinatorWork,
+  resolveSaveCompletion,
+  shouldSurfaceSaveError,
+} from "@/lib/noteSaveCoordinator";
 
 type OverlayNodeType = "noteShape" | "noteTextBox";
 type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
@@ -146,6 +152,7 @@ type NoteEditorClientProps = {
   showTopToolbar?: boolean;
   enableZoomControls?: boolean;
   disableHorizontalScroll?: boolean;
+  blockNavigationWhileSaving?: boolean;
   contextMenuMode?: ContextMenuMode;
   initialContextMenuFavorites?: ContextMenuFavoriteActionId[];
   onSaveContextMenuFavorites?: (
@@ -222,6 +229,7 @@ type NoteTextBoxAttrs = {
 const MAX_INLINE_IMAGE_BYTES = 1_800_000;
 const MAX_INLINE_IMAGE_DIMENSION = 1800;
 const MIN_INLINE_IMAGE_DIMENSION = 640;
+const NAVIGATION_SAVE_TIMEOUT_MS = 4000;
 const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
 const NOTE_SHAPE_DEFAULT_STROKE = "#0f172a";
 const NOTE_SHAPE_DEFAULT_FILL = "#ffffff";
@@ -2368,6 +2376,7 @@ export default function NoteEditorClient({
   showTopToolbar = true,
   enableZoomControls = false,
   disableHorizontalScroll = false,
+  blockNavigationWhileSaving = true,
   contextMenuMode = "full",
   initialContextMenuFavorites = [],
   onSaveContextMenuFavorites,
@@ -2466,9 +2475,29 @@ export default function NoteEditorClient({
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const saveRequestVersionRef = useRef(0);
+  const lastCommittedVersionRef = useRef(0);
+  const inFlightSaveCountRef = useRef(0);
+  const navigationGuardInFlightRef = useRef(false);
   const viewStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoredDraftRef = useRef(false);
   const draftStorageKey = useMemo(() => `${DRAFT_STORAGE_PREFIX}${entityId}`, [entityId]);
+
+  const logSaveDebug = useCallback(
+    (event: string, payload?: Record<string, unknown>) => {
+      if (process.env.NODE_ENV === "production") {
+        return;
+      }
+      console.debug("[noteEditor.save]", {
+        event,
+        entityId,
+        latestScheduledVersion: saveRequestVersionRef.current,
+        lastCommittedVersion: lastCommittedVersionRef.current,
+        inFlightSaveCount: inFlightSaveCountRef.current,
+        ...payload,
+      });
+    },
+    [entityId]
+  );
 
   const persistDraftSnapshot = useCallback(
     (json: unknown, dirty: boolean) => {
@@ -2493,8 +2522,10 @@ export default function NoteEditorClient({
   );
 
   const persistEditorSaveNow = useCallback(
-    async (json: unknown) => {
+    async (json: unknown, requestVersion: number) => {
       setSaveState("saving");
+      inFlightSaveCountRef.current += 1;
+      logSaveDebug("request_start", { requestVersion });
       try {
         const saveResultRaw = await onSave(entityId, json);
         const saveResult =
@@ -2508,6 +2539,18 @@ export default function NoteEditorClient({
             : json;
         const warnings = normalizeSaveWarnings(saveResult?.warnings);
 
+        const completion = resolveSaveCompletion({
+          requestVersion,
+          latestScheduledVersion: saveRequestVersionRef.current,
+          lastCommittedVersion: lastCommittedVersionRef.current,
+        });
+
+        if (!completion.shouldAcknowledge) {
+          logSaveDebug("request_success_stale_ignored", { requestVersion });
+          return;
+        }
+
+        lastCommittedVersionRef.current = completion.nextLastCommittedVersion;
         setSaveError("");
         setSaveWarning(warnings.join(" "));
         setSaveState("saved");
@@ -2518,32 +2561,49 @@ export default function NoteEditorClient({
         saveStatusTimerRef.current = setTimeout(() => {
           setSaveState((current) => (current === "saved" ? "idle" : current));
         }, 1400);
+        logSaveDebug("request_success_acknowledged", {
+          requestVersion,
+          warningCount: warnings.length,
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unable to save your changes.";
+        const shouldShowError = shouldSurfaceSaveError({
+          requestVersion,
+          latestScheduledVersion: saveRequestVersionRef.current,
+        });
+        if (!shouldShowError) {
+          logSaveDebug("request_error_stale_ignored", { requestVersion, message });
+          return;
+        }
         setSaveError(message);
         setSaveWarning("");
         setSaveState("error");
         console.error("[noteEditor.save]", message);
+        logSaveDebug("request_error_acknowledged", { requestVersion, message });
+      } finally {
+        inFlightSaveCountRef.current = Math.max(0, inFlightSaveCountRef.current - 1);
       }
     },
-    [entityId, onSave, persistDraftSnapshot]
+    [entityId, logSaveDebug, onSave, persistDraftSnapshot]
   );
 
   const persistEditorSave = useCallback(
     (json: unknown) => {
-      const requestVersion = saveRequestVersionRef.current + 1;
+      const requestVersion = getNextSaveVersion(saveRequestVersionRef.current);
       saveRequestVersionRef.current = requestVersion;
+      logSaveDebug("request_scheduled", { requestVersion, mode: "debounced" });
       saveChainRef.current = saveChainRef.current
         .catch(() => undefined)
         .then(async () => {
           if (requestVersion !== saveRequestVersionRef.current) {
+            logSaveDebug("request_preempted", { requestVersion, mode: "debounced" });
             return;
           }
-          await persistEditorSaveNow(json);
+          await persistEditorSaveNow(json, requestVersion);
         });
     },
-    [persistEditorSaveNow]
+    [logSaveDebug, persistEditorSaveNow]
   );
 
   const persistEditorSaveImmediate = useCallback(
@@ -2552,20 +2612,36 @@ export default function NoteEditorClient({
         clearTimeout(saveTimer.current);
         saveTimer.current = null;
       }
-      const requestVersion = saveRequestVersionRef.current + 1;
+      const requestVersion = getNextSaveVersion(saveRequestVersionRef.current);
       saveRequestVersionRef.current = requestVersion;
+      logSaveDebug("request_scheduled", { requestVersion, mode: "immediate" });
       // Keep immediate saves in-order with in-flight saves to prevent stale payloads
       // from finishing later and overwriting freshly inserted images.
       saveChainRef.current = saveChainRef.current
         .catch(() => undefined)
         .then(async () => {
           if (requestVersion !== saveRequestVersionRef.current) {
+            logSaveDebug("request_preempted", { requestVersion, mode: "immediate" });
             return;
           }
-          await persistEditorSaveNow(json);
+          await persistEditorSaveNow(json, requestVersion);
         });
     },
-    [persistEditorSaveNow]
+    [logSaveDebug, persistEditorSaveNow]
+  );
+
+  const hasPendingSaveWork = useCallback(
+    (options?: { hasDebounceTimer?: boolean }) =>
+      hasPendingSaveCoordinatorWork({
+        hasDebounceTimer:
+          typeof options?.hasDebounceTimer === "boolean"
+            ? options.hasDebounceTimer
+            : Boolean(saveTimer.current),
+        inFlightSaveCount: inFlightSaveCountRef.current,
+        lastCommittedVersion: lastCommittedVersionRef.current,
+        latestScheduledVersion: saveRequestVersionRef.current,
+      }),
+    []
   );
 
   const flushPendingSave = useCallback(
@@ -2587,6 +2663,71 @@ export default function NoteEditorClient({
       void persistEditorSave(json);
     },
     [persistDraftSnapshot, persistEditorSave, persistEditorSaveImmediate]
+  );
+
+  const flushPendingSaveAndWait = useCallback(
+    async (options?: { timeoutMs?: number }) => {
+      const timeoutMsRaw = Number(options?.timeoutMs ?? NAVIGATION_SAVE_TIMEOUT_MS);
+      const timeoutMs = Number.isFinite(timeoutMsRaw)
+        ? Math.max(400, Math.floor(timeoutMsRaw))
+        : NAVIGATION_SAVE_TIMEOUT_MS;
+      const hadDebounceTimer = Boolean(saveTimer.current);
+
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+
+      const currentEditor = editorRef.current;
+      const hadPendingWork = hasPendingSaveWork({ hasDebounceTimer: hadDebounceTimer });
+      if (currentEditor && hadPendingWork) {
+        const json = currentEditor.getJSON();
+        persistDraftSnapshot(json, true);
+        persistEditorSaveImmediate(json);
+      }
+
+      if (!hasPendingSaveWork({ hasDebounceTimer: false })) {
+        logSaveDebug("flush_wait_not_needed");
+        return true;
+      }
+
+      logSaveDebug("flush_wait_start", { timeoutMs });
+      const waitForLatestSave = saveChainRef.current
+        .catch(() => undefined)
+        .then(() => !hasPendingSaveWork({ hasDebounceTimer: false }));
+
+      const didCommitLatest = await new Promise<boolean>((resolve) => {
+        let settled = false;
+        const timeoutHandle = window.setTimeout(() => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          resolve(false);
+        }, timeoutMs);
+
+        waitForLatestSave.then((result) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutHandle);
+          resolve(result);
+        });
+      });
+
+      logSaveDebug(
+        didCommitLatest ? "flush_wait_completed" : "flush_wait_timed_out",
+        { timeoutMs }
+      );
+      return didCommitLatest;
+    },
+    [
+      hasPendingSaveWork,
+      logSaveDebug,
+      persistDraftSnapshot,
+      persistEditorSaveImmediate,
+    ]
   );
 
   const [taskCreator, setTaskCreator] = useState<{
@@ -3468,6 +3609,80 @@ export default function NoteEditorClient({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [flushPendingSave]);
+
+  useEffect(() => {
+    if (!blockNavigationWhileSaving) {
+      return;
+    }
+    const onDocumentClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0) {
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      const target = event.target as Element | null;
+      const link = target?.closest("a[href]") as HTMLAnchorElement | null;
+      if (!link) {
+        return;
+      }
+      if (link.target && link.target !== "_self") {
+        return;
+      }
+      if (link.hasAttribute("download")) {
+        return;
+      }
+      const href = String(link.getAttribute("href") || "").trim();
+      if (
+        !href ||
+        href.startsWith("#") ||
+        href.startsWith("mailto:") ||
+        href.startsWith("tel:") ||
+        href.startsWith("javascript:")
+      ) {
+        return;
+      }
+
+      const nextUrl = new URL(link.href, window.location.href);
+      if (nextUrl.origin !== window.location.origin) {
+        return;
+      }
+
+      if (
+        nextUrl.pathname === window.location.pathname &&
+        nextUrl.search === window.location.search
+      ) {
+        return;
+      }
+
+      if (!hasPendingSaveWork()) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (navigationGuardInFlightRef.current) {
+        return;
+      }
+      navigationGuardInFlightRef.current = true;
+      logSaveDebug("navigation_guard_wait_start", { href: nextUrl.toString() });
+      void flushPendingSaveAndWait({ timeoutMs: NAVIGATION_SAVE_TIMEOUT_MS }).finally(() => {
+        navigationGuardInFlightRef.current = false;
+        window.location.assign(nextUrl.toString());
+      });
+    };
+
+    document.addEventListener("click", onDocumentClick, true);
+    return () => {
+      document.removeEventListener("click", onDocumentClick, true);
+    };
+  }, [
+    blockNavigationWhileSaving,
+    flushPendingSaveAndWait,
+    hasPendingSaveWork,
+    logSaveDebug,
+  ]);
 
   useEffect(() => {
     if (!taskCreator.open) {
