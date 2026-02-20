@@ -67,32 +67,6 @@ export default function PersonalPageEditorClient({
       warnings: result.warnings,
     };
   }, []);
-  const handleUploadImageFile = useCallback(
-    async (file: File) => {
-      const formData = new FormData();
-      formData.set("file", file, file.name || "image");
-      const response = await fetch(
-        `/api/personal/pages/${encodeURIComponent(pageId)}/images`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        image?: { url?: string };
-      };
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to upload image.");
-      }
-      const uploadedUrl = String(payload.image?.url || "").trim();
-      if (!uploadedUrl) {
-        throw new Error("Image upload did not return a URL.");
-      }
-      return uploadedUrl;
-    },
-    [pageId]
-  );
   const handleSaveContextMenuFavorites = useCallback(
     (favorites: string[]) => savePersonalContextMenuFavorites({ favorites }),
     []
@@ -115,7 +89,6 @@ export default function PersonalPageEditorClient({
       title="Page"
       placeholder="Start writing your page..."
       onSave={handleSave}
-      onUploadImageFile={handleUploadImageFile}
       onCreateTask={handleCreateTask}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}

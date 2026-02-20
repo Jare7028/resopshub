@@ -139,10 +139,6 @@ type NoteEditorClientProps = {
   title: string;
   placeholder: string;
   onSave: (entityId: string, content: unknown) => Promise<NoteSaveResult | void>;
-  // Optional client-side image upload hook.
-  // When provided, pasted/attached images upload first and inserted src becomes the returned URL.
-  // When omitted or upload fails, editor falls back to inline data URLs.
-  onUploadImageFile?: (file: File) => Promise<string>;
   onCreateTask?: (input: {
     title: string;
     dueDate: string | null;
@@ -2384,7 +2380,6 @@ export default function NoteEditorClient({
   title,
   placeholder,
   onSave,
-  onUploadImageFile,
   onCreateTask,
   lastEditedAtLabel,
   lastEditedByLabel,
@@ -3294,27 +3289,11 @@ export default function NoteEditorClient({
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
-      if (onUploadImageFile) {
-        try {
-          const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
-          if (uploadedSrc) {
-            insertImageWithCriticalSave(uploadedSrc);
-            return;
-          }
-        } catch (error) {
-          if (process.env.NODE_ENV !== "production") {
-            console.warn(
-              "[noteEditor.imageUpload] Falling back to inline image after upload failure:",
-              error instanceof Error ? error.message : String(error)
-            );
-          }
-        }
-      }
       const inlineSrc = await optimizeImageForInlineInsert(file);
       assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
       insertImageWithCriticalSave(inlineSrc);
     },
-    [insertImageWithCriticalSave, onUploadImageFile]
+    [insertImageWithCriticalSave]
   );
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
