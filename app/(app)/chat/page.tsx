@@ -44,6 +44,7 @@ type DbMessageRow = {
   body: string;
   created_at: string;
   edited_at: string | null;
+  deleted_at: string | null;
 };
 
 type DbMessageLinkRow = {
@@ -176,7 +177,7 @@ export default async function ChatPage(props: {
   const latestMessagesPromise = myConversationIds.length
     ? supabase
         .from("chat_messages")
-        .select("id,conversation_id,sender_id,body,created_at,edited_at")
+        .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
         .in("conversation_id", myConversationIds)
         .order("created_at", { ascending: false })
         .limit(LATEST_MESSAGES_SCAN_LIMIT)
@@ -189,7 +190,7 @@ export default async function ChatPage(props: {
   const preselectedMessagesPromise = preselectedConversationId
     ? supabase
         .from("chat_messages")
-        .select("id,conversation_id,sender_id,body,created_at,edited_at")
+        .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
         .eq("conversation_id", preselectedConversationId)
         .order("created_at", { ascending: true })
         .limit(INITIAL_CONVERSATION_MESSAGES_LIMIT)
@@ -234,7 +235,7 @@ export default async function ChatPage(props: {
         ? (
             await supabase
               .from("chat_messages")
-              .select("id,conversation_id,sender_id,body,created_at,edited_at")
+              .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
               .eq("conversation_id", selectedConversationId)
               .order("created_at", { ascending: true })
               .limit(INITIAL_CONVERSATION_MESSAGES_LIMIT)

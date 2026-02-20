@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type LinkEntityType =
   | "task"
@@ -64,6 +64,7 @@ export default function ChatComposer(props: {
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [uploadError, setUploadError] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!isSlashOpen) return;
@@ -157,11 +158,35 @@ export default function ChatComposer(props: {
     setQuery("");
   };
 
+  const uploadImageFiles = async (files: File[]) => {
+    if (!files.length) return;
+    setUploadError("");
+    setIsUploadingImage(true);
+    try {
+      const uploaded = await Promise.all(files.map((file) => uploadImage(file)));
+      setAttachedImages((prev) => [...prev, ...uploaded]);
+    } catch (err) {
+      setUploadError(
+        err instanceof Error ? err.message : "Unable to upload selected image"
+      );
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const sendDisabled =
+    isSending ||
+    isUploadingImage ||
+    (!body.trim() && !attachedLinks.length && !attachedImages.length);
+
   return (
     <form
       onSubmit={async (event) => {
         event.preventDefault();
         setUploadError("");
+        if (!body.trim() && !attachedLinks.length && !attachedImages.length) {
+          return;
+        }
         await onSend({
           body,
           links: attachedLinks,
@@ -192,21 +217,10 @@ export default function ChatComposer(props: {
             }
 
             event.preventDefault();
-            setUploadError("");
-            setIsUploadingImage(true);
-            try {
-              const files = imageItems
-                .map((item) => item.getAsFile())
-                .filter((file): file is File => Boolean(file));
-              const uploaded = await Promise.all(files.map((file) => uploadImage(file)));
-              setAttachedImages((prev) => [...prev, ...uploaded]);
-            } catch (err) {
-              setUploadError(
-                err instanceof Error ? err.message : "Unable to upload pasted image"
-              );
-            } finally {
-              setIsUploadingImage(false);
-            }
+            const files = imageItems
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => Boolean(file));
+            await uploadImageFiles(files);
           }}
           onKeyDown={(event) => {
             if (event.key === "/") {
@@ -214,7 +228,7 @@ export default function ChatComposer(props: {
             }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              if (!isSending && !isUploadingImage) {
+              if (!sendDisabled) {
                 event.currentTarget.form?.requestSubmit();
               }
             }
@@ -224,30 +238,66 @@ export default function ChatComposer(props: {
           className="w-full resize-none rounded-t-md border-0 px-3 py-2 text-sm focus:outline-none"
         />
         <div className="flex items-center justify-between border-t border-slate-200 px-2 py-1.5">
-          <button
-            type="button"
-            onClick={() => setIsSlashOpen((prev) => !prev)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-            title="Attach link"
-            aria-label="Attach link"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-4 w-4"
-              aria-hidden="true"
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsSlashOpen((prev) => !prev)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              title="Attach link"
+              aria-label="Attach link"
             >
-              <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L10 5" />
-              <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L14 19" />
-            </svg>
-          </button>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L10 5" />
+                <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L14 19" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              title="Upload image"
+              aria-label="Upload image"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={async (event) => {
+              const files = Array.from(event.currentTarget.files || []);
+              event.currentTarget.value = "";
+              await uploadImageFiles(files);
+            }}
+          />
           <button
             type="submit"
-            disabled={isSending || isUploadingImage}
+            disabled={sendDisabled}
             className="rounded-md btn-primary px-3 py-1.5 text-xs font-semibold text-white"
           >
             {isSending ? "Sending..." : isUploadingImage ? "Uploading..." : "Send"}
@@ -256,6 +306,11 @@ export default function ChatComposer(props: {
       </div>
 
       {uploadError ? <p className="text-xs text-red-600">{uploadError}</p> : null}
+      {!uploadError ? (
+        <p className="text-[11px] text-slate-500">
+          Enter to send. Shift+Enter for a new line. Paste or upload images.
+        </p>
+      ) : null}
 
       {attachedImages.length ? (
         <div className="flex flex-wrap gap-2">
