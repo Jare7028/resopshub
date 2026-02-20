@@ -2425,6 +2425,7 @@ export default function NoteEditorClient({
   const taskHoverLinkRef = useRef<HTMLAnchorElement | null>(null);
   const taskHoverCacheRef = useRef<Record<string, TaskHoverSummary>>({});
   const taskHoverRequestIdRef = useRef(0);
+  const taskCreatorPanelRef = useRef<HTMLDivElement | null>(null);
   const [zoomPercent, setZoomPercent] = useState(() =>
     Math.min(1000, Math.max(20, Math.round(Number(initialZoomPercent) || 100)))
   );
@@ -3453,6 +3454,26 @@ export default function NoteEditorClient({
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [closeTaskCreator, taskCreator.open]);
+
+  useEffect(() => {
+    if (!taskCreator.open) {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+      if (taskCreatorPanelRef.current?.contains(target)) {
+        return;
+      }
+      closeTaskCreator();
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
     };
   }, [closeTaskCreator, taskCreator.open]);
 
@@ -5828,115 +5849,115 @@ export default function NoteEditorClient({
         </div>
       ) : null}
 
-      {taskCreator.open ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4"
-          onMouseDown={() => closeTaskCreator()}
-        >
-          <div
-            className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Create task
-                </p>
-                <h3 className="text-lg font-semibold text-slate-900">New task</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => closeTaskCreator()}
-                className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-900"
+      {taskCreator.open
+        ? createPortal(
+            <div className="fixed inset-x-4 top-20 z-[90] flex justify-center sm:justify-end pointer-events-none">
+              <div
+                ref={taskCreatorPanelRef}
+                className="pointer-events-auto w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
               >
-                Close
-              </button>
-            </div>
-
-            {taskCreator.error ? (
-              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {taskCreator.error}
-              </p>
-            ) : null}
-
-            <form
-              className="mt-4 space-y-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitTask();
-              }}
-            >
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-600">Title</label>
-                <input
-                  ref={taskTitleRef}
-                  value={taskCreator.title}
-                  onChange={(event) =>
-                    setTaskCreator((prev) => ({ ...prev, title: event.target.value }))
-                  }
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Task title"
-                  required
-                />
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600">Due date</label>
-                  <input
-                    type="date"
-                    value={taskCreator.dueDate}
-                    onChange={(event) =>
-                      setTaskCreator((prev) => ({ ...prev, dueDate: event.target.value }))
-                    }
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Create task
+                    </p>
+                    <h3 className="text-lg font-semibold text-slate-900">New task</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => closeTaskCreator()}
+                    className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-900"
+                  >
+                    Close
+                  </button>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600">Time</label>
-                  <input
-                    type="time"
-                    value={taskCreator.dueTime}
-                    onChange={(event) =>
-                      setTaskCreator((prev) => ({ ...prev, dueTime: event.target.value }))
-                    }
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
 
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={taskCreator.assignToMe}
-                  onChange={(event) =>
-                    setTaskCreator((prev) => ({ ...prev, assignToMe: event.target.checked }))
-                  }
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                Assign to me
-              </label>
+                {taskCreator.error ? (
+                  <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {taskCreator.error}
+                  </p>
+                ) : null}
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => closeTaskCreator()}
-                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                <form
+                  className="mt-4 space-y-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitTask();
+                  }}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isTaskPending}
-                  className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                  {isTaskPending ? "Creating..." : "Create task"}
-                </button>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-600">Title</label>
+                    <input
+                      ref={taskTitleRef}
+                      value={taskCreator.title}
+                      onChange={(event) =>
+                        setTaskCreator((prev) => ({ ...prev, title: event.target.value }))
+                      }
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Task title"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-600">Due date</label>
+                      <input
+                        type="date"
+                        value={taskCreator.dueDate}
+                        onChange={(event) =>
+                          setTaskCreator((prev) => ({ ...prev, dueDate: event.target.value }))
+                        }
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-600">Time</label>
+                      <input
+                        type="time"
+                        value={taskCreator.dueTime}
+                        onChange={(event) =>
+                          setTaskCreator((prev) => ({ ...prev, dueTime: event.target.value }))
+                        }
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={taskCreator.assignToMe}
+                      onChange={(event) =>
+                        setTaskCreator((prev) => ({ ...prev, assignToMe: event.target.checked }))
+                      }
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                    Assign to me
+                  </label>
+
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => closeTaskCreator()}
+                      className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isTaskPending}
+                      className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {isTaskPending ? "Creating..." : "Create task"}
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body
+          )
+        : null}
 
       <style jsx global>{`
         .note-editor a[href^="/tasks/"] {
