@@ -857,7 +857,10 @@ function containsEphemeralImageSource(value: unknown): boolean {
   if (!isObjectRecord(value)) {
     return false;
   }
-  if (value.type === "image" && isObjectRecord(value.attrs)) {
+  const nodeType = String(value.type || "")
+    .trim()
+    .toLowerCase();
+  if (nodeType.includes("image") && isObjectRecord(value.attrs)) {
     const source = String((value.attrs as Record<string, unknown>).src || "").trim();
     if (isEphemeralImageSource(source)) {
       return true;
@@ -898,7 +901,10 @@ function summarizeImageSources(value: unknown, maxSamples = 3): ImageSourceSumma
       return;
     }
 
-    if (node.type === "image" && isObjectRecord(node.attrs)) {
+    const nodeType = String(node.type || "")
+      .trim()
+      .toLowerCase();
+    if (nodeType.includes("image") && isObjectRecord(node.attrs)) {
       const src = String((node.attrs as Record<string, unknown>).src || "").trim();
       summary.total += 1;
       if (src.startsWith("data:")) {
@@ -2811,7 +2817,10 @@ export default function NoteEditorClient({
           return;
         }
 
-        if (value.type === "image" && isObjectRecord(value.attrs)) {
+        const nodeType = String(value.type || "")
+          .trim()
+          .toLowerCase();
+        if (nodeType.includes("image") && isObjectRecord(value.attrs)) {
           const attrs = value.attrs as Record<string, unknown>;
           const source = String(attrs.src || "").trim();
           if (isEphemeralImageSource(source)) {
@@ -3629,26 +3638,55 @@ export default function NoteEditorClient({
       return false;
     }
 
-    const baseImageNode = {
-      type: "image",
-      attrs: {
-        src: nextSrc,
-        float: "none",
-      },
-    };
+    const schemaNodeNames = Object.keys(currentEditor.state.schema.nodes);
+    const imageNodeTypeName =
+      schemaNodeNames.find((name) => name.toLowerCase() === "image") ||
+      schemaNodeNames.find((name) => name.toLowerCase().includes("image")) ||
+      null;
 
-    let inserted = currentEditor
-      ?.chain()
-      .focus()
-      .command(({ tr }) => {
-        tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-        return true;
-      })
-      .insertContent(baseImageNode)
-      .run();
+    if (debugImagePersistence) {
+      console.info("[noteEditor.image.debug] insert_image_node_type", {
+        entityId,
+        imageNodeTypeName,
+      });
+    }
+
+    let inserted = false;
+
+    if (imageNodeTypeName) {
+      inserted = currentEditor
+        .chain()
+        .focus()
+        .command(({ state, tr, dispatch }) => {
+          const imageNodeType = state.schema.nodes[imageNodeTypeName];
+          if (!imageNodeType) {
+            return false;
+          }
+          const imageNode = imageNodeType.create({
+            src: nextSrc,
+            float: "none",
+          });
+          tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+          tr.replaceSelectionWith(imageNode, false);
+          if (dispatch) {
+            dispatch(tr.scrollIntoView());
+          }
+          return true;
+        })
+        .run();
+    }
 
     if (!inserted) {
       const docEndPos = Math.max(0, currentEditor.state.doc.content.size);
+      const baseImageNode = imageNodeTypeName
+        ? {
+            type: imageNodeTypeName,
+            attrs: { src: nextSrc, float: "none" },
+          }
+        : {
+            type: "image",
+            attrs: { src: nextSrc, float: "none" },
+          };
       inserted = currentEditor
         .chain()
         .focus()

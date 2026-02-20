@@ -41,7 +41,10 @@ function hasImagesRequiringNormalization(value: unknown): boolean {
     return false;
   }
 
-  if (value.type === "image" && isObjectRecord(value.attrs)) {
+  const nodeType = String(value.type || "")
+    .trim()
+    .toLowerCase();
+  if (nodeType.includes("image") && isObjectRecord(value.attrs)) {
     const src = normalizeText((value.attrs as Record<string, unknown>).src);
     if (!src) {
       return true;
@@ -291,7 +294,10 @@ export async function normalizeAndPersistNoteImages(
       return;
     }
 
-    if (value.type === "image" && isObjectRecord(value.attrs)) {
+    const nodeType = String(value.type || "")
+      .trim()
+      .toLowerCase();
+    if (nodeType.includes("image") && isObjectRecord(value.attrs)) {
       const attrs = value.attrs as Record<string, unknown>;
       attrs.src = await processImageSrc(attrs.src);
     }

@@ -238,7 +238,10 @@ function summarizeImageSources(value: unknown, maxSamples = 3) {
       return;
     }
     const record = node as Record<string, unknown>;
-    if (record.type === "image" && record.attrs && typeof record.attrs === "object") {
+    const nodeType = String(record.type || "")
+      .trim()
+      .toLowerCase();
+    if (nodeType.includes("image") && record.attrs && typeof record.attrs === "object") {
       const src = String((record.attrs as Record<string, unknown>).src || "").trim();
       summary.total += 1;
       if (src.startsWith("data:")) summary.data += 1;
