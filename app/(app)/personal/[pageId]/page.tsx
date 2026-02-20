@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { randomBytes } from "crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
@@ -17,6 +19,35 @@ import { togglePersonalPageFavorite } from "../workspaceActions";
 export const dynamic = "force-dynamic";
 
 type SupabaseServerClient = ReturnType<typeof createSupabaseServerClient>;
+
+type PersonalPageShareLinkRow = {
+  id: string;
+  token: string;
+  is_active: boolean;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+};
+
+function normalizeAppBaseUrl(value: string | null | undefined) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  const withoutTrailingSlash = normalized.replace(/\/+$/, "");
+  if (
+    withoutTrailingSlash.startsWith("http://") ||
+    withoutTrailingSlash.startsWith("https://")
+  ) {
+    return withoutTrailingSlash;
+  }
+  return `https://${withoutTrailingSlash}`;
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("en-US");
+}
 
 async function syncPageShareMode(
   supabase: SupabaseServerClient,
@@ -351,6 +382,55 @@ export default async function PersonalPage(props: {
     role: string;
   }>;
 
+  const headerList = await headers();
+  const forwardedHost = headerList.get("x-forwarded-host");
+  const forwardedProto = headerList.get("x-forwarded-proto");
+  const host = forwardedHost || headerList.get("host");
+  const appBaseUrlFromHeaders = host
+    ? `${forwardedProto || "https"}://${host}`
+    : "";
+  const appBaseUrl = normalizeAppBaseUrl(
+    process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.NEXT_PUBLIC_VERCEL_URL ||
+      appBaseUrlFromHeaders
+  );
+
+  const {
+    data: personalPageShareLinksRaw,
+    error: personalPageShareLinksError,
+  } = await supabase
+    .from("personal_page_share_links")
+    .select("id,token,is_active,created_at,last_used_at,expires_at")
+    .eq("page_id", pageId)
+    .order("created_at", { ascending: false });
+
+  const personalPageShareLinksSchemaMissing = isSupabaseMissingTableError(
+    personalPageShareLinksError
+  );
+  const personalPageShareLinksLoadErrorMessage =
+    personalPageShareLinksError && !personalPageShareLinksSchemaMissing
+      ? `Could not load external share links (${personalPageShareLinksError.message}).`
+      : null;
+  const personalPageShareLinks = (
+    personalPageShareLinksSchemaMissing ? [] : personalPageShareLinksRaw || []
+  )
+    .map((row) => ({
+      id: String((row as { id?: string | null }).id || "").trim(),
+      token: String((row as { token?: string | null }).token || "").trim(),
+      is_active: Boolean((row as { is_active?: boolean | null }).is_active !== false),
+      created_at: String((row as { created_at?: string | null }).created_at || ""),
+      last_used_at:
+        ((row as { last_used_at?: string | null }).last_used_at as string | null) || null,
+      expires_at:
+        ((row as { expires_at?: string | null }).expires_at as string | null) || null,
+    }))
+    .filter((row) => row.id && row.token) as PersonalPageShareLinkRow[];
+
+  const buildExternalShareUrl = (token: string) => {
+    const path = `/personal/share/${encodeURIComponent(token)}`;
+    return appBaseUrl ? `${appBaseUrl}${path}` : path;
+  };
+
   const pageIsFavorite = Boolean(pageUserState?.is_favorite);
   const initialRibbonTab = pageUserState?.last_ribbon_tab || defaultRibbonTabPreference;
   const initialZoomPercent =
@@ -372,6 +452,14 @@ export default async function PersonalPage(props: {
     }
     const query = sp.toString();
     return query ? `/personal/${pageId}?${query}` : `/personal/${pageId}`;
+  };
+  const sharePanelUrl = (extra?: { error?: string; success?: string }) => {
+    const sp = new URLSearchParams();
+    sp.set("panel", "share");
+    if (focusFromQuery) sp.set("focus", "1");
+    if (extra?.error) sp.set("error", extra.error);
+    if (extra?.success) sp.set("success", extra.success);
+    return `/personal/${pageId}?${sp.toString()}`;
   };
 
   async function updatePageDetails(formData: FormData) {
@@ -937,6 +1025,93 @@ export default async function PersonalPage(props: {
     revalidatePath("/personal");
   }
 
+  async function createExternalShareLink() {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    if (personalPageShareLinksSchemaMissing) {
+      redirect(
+        sharePanelUrl({
+          error: "External share links need sql/personal_page_share_links.sql in Supabase.",
+        })
+      );
+    }
+
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUser = authData.user;
+    if (!currentUser) {
+      redirect("/login");
+    }
+    if (pageOwnerId !== currentUser.id) {
+      redirect(sharePanelUrl({ error: "Only the page owner can create external links." }));
+    }
+
+    let lastErrorMessage = "Failed to create external share link.";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const token = randomBytes(24).toString("hex");
+      const { error } = await supabase.from("personal_page_share_links").insert({
+        page_id: pageId,
+        token,
+        is_active: true,
+        created_by_user_id: currentUser.id,
+      });
+      if (!error) {
+        revalidatePath(`/personal/${pageId}`);
+        redirect(sharePanelUrl({ success: "External share link created." }));
+      }
+      if (error.code !== "23505") {
+        lastErrorMessage = error.message;
+        break;
+      }
+      lastErrorMessage = error.message;
+    }
+
+    redirect(sharePanelUrl({ error: lastErrorMessage }));
+  }
+
+  async function toggleExternalShareLink(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    if (personalPageShareLinksSchemaMissing) {
+      redirect(
+        sharePanelUrl({
+          error: "External share links need sql/personal_page_share_links.sql in Supabase.",
+        })
+      );
+    }
+
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUser = authData.user;
+    if (!currentUser) {
+      redirect("/login");
+    }
+    if (pageOwnerId !== currentUser.id) {
+      redirect(sharePanelUrl({ error: "Only the page owner can manage external links." }));
+    }
+
+    const linkId = String(formData.get("link_id") || "").trim();
+    const nextIsActive = String(formData.get("next_is_active") || "").trim() === "true";
+    if (!linkId) {
+      redirect(sharePanelUrl({ error: "Missing external share link id." }));
+    }
+
+    const { error } = await supabase
+      .from("personal_page_share_links")
+      .update({ is_active: nextIsActive })
+      .eq("id", linkId)
+      .eq("page_id", pageId);
+
+    if (error) {
+      redirect(sharePanelUrl({ error: error.message }));
+    }
+
+    revalidatePath(`/personal/${pageId}`);
+    redirect(
+      sharePanelUrl({
+        success: nextIsActive ? "External share link activated." : "External share link deactivated.",
+      })
+    );
+  }
+
   const pagePlainText =
     pageContent && typeof pageContent === "object"
       ? extractPlainText(pageContent)
@@ -1138,6 +1313,91 @@ export default async function PersonalPage(props: {
 
         {activePanel === "share" ? (
           <div className="space-y-4">
+            {isOwner ? (
+              <section className="space-y-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800">External share links</h3>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Share this page outside the app. Shared pages show only the note content.
+                  </p>
+                </div>
+                {personalPageShareLinksSchemaMissing ? (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    External sharing needs
+                    <span className="font-mono"> sql/personal_page_share_links.sql</span>.
+                  </p>
+                ) : null}
+                {personalPageShareLinksLoadErrorMessage ? (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {personalPageShareLinksLoadErrorMessage}
+                  </p>
+                ) : null}
+                <form action={createExternalShareLink}>
+                  <button
+                    type="submit"
+                    disabled={personalPageShareLinksSchemaMissing}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Create external link
+                  </button>
+                </form>
+                {personalPageShareLinks.length ? (
+                  <div className="space-y-2">
+                    {personalPageShareLinks.map((link) => {
+                      const shareUrl = buildExternalShareUrl(link.token);
+                      return (
+                        <div
+                          key={link.id}
+                          className="space-y-2 rounded-md border border-slate-200 bg-white px-2 py-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                link.is_active
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {link.is_active ? "Active" : "Inactive"}
+                            </span>
+                            <form action={toggleExternalShareLink}>
+                              <input type="hidden" name="link_id" value={link.id} />
+                              <input
+                                type="hidden"
+                                name="next_is_active"
+                                value={link.is_active ? "false" : "true"}
+                              />
+                              <button
+                                type="submit"
+                                className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                              >
+                                {link.is_active ? "Deactivate" : "Activate"}
+                              </button>
+                            </form>
+                          </div>
+                          <a
+                            href={shareUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block break-all text-xs text-blue-700 underline underline-offset-2 hover:text-blue-800"
+                          >
+                            {shareUrl}
+                          </a>
+                          <p className="text-[11px] text-slate-500">
+                            Created: {formatDateTime(link.created_at)} | Last used:{" "}
+                            {formatDateTime(link.last_used_at)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    No external links yet.
+                  </p>
+                )}
+              </section>
+            ) : null}
             {isOwner ? (
               <details className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
                 <summary className="cursor-pointer text-sm font-semibold text-slate-800">
