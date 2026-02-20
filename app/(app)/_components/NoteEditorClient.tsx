@@ -1092,16 +1092,6 @@ const NoteShape = TiptapNode.create({
         }
         startEvent.preventDefault();
         startEvent.stopPropagation();
-        const pointerTarget =
-          startEvent.currentTarget instanceof Element ? startEvent.currentTarget : null;
-        const pointerId = startEvent.pointerId;
-        if (pointerTarget) {
-          try {
-            pointerTarget.setPointerCapture(pointerId);
-          } catch {
-            // Pointer capture can fail for unsupported/invalid pointer targets.
-          }
-        }
         const startState = {
           attrs: currentAttrs,
           clientX: startEvent.clientX,
@@ -1128,13 +1118,6 @@ const NoteShape = TiptapNode.create({
           window.removeEventListener("pointercancel", handleUp);
           window.removeEventListener("blur", handleUp);
           document.removeEventListener("visibilitychange", handleVisibilityChange);
-          if (pointerTarget) {
-            try {
-              pointerTarget.releasePointerCapture(pointerId);
-            } catch {
-              // Ignore release failures when capture was not active.
-            }
-          }
           if (activeDragFinalize === finish) {
             activeDragFinalize = null;
           }
@@ -1461,16 +1444,6 @@ const NoteTextBox = TiptapNode.create({
         }
         startEvent.preventDefault();
         startEvent.stopPropagation();
-        const pointerTarget =
-          startEvent.currentTarget instanceof Element ? startEvent.currentTarget : null;
-        const pointerId = startEvent.pointerId;
-        if (pointerTarget) {
-          try {
-            pointerTarget.setPointerCapture(pointerId);
-          } catch {
-            // Pointer capture can fail for unsupported/invalid pointer targets.
-          }
-        }
         const startState = {
           attrs: currentAttrs,
           clientX: startEvent.clientX,
@@ -1497,13 +1470,6 @@ const NoteTextBox = TiptapNode.create({
           window.removeEventListener("pointercancel", handleUp);
           window.removeEventListener("blur", handleUp);
           document.removeEventListener("visibilitychange", handleVisibilityChange);
-          if (pointerTarget) {
-            try {
-              pointerTarget.releasePointerCapture(pointerId);
-            } catch {
-              // Ignore release failures when capture was not active.
-            }
-          }
           if (activeDragFinalize === finish) {
             activeDragFinalize = null;
           }
