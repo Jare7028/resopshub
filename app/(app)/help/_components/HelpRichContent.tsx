@@ -40,7 +40,7 @@ export default function HelpRichContent({ content }: { content: unknown }) {
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Image,
+      Image.configure({ allowBase64: true }),
       Link.configure({
         openOnClick: true,
         autolink: false,

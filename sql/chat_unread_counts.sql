@@ -13,15 +13,29 @@ set search_path = public
 as $$
   select
     m.conversation_id,
-    coalesce(count(msg.id), 0)::bigint as unread_count
+    (
+      select count(*)::bigint
+      from public.chat_messages msg
+      where msg.conversation_id = m.conversation_id
+        and msg.deleted_at is null
+        and msg.sender_id <> m.user_id
+        and (m.last_read_at is null or msg.created_at > m.last_read_at)
+    ) as unread_count
   from public.chat_conversation_members m
-  left join public.chat_messages msg
-    on msg.conversation_id = m.conversation_id
-   and msg.sender_id <> m.user_id
-   and (m.last_read_at is null or msg.created_at > m.last_read_at)
-   and msg.deleted_at is null
   where m.user_id = auth.uid()
-  group by m.conversation_id
 $$;
 
 grant execute on function public.chat_unread_counts() to authenticated;
+
+create or replace function public.chat_total_unread_count()
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(sum(unread.unread_count), 0)::bigint
+  from public.chat_unread_counts() unread
+$$;
+
+grant execute on function public.chat_total_unread_count() to authenticated;

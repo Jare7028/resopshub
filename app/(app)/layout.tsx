@@ -1,10 +1,7 @@
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import {
-  isSupabaseMissingFunctionError,
-  isSupabaseMissingTableError,
-} from "@/lib/supabaseErrors";
+import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
 import { type PagePermissionKey } from "@/lib/pagePermissions";
 import NotificationBell from "./_components/NotificationBell";
@@ -31,6 +28,18 @@ type NavLink = {
   label: string;
   icon: NavIconName;
   pageKey: PagePermissionKey;
+};
+
+type PagePermissionRow = {
+  page_key: PagePermissionKey;
+  access_level: "none" | "view" | "edit";
+};
+
+type UserProfileRow = {
+  id: string;
+  role: string;
+  status: string;
+  user_page_permissions?: PagePermissionRow[] | null;
 };
 
 function SidebarIcon({ name }: { name: NavIconName }) {
@@ -179,13 +188,32 @@ export default async function AppLayout({
 
   const email = user.email || "";
   let currentProfile: { id: string; role: string; status: string } | null = null;
+  let pagePermissionByKey = new Map<PagePermissionKey, "none" | "view" | "edit">();
 
   if (email) {
-    const { data: profile } = await withPerfTiming("layout.profile", () =>
-      supabase.from("users").select("id,role,status").eq("id", user.id).maybeSingle()
+    const {
+      data: profileWithPermissions,
+      error: profileWithPermissionsError,
+    } = await withPerfTiming("layout.profile", () =>
+      supabase
+        .from("users")
+        .select("id,role,status,user_page_permissions(page_key,access_level)")
+        .eq("id", user.id)
+        .maybeSingle()
     );
+    let profileRow = profileWithPermissions as UserProfileRow | null;
+    if (profileWithPermissionsError) {
+      if (isSupabaseMissingTableError(profileWithPermissionsError)) {
+        const { data: profileFallback } = await withPerfTiming("layout.profile.fallback", () =>
+          supabase.from("users").select("id,role,status").eq("id", user.id).maybeSingle()
+        );
+        profileRow = profileFallback as UserProfileRow | null;
+      } else {
+        console.error("[layout.profile]", profileWithPermissionsError.message);
+      }
+    }
 
-    if (!profile) {
+    if (!profileRow) {
       const { count } = await supabase
         .from("users")
         .select("id", { count: "exact", head: true });
@@ -221,39 +249,21 @@ export default async function AppLayout({
           )}`
         );
       }
-    } else if (profile.status === "disabled") {
+    } else if (profileRow.status === "disabled") {
       await supabase.auth.signOut();
       redirect("/login?error=Account%20disabled");
     } else {
       currentProfile = {
-        id: profile.id,
-        role: profile.role,
-        status: profile.status,
+        id: profileRow.id,
+        role: profileRow.role,
+        status: profileRow.status,
       };
-    }
-  }
-
-  let pagePermissionByKey = new Map<PagePermissionKey, "none" | "view" | "edit">();
-  if (currentProfile && currentProfile.role !== "admin") {
-    const { data: pagePermissionRows, error: pagePermissionError } = await withPerfTiming(
-      "layout.user_page_permissions",
-      () =>
-        supabase
-          .from("user_page_permissions")
-          .select("page_key,access_level")
-          .eq("user_id", currentProfile.id)
-    );
-
-    if (pagePermissionError) {
-      if (!isSupabaseMissingTableError(pagePermissionError)) {
-        console.error("[layout.user_page_permissions]", pagePermissionError.message);
+      if (profileRow.role !== "admin") {
+        const pagePermissions = (profileRow.user_page_permissions || []) as PagePermissionRow[];
+        pagePermissionByKey = new Map(
+          pagePermissions.map((row) => [row.page_key, row.access_level])
+        );
       }
-    } else {
-      const pagePermissions = (pagePermissionRows || []) as Array<{
-        page_key: PagePermissionKey;
-        access_level: "none" | "view" | "edit";
-      }>;
-      pagePermissionByKey = new Map(pagePermissions.map((row) => [row.page_key, row.access_level]));
     }
   }
 
@@ -267,30 +277,13 @@ export default async function AppLayout({
 
   const navLinks = baseNavLinks.filter((link) => canViewPage(link.pageKey));
   const canViewSettings = canViewPage("settings");
-  const canViewChat = canViewPage("chat");
+  const unreadChatCount = 0;
 
   async function signOut() {
     "use server";
     const supabase = createSupabaseServerClient();
     await supabase.auth.signOut();
     redirect("/login");
-  }
-
-  let unreadChatCount = 0;
-  if (canViewChat) {
-    const { data: unreadRowsRaw, error: unreadRowsError } = await withPerfTiming(
-      "layout.chat_unread.rpc",
-      () => supabase.rpc("chat_unread_counts")
-    );
-
-    if (!unreadRowsError) {
-      unreadChatCount = ((unreadRowsRaw || []) as Array<{ unread_count: number | null }>).reduce(
-        (sum, row) => sum + Number(row.unread_count || 0),
-        0
-      );
-    } else if (!isSupabaseMissingFunctionError(unreadRowsError) && !isSupabaseMissingTableError(unreadRowsError)) {
-      console.error("[layout.chat.unread.rpc]", unreadRowsError.message);
-    }
   }
 
   return (

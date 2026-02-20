@@ -777,6 +777,94 @@ function normalizeSaveWarnings(value: unknown) {
     .slice(0, 6);
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneJsonValue<T>(value: T): T {
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
+}
+
+function mergeSaveWarnings(...values: unknown[]) {
+  const warnings = new Set<string>();
+  values.forEach((value) => {
+    normalizeSaveWarnings(value).forEach((warning) => warnings.add(warning));
+  });
+  return Array.from(warnings).slice(0, 6);
+}
+
+function getImageExtensionFromMimeType(mimeType: string) {
+  const normalized = String(mimeType || "").trim().toLowerCase();
+  if (normalized === "image/png") return "png";
+  if (normalized === "image/jpeg") return "jpg";
+  if (normalized === "image/webp") return "webp";
+  if (normalized === "image/gif") return "gif";
+  if (normalized === "image/avif") return "avif";
+  if (normalized === "image/heic") return "heic";
+  if (normalized === "image/heif") return "heif";
+  if (normalized === "image/bmp") return "bmp";
+  if (normalized === "image/tiff") return "tiff";
+  if (normalized === "image/svg+xml") return "svg";
+  return "bin";
+}
+
+function createImageFileFromBlob(blob: Blob, baseName = "pasted-image") {
+  const normalizedMimeType = String(blob.type || "").toLowerCase().startsWith("image/")
+    ? String(blob.type || "").toLowerCase()
+    : "image/png";
+  const extension = getImageExtensionFromMimeType(normalizedMimeType);
+  const normalizedBlob =
+    normalizedMimeType === blob.type ? blob : new Blob([blob], { type: normalizedMimeType });
+  return new File([normalizedBlob], `${baseName}.${extension}`, {
+    type: normalizedMimeType,
+    lastModified: Date.now(),
+  });
+}
+
+function isEphemeralImageSource(value: string) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized.startsWith("blob:") || normalized.startsWith("file:");
+}
+
+function extractImageSourcesFromHtml(htmlValue: string) {
+  const html = String(htmlValue || "").trim();
+  if (!html || typeof window === "undefined") {
+    return [] as string[];
+  }
+  try {
+    const parser = new window.DOMParser();
+    const document = parser.parseFromString(html, "text/html");
+    const sources = Array.from(document.querySelectorAll("img[src]"))
+      .map((node) => String(node.getAttribute("src") || "").trim())
+      .filter(Boolean);
+    return Array.from(new Set(sources));
+  } catch {
+    return [] as string[];
+  }
+}
+
+function containsEphemeralImageSource(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => containsEphemeralImageSource(item));
+  }
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  if (value.type === "image" && isObjectRecord(value.attrs)) {
+    const source = String((value.attrs as Record<string, unknown>).src || "").trim();
+    if (isEphemeralImageSource(source)) {
+      return true;
+    }
+  }
+  return Object.values(value).some((entry) => containsEphemeralImageSource(entry));
+}
+
 function normalizeNoteShapeKind(value: string | null | undefined): NoteShapeKind {
   const normalized = String(value || "")
     .trim()
@@ -2506,6 +2594,7 @@ export default function NoteEditorClient({
   const navigationGuardInFlightRef = useRef(false);
   const viewStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoredDraftRef = useRef(false);
+  const persistedEphemeralImageSrcBySourceRef = useRef<Map<string, string>>(new Map());
   const draftStorageKey = useMemo(() => `${DRAFT_STORAGE_PREFIX}${entityId}`, [entityId]);
 
   const logSaveDebug = useCallback(
@@ -2547,13 +2636,128 @@ export default function NoteEditorClient({
     [draftStorageKey, entityId]
   );
 
+  const resolveImageSourceFromFile = useCallback(
+    async (file: File) => {
+      if (onUploadImageFile) {
+        try {
+          const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
+          if (uploadedSrc) {
+            return uploadedSrc;
+          }
+        } catch (error) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn(
+              "[noteEditor.image.upload]",
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+          // Fall back to inline insertion so users never lose pasted images if upload fails.
+        }
+      }
+
+      const inlineSrc = await optimizeImageForInlineInsert(file);
+      assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
+      return inlineSrc;
+    },
+    [onUploadImageFile]
+  );
+
+  const resolveEphemeralImageSourceForSave = useCallback(
+    async (source: string) => {
+      const normalizedSource = String(source || "").trim();
+      if (!isEphemeralImageSource(normalizedSource)) {
+        return { src: normalizedSource, warning: "" };
+      }
+
+      const cached = persistedEphemeralImageSrcBySourceRef.current.get(normalizedSource);
+      if (cached) {
+        return { src: cached, warning: "" };
+      }
+
+      try {
+        const response = await fetch(normalizedSource);
+        if (!response.ok) {
+          throw new Error(`unable to read image source (${response.status})`);
+        }
+        const blob = await response.blob();
+        if (!blob.size) {
+          throw new Error("empty image source");
+        }
+        const imageFile = createImageFileFromBlob(blob);
+        const persistedSrc = await resolveImageSourceFromFile(imageFile);
+        persistedEphemeralImageSrcBySourceRef.current.set(normalizedSource, persistedSrc);
+        return { src: persistedSrc, warning: "" };
+      } catch {
+        return {
+          src: normalizedSource,
+          warning:
+            "One pasted image used a temporary source URL and could not be persisted. Re-paste that image directly from your clipboard.",
+        };
+      }
+    },
+    [resolveImageSourceFromFile]
+  );
+
+  const normalizeEphemeralImagesForSave = useCallback(
+    async (content: unknown) => {
+      if (!containsEphemeralImageSource(content)) {
+        return {
+          content,
+          warnings: [] as string[],
+        };
+      }
+
+      const warnings = new Set<string>();
+      const normalizedContent = cloneJsonValue(content);
+
+      const traverse = async (value: unknown): Promise<void> => {
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            await traverse(item);
+          }
+          return;
+        }
+
+        if (!isObjectRecord(value)) {
+          return;
+        }
+
+        if (value.type === "image" && isObjectRecord(value.attrs)) {
+          const attrs = value.attrs as Record<string, unknown>;
+          const source = String(attrs.src || "").trim();
+          if (isEphemeralImageSource(source)) {
+            const resolved = await resolveEphemeralImageSourceForSave(source);
+            if (resolved.warning) {
+              warnings.add(resolved.warning);
+            }
+            attrs.src = resolved.src;
+          }
+        }
+
+        const entries = Object.values(value);
+        for (const entry of entries) {
+          await traverse(entry);
+        }
+      };
+
+      await traverse(normalizedContent);
+      return {
+        content: normalizedContent,
+        warnings: Array.from(warnings),
+      };
+    },
+    [resolveEphemeralImageSourceForSave]
+  );
+
   const persistEditorSaveNow = useCallback(
     async (json: unknown, requestVersion: number) => {
       setSaveState("saving");
       inFlightSaveCountRef.current += 1;
       logSaveDebug("request_start", { requestVersion });
       try {
-        const saveResultRaw = await onSave(entityId, json);
+        const normalizedSaveInput = await normalizeEphemeralImagesForSave(json);
+        const savePayload = normalizedSaveInput.content;
+        const saveResultRaw = await onSave(entityId, savePayload);
         const saveResult =
           saveResultRaw && typeof saveResultRaw === "object"
             ? (saveResultRaw as NoteSaveResult)
@@ -2562,8 +2766,8 @@ export default function NoteEditorClient({
         const canonicalContent =
           hasCanonicalContent
             ? normalizeContent((saveResult as NoteSaveResult).content)
-            : json;
-        const warnings = normalizeSaveWarnings(saveResult?.warnings);
+            : savePayload;
+        const warnings = mergeSaveWarnings(normalizedSaveInput.warnings, saveResult?.warnings);
 
         const completion = resolveSaveCompletion({
           requestVersion,
@@ -2611,7 +2815,7 @@ export default function NoteEditorClient({
         inFlightSaveCountRef.current = Math.max(0, inFlightSaveCountRef.current - 1);
       }
     },
-    [entityId, logSaveDebug, onSave, persistDraftSnapshot]
+    [entityId, logSaveDebug, normalizeEphemeralImagesForSave, onSave, persistDraftSnapshot]
   );
 
   const persistEditorSave = useCallback(
@@ -3305,29 +3509,10 @@ export default function NoteEditorClient({
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
-      if (onUploadImageFile) {
-        try {
-          const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
-          if (uploadedSrc) {
-            insertImageWithCriticalSave(uploadedSrc);
-            return;
-          }
-        } catch (error) {
-          if (process.env.NODE_ENV !== "production") {
-            console.warn(
-              "[noteEditor.image.upload]",
-              error instanceof Error ? error.message : String(error)
-            );
-          }
-          // Fall back to inline insertion so users never lose pasted images if upload fails.
-        }
-      }
-
-      const inlineSrc = await optimizeImageForInlineInsert(file);
-      assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
-      insertImageWithCriticalSave(inlineSrc);
+      const persistedSrc = await resolveImageSourceFromFile(file);
+      insertImageWithCriticalSave(persistedSrc);
     },
-    [insertImageWithCriticalSave, onUploadImageFile]
+    [insertImageWithCriticalSave, resolveImageSourceFromFile]
   );
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
@@ -3356,7 +3541,33 @@ export default function NoteEditorClient({
     );
 
     if (!imageItems.length) {
-      return false;
+      const htmlSources = extractImageSourcesFromHtml(clipboard.getData("text/html"));
+      const ephemeralSources = htmlSources.filter((source) => isEphemeralImageSource(source));
+      if (!ephemeralSources.length) {
+        return false;
+      }
+
+      event.preventDefault();
+
+      void (async () => {
+        let unresolvedCount = 0;
+        for (const source of ephemeralSources) {
+          const resolved = await resolveEphemeralImageSourceForSave(source);
+          const persistedSrc = String(resolved.src || "").trim();
+          if (persistedSrc && persistedSrc !== source) {
+            insertImageWithCriticalSave(persistedSrc);
+            continue;
+          }
+          unresolvedCount += 1;
+        }
+        if (unresolvedCount > 0) {
+          window.alert(
+            "One or more pasted images could not be persisted. Re-paste those images directly from your clipboard."
+          );
+        }
+      })();
+
+      return true;
     }
 
     event.preventDefault();
@@ -3378,7 +3589,11 @@ export default function NoteEditorClient({
     })();
 
     return true;
-  }, [insertImageFromFileWithSave]);
+  }, [
+    insertImageFromFileWithSave,
+    insertImageWithCriticalSave,
+    resolveEphemeralImageSourceForSave,
+  ]);
 
   const editor = useEditor({
     immediatelyRender: false,

@@ -25,6 +25,11 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
+  const pageKey = pagePermissionKeyForPathname(request.nextUrl.pathname);
+  if (!pageKey) {
+    return response;
+  }
+
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
@@ -50,8 +55,27 @@ export async function updateSession(request: NextRequest) {
   const { data: authData } = await supabase.auth.getUser();
   const user = authData.user;
 
-  const pageKey = pagePermissionKeyForPathname(request.nextUrl.pathname);
-  if (!user || !pageKey) {
+  if (!user) {
+    return response;
+  }
+
+  if (isMutationMethod(request.method)) {
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: pageKey,
+    });
+    if (
+      canEditResult.error &&
+      !isSupabaseMissingFunctionError(canEditResult.error) &&
+      !isSupabaseMissingTableError(canEditResult.error)
+    ) {
+      console.error("[middleware.can_edit_page]", canEditResult.error.message);
+      return NextResponse.json({ error: "Permission check failed." }, { status: 500 });
+    }
+
+    if (!canEditResult.error && canEditResult.data === false) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     return response;
   }
 
@@ -75,24 +99,6 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  if (isMutationMethod(request.method)) {
-    const canEditResult = await supabase.rpc("can_edit_page", {
-      p_page_key: pageKey,
-    });
-    if (
-      canEditResult.error &&
-      !isSupabaseMissingFunctionError(canEditResult.error) &&
-      !isSupabaseMissingTableError(canEditResult.error)
-    ) {
-      console.error("[middleware.can_edit_page]", canEditResult.error.message);
-      return NextResponse.json({ error: "Permission check failed." }, { status: 500 });
-    }
-
-    if (!canEditResult.error && canEditResult.data === false) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
   }
 
   return response;

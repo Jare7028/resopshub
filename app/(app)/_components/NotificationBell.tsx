@@ -34,7 +34,19 @@ export default function NotificationBell({ userId }: { userId: string }) {
     return unreadCount > 99 ? "99+" : unreadCount.toString();
   }, [unreadCount]);
 
-  const load = useCallback(async () => {
+  const loadUnreadCount = useCallback(async () => {
+    const countResult = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("read_at", null);
+
+    if (!countResult.error) {
+      setUnreadCount(countResult.count || 0);
+    }
+  }, [userId]);
+
+  const loadPanel = useCallback(async () => {
     setLoading(true);
     const [countResult, listResult] = await Promise.all([
       supabase
@@ -53,7 +65,6 @@ export default function NotificationBell({ userId }: { userId: string }) {
     if (!countResult.error) {
       setUnreadCount(countResult.count || 0);
     }
-
     if (!listResult.error) {
       setItems((listResult.data || []) as NotificationRow[]);
     }
@@ -62,8 +73,13 @@ export default function NotificationBell({ userId }: { userId: string }) {
   }, [userId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadUnreadCount();
+  }, [loadUnreadCount]);
+
+  useEffect(() => {
+    if (!open) return;
+    void loadPanel();
+  }, [loadPanel, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -81,26 +97,49 @@ export default function NotificationBell({ userId }: { userId: string }) {
 
   const markRead = useCallback(
     async (id: string) => {
+      const notification = items.find((item) => item.id === id);
+      const wasUnread = !!notification && !notification.read_at;
       const now = new Date().toISOString();
-      await supabase
+      if (wasUnread) {
+        setUnreadCount((prev) => Math.max(prev - 1, 0));
+      }
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, read_at: item.read_at || now } : item))
+      );
+
+      const { error } = await supabase
         .from("notifications")
         .update({ read_at: now })
         .eq("id", id)
         .eq("user_id", userId);
-      await load();
+      if (error) {
+        if (open) {
+          await loadPanel();
+        } else {
+          await loadUnreadCount();
+        }
+      }
     },
-    [load, userId]
+    [items, loadPanel, loadUnreadCount, open, userId]
   );
 
   const markAllRead = useCallback(async () => {
+    if (!unreadCount) return;
     const now = new Date().toISOString();
-    await supabase
+    setUnreadCount(0);
+    setItems((prev) =>
+      prev.map((item) => (item.read_at ? item : { ...item, read_at: now }))
+    );
+
+    const { error } = await supabase
       .from("notifications")
       .update({ read_at: now })
       .eq("user_id", userId)
       .is("read_at", null);
-    await load();
-  }, [load, userId]);
+    if (error) {
+      await loadPanel();
+    }
+  }, [loadPanel, unreadCount, userId]);
 
   const handleItemClick = useCallback(
     async (notification: NotificationRow) => {
@@ -138,9 +177,6 @@ export default function NotificationBell({ userId }: { userId: string }) {
         type="button"
         onClick={() => {
           setOpen((prev) => !prev);
-          if (!open) {
-            void load();
-          }
         }}
         className="relative inline-flex h-11 w-11 items-center justify-center rounded-md border border-slate-300 bg-white px-0 text-sm font-semibold text-slate-700 shadow-sm hover:border-slate-400 hover:text-slate-900 sm:w-auto sm:px-3"
         aria-haspopup="menu"

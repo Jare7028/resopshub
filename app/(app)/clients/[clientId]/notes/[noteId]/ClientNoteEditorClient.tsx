@@ -7,6 +7,7 @@ import {
   createTaskFromPersonalPage,
   updatePersonalPageContent,
 } from "../../../../personal/[pageId]/editorActions";
+import { uploadPersonalPageImage } from "@/lib/personalPageImageUpload";
 
 export default function ClientNoteEditorClient({
   clientId,
@@ -68,27 +69,10 @@ export default function ClientNoteEditorClient({
       if (!sourcePersonalPageId) {
         throw new Error("Image uploads require a linked personal page.");
       }
-      const formData = new FormData();
-      formData.set("file", file, file.name || "image");
-      const response = await fetch(
-        `/api/personal/pages/${encodeURIComponent(sourcePersonalPageId)}/images`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        image?: { url?: string };
-      };
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to upload image.");
-      }
-      const uploadedUrl = String(payload.image?.url || "").trim();
-      if (!uploadedUrl) {
-        throw new Error("Image upload did not return a URL.");
-      }
-      return uploadedUrl;
+      return uploadPersonalPageImage({
+        pageId: sourcePersonalPageId,
+        file,
+      });
     },
     [sourcePersonalPageId]
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
@@ -21,33 +21,65 @@ export default function ChatNavLink({
 }) {
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+  const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
 
   const refreshUnreadCount = useCallback(async () => {
-    const { data: unreadRowsRaw, error: unreadRowsError } = await supabase.rpc(
-      "chat_unread_counts"
-    );
-
-    if (!unreadRowsError) {
-      const total = ((unreadRowsRaw || []) as Array<{ unread_count: number | null }>).reduce(
-        (sum, row) => sum + Number(row.unread_count || 0),
-        0
-      );
-      setUnreadCount(total);
+    if (refreshInFlightRef.current) {
+      refreshQueuedRef.current = true;
       return;
     }
 
-    if (!isSupabaseMissingFunctionError(unreadRowsError)) {
-      setUnreadCount(0);
-      return;
-    }
+    refreshInFlightRef.current = true;
+    try {
+      do {
+        refreshQueuedRef.current = false;
+        const { data: totalUnreadRaw, error: totalUnreadError } = await supabase.rpc(
+          "chat_total_unread_count"
+        );
 
-    // Avoid expensive N+1 fallback counts in the nav on every refresh.
-    setUnreadCount(0);
+        if (!totalUnreadError) {
+          setUnreadCount(Number(totalUnreadRaw || 0));
+          continue;
+        }
+
+        if (!isSupabaseMissingFunctionError(totalUnreadError)) {
+          setUnreadCount(0);
+          continue;
+        }
+
+        const { data: unreadRowsRaw, error: unreadRowsError } = await supabase.rpc(
+          "chat_unread_counts"
+        );
+
+        if (!unreadRowsError) {
+          const total = (
+            (unreadRowsRaw || []) as Array<{ unread_count: number | null }>
+          ).reduce((sum, row) => sum + Number(row.unread_count || 0), 0);
+          setUnreadCount(total);
+          continue;
+        }
+
+        if (!isSupabaseMissingFunctionError(unreadRowsError)) {
+          setUnreadCount(0);
+          continue;
+        }
+
+        // Avoid expensive N+1 fallback counts in the nav on every refresh.
+        setUnreadCount(0);
+      } while (refreshQueuedRef.current);
+    } finally {
+      refreshInFlightRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
     void refreshUnreadCount();
-  }, [pathname, refreshUnreadCount]);
+  }, [refreshUnreadCount]);
+
+  useEffect(() => {
+    setUnreadCount(initialUnreadCount);
+  }, [initialUnreadCount]);
 
   useEffect(() => {
     const handleReadUpdated = () => {
