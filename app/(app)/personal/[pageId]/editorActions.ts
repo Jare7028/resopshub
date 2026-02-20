@@ -61,6 +61,7 @@ function normalizeTimestamp(value: unknown) {
 function summarizeImageSources(value: unknown, maxSamples = 3) {
   const summary = {
     total: 0,
+    missingSrc: 0,
     data: 0,
     blob: 0,
     file: 0,
@@ -82,10 +83,15 @@ function summarizeImageSources(value: unknown, maxSamples = 3) {
     const nodeType = String(record.type || "")
       .trim()
       .toLowerCase();
-    if (nodeType.includes("image") && record.attrs && typeof record.attrs === "object") {
-      const src = String((record.attrs as Record<string, unknown>).src || "").trim();
+    if (nodeType.includes("image")) {
+      const attrs =
+        record.attrs && typeof record.attrs === "object"
+          ? (record.attrs as Record<string, unknown>)
+          : null;
+      const src = String(attrs?.src || "").trim();
       summary.total += 1;
-      if (src.startsWith("data:")) summary.data += 1;
+      if (!src) summary.missingSrc += 1;
+      else if (src.startsWith("data:")) summary.data += 1;
       else if (src.startsWith("blob:")) summary.blob += 1;
       else if (src.startsWith("file:")) summary.file += 1;
       else if (/^https?:\/\//i.test(src)) summary.http += 1;

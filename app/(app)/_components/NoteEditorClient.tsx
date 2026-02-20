@@ -15,7 +15,7 @@ import FontFamily from "@tiptap/extension-font-family";
 import TextAlign from "@tiptap/extension-text-align";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import Image from "@tiptap/extension-image";
+import Image, { type SetImageOptions } from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -871,6 +871,7 @@ function containsEphemeralImageSource(value: unknown): boolean {
 
 type ImageSourceSummary = {
   total: number;
+  missingSrc: number;
   data: number;
   blob: number;
   file: number;
@@ -883,6 +884,7 @@ type ImageSourceSummary = {
 function summarizeImageSources(value: unknown, maxSamples = 3): ImageSourceSummary {
   const summary: ImageSourceSummary = {
     total: 0,
+    missingSrc: 0,
     data: 0,
     blob: 0,
     file: 0,
@@ -904,10 +906,15 @@ function summarizeImageSources(value: unknown, maxSamples = 3): ImageSourceSumma
     const nodeType = String(node.type || "")
       .trim()
       .toLowerCase();
-    if (nodeType.includes("image") && isObjectRecord(node.attrs)) {
-      const src = String((node.attrs as Record<string, unknown>).src || "").trim();
+    if (nodeType.includes("image")) {
+      const attrs = isObjectRecord(node.attrs)
+        ? (node.attrs as Record<string, unknown>)
+        : null;
+      const src = String(attrs?.src || "").trim();
       summary.total += 1;
-      if (src.startsWith("data:")) {
+      if (!src) {
+        summary.missingSrc += 1;
+      } else if (src.startsWith("data:")) {
         summary.data += 1;
       } else if (src.startsWith("blob:")) {
         summary.blob += 1;
@@ -930,6 +937,40 @@ function summarizeImageSources(value: unknown, maxSamples = 3): ImageSourceSumma
 
   visit(value);
   return summary;
+}
+
+function countImageNodesBySource(value: unknown, source: string) {
+  const expected = String(source || "").trim();
+  if (!expected) {
+    return 0;
+  }
+
+  let count = 0;
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!isObjectRecord(node)) {
+      return;
+    }
+    const nodeType = String(node.type || "")
+      .trim()
+      .toLowerCase();
+    if (nodeType.includes("image")) {
+      const attrs = isObjectRecord(node.attrs)
+        ? (node.attrs as Record<string, unknown>)
+        : null;
+      const src = String(attrs?.src || "").trim();
+      if (src === expected) {
+        count += 1;
+      }
+    }
+    Object.values(node).forEach(visit);
+  };
+
+  visit(value);
+  return count;
 }
 
 function normalizeNoteShapeKind(value: string | null | undefined): NoteShapeKind {
@@ -3651,29 +3692,34 @@ export default function NoteEditorClient({
       });
     }
 
-    let inserted = false;
+    const imageCountBeforeInsert = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+    const setImageOptions: SetImageOptions = {
+      src: nextSrc,
+    };
 
-    if (imageNodeTypeName) {
-      inserted = currentEditor
-        .chain()
-        .focus()
-        .command(({ state, tr, dispatch }) => {
-          const imageNodeType = state.schema.nodes[imageNodeTypeName];
-          if (!imageNodeType) {
-            return false;
-          }
-          const imageNode = imageNodeType.create({
-            src: nextSrc,
-            float: "none",
+    let inserted = currentEditor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+        return true;
+      })
+      .setImage(setImageOptions)
+      .run();
+
+    if (inserted) {
+      const imageCountAfterSetImage = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+      if (imageCountAfterSetImage <= imageCountBeforeInsert) {
+        inserted = false;
+        if (debugImagePersistence) {
+          console.warn("[noteEditor.image.debug] set_image_no_matching_src", {
+            entityId,
+            nextSrc: nextSrc.slice(0, 180),
+            imageCountBeforeInsert,
+            imageCountAfterSetImage,
           });
-          tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-          tr.replaceSelectionWith(imageNode, false);
-          if (dispatch) {
-            dispatch(tr.scrollIntoView());
-          }
-          return true;
-        })
-        .run();
+        }
+      }
     }
 
     if (!inserted) {
@@ -3702,6 +3748,24 @@ export default function NoteEditorClient({
           docEndPos,
           inserted,
         });
+      }
+
+      if (inserted) {
+        const imageCountAfterFallback = countImageNodesBySource(
+          currentEditor.getJSON(),
+          nextSrc
+        );
+        if (imageCountAfterFallback <= imageCountBeforeInsert) {
+          inserted = false;
+          if (debugImagePersistence) {
+            console.warn("[noteEditor.image.debug] fallback_no_matching_src", {
+              entityId,
+              nextSrc: nextSrc.slice(0, 180),
+              imageCountBeforeInsert,
+              imageCountAfterFallback,
+            });
+          }
+        }
       }
     }
 
