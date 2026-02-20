@@ -1,4 +1,4 @@
-import Link from "next/link";
+import AppNavLink from "../../../_components/AppNavLink";
 
 const tabs = [
   { key: "details", label: "Details", suffix: "" },
@@ -29,10 +29,11 @@ export default function TaskTabs({
   return (
     <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
       {tabs.map((tab) => (
-        <Link
+        <AppNavLink
           key={tab.key}
           href={`/tasks/${taskId}${tab.suffix}`}
           prefetch={false}
+          forceHardNavigation
           className={`rounded-md px-3 py-1.5 font-medium ${
             active === tab.key
               ? "tab-active"
@@ -40,7 +41,7 @@ export default function TaskTabs({
           }`}
         >
           {tab.label}
-        </Link>
+        </AppNavLink>
       ))}
     </nav>
   );

@@ -4,8 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ComponentProps, type MouseEvent } from "react";
 
+const STALLED_NAV_FALLBACK_MS = 2200;
+
 type AppNavLinkProps = Omit<ComponentProps<typeof Link>, "href"> & {
   href: string;
+  forceHardNavigation?: boolean;
 };
 
 function shouldForceHardNavigation(pathname: string | null, href: string) {
@@ -23,20 +26,45 @@ export default function AppNavLink({
   onClick,
   target,
   prefetch,
+  forceHardNavigation = false,
   ...props
 }: AppNavLinkProps) {
   const pathname = usePathname();
-  const shouldUseHardNavigation = shouldForceHardNavigation(pathname, href);
+  const shouldUseHardNavigation =
+    forceHardNavigation || shouldForceHardNavigation(pathname, href);
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
     if (event.defaultPrevented) return;
-    if (!shouldUseHardNavigation) return;
     if (event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (target && target !== "_self") return;
-    event.preventDefault();
-    window.location.assign(href);
+
+    const nextUrl = new URL(href, window.location.href);
+    if (nextUrl.origin !== window.location.origin) {
+      return;
+    }
+    if (
+      nextUrl.pathname === window.location.pathname &&
+      nextUrl.search === window.location.search
+    ) {
+      return;
+    }
+
+    if (shouldUseHardNavigation) {
+      event.preventDefault();
+      window.location.assign(nextUrl.toString());
+      return;
+    }
+
+    const originPathAndSearch = `${window.location.pathname}${window.location.search}`;
+    window.setTimeout(() => {
+      const currentPathAndSearch = `${window.location.pathname}${window.location.search}`;
+      if (currentPathAndSearch !== originPathAndSearch) {
+        return;
+      }
+      window.location.assign(nextUrl.toString());
+    }, STALLED_NAV_FALLBACK_MS);
   };
 
   return (

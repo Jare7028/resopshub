@@ -1,4 +1,4 @@
-import Link from "next/link";
+import AppNavLink from "../../../_components/AppNavLink";
 import { type ClientPageTab, type ClientPageTabKey } from "./clientPageTabs";
 
 export default function ClientTabs({
@@ -13,10 +13,11 @@ export default function ClientTabs({
   return (
     <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
       {tabs.map((tab) => (
-        <Link
+        <AppNavLink
           key={tab.key}
           href={`/clients/${clientId}${tab.suffix}`}
           prefetch={false}
+          forceHardNavigation
           className={`rounded-md px-3 py-1.5 font-medium ${
             active === tab.key
               ? "tab-active"
@@ -24,7 +25,7 @@ export default function ClientTabs({
           }`}
         >
           {tab.label}
-        </Link>
+        </AppNavLink>
       ))}
     </nav>
   );
