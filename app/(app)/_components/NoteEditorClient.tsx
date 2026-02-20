@@ -751,12 +751,12 @@ function normalizeContent(content: unknown) {
   return createEmptyDoc();
 }
 
-function isSameJson(left: unknown, right: unknown) {
-  try {
-    return JSON.stringify(left) === JSON.stringify(right);
-  } catch {
+function isTiptapDocContent(value: unknown): value is { type: "doc" } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
+  const node = value as { type?: unknown };
+  return node.type === "doc";
 }
 
 function normalizeSaveWarnings(value: unknown) {
@@ -2501,23 +2501,12 @@ export default function NoteEditorClient({
           saveResultRaw && typeof saveResultRaw === "object"
             ? (saveResultRaw as NoteSaveResult)
             : null;
-        const hasCanonicalContent =
-          Boolean(saveResult) &&
-          Object.prototype.hasOwnProperty.call(saveResult, "content") &&
-          saveResult?.content !== undefined;
+        const hasCanonicalContent = Boolean(saveResult && isTiptapDocContent(saveResult.content));
         const canonicalContent =
           hasCanonicalContent
             ? normalizeContent((saveResult as NoteSaveResult).content)
             : json;
         const warnings = normalizeSaveWarnings(saveResult?.warnings);
-
-        const currentEditor = editorRef.current;
-        if (currentEditor && !isSameJson(currentEditor.getJSON(), canonicalContent)) {
-          // Apply canonical server content without triggering another save cycle.
-          currentEditor.commands.setContent(normalizeContent(canonicalContent), {
-            emitUpdate: false,
-          });
-        }
 
         setSaveError("");
         setSaveWarning(warnings.join(" "));
