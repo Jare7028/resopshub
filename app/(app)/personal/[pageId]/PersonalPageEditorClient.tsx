@@ -116,6 +116,7 @@ export default function PersonalPageEditorClient({
       lastEditedByLabel={lastEditedByLabel}
       showTopToolbar
       enableZoomControls
+      disableHorizontalScroll
       contextMenuMode="favorites"
       initialContextMenuFavorites={initialContextMenuFavorites}
       onSaveContextMenuFavorites={

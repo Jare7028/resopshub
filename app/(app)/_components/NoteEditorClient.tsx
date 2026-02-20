@@ -144,6 +144,7 @@ type NoteEditorClientProps = {
   lastEditedByLabel?: string | null;
   showTopToolbar?: boolean;
   enableZoomControls?: boolean;
+  disableHorizontalScroll?: boolean;
   contextMenuMode?: ContextMenuMode;
   initialContextMenuFavorites?: ContextMenuFavoriteActionId[];
   onSaveContextMenuFavorites?: (
@@ -2346,6 +2347,7 @@ export default function NoteEditorClient({
   lastEditedByLabel,
   showTopToolbar = true,
   enableZoomControls = false,
+  disableHorizontalScroll = false,
   contextMenuMode = "full",
   initialContextMenuFavorites = [],
   onSaveContextMenuFavorites,
@@ -4904,8 +4906,16 @@ export default function NoteEditorClient({
               })}
             </div>
           </div>
-          <div className="-mx-1 overflow-x-auto px-1">
-            <div className="flex min-w-max items-start gap-1.5">
+          <div
+            className={`-mx-1 px-1 ${
+              disableHorizontalScroll ? "overflow-x-hidden" : "overflow-x-auto"
+            }`}
+          >
+            <div
+              className={`flex items-start gap-1.5 ${
+                disableHorizontalScroll ? "flex-wrap" : "min-w-max"
+              }`}
+            >
               {isHomeTab ? (
                 <>
                   <RibbonGroup title="Clipboard">
@@ -5426,7 +5436,9 @@ export default function NoteEditorClient({
           </div>
         ) : null}
         <div
-          className={`overflow-x-auto rounded-lg border bg-white p-4 ${
+          className={`rounded-lg border bg-white p-4 ${
+            disableHorizontalScroll ? "overflow-x-hidden" : "overflow-x-auto"
+          } ${
             focusMode ? "border-slate-300 shadow-sm" : "border-slate-200"
           }`}
           style={
