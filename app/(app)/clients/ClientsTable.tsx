@@ -94,13 +94,29 @@ export default function ClientsTable({
     toDateInputValue(new Date())
   );
   const [filters, setFilters] = useState(initialFilters);
+  const [mobileSearchInput, setMobileSearchInput] = useState(initialFilters.q);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const filtersRef = useRef(filters);
+  const searchDebounceTimerRef = useRef<number | null>(null);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
     setFilters(initialFilters);
+    setMobileSearchInput(initialFilters.q);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounceTimerRef.current) {
+        window.clearTimeout(searchDebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setView(initialView);
@@ -175,10 +191,21 @@ export default function ClientsTable({
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);
+    setMobileSearchInput(next.q);
     const query = buildQuery(next);
     startTransition(() => {
       router.replace(query ? `/clients?${query}` : "/clients", { scroll: false });
     });
+  };
+
+  const applyMobileSearch = (nextQueryValue: string) => {
+    setMobileSearchInput(nextQueryValue);
+    if (searchDebounceTimerRef.current) {
+      window.clearTimeout(searchDebounceTimerRef.current);
+    }
+    searchDebounceTimerRef.current = window.setTimeout(() => {
+      applyFilters({ ...filtersRef.current, q: nextQueryValue });
+    }, 250);
   };
 
   const applyView = (nextView: typeof view) => {
@@ -423,9 +450,9 @@ export default function ClientsTable({
               <span className="block">Search</span>
               <input
                 type="search"
-                value={filters.q}
+                value={mobileSearchInput}
                 onChange={(event) =>
-                  applyFilters({ ...filters, q: event.target.value })
+                  applyMobileSearch(event.target.value)
                 }
                 placeholder="Search by name..."
                 className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"

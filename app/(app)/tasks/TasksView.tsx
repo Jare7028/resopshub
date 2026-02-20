@@ -251,6 +251,24 @@ export default function TasksView({
     [users]
   );
 
+  const clientNameById = useMemo(
+    () =>
+      clients.reduce<Record<string, string>>((acc, client) => {
+        acc[client.id] = client.name;
+        return acc;
+      }, {}),
+    [clients]
+  );
+
+  const projectNameById = useMemo(
+    () =>
+      projects.reduce<Record<string, string>>((acc, project) => {
+        acc[project.id] = project.name;
+        return acc;
+      }, {}),
+    [projects]
+  );
+
   useEffect(() => {
     const validIds = new Set(tasks.map((task) => task.id));
     setExpandedTaskIds((current) => {
@@ -1140,12 +1158,10 @@ export default function TasksView({
           {tasks.length ? (
             tasks.map((task) => {
               const assigneeIds = assigneesByTask[task.id] || [];
-              const clientName = Array.isArray(task.clients)
-                ? task.clients[0]?.name
-                : task.clients?.name;
-              const projectName = Array.isArray(task.projects)
-                ? task.projects[0]?.name
-                : task.projects?.name;
+              const clientName = task.client_id ? clientNameById[task.client_id] || null : null;
+              const projectName = task.project_id
+                ? projectNameById[task.project_id] || null
+                : null;
               const dueLabel = task.due_date
                 ? new Date(task.due_date).toLocaleDateString("en-US")
                 : "No due date";
@@ -1347,12 +1363,12 @@ export default function TasksView({
                               ? new Date(task.due_date).toLocaleDateString("en-US")
                               : "";
                             const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
-                            const clientName = Array.isArray(task.clients)
-                              ? task.clients[0]?.name
-                              : task.clients?.name;
-                            const projectName = Array.isArray(task.projects)
-                              ? task.projects[0]?.name
-                              : task.projects?.name;
+                            const clientName = task.client_id
+                              ? clientNameById[task.client_id] || null
+                              : null;
+                            const projectName = task.project_id
+                              ? projectNameById[task.project_id] || null
+                              : null;
 
                             return (
                               <div

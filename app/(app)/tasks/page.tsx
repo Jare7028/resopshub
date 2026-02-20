@@ -628,7 +628,7 @@ export default async function TasksPage(props: {
     let request = supabase
       .from("tasks")
       .select(
-        "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
+        "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id"
       )
       .is("parent_task_id", null)
       .order("created_at", { ascending: false })
@@ -755,85 +755,109 @@ export default async function TasksPage(props: {
 
     const taskIdsForSubtaskCounts = sortedTasks.map((task) => task.id).filter(Boolean) as string[];
     if (taskIdsForSubtaskCounts.length) {
-      const { data: openSubtasksRaw, error: openSubtasksError } = await withPerfTiming(
-        "tasks.page.open_subtasks",
+      const parentTaskIdSet = new Set(taskIdsForSubtaskCounts);
+      const { data: openSubtaskCountRowsRaw, error: openSubtaskCountError } = await withPerfTiming(
+        "tasks.page.open_subtasks.count_rows",
         () =>
           supabase
             .from("tasks")
-            .select(
-              "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id,projects(name),clients(name)"
-            )
+            .select("id,parent_task_id")
             .in("parent_task_id", taskIdsForSubtaskCounts)
             .not("status", "in", "(completed,cancelled)")
-            .order("created_at", { ascending: true })
       );
 
-      if (!openSubtasksError) {
-        const openSubtasks = (openSubtasksRaw || []) as Array<{
+      if (!openSubtaskCountError) {
+        const openSubtaskCountRows = (openSubtaskCountRowsRaw || []) as Array<{
           id: string;
           parent_task_id: string | null;
-          title: string;
-          status: string | null;
-          priority: string | null;
-          start_date: string | null;
-          due_date: string | null;
-          due_time: string | null;
-          assignee_user_id: string | null;
-          client_id: string | null;
-          project_id: string | null;
-          projects?: { name: string | null } | { name: string | null }[] | null;
-          clients?: { name: string | null } | { name: string | null }[] | null;
         }>;
 
-        openSubtasks.forEach((subtask) => {
+        openSubtaskCountRows.forEach((subtask) => {
           if (!subtask.parent_task_id) return;
           openSubtaskCountByTaskId[subtask.parent_task_id] =
             (openSubtaskCountByTaskId[subtask.parent_task_id] || 0) + 1;
         });
+      }
 
-        const subtaskIds = openSubtasks.map((subtask) => subtask.id).filter(Boolean);
-        const assigneeIdsBySubtaskId: Record<string, string[]> = {};
-        if (subtaskIds.length) {
-          const { data: subtaskAssigneeRows } = await supabase
-            .from("task_assignees")
-            .select("task_id,user_id")
-            .in("task_id", subtaskIds);
-          (subtaskAssigneeRows || []).forEach((row) => {
-            if (!assigneeIdsBySubtaskId[row.task_id]) {
-              assigneeIdsBySubtaskId[row.task_id] = [];
+      const expandedParentTaskIds =
+        selectedView === "table"
+          ? initialExpandedTaskIds.filter((taskId) => parentTaskIdSet.has(taskId))
+          : [];
+
+      if (expandedParentTaskIds.length) {
+        const { data: openExpandedSubtasksRaw, error: openExpandedSubtasksError } =
+          await withPerfTiming("tasks.page.open_subtasks.expanded_rows", () =>
+            supabase
+              .from("tasks")
+              .select(
+                "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id"
+              )
+              .in("parent_task_id", expandedParentTaskIds)
+              .not("status", "in", "(completed,cancelled)")
+              .order("created_at", { ascending: true })
+          );
+
+        if (!openExpandedSubtasksError) {
+          const openExpandedSubtasks = (openExpandedSubtasksRaw || []) as Array<{
+            id: string;
+            parent_task_id: string | null;
+            title: string;
+            status: string | null;
+            priority: string | null;
+            start_date: string | null;
+            due_date: string | null;
+            due_time: string | null;
+            assignee_user_id: string | null;
+            client_id: string | null;
+            project_id: string | null;
+          }>;
+
+          const expandedSubtaskIds = openExpandedSubtasks
+            .map((subtask) => subtask.id)
+            .filter(Boolean);
+          const assigneeIdsBySubtaskId: Record<string, string[]> = {};
+          if (expandedSubtaskIds.length) {
+            const { data: subtaskAssigneeRows } = await supabase
+              .from("task_assignees")
+              .select("task_id,user_id")
+              .in("task_id", expandedSubtaskIds);
+            (subtaskAssigneeRows || []).forEach((row) => {
+              if (!assigneeIdsBySubtaskId[row.task_id]) {
+                assigneeIdsBySubtaskId[row.task_id] = [];
+              }
+              assigneeIdsBySubtaskId[row.task_id].push(row.user_id);
+            });
+          }
+
+          openExpandedSubtasks.forEach((subtask) => {
+            if (!subtask.parent_task_id) return;
+            if (!openSubtasksByParentId[subtask.parent_task_id]) {
+              openSubtasksByParentId[subtask.parent_task_id] = [];
             }
-            assigneeIdsBySubtaskId[row.task_id].push(row.user_id);
+            const assigneeIds = Array.from(
+              new Set([
+                ...(assigneeIdsBySubtaskId[subtask.id] || []),
+                ...(subtask.assignee_user_id ? [subtask.assignee_user_id] : []),
+              ])
+            );
+            openSubtasksByParentId[subtask.parent_task_id].push({
+              id: subtask.id,
+              parent_task_id: subtask.parent_task_id,
+              title: subtask.title,
+              status: subtask.status,
+              priority: subtask.priority,
+              start_date: subtask.start_date,
+              due_date: subtask.due_date,
+              due_time: subtask.due_time,
+              assignee_user_id: subtask.assignee_user_id,
+              client_id: subtask.client_id,
+              project_id: subtask.project_id,
+              projects: null,
+              clients: null,
+              assignee_user_ids: assigneeIds,
+            });
           });
         }
-
-        openSubtasks.forEach((subtask) => {
-          if (!subtask.parent_task_id) return;
-          if (!openSubtasksByParentId[subtask.parent_task_id]) {
-            openSubtasksByParentId[subtask.parent_task_id] = [];
-          }
-          const assigneeIds = Array.from(
-            new Set([
-              ...(assigneeIdsBySubtaskId[subtask.id] || []),
-              ...(subtask.assignee_user_id ? [subtask.assignee_user_id] : []),
-            ])
-          );
-          openSubtasksByParentId[subtask.parent_task_id].push({
-            id: subtask.id,
-            parent_task_id: subtask.parent_task_id,
-            title: subtask.title,
-            status: subtask.status,
-            priority: subtask.priority,
-            start_date: subtask.start_date,
-            due_date: subtask.due_date,
-            due_time: subtask.due_time,
-            assignee_user_id: subtask.assignee_user_id,
-            client_id: subtask.client_id,
-            project_id: subtask.project_id,
-            projects: subtask.projects ?? null,
-            clients: subtask.clients ?? null,
-            assignee_user_ids: assigneeIds,
-          });
-        });
       }
     }
   }

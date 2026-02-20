@@ -254,12 +254,11 @@ export default async function ProjectsPage(props: {
   if (!authEmail) {
     redirect("/login");
   }
-  const { data: currentUser } = await supabase
+  const currentUserPromise = supabase
     .from("users")
     .select("id,role")
     .eq("email", authEmail)
     .maybeSingle();
-  const currentUserId = currentUser?.id;
   const selectedViewRaw = String(searchParams?.view || "").trim().toLowerCase();
   const selectedView: "table" | "gantt" | "board" =
     selectedViewRaw === "gantt" || selectedViewRaw === "board" || selectedViewRaw === "table"
@@ -282,21 +281,24 @@ export default async function ProjectsPage(props: {
   const templateProjectId = String(searchParams?.template_project_id || "").trim();
   const returnParams = new URLSearchParams();
 
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true });
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
-
-  const { data: statusOptionsRaw } = await supabase
-    .from("status_options")
-    .select("entity_type,value,position")
-    .order("entity_type", { ascending: true })
-    .order("position", { ascending: true })
-    .order("value", { ascending: true });
+  const [
+    { data: currentUser },
+    { data: clients },
+    { data: users },
+    { data: statusOptionsRaw },
+  ] =
+    await Promise.all([
+      currentUserPromise,
+      supabase.from("clients").select("id,name").order("name", { ascending: true }),
+      supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+      supabase
+        .from("status_options")
+        .select("entity_type,value,position")
+        .order("entity_type", { ascending: true })
+        .order("position", { ascending: true })
+        .order("value", { ascending: true }),
+    ]);
+  const currentUserId = currentUser?.id;
   const projectStatusOptions = buildStatusOptions(
     "project",
     (statusOptionsRaw || []) as StatusOptionRow[],
@@ -445,6 +447,16 @@ export default async function ProjectsPage(props: {
     });
   }
 
+  if (selectedAssignees.length) {
+    const selectedSet = new Set(selectedAssignees);
+    projects = projects.filter((project) => {
+      const assigneeIds = assigneesByProject[project.id] || [];
+      const hasUnassigned = assigneeIds.length === 0 && selectedSet.has("unassigned");
+      const hasAssignedMatch = assigneeIds.some((id) => selectedSet.has(id));
+      return hasUnassigned || hasAssignedMatch;
+    });
+  }
+
   const openTaskCountByProjectId: Record<string, number> = {};
   const openTasksByProjectId: Record<
     string,
@@ -464,86 +476,98 @@ export default async function ProjectsPage(props: {
       assignee_user_ids: string[];
     }>
   > = {};
-  const projectIdsForCounts = projects.map((p) => p.id).filter(Boolean) as string[];
+  const shouldLoadOpenTaskDetails = selectedView === "table";
+  const projectIdsForCounts = projects.map((project) => project.id).filter(Boolean) as string[];
   if (projectIdsForCounts.length) {
-    const { data: tasksForCountsRaw, error: tasksForCountsError } = await supabase
-      .from("tasks")
-      .select(
-        "id,project_id,client_id,title,status,priority,start_date,due_date,due_time,parent_task_id,assignee_user_id,projects(name),clients(name)"
-      )
-      .in("project_id", projectIdsForCounts)
-      .is("parent_task_id", null)
-      .not("status", "in", "(completed,cancelled)");
+    if (shouldLoadOpenTaskDetails) {
+      const { data: openTaskRowsRaw, error: openTaskRowsError } = await supabase
+        .from("tasks")
+        .select(
+          "id,project_id,client_id,title,status,priority,start_date,due_date,due_time,parent_task_id,assignee_user_id"
+        )
+        .in("project_id", projectIdsForCounts)
+        .is("parent_task_id", null)
+        .not("status", "in", "(completed,cancelled)")
+        .order("created_at", { ascending: true });
 
-    if (!tasksForCountsError) {
-      const tasksForCounts = (tasksForCountsRaw || []) as Array<{
-        id: string;
-        project_id: string | null;
-        client_id: string | null;
-        title: string;
-        status: string | null;
-        priority: string | null;
-        start_date: string | null;
-        due_date: string | null;
-        due_time: string | null;
-        assignee_user_id: string | null;
-        projects?: { name?: string | null } | { name?: string | null }[] | null;
-        clients?: { name?: string | null } | { name?: string | null }[] | null;
-      }>;
-      const taskIds = tasksForCounts.map((row) => row.id).filter(Boolean);
-      const assigneeIdsByTaskId: Record<string, string[]> = {};
-      if (taskIds.length) {
-        const { data: taskAssigneeRows } = await supabase
-          .from("task_assignees")
-          .select("task_id,user_id")
-          .in("task_id", taskIds);
-        (taskAssigneeRows || []).forEach((row) => {
-          if (!assigneeIdsByTaskId[row.task_id]) {
-            assigneeIdsByTaskId[row.task_id] = [];
-          }
-          assigneeIdsByTaskId[row.task_id].push(row.user_id);
-        });
-      }
-      for (const row of tasksForCounts) {
-        const projectId = row.project_id;
-        if (!projectId) continue;
-        openTaskCountByProjectId[projectId] = (openTaskCountByProjectId[projectId] || 0) + 1;
-        if (!openTasksByProjectId[projectId]) {
-          openTasksByProjectId[projectId] = [];
+      if (!openTaskRowsError) {
+        const openTaskRows = (openTaskRowsRaw || []) as Array<{
+          id: string;
+          project_id: string | null;
+          client_id: string | null;
+          title: string;
+          status: string | null;
+          priority: string | null;
+          start_date: string | null;
+          due_date: string | null;
+          due_time: string | null;
+          assignee_user_id: string | null;
+        }>;
+        const taskIds = openTaskRows.map((row) => row.id).filter(Boolean);
+        const assigneeIdsByTaskId: Record<string, string[]> = {};
+        if (taskIds.length) {
+          const { data: taskAssigneeRows } = await supabase
+            .from("task_assignees")
+            .select("task_id,user_id")
+            .in("task_id", taskIds);
+          (taskAssigneeRows || []).forEach((row) => {
+            if (!assigneeIdsByTaskId[row.task_id]) {
+              assigneeIdsByTaskId[row.task_id] = [];
+            }
+            assigneeIdsByTaskId[row.task_id].push(row.user_id);
+          });
         }
-        const assigneeIds = Array.from(
-          new Set([
-            ...(assigneeIdsByTaskId[row.id] || []),
-            ...(row.assignee_user_id ? [row.assignee_user_id] : []),
-          ])
-        );
-        openTasksByProjectId[projectId].push({
-          id: row.id,
-          project_id: row.project_id,
-          client_id: row.client_id,
-          title: row.title,
-          status: row.status,
-          priority: row.priority,
-          start_date: row.start_date,
-          due_date: row.due_date,
-          due_time: row.due_time,
-          assignee_user_id: row.assignee_user_id,
-          projects: row.projects ?? null,
-          clients: row.clients ?? null,
-          assignee_user_ids: assigneeIds,
+
+        for (const row of openTaskRows) {
+          const projectId = row.project_id;
+          if (!projectId) continue;
+          openTaskCountByProjectId[projectId] = (openTaskCountByProjectId[projectId] || 0) + 1;
+          if (!openTasksByProjectId[projectId]) {
+            openTasksByProjectId[projectId] = [];
+          }
+          const assigneeIds = Array.from(
+            new Set([
+              ...(assigneeIdsByTaskId[row.id] || []),
+              ...(row.assignee_user_id ? [row.assignee_user_id] : []),
+            ])
+          );
+          openTasksByProjectId[projectId].push({
+            id: row.id,
+            project_id: row.project_id,
+            client_id: row.client_id,
+            title: row.title,
+            status: row.status,
+            priority: row.priority,
+            start_date: row.start_date,
+            due_date: row.due_date,
+            due_time: row.due_time,
+            assignee_user_id: row.assignee_user_id,
+            projects: null,
+            clients: null,
+            assignee_user_ids: assigneeIds,
+          });
+        }
+      }
+    } else {
+      const { data: openTaskCountRowsRaw, error: openTaskCountRowsError } = await supabase
+        .from("tasks")
+        .select("id,project_id")
+        .in("project_id", projectIdsForCounts)
+        .is("parent_task_id", null)
+        .not("status", "in", "(completed,cancelled)");
+
+      if (!openTaskCountRowsError) {
+        const openTaskCountRows = (openTaskCountRowsRaw || []) as Array<{
+          id: string;
+          project_id: string | null;
+        }>;
+        openTaskCountRows.forEach((row) => {
+          if (!row.project_id) return;
+          openTaskCountByProjectId[row.project_id] =
+            (openTaskCountByProjectId[row.project_id] || 0) + 1;
         });
       }
     }
-  }
-
-  if (selectedAssignees.length) {
-    const selectedSet = new Set(selectedAssignees);
-    projects = projects.filter((project) => {
-      const assigneeIds = assigneesByProject[project.id] || [];
-      const hasUnassigned = assigneeIds.length === 0 && selectedSet.has("unassigned");
-      const hasAssignedMatch = assigneeIds.some((id) => selectedSet.has(id));
-      return hasUnassigned || hasAssignedMatch;
-    });
   }
 
   projects = sortProjectsForDisplay({

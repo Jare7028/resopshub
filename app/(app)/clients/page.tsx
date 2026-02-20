@@ -169,108 +169,113 @@ export default async function ClientsPage(props: {
   const clients = clientsPageRows.slice(0, CLIENTS_PAGE_SIZE);
 
   const activeEmployeeCountByClientId: Record<string, number> = {};
-  clients.forEach((client) => {
-    if (client.id) activeEmployeeCountByClientId[client.id] = 0;
-  });
-  const clientIds = clients.map((client) => client.id).filter(Boolean);
+  if (initialView === "table") {
+    clients.forEach((client) => {
+      if (client.id) activeEmployeeCountByClientId[client.id] = 0;
+    });
+    const clientIds = clients.map((client) => client.id).filter(Boolean);
 
-  if (clientIds.length) {
-    const rpcCountsResult = await withPerfTiming("clients.page.active_employee_counts.rpc", () =>
-      supabase.rpc("client_active_employee_counts", {
-        p_client_ids: clientIds,
-      })
-    );
+    if (clientIds.length) {
+      const rpcCountsResult = await withPerfTiming("clients.page.active_employee_counts.rpc", () =>
+        supabase.rpc("client_active_employee_counts", {
+          p_client_ids: clientIds,
+        })
+      );
 
-    const canUseFallback =
-      !rpcCountsResult.error ||
-      isSupabaseMissingFunctionError(rpcCountsResult.error) ||
-      isSupabaseMissingTableError(rpcCountsResult.error);
-    if (rpcCountsResult.error && isSupabaseMissingFunctionError(rpcCountsResult.error)) {
-      clientsPerfWarning =
-        "Active employee counts are running in compatibility mode. Run sql/performance_clients_employee_info.sql in Supabase to speed up /clients.";
-    }
-
-    if (!rpcCountsResult.error) {
-      const rpcRows = (rpcCountsResult.data || []) as Array<{
-        client_id: string | null;
-        active_count: number | null;
-      }>;
-      rpcRows.forEach((row) => {
-        const clientId = String(row.client_id || "").trim();
-        if (!clientId) return;
-        const count = Number(row.active_count || 0);
-        activeEmployeeCountByClientId[clientId] = Number.isFinite(count) ? Math.max(0, count) : 0;
-      });
-    } else if (canUseFallback) {
-      const [employeeRecordsResult, employeeColumnsResult] = await Promise.all([
-        withPerfTiming("clients.page.active_employee_counts.fallback.records", () =>
-          supabase.from("employee_info_records").select("id,client_id").in("client_id", clientIds)
-        ),
-        withPerfTiming("clients.page.active_employee_counts.fallback.columns", () =>
-          supabase
-            .from("employee_info_columns")
-            .select("id,key,label,column_kind")
-            .eq("column_kind", "date")
-        ),
-      ]);
-
-      const employeeRecords = employeeRecordsResult.error
-        ? []
-        : ((employeeRecordsResult.data || []) as Array<{ id: string; client_id: string | null }>);
-      const employeeColumns = employeeColumnsResult.error
-        ? []
-        : ((employeeColumnsResult.data || []) as Array<{
-            id: string;
-            key: string;
-            label: string;
-            column_kind: string;
-          }>);
-
-      const recordIds = employeeRecords.map((record) => record.id).filter(Boolean);
-      const clientIdByRecordId = employeeRecords.reduce<Record<string, string>>((acc, record) => {
-        if (!record.id || !record.client_id) return acc;
-        acc[record.id] = record.client_id;
-        return acc;
-      }, {});
-      const leaveDateColumnIds = employeeColumns
-        .filter((column) => isLeaveDateColumn(column))
-        .map((column) => column.id);
-
-      const inactiveRecordIdSet = new Set<string>();
-      if (recordIds.length && leaveDateColumnIds.length) {
-        const { data: leaveValuesRaw, error: leaveValuesError } = await withPerfTiming(
-          "clients.page.active_employee_counts.fallback.leave_values",
-          () =>
-            supabase
-              .from("employee_info_values")
-              .select("record_id,text_value,option_value,column_id")
-              .in("record_id", recordIds)
-              .in("column_id", leaveDateColumnIds)
-              .or("text_value.not.is.null,option_value.not.is.null")
-        );
-
-        if (!leaveValuesError) {
-          ((leaveValuesRaw || []) as Array<{
-            record_id: string;
-            text_value: string | null;
-            option_value: string | null;
-          }>).forEach((row) => {
-            const leaveDateValue = String(row.text_value || row.option_value || "").trim();
-            if (leaveDateValue) {
-              inactiveRecordIdSet.add(row.record_id);
-            }
-          });
-        }
+      const canUseFallback =
+        !rpcCountsResult.error ||
+        isSupabaseMissingFunctionError(rpcCountsResult.error) ||
+        isSupabaseMissingTableError(rpcCountsResult.error);
+      if (rpcCountsResult.error && isSupabaseMissingFunctionError(rpcCountsResult.error)) {
+        clientsPerfWarning =
+          "Active employee counts are running in compatibility mode. Run sql/performance_clients_employee_info.sql in Supabase to speed up /clients.";
       }
 
-      recordIds.forEach((recordId) => {
-        if (inactiveRecordIdSet.has(recordId)) return;
-        const clientId = clientIdByRecordId[recordId];
-        if (!clientId) return;
-        activeEmployeeCountByClientId[clientId] = (activeEmployeeCountByClientId[clientId] || 0) + 1;
-      });
-    } else if (rpcCountsResult.error && !clientsError) {
-      clientsError = rpcCountsResult.error.message;
+      if (!rpcCountsResult.error) {
+        const rpcRows = (rpcCountsResult.data || []) as Array<{
+          client_id: string | null;
+          active_count: number | null;
+        }>;
+        rpcRows.forEach((row) => {
+          const clientId = String(row.client_id || "").trim();
+          if (!clientId) return;
+          const count = Number(row.active_count || 0);
+          activeEmployeeCountByClientId[clientId] = Number.isFinite(count)
+            ? Math.max(0, count)
+            : 0;
+        });
+      } else if (canUseFallback) {
+        const [employeeRecordsResult, employeeColumnsResult] = await Promise.all([
+          withPerfTiming("clients.page.active_employee_counts.fallback.records", () =>
+            supabase.from("employee_info_records").select("id,client_id").in("client_id", clientIds)
+          ),
+          withPerfTiming("clients.page.active_employee_counts.fallback.columns", () =>
+            supabase
+              .from("employee_info_columns")
+              .select("id,key,label,column_kind")
+              .eq("column_kind", "date")
+          ),
+        ]);
+
+        const employeeRecords = employeeRecordsResult.error
+          ? []
+          : ((employeeRecordsResult.data || []) as Array<{ id: string; client_id: string | null }>);
+        const employeeColumns = employeeColumnsResult.error
+          ? []
+          : ((employeeColumnsResult.data || []) as Array<{
+              id: string;
+              key: string;
+              label: string;
+              column_kind: string;
+            }>);
+
+        const recordIds = employeeRecords.map((record) => record.id).filter(Boolean);
+        const clientIdByRecordId = employeeRecords.reduce<Record<string, string>>((acc, record) => {
+          if (!record.id || !record.client_id) return acc;
+          acc[record.id] = record.client_id;
+          return acc;
+        }, {});
+        const leaveDateColumnIds = employeeColumns
+          .filter((column) => isLeaveDateColumn(column))
+          .map((column) => column.id);
+
+        const inactiveRecordIdSet = new Set<string>();
+        if (recordIds.length && leaveDateColumnIds.length) {
+          const { data: leaveValuesRaw, error: leaveValuesError } = await withPerfTiming(
+            "clients.page.active_employee_counts.fallback.leave_values",
+            () =>
+              supabase
+                .from("employee_info_values")
+                .select("record_id,text_value,option_value,column_id")
+                .in("record_id", recordIds)
+                .in("column_id", leaveDateColumnIds)
+                .or("text_value.not.is.null,option_value.not.is.null")
+          );
+
+          if (!leaveValuesError) {
+            ((leaveValuesRaw || []) as Array<{
+              record_id: string;
+              text_value: string | null;
+              option_value: string | null;
+            }>).forEach((row) => {
+              const leaveDateValue = String(row.text_value || row.option_value || "").trim();
+              if (leaveDateValue) {
+                inactiveRecordIdSet.add(row.record_id);
+              }
+            });
+          }
+        }
+
+        recordIds.forEach((recordId) => {
+          if (inactiveRecordIdSet.has(recordId)) return;
+          const clientId = clientIdByRecordId[recordId];
+          if (!clientId) return;
+          activeEmployeeCountByClientId[clientId] =
+            (activeEmployeeCountByClientId[clientId] || 0) + 1;
+        });
+      } else if (rpcCountsResult.error && !clientsError) {
+        clientsError = rpcCountsResult.error.message;
+      }
     }
   }
 

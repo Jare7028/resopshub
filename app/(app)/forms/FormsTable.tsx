@@ -62,13 +62,29 @@ export default function FormsTable({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState<FilterState>(initialFilters);
+  const [mobileSearchInput, setMobileSearchInput] = useState(initialFilters.q);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const filtersRef = useRef(filters);
+  const searchDebounceTimerRef = useRef<number | null>(null);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
     setFilters(initialFilters);
+    setMobileSearchInput(initialFilters.q);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounceTimerRef.current) {
+        window.clearTimeout(searchDebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -109,10 +125,21 @@ export default function FormsTable({
 
   const applyFilters = (nextFilters: FilterState) => {
     setFilters(nextFilters);
+    setMobileSearchInput(nextFilters.q);
     const query = buildQuery(nextFilters, sortKey, sortDir);
     startTransition(() => {
       router.replace(query ? `/forms?${query}` : "/forms", { scroll: false });
     });
+  };
+
+  const applyMobileSearch = (nextQueryValue: string) => {
+    setMobileSearchInput(nextQueryValue);
+    if (searchDebounceTimerRef.current) {
+      window.clearTimeout(searchDebounceTimerRef.current);
+    }
+    searchDebounceTimerRef.current = window.setTimeout(() => {
+      applyFilters({ ...filtersRef.current, q: nextQueryValue });
+    }, 250);
   };
 
   const buildSortUrl = (key: SortKey) => {
@@ -148,8 +175,8 @@ export default function FormsTable({
             <span className="block">Search</span>
             <input
               type="search"
-              value={filters.q}
-              onChange={(event) => applyFilters({ ...filters, q: event.target.value })}
+              value={mobileSearchInput}
+              onChange={(event) => applyMobileSearch(event.target.value)}
               placeholder="Search title or description"
               className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm text-slate-700"
             />
