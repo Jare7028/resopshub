@@ -39,7 +39,6 @@ type UserProfileRow = {
   id: string;
   role: string;
   status: string;
-  user_page_permissions?: PagePermissionRow[] | null;
 };
 
 function SidebarIcon({ name }: { name: NavIconName }) {
@@ -191,26 +190,13 @@ export default async function AppLayout({
   let pagePermissionByKey = new Map<PagePermissionKey, "none" | "view" | "edit">();
 
   if (email) {
-    const {
-      data: profileWithPermissions,
-      error: profileWithPermissionsError,
-    } = await withPerfTiming("layout.profile", () =>
-      supabase
-        .from("users")
-        .select("id,role,status,user_page_permissions(page_key,access_level)")
-        .eq("id", user.id)
-        .maybeSingle()
+    const { data: profileData, error: profileError } = await withPerfTiming(
+      "layout.profile",
+      () => supabase.from("users").select("id,role,status").eq("id", user.id).maybeSingle()
     );
-    let profileRow = profileWithPermissions as UserProfileRow | null;
-    if (profileWithPermissionsError) {
-      if (isSupabaseMissingTableError(profileWithPermissionsError)) {
-        const { data: profileFallback } = await withPerfTiming("layout.profile.fallback", () =>
-          supabase.from("users").select("id,role,status").eq("id", user.id).maybeSingle()
-        );
-        profileRow = profileFallback as UserProfileRow | null;
-      } else {
-        console.error("[layout.profile]", profileWithPermissionsError.message);
-      }
+    const profileRow = profileData as UserProfileRow | null;
+    if (profileError && !isSupabaseMissingTableError(profileError)) {
+      console.error("[layout.profile]", profileError.message);
     }
 
     if (!profileRow) {
@@ -259,10 +245,25 @@ export default async function AppLayout({
         status: profileRow.status,
       };
       if (profileRow.role !== "admin") {
-        const pagePermissions = (profileRow.user_page_permissions || []) as PagePermissionRow[];
-        pagePermissionByKey = new Map(
-          pagePermissions.map((row) => [row.page_key, row.access_level])
+        const { data: pagePermissionsData, error: pagePermissionsError } = await withPerfTiming(
+          "layout.page_permissions",
+          () =>
+            supabase
+              .from("user_page_permissions")
+              .select("page_key,access_level")
+              .eq("user_id", profileRow.id)
         );
+
+        if (pagePermissionsError) {
+          if (!isSupabaseMissingTableError(pagePermissionsError)) {
+            console.error("[layout.page_permissions]", pagePermissionsError.message);
+          }
+        } else {
+          const pagePermissions = (pagePermissionsData || []) as PagePermissionRow[];
+          pagePermissionByKey = new Map(
+            pagePermissions.map((row) => [row.page_key, row.access_level])
+          );
+        }
       }
     }
   }
