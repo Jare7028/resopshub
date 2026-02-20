@@ -973,6 +973,25 @@ function countImageNodesBySource(value: unknown, source: string) {
   return count;
 }
 
+function findTrailingMissingImageNodePos(editor: Editor) {
+  let trailingPos: number | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    const nodeType = String(node.type.name || "")
+      .trim()
+      .toLowerCase();
+    if (!nodeType.includes("image")) {
+      return true;
+    }
+    const attrs = (node.attrs || {}) as Record<string, unknown>;
+    const src = String(attrs.src || "").trim();
+    if (!src) {
+      trailingPos = pos;
+    }
+    return true;
+  });
+  return trailingPos;
+}
+
 function normalizeNoteShapeKind(value: string | null | undefined): NoteShapeKind {
   const normalized = String(value || "")
     .trim()
@@ -3692,6 +3711,47 @@ export default function NoteEditorClient({
       });
     }
 
+    const repairTrailingMissingImageNode = () => {
+      const missingPos = findTrailingMissingImageNodePos(currentEditor);
+      if (missingPos === null) {
+        return false;
+      }
+      const repaired = currentEditor
+        .chain()
+        .focus()
+        .command(({ state, tr, dispatch }) => {
+          const targetNode = state.doc.nodeAt(missingPos);
+          if (!targetNode) {
+            return false;
+          }
+          const targetAttrs = (targetNode.attrs || {}) as Record<string, unknown>;
+          const nextAttrs: Record<string, unknown> = {
+            ...targetAttrs,
+            src: nextSrc,
+          };
+          const currentFloat = String(nextAttrs["float"] || "").trim();
+          if (!currentFloat) {
+            nextAttrs["float"] = "none";
+          }
+          tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
+          tr.setNodeMarkup(missingPos, undefined, nextAttrs);
+          if (dispatch) {
+            dispatch(tr.scrollIntoView());
+          }
+          return true;
+        })
+        .run();
+      if (debugImagePersistence) {
+        console.info("[noteEditor.image.debug] repair_missing_src_attempt", {
+          entityId,
+          missingPos,
+          repaired,
+          nextSrc: nextSrc.slice(0, 180),
+        });
+      }
+      return repaired;
+    };
+
     const imageCountBeforeInsert = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
     const setImageOptions: SetImageOptions = {
       src: nextSrc,
@@ -3710,14 +3770,22 @@ export default function NoteEditorClient({
     if (inserted) {
       const imageCountAfterSetImage = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
       if (imageCountAfterSetImage <= imageCountBeforeInsert) {
-        inserted = false;
-        if (debugImagePersistence) {
-          console.warn("[noteEditor.image.debug] set_image_no_matching_src", {
-            entityId,
-            nextSrc: nextSrc.slice(0, 180),
-            imageCountBeforeInsert,
-            imageCountAfterSetImage,
-          });
+        const repaired = repairTrailingMissingImageNode();
+        const imageCountAfterRepair = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+        if (repaired && imageCountAfterRepair > imageCountBeforeInsert) {
+          inserted = true;
+        } else {
+          inserted = false;
+          if (debugImagePersistence) {
+            console.warn("[noteEditor.image.debug] set_image_no_matching_src", {
+              entityId,
+              nextSrc: nextSrc.slice(0, 180),
+              imageCountBeforeInsert,
+              imageCountAfterSetImage,
+              repaired,
+              imageCountAfterRepair,
+            });
+          }
         }
       }
     }
@@ -3756,14 +3824,22 @@ export default function NoteEditorClient({
           nextSrc
         );
         if (imageCountAfterFallback <= imageCountBeforeInsert) {
-          inserted = false;
-          if (debugImagePersistence) {
-            console.warn("[noteEditor.image.debug] fallback_no_matching_src", {
-              entityId,
-              nextSrc: nextSrc.slice(0, 180),
-              imageCountBeforeInsert,
-              imageCountAfterFallback,
-            });
+          const repaired = repairTrailingMissingImageNode();
+          const imageCountAfterRepair = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+          if (repaired && imageCountAfterRepair > imageCountBeforeInsert) {
+            inserted = true;
+          } else {
+            inserted = false;
+            if (debugImagePersistence) {
+              console.warn("[noteEditor.image.debug] fallback_no_matching_src", {
+                entityId,
+                nextSrc: nextSrc.slice(0, 180),
+                imageCountBeforeInsert,
+                imageCountAfterFallback,
+                repaired,
+                imageCountAfterRepair,
+              });
+            }
           }
         }
       }
