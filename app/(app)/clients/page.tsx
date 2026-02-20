@@ -2,13 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { parseCsvParam } from "@/lib/queryParams";
+import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { withPerfTiming } from "@/lib/perf";
 import { isSupabaseMissingFunctionError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import ClientsTable from "./ClientsTable";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
 const clientSortKeys = ["name", "status", "industry", "start"] as const;
 const clientSortDirs = ["asc", "desc"] as const;
+const CLIENTS_PAGE_SIZE = 50;
 
 type ClientSortKey = (typeof clientSortKeys)[number];
 type ClientSortDir = (typeof clientSortDirs)[number];
@@ -52,6 +54,7 @@ export default async function ClientsPage(props: {
     sort?: string;
     dir?: string;
     view?: string;
+    page?: string;
     error?: string;
   }>;
 }) {
@@ -69,6 +72,10 @@ export default async function ClientsPage(props: {
       ? searchParams.view
       : "table";
   const hasExplicitView = typeof searchParams?.view !== "undefined";
+  const pageParam = Number.parseInt(String(searchParams?.page || "1"), 10);
+  const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const rangeFrom = (currentPage - 1) * CLIENTS_PAGE_SIZE;
+  const rangeTo = rangeFrom + CLIENTS_PAGE_SIZE;
   const ascending = sortDir === "asc";
 
   const buildClientsQuery = (includeEndDate: boolean) => {
@@ -108,10 +115,13 @@ export default async function ClientsPage(props: {
       request = request.in("industry", selectedIndustries);
     }
 
+    request = request.range(rangeFrom, rangeTo);
+
     return request;
   };
 
   let clientsError: string | null = null;
+  let clientsPerfWarning: string | null = null;
   type ClientRow = {
     id: string;
     name: string;
@@ -121,10 +131,10 @@ export default async function ClientsPage(props: {
     start_date: string | null;
     end_date: string | null;
   };
-  let clients: ClientRow[] = [];
+  let clientsPageRows: ClientRow[] = [];
 
   const { data: clientsWithEndDate, error: clientsWithEndDateError } =
-    await buildClientsQuery(true);
+    await withPerfTiming("clients.page.rows_with_end_date", () => buildClientsQuery(true));
 
   if (clientsWithEndDateError) {
     const missingEndDateColumn =
@@ -133,11 +143,13 @@ export default async function ClientsPage(props: {
 
     if (missingEndDateColumn) {
       const { data: clientsWithoutEndDate, error: clientsWithoutEndDateError } =
-        await buildClientsQuery(false);
+        await withPerfTiming("clients.page.rows_without_end_date", () =>
+          buildClientsQuery(false)
+        );
       if (clientsWithoutEndDateError) {
         clientsError = clientsWithoutEndDateError.message;
       } else {
-        clients = (
+        clientsPageRows = (
           (clientsWithoutEndDate || []) as unknown as Array<
             Omit<ClientRow, "end_date">
           >
@@ -150,8 +162,11 @@ export default async function ClientsPage(props: {
       clientsError = clientsWithEndDateError.message;
     }
   } else {
-    clients = (clientsWithEndDate || []) as unknown as ClientRow[];
+    clientsPageRows = (clientsWithEndDate || []) as unknown as ClientRow[];
   }
+  const hasNextPage = clientsPageRows.length > CLIENTS_PAGE_SIZE;
+  const hasPreviousPage = currentPage > 1;
+  const clients = clientsPageRows.slice(0, CLIENTS_PAGE_SIZE);
 
   const activeEmployeeCountByClientId: Record<string, number> = {};
   clients.forEach((client) => {
@@ -160,14 +175,20 @@ export default async function ClientsPage(props: {
   const clientIds = clients.map((client) => client.id).filter(Boolean);
 
   if (clientIds.length) {
-    const rpcCountsResult = await supabase.rpc("client_active_employee_counts", {
-      p_client_ids: clientIds,
-    });
+    const rpcCountsResult = await withPerfTiming("clients.page.active_employee_counts.rpc", () =>
+      supabase.rpc("client_active_employee_counts", {
+        p_client_ids: clientIds,
+      })
+    );
 
     const canUseFallback =
       !rpcCountsResult.error ||
       isSupabaseMissingFunctionError(rpcCountsResult.error) ||
       isSupabaseMissingTableError(rpcCountsResult.error);
+    if (rpcCountsResult.error && isSupabaseMissingFunctionError(rpcCountsResult.error)) {
+      clientsPerfWarning =
+        "Active employee counts are running in compatibility mode. Run sql/performance_clients_employee_info.sql in Supabase to speed up /clients.";
+    }
 
     if (!rpcCountsResult.error) {
       const rpcRows = (rpcCountsResult.data || []) as Array<{
@@ -182,11 +203,15 @@ export default async function ClientsPage(props: {
       });
     } else if (canUseFallback) {
       const [employeeRecordsResult, employeeColumnsResult] = await Promise.all([
-        supabase.from("employee_info_records").select("id,client_id").in("client_id", clientIds),
-        supabase
-          .from("employee_info_columns")
-          .select("id,key,label,column_kind")
-          .eq("column_kind", "date"),
+        withPerfTiming("clients.page.active_employee_counts.fallback.records", () =>
+          supabase.from("employee_info_records").select("id,client_id").in("client_id", clientIds)
+        ),
+        withPerfTiming("clients.page.active_employee_counts.fallback.columns", () =>
+          supabase
+            .from("employee_info_columns")
+            .select("id,key,label,column_kind")
+            .eq("column_kind", "date")
+        ),
       ]);
 
       const employeeRecords = employeeRecordsResult.error
@@ -213,12 +238,16 @@ export default async function ClientsPage(props: {
 
       const inactiveRecordIdSet = new Set<string>();
       if (recordIds.length && leaveDateColumnIds.length) {
-        const { data: leaveValuesRaw, error: leaveValuesError } = await supabase
-          .from("employee_info_values")
-          .select("record_id,text_value,option_value,column_id")
-          .in("record_id", recordIds)
-          .in("column_id", leaveDateColumnIds)
-          .or("text_value.not.is.null,option_value.not.is.null");
+        const { data: leaveValuesRaw, error: leaveValuesError } = await withPerfTiming(
+          "clients.page.active_employee_counts.fallback.leave_values",
+          () =>
+            supabase
+              .from("employee_info_values")
+              .select("record_id,text_value,option_value,column_id")
+              .in("record_id", recordIds)
+              .in("column_id", leaveDateColumnIds)
+              .or("text_value.not.is.null,option_value.not.is.null")
+        );
 
         if (!leaveValuesError) {
           ((leaveValuesRaw || []) as Array<{
@@ -240,8 +269,33 @@ export default async function ClientsPage(props: {
         if (!clientId) return;
         activeEmployeeCountByClientId[clientId] = (activeEmployeeCountByClientId[clientId] || 0) + 1;
       });
+    } else if (rpcCountsResult.error && !clientsError) {
+      clientsError = rpcCountsResult.error.message;
     }
   }
+
+  const buildClientsPageUrl = (pageNumber: number) => {
+    const normalizedPage =
+      Number.isFinite(pageNumber) && pageNumber > 1 ? Math.floor(pageNumber) : 1;
+    const sp = new URLSearchParams();
+    if (query) {
+      sp.set("q", query);
+    }
+    setCsvParam(sp, "status", selectedStatuses);
+    setCsvParam(sp, "industry", selectedIndustries);
+    sp.set("sort", sortKey);
+    sp.set("dir", sortDir);
+    if (initialView !== "table") {
+      sp.set("view", initialView);
+    }
+    if (normalizedPage > 1) {
+      sp.set("page", String(normalizedPage));
+    }
+    const qs = sp.toString();
+    return qs ? `/clients?${qs}` : "/clients";
+  };
+  const previousPageUrl = hasPreviousPage ? buildClientsPageUrl(currentPage - 1) : null;
+  const nextPageUrl = hasNextPage ? buildClientsPageUrl(currentPage + 1) : null;
 
   async function deleteClient(formData: FormData) {
     "use server";
@@ -283,10 +337,18 @@ export default async function ClientsPage(props: {
           {searchParams?.error || clientsError}
         </p>
       ) : null}
+      {clientsPerfWarning ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {clientsPerfWarning}
+        </p>
+      ) : null}
 
       <section className="w-full max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">All clients</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Showing up to {CLIENTS_PAGE_SIZE} clients per page.
+          </p>
         </div>
         <ClientsTable
           clients={clients}
@@ -305,6 +367,27 @@ export default async function ClientsPage(props: {
           onDelete={deleteClient}
         />
       </section>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Page {currentPage}</p>
+        <div className="flex items-center gap-2">
+          {previousPageUrl ? (
+            <Link
+              href={previousPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Previous
+            </Link>
+          ) : null}
+          {nextPageUrl ? (
+            <Link
+              href={nextPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Next
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
