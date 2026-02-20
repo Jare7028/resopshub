@@ -73,33 +73,37 @@ export default async function HelpGuidePage(props: {
               href={`/help/${guide.slug}?edit=1`}
               className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
             >
-              Edit guide
+              Edit guide page
             </Link>
           ) : null}
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Before You Start</h2>
-        <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
-          {guide.prerequisites.map((item) => (
-            <li key={`${guide.slug}-prereq-${item}`}>{item}</li>
-          ))}
-        </ul>
-      </section>
+      {!isEditMode ? (
+        <>
+          <section className="rounded-lg border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">Before You Start</h2>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+              {guide.prerequisites.map((item) => (
+                <li key={`${guide.slug}-prereq-${item}`}>{item}</li>
+              ))}
+            </ul>
+          </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">In This Guide</h2>
-        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
-          {guide.sections.map((section) => (
-            <li key={`${guide.slug}-toc-${section.id}`}>
-              <a href={`#${section.id}`} className="hover:underline">
-                {section.title}
-              </a>
-            </li>
-          ))}
-        </ol>
-      </section>
+          <section className="rounded-lg border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">In This Guide</h2>
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
+              {guide.sections.map((section) => (
+                <li key={`${guide.slug}-toc-${section.id}`}>
+                  <a href={`#${section.id}`} className="hover:underline">
+                    {section.title}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </>
+      ) : null}
 
       {isEditMode ? (
         <HelpGuideEditorClient
@@ -143,7 +147,7 @@ export default async function HelpGuidePage(props: {
         </div>
       )}
 
-      {relatedGuides.length ? (
+      {!isEditMode && relatedGuides.length ? (
         <section className="rounded-lg border border-slate-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-slate-900">Related Guides</h2>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
