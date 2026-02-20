@@ -3081,7 +3081,13 @@ export default function NoteEditorClient({
         tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
         return true;
       })
-      .setImage({ src: nextSrc })
+      .insertContent({
+        type: "image",
+        attrs: {
+          src: nextSrc,
+          float: "none",
+        },
+      })
       .run();
   }, []);
 
