@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
+import { summarizeImageNodes } from "@/lib/imageNodeIntegrity";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -58,56 +59,6 @@ function normalizeTimestamp(value: unknown) {
   return normalized.length ? normalized : null;
 }
 
-function summarizeImageSources(value: unknown, maxSamples = 3) {
-  const summary = {
-    total: 0,
-    missingSrc: 0,
-    data: 0,
-    blob: 0,
-    file: 0,
-    http: 0,
-    relative: 0,
-    other: 0,
-    samples: [] as string[],
-  };
-
-  const visit = (node: unknown): void => {
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    if (!node || typeof node !== "object") {
-      return;
-    }
-    const record = node as Record<string, unknown>;
-    const nodeType = String(record.type || "")
-      .trim()
-      .toLowerCase();
-    if (nodeType.includes("image")) {
-      const attrs =
-        record.attrs && typeof record.attrs === "object"
-          ? (record.attrs as Record<string, unknown>)
-          : null;
-      const src = String(attrs?.src || "").trim();
-      summary.total += 1;
-      if (!src) summary.missingSrc += 1;
-      else if (src.startsWith("data:")) summary.data += 1;
-      else if (src.startsWith("blob:")) summary.blob += 1;
-      else if (src.startsWith("file:")) summary.file += 1;
-      else if (/^https?:\/\//i.test(src)) summary.http += 1;
-      else if (src.startsWith("/")) summary.relative += 1;
-      else summary.other += 1;
-      if (src && summary.samples.length < maxSamples) {
-        summary.samples.push(src.slice(0, 180));
-      }
-    }
-    Object.values(record).forEach(visit);
-  };
-
-  visit(value);
-  return summary;
-}
-
 export type UpdatePersonalPageContentOptions = {
   expectedUpdatedAt?: string | null;
   forceOverwrite?: boolean;
@@ -128,7 +79,7 @@ export async function updatePersonalPageContent(
   const editorId = authData.user?.id ?? null;
   // Personal pages persist content as-authored to avoid image-loss from server-side transforms.
   const canonicalContent = content;
-  const inputImageSummary = summarizeImageSources(canonicalContent);
+  const inputImageSummary = summarizeImageNodes(canonicalContent);
   console.error("[personal.image.debug] update_start", {
     pageId,
     editorId,

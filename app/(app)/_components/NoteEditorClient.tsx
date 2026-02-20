@@ -2,7 +2,12 @@
 
 import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
+import {
+  mergeAttributes,
+  Node as TiptapNode,
+  type Editor,
+  type JSONContent,
+} from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -21,6 +26,12 @@ import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table
 import Placeholder from "@tiptap/extension-placeholder";
 import { selectedRect } from "prosemirror-tables";
 import { createEmptyDoc } from "@/lib/editorContent";
+import {
+  countImageNodesBySrc,
+  fillMissingImageSrcFromQueue,
+  removeMissingSrcImageNodes,
+  summarizeImageNodes,
+} from "@/lib/imageNodeIntegrity";
 import {
   getNextSaveVersion,
   hasActiveSaveCoordinatorWork,
@@ -167,6 +178,7 @@ type NoteEditorClientProps = {
     focusMode: boolean;
   }) => Promise<void>;
   debugImagePersistence?: boolean;
+  enforceImageNodeIntegrity?: boolean;
 };
 
 export type NoteSaveResult = {
@@ -232,6 +244,9 @@ const MAX_INLINE_IMAGE_DIMENSION = 1800;
 const MIN_INLINE_IMAGE_DIMENSION = 640;
 const NAVIGATION_SAVE_TIMEOUT_MS = 12000;
 const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
+const UPLOADED_IMAGE_SRC_QUEUE_LIMIT = 30;
+const MISSING_IMAGE_SRC_SAVE_BLOCK_MESSAGE =
+  "One or more images failed to attach. Please re-paste the image before leaving this page.";
 const NOTE_SHAPE_DEFAULT_STROKE = "#0f172a";
 const NOTE_SHAPE_DEFAULT_FILL = "#ffffff";
 const NOTE_TEXTBOX_DEFAULT_WIDTH = 260;
@@ -750,14 +765,14 @@ function getCurrentTextAlign(editor: Editor | null | undefined): WordTextAlign {
   return "left";
 }
 
-function normalizeContent(content: unknown) {
+function normalizeContent(content: unknown): JSONContent {
   if (content && typeof content === "object") {
     const value = content as { type?: string };
     if (value.type === "doc") {
-      return content;
+      return content as JSONContent;
     }
   }
-  return createEmptyDoc();
+  return createEmptyDoc() as JSONContent;
 }
 
 function isTiptapDocContent(value: unknown): value is { type: "doc" } {
@@ -867,110 +882,6 @@ function containsEphemeralImageSource(value: unknown): boolean {
     }
   }
   return Object.values(value).some((entry) => containsEphemeralImageSource(entry));
-}
-
-type ImageSourceSummary = {
-  total: number;
-  missingSrc: number;
-  data: number;
-  blob: number;
-  file: number;
-  http: number;
-  relative: number;
-  other: number;
-  samples: string[];
-};
-
-function summarizeImageSources(value: unknown, maxSamples = 3): ImageSourceSummary {
-  const summary: ImageSourceSummary = {
-    total: 0,
-    missingSrc: 0,
-    data: 0,
-    blob: 0,
-    file: 0,
-    http: 0,
-    relative: 0,
-    other: 0,
-    samples: [],
-  };
-
-  const visit = (node: unknown) => {
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    if (!isObjectRecord(node)) {
-      return;
-    }
-
-    const nodeType = String(node.type || "")
-      .trim()
-      .toLowerCase();
-    if (nodeType.includes("image")) {
-      const attrs = isObjectRecord(node.attrs)
-        ? (node.attrs as Record<string, unknown>)
-        : null;
-      const src = String(attrs?.src || "").trim();
-      summary.total += 1;
-      if (!src) {
-        summary.missingSrc += 1;
-      } else if (src.startsWith("data:")) {
-        summary.data += 1;
-      } else if (src.startsWith("blob:")) {
-        summary.blob += 1;
-      } else if (src.startsWith("file:")) {
-        summary.file += 1;
-      } else if (/^https?:\/\//i.test(src)) {
-        summary.http += 1;
-      } else if (src.startsWith("/")) {
-        summary.relative += 1;
-      } else {
-        summary.other += 1;
-      }
-      if (src && summary.samples.length < maxSamples) {
-        summary.samples.push(src.slice(0, 180));
-      }
-    }
-
-    Object.values(node).forEach(visit);
-  };
-
-  visit(value);
-  return summary;
-}
-
-function countImageNodesBySource(value: unknown, source: string) {
-  const expected = String(source || "").trim();
-  if (!expected) {
-    return 0;
-  }
-
-  let count = 0;
-  const visit = (node: unknown) => {
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    if (!isObjectRecord(node)) {
-      return;
-    }
-    const nodeType = String(node.type || "")
-      .trim()
-      .toLowerCase();
-    if (nodeType.includes("image")) {
-      const attrs = isObjectRecord(node.attrs)
-        ? (node.attrs as Record<string, unknown>)
-        : null;
-      const src = String(attrs?.src || "").trim();
-      if (src === expected) {
-        count += 1;
-      }
-    }
-    Object.values(node).forEach(visit);
-  };
-
-  visit(value);
-  return count;
 }
 
 function findTrailingMissingImageNodePos(editor: Editor) {
@@ -2627,6 +2538,7 @@ export default function NoteEditorClient({
   editorHeightMode = "default",
   onViewStateChange,
   debugImagePersistence = false,
+  enforceImageNodeIntegrity = false,
 }: NoteEditorClientProps) {
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTabId>(() => {
     if (
@@ -2722,8 +2634,31 @@ export default function NoteEditorClient({
   const navigationGuardInFlightRef = useRef(false);
   const viewStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoredDraftRef = useRef(false);
+  const restoredDraftContentRef = useRef(false);
   const persistedEphemeralImageSrcBySourceRef = useRef<Map<string, string>>(new Map());
+  const uploadedImageSrcQueueRef = useRef<string[]>([]);
+  const legacyMissingImageCleanupAppliedRef = useRef(false);
   const draftStorageKey = useMemo(() => `${DRAFT_STORAGE_PREFIX}${entityId}`, [entityId]);
+  const normalizedInitialContent = useMemo(
+    () => normalizeContent(initialContent),
+    [initialContent]
+  );
+  const initialImageIntegrity = useMemo(() => {
+    if (!enforceImageNodeIntegrity) {
+      return { content: normalizedInitialContent, removedCount: 0 };
+    }
+    const cleaned = removeMissingSrcImageNodes(normalizedInitialContent);
+    return {
+      content: normalizeContent(cleaned.content),
+      removedCount: cleaned.removedCount,
+    };
+  }, [enforceImageNodeIntegrity, normalizedInitialContent]);
+
+  useEffect(() => {
+    uploadedImageSrcQueueRef.current = [];
+    legacyMissingImageCleanupAppliedRef.current = false;
+    restoredDraftContentRef.current = false;
+  }, [entityId]);
 
   const logSaveDebug = useCallback(
     (event: string, payload?: Record<string, unknown>) => {
@@ -2764,6 +2699,34 @@ export default function NoteEditorClient({
     [draftStorageKey, entityId]
   );
 
+  const pushUploadedImageSrcToQueue = useCallback(
+    (source: string, reason: "upload" | "inline") => {
+      if (!enforceImageNodeIntegrity) {
+        return;
+      }
+      const normalizedSource = String(source || "").trim();
+      if (!normalizedSource) {
+        return;
+      }
+
+      const queue = uploadedImageSrcQueueRef.current;
+      queue.push(normalizedSource);
+      if (queue.length > UPLOADED_IMAGE_SRC_QUEUE_LIMIT) {
+        queue.splice(0, queue.length - UPLOADED_IMAGE_SRC_QUEUE_LIMIT);
+      }
+
+      if (debugImagePersistence) {
+        console.info("[noteEditor.image.debug] queue_push", {
+          entityId,
+          reason,
+          queueSize: queue.length,
+          src: normalizedSource.slice(0, 180),
+        });
+      }
+    },
+    [debugImagePersistence, enforceImageNodeIntegrity, entityId]
+  );
+
   const resolveImageSourceFromFile = useCallback(
     async (file: File) => {
       if (debugImagePersistence) {
@@ -2779,6 +2742,7 @@ export default function NoteEditorClient({
         try {
           const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
           if (uploadedSrc) {
+            pushUploadedImageSrcToQueue(uploadedSrc, "upload");
             if (debugImagePersistence) {
               console.info("[noteEditor.image.debug] resolve_source_uploaded", {
                 entityId,
@@ -2806,6 +2770,7 @@ export default function NoteEditorClient({
 
       const inlineSrc = await optimizeImageForInlineInsert(file);
       assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
+      pushUploadedImageSrcToQueue(inlineSrc, "inline");
       if (debugImagePersistence) {
         console.info("[noteEditor.image.debug] resolve_source_inline_fallback", {
           entityId,
@@ -2814,7 +2779,12 @@ export default function NoteEditorClient({
       }
       return inlineSrc;
     },
-    [debugImagePersistence, entityId, onUploadImageFile]
+    [
+      debugImagePersistence,
+      entityId,
+      onUploadImageFile,
+      pushUploadedImageSrcToQueue,
+    ]
   );
 
   const resolveEphemeralImageSourceForSave = useCallback(
@@ -2914,9 +2884,35 @@ export default function NoteEditorClient({
       logSaveDebug("request_start", { requestVersion });
       try {
         const normalizedSaveInput = await normalizeEphemeralImagesForSave(json);
-        const savePayload = normalizedSaveInput.content;
+        let savePayload = normalizedSaveInput.content;
+        if (enforceImageNodeIntegrity) {
+          const repairedMissingSources = fillMissingImageSrcFromQueue(
+            savePayload,
+            uploadedImageSrcQueueRef.current
+          );
+          savePayload = repairedMissingSources.content;
+          uploadedImageSrcQueueRef.current = repairedMissingSources.remainingQueue.slice(
+            -UPLOADED_IMAGE_SRC_QUEUE_LIMIT
+          );
+          if (debugImagePersistence) {
+            console.info("[noteEditor.image.debug] save_missing_src_repair", {
+              entityId,
+              requestVersion,
+              fixedCount: repairedMissingSources.fixedCount,
+              unresolvedCount: repairedMissingSources.unresolvedCount,
+              remainingQueueCount: uploadedImageSrcQueueRef.current.length,
+            });
+          }
+          if (repairedMissingSources.unresolvedCount > 0) {
+            console.error("[personal.image.debug] blocked_missing_src_save", {
+              pageId: entityId,
+              unresolvedCount: repairedMissingSources.unresolvedCount,
+            });
+            throw new Error(MISSING_IMAGE_SRC_SAVE_BLOCK_MESSAGE);
+          }
+        }
         if (debugImagePersistence) {
-          const payloadSummary = summarizeImageSources(savePayload);
+          const payloadSummary = summarizeImageNodes(savePayload);
           if (payloadSummary.total > 0) {
             console.info("[noteEditor.image.debug] save_payload", {
               entityId,
@@ -2936,7 +2932,7 @@ export default function NoteEditorClient({
             ? normalizeContent((saveResult as NoteSaveResult).content)
             : savePayload;
         if (debugImagePersistence) {
-          const canonicalSummary = summarizeImageSources(canonicalContent);
+          const canonicalSummary = summarizeImageNodes(canonicalContent);
           if (canonicalSummary.total > 0) {
             console.info("[noteEditor.image.debug] save_canonical_content", {
               entityId,
@@ -2977,7 +2973,7 @@ export default function NoteEditorClient({
         const message =
           error instanceof Error ? error.message : "Unable to save your changes.";
         if (debugImagePersistence) {
-          const payloadSummary = summarizeImageSources(json);
+          const payloadSummary = summarizeImageNodes(json);
           if (payloadSummary.total > 0) {
             console.error("[noteEditor.image.debug] save_error_with_images", {
               entityId,
@@ -3006,6 +3002,7 @@ export default function NoteEditorClient({
     },
     [
       debugImagePersistence,
+      enforceImageNodeIntegrity,
       entityId,
       logSaveDebug,
       normalizeEphemeralImagesForSave,
@@ -3752,7 +3749,7 @@ export default function NoteEditorClient({
       return repaired;
     };
 
-    const imageCountBeforeInsert = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+    const imageCountBeforeInsert = countImageNodesBySrc(currentEditor.getJSON(), nextSrc);
     const setImageOptions: SetImageOptions = {
       src: nextSrc,
     };
@@ -3768,10 +3765,10 @@ export default function NoteEditorClient({
       .run();
 
     if (inserted) {
-      const imageCountAfterSetImage = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+      const imageCountAfterSetImage = countImageNodesBySrc(currentEditor.getJSON(), nextSrc);
       if (imageCountAfterSetImage <= imageCountBeforeInsert) {
         const repaired = repairTrailingMissingImageNode();
-        const imageCountAfterRepair = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+        const imageCountAfterRepair = countImageNodesBySrc(currentEditor.getJSON(), nextSrc);
         if (repaired && imageCountAfterRepair > imageCountBeforeInsert) {
           inserted = true;
         } else {
@@ -3819,13 +3816,13 @@ export default function NoteEditorClient({
       }
 
       if (inserted) {
-        const imageCountAfterFallback = countImageNodesBySource(
+        const imageCountAfterFallback = countImageNodesBySrc(
           currentEditor.getJSON(),
           nextSrc
         );
         if (imageCountAfterFallback <= imageCountBeforeInsert) {
           const repaired = repairTrailingMissingImageNode();
-          const imageCountAfterRepair = countImageNodesBySource(currentEditor.getJSON(), nextSrc);
+          const imageCountAfterRepair = countImageNodesBySrc(currentEditor.getJSON(), nextSrc);
           if (repaired && imageCountAfterRepair > imageCountBeforeInsert) {
             inserted = true;
           } else {
@@ -4012,7 +4009,7 @@ export default function NoteEditorClient({
         placeholder,
       }),
     ],
-    content: normalizeContent(initialContent),
+    content: initialImageIntegrity.content,
     editorProps: {
       attributes: {
         class: "note-editor",
@@ -4094,17 +4091,68 @@ export default function NoteEditorClient({
       if (!parsed?.dirty || !parsed.content) {
         return;
       }
-      const initialJson = JSON.stringify(normalizeContent(initialContent));
+      const initialJson = JSON.stringify(initialImageIntegrity.content);
       const draftJson = JSON.stringify(parsed.content);
       if (initialJson === draftJson) {
         return;
       }
-      editor.commands.setContent(normalizeContent(parsed.content));
+      const normalizedDraft = normalizeContent(parsed.content);
+      const draftWithIntegrity = enforceImageNodeIntegrity
+        ? removeMissingSrcImageNodes(normalizedDraft)
+        : { content: normalizedDraft, removedCount: 0 };
+      if (draftWithIntegrity.removedCount > 0) {
+        setSaveWarning(
+          `${draftWithIntegrity.removedCount} broken image placeholder${
+            draftWithIntegrity.removedCount === 1 ? "" : "s"
+          } removed from this draft. Re-paste images if needed.`
+        );
+      }
+      restoredDraftContentRef.current = true;
+      editor.commands.setContent(normalizeContent(draftWithIntegrity.content));
       setSaveState("saving");
     } catch {
       // Ignore malformed draft snapshots.
     }
-  }, [draftStorageKey, editor, initialContent]);
+  }, [draftStorageKey, editor, enforceImageNodeIntegrity, initialImageIntegrity.content]);
+
+  useEffect(() => {
+    if (!editor || !enforceImageNodeIntegrity) {
+      return;
+    }
+    if (legacyMissingImageCleanupAppliedRef.current) {
+      return;
+    }
+    if (restoredDraftContentRef.current) {
+      legacyMissingImageCleanupAppliedRef.current = true;
+      return;
+    }
+    if (initialImageIntegrity.removedCount <= 0) {
+      legacyMissingImageCleanupAppliedRef.current = true;
+      return;
+    }
+
+    legacyMissingImageCleanupAppliedRef.current = true;
+    setSaveWarning(
+      `${initialImageIntegrity.removedCount} broken image placeholder${
+        initialImageIntegrity.removedCount === 1 ? "" : "s"
+      } removed from this page. Re-paste images if needed.`
+    );
+    if (debugImagePersistence) {
+      console.warn("[noteEditor.image.debug] load_removed_missing_src", {
+        entityId,
+        removedCount: initialImageIntegrity.removedCount,
+      });
+    }
+    void persistEditorSaveImmediate(initialImageIntegrity.content);
+  }, [
+    debugImagePersistence,
+    editor,
+    enforceImageNodeIntegrity,
+    entityId,
+    initialImageIntegrity.content,
+    initialImageIntegrity.removedCount,
+    persistEditorSaveImmediate,
+  ]);
 
   useEffect(() => {
     if (!editor) {

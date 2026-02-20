@@ -112,6 +112,7 @@ export default function PersonalPageEditorClient({
       editorHeightMode="fill"
       onViewStateChange={handleViewStateChange}
       debugImagePersistence
+      enforceImageNodeIntegrity
     />
   );
 }

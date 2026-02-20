@@ -88,6 +88,7 @@ export default function ClientNoteEditorClient({
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
       debugImagePersistence={Boolean(sourcePersonalPageId)}
+      enforceImageNodeIntegrity={Boolean(sourcePersonalPageId)}
     />
   );
 }
