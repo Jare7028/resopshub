@@ -2514,12 +2514,16 @@ export default function NoteEditorClient({
       }
       const requestVersion = saveRequestVersionRef.current + 1;
       saveRequestVersionRef.current = requestVersion;
-      saveChainRef.current = Promise.resolve().then(async () => {
-        if (requestVersion !== saveRequestVersionRef.current) {
-          return;
-        }
-        await persistEditorSaveNow(json);
-      });
+      // Keep immediate saves in-order with in-flight saves to prevent stale payloads
+      // from finishing later and overwriting freshly inserted images.
+      saveChainRef.current = saveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (requestVersion !== saveRequestVersionRef.current) {
+            return;
+          }
+          await persistEditorSaveNow(json);
+        });
     },
     [persistEditorSaveNow]
   );
