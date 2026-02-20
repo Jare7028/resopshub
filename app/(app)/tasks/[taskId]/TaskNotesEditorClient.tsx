@@ -29,6 +29,7 @@ export default function TaskNotesEditorClient({
       placeholder="Start writing notes..."
       onSave={updateTaskContent}
       onCreateTask={handleCreateTask}
+      blockNavigationWhileSaving={false}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
     />

@@ -85,6 +85,7 @@ export default function ClientNoteEditorClient({
       onSave={handleSave}
       onUploadImageFile={sourcePersonalPageId ? handleUploadImageFile : undefined}
       onCreateTask={handleCreateTask}
+      blockNavigationWhileSaving={false}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
       debugImagePersistence={Boolean(sourcePersonalPageId)}
