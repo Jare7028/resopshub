@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
+import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
@@ -28,13 +29,21 @@ export async function updateClientNoteContent(
   clientId: string,
   noteId: string,
   content: unknown
-) {
+): Promise<{ content: unknown; warnings: string[] }> {
   const supabase = createSupabaseServerClient();
   await assertClientPageEditAccess(supabase, clientId, "notes");
   const { data: authData } = await supabase.auth.getUser();
   const editorId = authData.user?.id ?? null;
   const now = new Date().toISOString();
-  const contentText = extractPlainText(content);
+  const persistedContent = await normalizeAndPersistNoteImages({
+    content,
+    scope: "client_note",
+    entityId: noteId,
+    userId: editorId,
+    supabase,
+  });
+  const canonicalContent = persistedContent.content;
+  const contentText = extractPlainText(canonicalContent);
   const mentionHandles = extractMentionHandles(contentText);
   let previousContentText: string | null = null;
   let noteTitle: string | null = null;
@@ -53,7 +62,7 @@ export async function updateClientNoteContent(
   const { error: updateError } = await supabase
     .from("notes")
     .update({
-      content_json: content,
+      content_json: canonicalContent,
       content: contentText,
       last_edited_at: now,
       last_edited_by_user_id: editorId,
@@ -99,6 +108,11 @@ export async function updateClientNoteContent(
   revalidatePath(`/clients/${clientId}/notes`);
   revalidatePath(`/clients/${clientId}`);
   revalidatePath("/notes");
+
+  return {
+    content: canonicalContent,
+    warnings: persistedContent.warnings,
+  };
 }
 
 export async function createTaskFromClientNote(input: {

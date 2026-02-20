@@ -52,32 +52,6 @@ export default function PersonalPageEditorClient({
       createTaskFromPersonalPage({ pageId, ...input }),
     [pageId]
   );
-  const handleUploadImageFile = useCallback(
-    async (file: File) => {
-      const formData = new FormData();
-      formData.set("file", file);
-
-      const response = await fetch(`/api/personal/pages/${encodeURIComponent(pageId)}/images`, {
-        method: "POST",
-        body: formData,
-      });
-      const payload = (await response.json().catch(() => null)) as
-        | { image?: { url?: string | null }; error?: string }
-        | null;
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Unable to upload image.");
-      }
-
-      const url = String(payload?.image?.url || "").trim();
-      if (!url) {
-        throw new Error("Upload succeeded but no image URL was returned.");
-      }
-
-      return url;
-    },
-    [pageId]
-  );
 
   const handleSave = useCallback(async (entityId: string, content: unknown) => {
     const result = await updatePersonalPageContent(entityId, content, {
@@ -87,6 +61,11 @@ export default function PersonalPageEditorClient({
       throw new Error(result.message);
     }
     expectedUpdatedAtRef.current = result.updatedAt;
+    return {
+      content: result.content,
+      updatedAt: result.updatedAt,
+      warnings: result.warnings,
+    };
   }, []);
   const handleSaveContextMenuFavorites = useCallback(
     (favorites: string[]) => savePersonalContextMenuFavorites({ favorites }),
@@ -110,7 +89,6 @@ export default function PersonalPageEditorClient({
       title="Page"
       placeholder="Start writing your page..."
       onSave={handleSave}
-      onUploadImageFile={handleUploadImageFile}
       onCreateTask={handleCreateTask}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}

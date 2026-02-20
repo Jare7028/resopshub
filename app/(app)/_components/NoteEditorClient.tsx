@@ -132,7 +132,8 @@ type NoteEditorClientProps = {
   initialContent: unknown;
   title: string;
   placeholder: string;
-  onSave: (entityId: string, content: unknown) => Promise<void>;
+  onSave: (entityId: string, content: unknown) => Promise<NoteSaveResult | void>;
+  // Deprecated for note editing flows: image persistence now runs via save actions.
   onUploadImageFile?: (file: File) => Promise<string>;
   onCreateTask?: (input: {
     title: string;
@@ -159,6 +160,12 @@ type NoteEditorClientProps = {
     zoomPercent: number;
     focusMode: boolean;
   }) => Promise<void>;
+};
+
+export type NoteSaveResult = {
+  content?: unknown;
+  updatedAt?: string | null;
+  warnings?: string[];
 };
 
 type TaskHoverSummary = {
@@ -744,6 +751,24 @@ function normalizeContent(content: unknown) {
   return createEmptyDoc();
 }
 
+function isSameJson(left: unknown, right: unknown) {
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeSaveWarnings(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
 function normalizeNoteShapeKind(value: string | null | undefined): NoteShapeKind {
   const normalized = String(value || "")
     .trim()
@@ -783,10 +808,6 @@ function createOverlayObjectId() {
     // Ignore unsupported randomUUID environments.
   }
   return `overlay_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function createImageUploadMarker() {
-  return `img_upload_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function getDefaultShapeSize(kind: NoteShapeKind) {
@@ -2341,7 +2362,6 @@ export default function NoteEditorClient({
   title,
   placeholder,
   onSave,
-  onUploadImageFile,
   onCreateTask,
   lastEditedAtLabel,
   lastEditedByLabel,
@@ -2439,8 +2459,8 @@ export default function NoteEditorClient({
   const [showLayoutGrid, setShowLayoutGrid] = useState(false);
   const [showOutline, setShowOutline] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [saveWarning, setSaveWarning] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [pendingImageUploads, setPendingImageUploads] = useState(0);
   const [defaultFontFamilyLabel, setDefaultFontFamilyLabel] = useState("Arial");
   const [defaultFontSizeLabel, setDefaultFontSizeLabel] = useState("14");
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2476,10 +2496,33 @@ export default function NoteEditorClient({
     async (json: unknown) => {
       setSaveState("saving");
       try {
-        await onSave(entityId, json);
+        const saveResultRaw = await onSave(entityId, json);
+        const saveResult =
+          saveResultRaw && typeof saveResultRaw === "object"
+            ? (saveResultRaw as NoteSaveResult)
+            : null;
+        const hasCanonicalContent =
+          Boolean(saveResult) &&
+          Object.prototype.hasOwnProperty.call(saveResult, "content") &&
+          saveResult?.content !== undefined;
+        const canonicalContent =
+          hasCanonicalContent
+            ? normalizeContent((saveResult as NoteSaveResult).content)
+            : json;
+        const warnings = normalizeSaveWarnings(saveResult?.warnings);
+
+        const currentEditor = editorRef.current;
+        if (currentEditor && !isSameJson(currentEditor.getJSON(), canonicalContent)) {
+          // Apply canonical server content without triggering another save cycle.
+          currentEditor.commands.setContent(normalizeContent(canonicalContent), {
+            emitUpdate: false,
+          });
+        }
+
         setSaveError("");
+        setSaveWarning(warnings.join(" "));
         setSaveState("saved");
-        persistDraftSnapshot(json, false);
+        persistDraftSnapshot(canonicalContent, false);
         if (saveStatusTimerRef.current) {
           clearTimeout(saveStatusTimerRef.current);
         }
@@ -2490,6 +2533,7 @@ export default function NoteEditorClient({
         const message =
           error instanceof Error ? error.message : "Unable to save your changes.";
         setSaveError(message);
+        setSaveWarning("");
         setSaveState("error");
         console.error("[noteEditor.save]", message);
       }
@@ -3081,116 +3125,34 @@ export default function NoteEditorClient({
     };
   }, [mentionMenu.open, mentionMenu.query]);
 
-  const insertImageWithCriticalSave = useCallback(
-    (src: string, options?: { uploadMarker?: string }) => {
-      const nextSrc = String(src || "").trim();
-      if (!nextSrc) {
-        return;
-      }
-      const uploadMarker = String(options?.uploadMarker || "").trim();
-      editorRef.current
-        ?.chain()
-        .focus()
-        .command(({ tr }) => {
-          tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-          return true;
-        })
-        .insertContent({
-          type: "image",
-          attrs: {
-            src: nextSrc,
-            float: "none",
-            title: uploadMarker || null,
-          },
-        })
-        .run();
-    },
-    []
-  );
-
-  const replaceImageUploadPlaceholder = useCallback(
-    (uploadMarker: string, nextSrc: string) => {
-      const marker = String(uploadMarker || "").trim();
-      const normalizedSrc = String(nextSrc || "").trim();
-      if (!marker || !normalizedSrc) {
-        return false;
-      }
-      const currentEditor = editorRef.current;
-      if (!currentEditor) {
-        return false;
-      }
-      let transaction = currentEditor.state.tr;
-      let didReplace = false;
-      currentEditor.state.doc.descendants((node, pos) => {
-        if (node.type.name !== "image") {
-          return true;
-        }
-        const attrs = node.attrs as { title?: string | null; src?: string | null; float?: string | null };
-        if (String(attrs.title || "").trim() !== marker) {
-          return true;
-        }
-        transaction = transaction.setNodeMarkup(pos, undefined, {
-          ...attrs,
-          src: normalizedSrc,
-          title: null,
-          float: normalizeImageFloat(attrs.float),
-        });
-        didReplace = true;
+  const insertImageWithCriticalSave = useCallback((src: string) => {
+    const nextSrc = String(src || "").trim();
+    if (!nextSrc) {
+      return;
+    }
+    editorRef.current
+      ?.chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
         return true;
-      });
-      if (!didReplace) {
-        return false;
-      }
-      transaction = transaction.setMeta(NOTE_CRITICAL_SAVE_META_KEY, true);
-      currentEditor.view.dispatch(transaction);
-      return true;
-    },
-    []
-  );
+      })
+      .insertContent({
+        type: "image",
+        attrs: {
+          src: nextSrc,
+          float: "none",
+        },
+      })
+      .run();
+  }, []);
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
-      if (!onUploadImageFile) {
-        const inlineSrc = await optimizeImageForInlineInsert(file);
-        insertImageWithCriticalSave(inlineSrc);
-        return;
-      }
-
-      const uploadMarker = createImageUploadMarker();
-      let insertedPlaceholder = false;
-      setPendingImageUploads((current) => current + 1);
-      setSaveState("saving");
-
-      try {
-        const uploadedSrcPromise = onUploadImageFile(file);
-
-        try {
-          const inlineFallbackSrc = await optimizeImageForInlineInsert(file);
-          insertImageWithCriticalSave(inlineFallbackSrc, { uploadMarker });
-          insertedPlaceholder = true;
-        } catch {
-          // If inline fallback fails, continue with upload-only insertion.
-        }
-
-        const uploadedSrc = String(await uploadedSrcPromise).trim();
-        if (!uploadedSrc) {
-          throw new Error("Image upload did not return a URL.");
-        }
-
-        if (insertedPlaceholder) {
-          const didReplace = replaceImageUploadPlaceholder(uploadMarker, uploadedSrc);
-          if (!didReplace) {
-            insertImageWithCriticalSave(uploadedSrc);
-          }
-          return;
-        }
-
-        insertImageWithCriticalSave(uploadedSrc);
-      } finally {
-        setPendingImageUploads((current) => Math.max(0, current - 1));
-      }
+      const inlineSrc = await optimizeImageForInlineInsert(file);
+      insertImageWithCriticalSave(inlineSrc);
     },
-    [insertImageWithCriticalSave, onUploadImageFile, replaceImageUploadPlaceholder]
+    [insertImageWithCriticalSave]
   );
 
   const handlePaste = useCallback((_view: unknown, event: ClipboardEvent) => {
@@ -3321,6 +3283,7 @@ export default function NoteEditorClient({
       const nextColType = getActiveTableColumnType(editor);
       setActiveTableColType((prev) => (prev === nextColType ? prev : nextColType));
       setSaveError((prev) => (prev ? "" : prev));
+      setSaveWarning((prev) => (prev ? "" : prev));
       setSaveState("saving");
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
@@ -4634,11 +4597,10 @@ export default function NoteEditorClient({
         return;
       }
       const isImageFile = file.type.startsWith("image/");
-      const maxAttachmentBytes =
-        isImageFile && onUploadImageFile ? MAX_UPLOADED_IMAGE_BYTES : 5 * 1024 * 1024;
+      const maxAttachmentBytes = isImageFile ? MAX_UPLOADED_IMAGE_BYTES : 5 * 1024 * 1024;
       if (file.size > maxAttachmentBytes) {
         window.alert(
-          isImageFile && onUploadImageFile
+          isImageFile
             ? "Image is too large. Use images up to 10 MB."
             : "Attachment is too large. Use files up to 5 MB."
         );
@@ -4673,7 +4635,7 @@ export default function NoteEditorClient({
           .run();
       })();
     },
-    [editor, insertImageFromFileWithSave, onUploadImageFile]
+    [editor, insertImageFromFileWithSave]
   );
 
   const bubbleActions = useMemo(() => {
@@ -4864,11 +4826,7 @@ export default function NoteEditorClient({
       ) : null}
 
       <div className={`mt-2 text-xs font-medium ${saveState === "error" ? "text-red-600" : "text-slate-500"}`}>
-        {pendingImageUploads > 0
-          ? pendingImageUploads > 1
-            ? `Uploading ${pendingImageUploads} images...`
-            : "Uploading image..."
-          : saveState === "saving"
+        {saveState === "saving"
           ? "Saving..."
           : saveState === "saved"
           ? "Saved"
@@ -5339,6 +5297,12 @@ export default function NoteEditorClient({
       {saveError ? (
         <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {saveError}
+        </p>
+      ) : null}
+
+      {saveWarning ? (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {saveWarning}
         </p>
       ) : null}
 

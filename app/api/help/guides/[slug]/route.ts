@@ -6,6 +6,7 @@ import {
   normalizeGuideRouteSlugFromTitle,
 } from "@/app/(app)/help/_lib/guideSingleDoc";
 import { loadHelpGuides } from "@/lib/helpGuidesStore";
+import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 
@@ -59,6 +60,7 @@ async function requireAdmin() {
   return {
     supabase,
     appUserId: user.id,
+    authUserId,
   };
 }
 
@@ -117,10 +119,36 @@ export async function PATCH(
     slug: nextRouteSlug,
   };
 
+  const persistedWarnings = new Set<string>();
+  const persistedSections: typeof guideToSave.sections = [];
+  for (const section of guideToSave.sections) {
+    const persistedSection = await normalizeAndPersistNoteImages({
+      content: section.content,
+      scope: "help_guide",
+      entityId: `${storageSlug}-${section.id}`,
+      userId: admin.authUserId,
+      supabase: admin.supabase,
+    });
+    persistedSection.warnings.forEach((warning) => {
+      const normalizedWarning = String(warning || "").trim();
+      if (!normalizedWarning) return;
+      persistedWarnings.add(`${section.title}: ${normalizedWarning}`);
+    });
+    persistedSections.push({
+      ...section,
+      content: persistedSection.content,
+    });
+  }
+
+  const guideWithPersistedImages = {
+    ...guideToSave,
+    sections: persistedSections,
+  };
+
   const { error } = await admin.supabase.from("help_guides").upsert(
     {
       slug: storageSlug,
-      guide: guideToSave,
+      guide: guideWithPersistedImages,
       updated_by_user_id: admin.appUserId,
     },
     { onConflict: "slug" }
@@ -139,7 +167,11 @@ export async function PATCH(
   revalidatePath(`/help/${previousRouteSlug}`);
   revalidatePath(`/help/${nextRouteSlug}`);
 
-  return NextResponse.json({ guide: guideToSave, storageSlug });
+  return NextResponse.json({
+    guide: guideWithPersistedImages,
+    storageSlug,
+    warnings: Array.from(persistedWarnings),
+  });
 }
 
 export async function DELETE(
@@ -172,4 +204,3 @@ export async function DELETE(
 
   return NextResponse.json({ ok: true });
 }
-

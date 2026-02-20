@@ -5,15 +5,27 @@ import { randomUUID } from "node:crypto";
 import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
+import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
-export async function updateTaskContent(taskId: string, content: unknown) {
+export async function updateTaskContent(
+  taskId: string,
+  content: unknown
+): Promise<{ content: unknown; warnings: string[] }> {
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const now = new Date().toISOString();
   const editorId = authData.user?.id ?? null;
-  const contentText = extractPlainText(content);
+  const persistedContent = await normalizeAndPersistNoteImages({
+    content,
+    scope: "task_note",
+    entityId: taskId,
+    userId: editorId,
+    supabase,
+  });
+  const canonicalContent = persistedContent.content;
+  const contentText = extractPlainText(canonicalContent);
   const mentionHandles = extractMentionHandles(contentText);
   let previousContentText: string | null = null;
   let taskTitle: string | null = null;
@@ -31,7 +43,7 @@ export async function updateTaskContent(taskId: string, content: unknown) {
   const { error: updateError } = await supabase
     .from("tasks")
     .update({
-      content,
+      content: canonicalContent,
       content_text: contentText,
       last_edited_at: now,
       last_edited_by_user_id: editorId,
@@ -73,6 +85,11 @@ export async function updateTaskContent(taskId: string, content: unknown) {
   }
 
   revalidatePath(`/tasks/${taskId}`);
+
+  return {
+    content: canonicalContent,
+    warnings: persistedContent.warnings,
+  };
 }
 
 export async function createTaskFromTaskNote(input: {

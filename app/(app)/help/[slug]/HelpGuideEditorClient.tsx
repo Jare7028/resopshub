@@ -84,21 +84,23 @@ export default function HelpGuideEditorClient({
         if (requestId !== latestSaveRequestRef.current) return;
         setSaveState("error");
         setSaveError("Unable to save guide. Check your connection and retry.");
-        return;
+        throw new Error("Unable to save guide. Check your connection and retry.");
       }
 
       const body = (await response.json().catch(() => null)) as unknown;
       if (!response.ok) {
         if (requestId !== latestSaveRequestRef.current) return;
+        const message = parseErrorMessage(body);
         setSaveState("error");
-        setSaveError(parseErrorMessage(body));
-        return;
+        setSaveError(message);
+        throw new Error(message);
       }
 
       if (requestId !== latestSaveRequestRef.current) return;
 
       let savedGuide = nextGuide;
       let savedStorageSlug = storageSlug;
+      let savedWarnings: string[] = [];
 
       if (isObjectRecord(body)) {
         const normalized = normalizeHelpGuide(body.guide);
@@ -107,6 +109,11 @@ export default function HelpGuideEditorClient({
         }
         if (typeof body.storageSlug === "string" && body.storageSlug.trim()) {
           savedStorageSlug = body.storageSlug.trim();
+        }
+        if (Array.isArray(body.warnings)) {
+          savedWarnings = body.warnings
+            .map((item) => String(item || "").trim())
+            .filter(Boolean);
         }
       }
 
@@ -120,6 +127,11 @@ export default function HelpGuideEditorClient({
       savedTimerRef.current = setTimeout(() => {
         setSaveState((current) => (current === "saved" ? "idle" : current));
       }, 1500);
+
+      return {
+        guide: savedGuide,
+        warnings: savedWarnings,
+      };
     },
     [storageSlug]
   );
@@ -128,10 +140,15 @@ export default function HelpGuideEditorClient({
     async (content: unknown) => {
       const nextGuide = parseGuideSingleDoc(content, guide);
       if (isSameJson(nextGuide, guide)) {
-        return;
+        return { content };
       }
       setGuide(nextGuide);
-      await persistGuide(nextGuide);
+      const persisted = await persistGuide(nextGuide);
+      const savedGuide = persisted?.guide || nextGuide;
+      return {
+        content: buildGuideSingleDoc(savedGuide),
+        warnings: persisted?.warnings || [],
+      };
     },
     [guide, persistGuide]
   );
@@ -218,7 +235,7 @@ export default function HelpGuideEditorClient({
           title={`${guide.title} guide`}
           placeholder="Start writing..."
           onSave={async (_entityId, content) => {
-            await updateGuideFromDocument(content);
+            return updateGuideFromDocument(content);
           }}
           showTopToolbar
           enableZoomControls
@@ -230,4 +247,3 @@ export default function HelpGuideEditorClient({
     </div>
   );
 }
-
