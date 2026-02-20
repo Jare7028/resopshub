@@ -50,6 +50,35 @@ function createGuide(): HelpGuide {
   };
 }
 
+function collectLinkHrefs(value: unknown, results: string[] = []) {
+  if (!value) return results;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectLinkHrefs(item, results));
+    return results;
+  }
+  if (typeof value !== "object") {
+    return results;
+  }
+  const node = value as { marks?: unknown; attrs?: unknown; content?: unknown };
+  if (Array.isArray(node.marks)) {
+    node.marks.forEach((mark) => {
+      if (!mark || typeof mark !== "object") return;
+      const typedMark = mark as { type?: unknown; attrs?: unknown };
+      if (typedMark.type !== "link" || !typedMark.attrs || typeof typedMark.attrs !== "object") {
+        return;
+      }
+      const href = String((typedMark.attrs as { href?: unknown }).href || "").trim();
+      if (href) {
+        results.push(href);
+      }
+    });
+  }
+  if (node.content) {
+    collectLinkHrefs(node.content, results);
+  }
+  return results;
+}
+
 describe("guide single-document helpers", () => {
   it("builds a document with metadata label lines", () => {
     const guide = createGuide();
@@ -127,6 +156,66 @@ describe("guide single-document helpers", () => {
 
     expect(sectionText).toContain("Body paragraph one.");
     expect(sectionText).toContain("Body paragraph two.");
+  });
+
+  it("preserves section links as clickable link marks during build and parse", () => {
+    const guide = createGuide();
+    guide.sections[0].links = [
+      {
+        label: "Download Outlook setup file (manifest.xml)",
+        href: "/downloads/outlook-manifest.xml",
+      },
+    ];
+
+    const doc = buildGuideSingleDoc(guide);
+    const linksInDoc = collectLinkHrefs(doc);
+    expect(linksInDoc).toContain("/downloads/outlook-manifest.xml");
+
+    const parsed = parseGuideSingleDoc(doc, guide);
+    expect(parsed.sections[0].links?.length || 0).toBe(1);
+    expect(parsed.sections[0].links?.[0]?.href).toBe("/downloads/outlook-manifest.xml");
+  });
+
+  it("recovers legacy download-links text blocks into structured section links", () => {
+    const guide = createGuide();
+    const parsed = parseGuideSingleDoc(
+      {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Title: Sample Guide" }] },
+          { type: "paragraph", content: [{ type: "text", text: "Summary: Guide summary" }] },
+          { type: "paragraph", content: [{ type: "text", text: "Audience: All users" }] },
+          { type: "paragraph", content: [{ type: "text", text: "Estimated time: 5 min" }] },
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Intro" }] },
+          { type: "paragraph", content: [{ type: "text", text: "Body paragraph one." }] },
+          { type: "paragraph", content: [{ type: "text", text: "Download links" }] },
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [
+                      {
+                        type: "text",
+                        text: "Download Outlook setup file (manifest.xml): /downloads/outlook-manifest.xml",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      guide
+    );
+
+    expect(parsed.sections[0].links?.length || 0).toBe(1);
+    expect(parsed.sections[0].links?.[0]?.href).toBe("/downloads/outlook-manifest.xml");
+    expect(extractPlainText(parsed.sections[0].content)).not.toContain("/downloads/outlook-manifest.xml");
   });
 
   it("normalizes title to route slug with safe fallback", () => {

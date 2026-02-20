@@ -1,11 +1,13 @@
 import { extractPlainText } from "../../../../lib/tiptapText";
-import type { HelpGuide, HelpGuideSection } from "../_data/guides";
+import type { HelpGuide, HelpGuideSection, HelpGuideSectionLink } from "../_data/guides";
 
 type TiptapNode = Record<string, unknown>;
 type TiptapDoc = {
   type: "doc";
   content: TiptapNode[];
 };
+
+const DOWNLOAD_LINKS_HEADING = "Download links";
 
 const METADATA_LABELS = {
   title: "Title",
@@ -61,12 +63,53 @@ function createHeadingNode(text: string): TiptapNode {
   };
 }
 
-function createBulletList(items: string[]): TiptapNode {
+function normalizeHref(value: unknown) {
+  const href = normalizeText(value, 2048);
+  if (!href) {
+    return "";
+  }
+  if (/^(https?:\/\/|\/)/i.test(href)) {
+    return href;
+  }
+  return "";
+}
+
+function normalizeSectionLinks(value: unknown): HelpGuideSectionLink[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const links: HelpGuideSectionLink[] = [];
+  value.forEach((entry) => {
+    if (!isObjectRecord(entry)) return;
+    const href = normalizeHref(entry.href);
+    if (!href) return;
+    const label = normalizeText(entry.label, 240) || href;
+    const key = `${label}::${href}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    links.push({ label, href });
+  });
+  return links;
+}
+
+function createDownloadLinksList(links: HelpGuideSectionLink[]): TiptapNode {
   return {
     type: "bulletList",
-    content: items.map((item) => ({
+    content: links.map((link) => ({
       type: "listItem",
-      content: [createParagraphNode(item)],
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: link.label,
+              marks: [{ type: "link", attrs: { href: link.href } }],
+            },
+          ],
+        },
+      ],
     })),
   };
 }
@@ -96,6 +139,127 @@ function getHeadingLevel(node: TiptapNode) {
 
 function getNodeText(node: TiptapNode) {
   return extractPlainText(node).replace(/\s+/g, " ").trim();
+}
+
+function parseLegacyLinkText(value: unknown): HelpGuideSectionLink | null {
+  const normalized = normalizeText(value, 2048);
+  if (!normalized) {
+    return null;
+  }
+
+  const labelHrefMatch = normalized.match(/^(.+?)\s*:\s*(https?:\/\/\S+|\/\S+)$/i);
+  if (labelHrefMatch) {
+    const href = normalizeHref(labelHrefMatch[2]);
+    if (!href) return null;
+    const label = normalizeText(labelHrefMatch[1], 240) || href;
+    return { label, href };
+  }
+
+  const hrefOnly = normalizeHref(normalized);
+  if (!hrefOnly) {
+    return null;
+  }
+  return { label: hrefOnly, href: hrefOnly };
+}
+
+function parseLinkFromParagraphNode(node: TiptapNode): HelpGuideSectionLink | null {
+  if (!isObjectRecord(node) || node.type !== "paragraph" || !Array.isArray(node.content)) {
+    return null;
+  }
+
+  let hrefFromMark = "";
+  const labelParts: string[] = [];
+  (node.content as unknown[]).forEach((item) => {
+    if (!isObjectRecord(item) || item.type !== "text") return;
+    const labelText = normalizeText(item.text, 240);
+    if (labelText) {
+      labelParts.push(labelText);
+    }
+
+    if (!Array.isArray(item.marks)) return;
+    item.marks.forEach((mark) => {
+      if (hrefFromMark) return;
+      if (!isObjectRecord(mark) || mark.type !== "link") return;
+      const attrs = isObjectRecord(mark.attrs) ? mark.attrs : null;
+      const href = normalizeHref(attrs?.href);
+      if (href) {
+        hrefFromMark = href;
+      }
+    });
+  });
+
+  if (hrefFromMark) {
+    const label = normalizeText(labelParts.join(" "), 240) || hrefFromMark;
+    return { label, href: hrefFromMark };
+  }
+
+  return parseLegacyLinkText(getNodeText(node));
+}
+
+function parseLinksFromBulletList(node: TiptapNode): HelpGuideSectionLink[] {
+  if (!isObjectRecord(node) || node.type !== "bulletList" || !Array.isArray(node.content)) {
+    return [];
+  }
+
+  const links: HelpGuideSectionLink[] = [];
+  (node.content as unknown[]).forEach((listItem) => {
+    if (!isObjectRecord(listItem)) return;
+
+    if (listItem.type === "listItem" && Array.isArray(listItem.content)) {
+      const paragraph = (listItem.content as unknown[]).find(
+        (item) => isObjectRecord(item) && item.type === "paragraph"
+      ) as TiptapNode | undefined;
+      if (paragraph) {
+        const parsed = parseLinkFromParagraphNode(paragraph);
+        if (parsed) {
+          links.push(parsed);
+          return;
+        }
+      }
+    }
+
+    const fallbackParsed = parseLegacyLinkText(getNodeText(listItem as TiptapNode));
+    if (fallbackParsed) {
+      links.push(fallbackParsed);
+    }
+  });
+
+  return normalizeSectionLinks(links);
+}
+
+function isDownloadLinksHeading(node: TiptapNode) {
+  if (!isObjectRecord(node) || node.type !== "paragraph") {
+    return false;
+  }
+  return getNodeText(node).toLowerCase() === DOWNLOAD_LINKS_HEADING.toLowerCase();
+}
+
+function extractDownloadLinksBlock(nodes: TiptapNode[]) {
+  const cleanedNodes: TiptapNode[] = [];
+  const extractedLinks: HelpGuideSectionLink[] = [];
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (
+      isDownloadLinksHeading(node) &&
+      index + 1 < nodes.length &&
+      isObjectRecord(nodes[index + 1]) &&
+      nodes[index + 1].type === "bulletList"
+    ) {
+      const blockLinks = parseLinksFromBulletList(nodes[index + 1]);
+      if (blockLinks.length) {
+        extractedLinks.push(...blockLinks);
+        index += 1;
+        continue;
+      }
+    }
+    cleanedNodes.push(cloneJson(node));
+  }
+
+  return {
+    contentNodes: cleanedNodes,
+    links: normalizeSectionLinks(extractedLinks),
+  };
 }
 
 function parseMetadataLine(
@@ -156,14 +320,18 @@ function buildBodySections(
     }
     usedIds.add(id);
 
+    const extracted = extractDownloadLinksBlock(draft.nodes);
     const nextSection: HelpGuideSection = {
       id,
       title,
       content: {
         type: "doc",
-        content: draft.nodes.length ? cloneJson(draft.nodes) : [createParagraphNode()],
+        content: extracted.contentNodes.length ? cloneJson(extracted.contentNodes) : [createParagraphNode()],
       },
     };
+    if (extracted.links.length) {
+      nextSection.links = extracted.links;
+    }
     return nextSection;
   });
 
@@ -214,21 +382,20 @@ export function buildGuideSingleDoc(guide: HelpGuide): TiptapDoc {
     const title = normalizeText(section.title, 240) || "Section";
     content.push(createHeadingNode(title));
     const sectionDoc = normalizeDoc(section.content);
-    if (sectionDoc.content.length) {
-      sectionDoc.content.forEach((node) => {
+    const extracted = extractDownloadLinksBlock(sectionDoc.content || []);
+    if (extracted.contentNodes.length) {
+      extracted.contentNodes.forEach((node) => {
         content.push(cloneJson(node));
       });
     } else {
       content.push(createParagraphNode());
     }
 
-    if (section.links?.length) {
-      content.push(createParagraphNode("Download links"));
-      content.push(
-        createBulletList(
-          section.links.map((link) => `${normalizeText(link.label, 240)}: ${normalizeText(link.href, 2048)}`)
-        )
-      );
+    const normalizedSectionLinks = normalizeSectionLinks(section.links);
+    const linksToRender = normalizedSectionLinks.length ? normalizedSectionLinks : extracted.links;
+    if (linksToRender.length) {
+      content.push(createParagraphNode(DOWNLOAD_LINKS_HEADING));
+      content.push(createDownloadLinksList(linksToRender));
     }
   });
 
