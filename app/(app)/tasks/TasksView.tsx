@@ -635,8 +635,24 @@ export default function TasksView({
     );
   };
 
+  const shouldHideCompletedStatuses =
+    hideCompleted &&
+    !filters.status.includes("completed") &&
+    !filters.status.includes("cancelled");
+
+  const visibleTasks = useMemo(() => {
+    if (!shouldHideCompletedStatuses) {
+      return tasks;
+    }
+    return tasks.filter((task) => {
+      const status =
+        optimisticStatusByTaskId[task.id] || normalizeTaskStatusOrDefault(task.status);
+      return status !== "completed" && status !== "cancelled";
+    });
+  }, [optimisticStatusByTaskId, shouldHideCompletedStatuses, tasks]);
+
   const ganttData = useMemo(() => {
-    const normalized = tasks.map((task) => {
+    const normalized = visibleTasks.map((task) => {
       const startDate =
         toDate(task.start_date) ??
         toDate(task.created_at) ??
@@ -667,7 +683,7 @@ export default function TasksView({
     const rangeDays = Math.max(1, diffDays(rangeStart, rangeEnd) + 1);
 
     return { tasks: normalized, rangeStart, rangeEnd, rangeDays };
-  }, [tasks]);
+  }, [visibleTasks]);
 
   const timelineWidth = useMemo(() => {
     const dayWidth = 18;
@@ -712,7 +728,7 @@ export default function TasksView({
   const boardTasksByStatus = useMemo(() => {
     const buckets = new Map<string, TaskRow[]>();
     statusOptions.forEach((status) => buckets.set(status, []));
-    tasks.forEach((task) => {
+    visibleTasks.forEach((task) => {
       const normalized =
         effectiveStatusByTaskId.get(task.id) || normalizeTaskStatusOrDefault(task.status);
       const bucketKey = buckets.has(normalized)
@@ -724,7 +740,7 @@ export default function TasksView({
       }
     });
     return buckets;
-  }, [effectiveStatusByTaskId, tasks, statusOptions]);
+  }, [effectiveStatusByTaskId, statusOptions, visibleTasks]);
 
   const submitStatusUpdate = (taskId: string, status: string) => {
     const previousStatus = effectiveStatusByTaskId.get(taskId);
@@ -1225,10 +1241,18 @@ export default function TasksView({
               </tr>
             </thead>
             <tbody>
-              {tasks.length ? (
-                tasks.map((task) => {
+              {visibleTasks.length ? (
+                visibleTasks.map((task) => {
                   const isExpanded = expandedTaskIds.has(task.id);
                   const openSubtasks = openSubtasksByParentId[task.id] || [];
+                  const visibleOpenSubtasks = shouldHideCompletedStatuses
+                    ? openSubtasks.filter((subtask) => {
+                        const subtaskStatus =
+                          effectiveStatusByTaskId.get(subtask.id) ||
+                          normalizeTaskStatusOrDefault(subtask.status);
+                        return subtaskStatus !== "completed" && subtaskStatus !== "cancelled";
+                      })
+                    : openSubtasks;
                   return (
                     <Fragment key={task.id}>
                       <TaskInlineRow
@@ -1243,10 +1267,15 @@ export default function TasksView({
                         statusOptions={statusOptions}
                         priorityOptions={priorityOptions}
                         onUpdate={onUpdate}
+                        onStatusUpdate={submitStatusUpdate}
+                        statusValue={
+                          effectiveStatusByTaskId.get(task.id) ||
+                          normalizeTaskStatusOrDefault(task.status)
+                        }
                         returnTo={inlineReturnTo}
                       />
                       {isExpanded
-                        ? openSubtasks.map((subtask) => (
+                        ? visibleOpenSubtasks.map((subtask) => (
                             <TaskInlineRow
                               key={subtask.id}
                               task={subtask}
@@ -1257,6 +1286,11 @@ export default function TasksView({
                               statusOptions={statusOptions}
                               priorityOptions={priorityOptions}
                               onUpdate={onUpdate}
+                              onStatusUpdate={submitStatusUpdate}
+                              statusValue={
+                                effectiveStatusByTaskId.get(subtask.id) ||
+                                normalizeTaskStatusOrDefault(subtask.status)
+                              }
                               returnTo={inlineReturnTo}
                               rowVariant="subtask"
                             />
@@ -1276,13 +1310,16 @@ export default function TasksView({
           </table>
         </div>
         <div className="mobile-list-stack md:hidden">
-          {tasks.length ? (
-            tasks.map((task) => {
+          {visibleTasks.length ? (
+            visibleTasks.map((task) => {
               const assigneeIds = assigneesByTask[task.id] || [];
               const clientName = task.client_id ? clientNameById[task.client_id] || null : null;
               const projectName = task.project_id
                 ? projectNameById[task.project_id] || null
                 : null;
+              const effectiveStatus =
+                effectiveStatusByTaskId.get(task.id) ||
+                normalizeTaskStatusOrDefault(task.status);
               const dueLabel = task.due_date
                 ? new Date(task.due_date).toLocaleDateString("en-US")
                 : "No due date";
@@ -1300,7 +1337,7 @@ export default function TasksView({
                       {task.title}
                     </Link>
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
-                      {formatTaskStatusLabel(normalizeTaskStatusOrDefault(task.status))}
+                      {formatTaskStatusLabel(effectiveStatus)}
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1354,7 +1391,7 @@ export default function TasksView({
         </>
       ) : view === "gantt" ? (
         <div className="overflow-x-auto">
-          {tasks.length ? (
+          {ganttData.tasks.length ? (
             <div className="min-w-full" style={{ minWidth: timelineWidth + 240 }}>
               <div className="grid grid-cols-[240px_1fr] border-b border-slate-200">
                 <div className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">
@@ -1432,7 +1469,7 @@ export default function TasksView({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          {tasks.length ? (
+          {visibleTasks.length ? (
             <div className="min-w-full px-6 py-6">
               <div className="flex min-w-max gap-4">
                 {statusOptions.map((status) => {

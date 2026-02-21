@@ -11,6 +11,7 @@ import TaskTabs, {
   normalizeTaskTabKey,
   type TaskTabKey,
 } from "./_components/TaskTabs";
+import SingleSubmitButton from "./_components/SingleSubmitButton";
 import ConfirmDelete from "../../_components/ConfirmDelete";
 import {
   TASK_STATUS_OPTIONS,
@@ -1529,12 +1530,12 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
-            <button
-              type="submit"
+            <SingleSubmitButton
+              pendingLabel="Creating..."
               className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
             >
               Create subtask
-            </button>
+            </SingleSubmitButton>
           </form>
         </div>
       </section>

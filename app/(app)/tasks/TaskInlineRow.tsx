@@ -56,6 +56,8 @@ type TaskInlineRowProps = {
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   onUpdate: (formData: FormData) => Promise<unknown> | void;
+  onStatusUpdate?: (taskId: string, status: string) => void;
+  statusValue?: string;
   returnTo: string;
   rowVariant?: "task" | "subtask";
 };
@@ -72,12 +74,14 @@ export default function TaskInlineRow({
   statusOptions,
   priorityOptions,
   onUpdate,
+  onStatusUpdate,
+  statusValue,
   returnTo,
   rowVariant = "task",
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
-  const normalizedStatus = normalizeTaskStatusOrDefault(task.status);
+  const normalizedStatus = normalizeTaskStatusOrDefault(statusValue ?? task.status);
   const isSubtaskRow = rowVariant === "subtask";
   const [, startTransition] = useTransition();
 
@@ -98,6 +102,10 @@ export default function TaskInlineRow({
   const handleChange = (
     event: ChangeEvent<HTMLSelectElement | HTMLInputElement>
   ) => {
+    if (event.currentTarget.name === "status" && onStatusUpdate) {
+      onStatusUpdate(task.id, normalizeTaskStatusOrDefault(event.currentTarget.value));
+      return;
+    }
     const form = event.currentTarget.form;
     if (!form) return;
     const formData = new FormData(form);
@@ -266,7 +274,7 @@ export default function TaskInlineRow({
           <select
             name="status"
             aria-label="Status"
-            defaultValue={normalizedStatus}
+            value={normalizedStatus}
             className={`w-full rounded-md border px-2 py-1 text-sm ${statusSelectClasses(
               normalizedStatus
             )}`}
