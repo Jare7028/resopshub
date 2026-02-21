@@ -136,6 +136,7 @@ export default async function ClientTasksPage(props: {
   let selectedDue = (searchParams?.due || "all").trim();
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const activeTab = normalizeTasksTabKey(searchParams?.tab);
+  const wantsAddDialog = activeTab === "add";
 
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
@@ -309,7 +310,7 @@ export default async function ClientTasksPage(props: {
   };
   const sharedAddTaskUrl = `/tasks?tab=add&client=${encodeURIComponent(clientId)}`;
 
-  if (activeTab === "add") {
+  if (wantsAddDialog) {
     redirect(sharedAddTaskUrl);
   }
 
@@ -781,7 +782,7 @@ export default async function ClientTasksPage(props: {
         </Link>
       </div>
 
-      {activeTab === "add" ? (
+      {wantsAddDialog ? (
         <RouteModalOverlay
           closeHref={tasksTabUrls.list}
           overlayLabel="Close add task dialog"
