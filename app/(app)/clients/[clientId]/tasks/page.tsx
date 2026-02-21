@@ -307,6 +307,11 @@ export default async function ClientTasksPage(props: {
     new: buildAddTaskUrl("new"),
     template: buildAddTaskUrl("template", templateTaskId || undefined),
   };
+  const sharedAddTaskUrl = `/tasks?tab=add&client=${encodeURIComponent(clientId)}`;
+
+  if (activeTab === "add") {
+    redirect(sharedAddTaskUrl);
+  }
 
   let tasksRequest = supabase
     .from("tasks")
@@ -769,7 +774,7 @@ export default async function ClientTasksPage(props: {
 
       <div className="flex justify-start">
         <Link
-          href={tasksTabUrls.add}
+          href={sharedAddTaskUrl}
           className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
         >
           Add task

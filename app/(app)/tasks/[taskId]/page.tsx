@@ -1679,6 +1679,8 @@ export default async function TaskDetailPage(props: {
             </div>
             <ResilientCreateSubmitButton
               pendingLabel="Creating..."
+              softRefreshDelayMs={325}
+              hardReloadDelayMs={900}
               className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
             >
               Create subtask

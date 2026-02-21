@@ -482,9 +482,19 @@ export default async function TasksPage(props: {
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
+  const hasExplicitClientFilter = typeof searchParams?.client !== "undefined";
+  const defaultAddClientId =
+    hasExplicitClientFilter && selectedClientIds.length === 1
+      ? selectedClientIds[0]
+      : "";
 
   const projectIdSet = new Set((projects || []).map((project) => project.id));
   const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
+  const hasExplicitProjectFilter = typeof searchParams?.project !== "undefined";
+  const defaultAddProjectId =
+    hasExplicitProjectFilter && selectedProjectIds.length === 1
+      ? selectedProjectIds[0]
+      : "";
 
   if (currentAppUserId && taskPreferencesAvailable) {
     const shouldSavePreferences =
@@ -1595,7 +1605,7 @@ export default async function TasksPage(props: {
                             <select
                               name="client_id"
                               className={addTaskControlClass}
-                              defaultValue=""
+                              defaultValue={defaultAddClientId}
                             >
                               <option value="">Client (N/A)</option>
                               {clients?.map((client) => (
@@ -1610,7 +1620,7 @@ export default async function TasksPage(props: {
                             <select
                               name="project_id"
                               className={addTaskControlClass}
-                              defaultValue=""
+                              defaultValue={defaultAddProjectId}
                             >
                               <option value="">Project (N/A)</option>
                               {projects?.map((project) => {

@@ -78,6 +78,7 @@ export default async function ProjectTasksPage(props: {
     error?: string;
     success?: string;
     created?: string;
+    tab?: string;
     view?: string;
     status?: string | string[];
     priority?: string | string[];
@@ -168,6 +169,20 @@ export default async function ProjectTasksPage(props: {
   const projectId = project.id;
   const projectClientId = project.client_id;
   const basePath = `/projects/${projectId}/tasks`;
+  const activeTab = String(searchParams?.tab || "").trim().toLowerCase();
+  const hasLegacyProjectAddParams =
+    typeof searchParams?.create_mode !== "undefined" ||
+    typeof searchParams?.template_task_id !== "undefined";
+  const sharedAddTaskParams = new URLSearchParams();
+  sharedAddTaskParams.set("tab", "add");
+  sharedAddTaskParams.set("project", projectId);
+  if (createMode === "template") {
+    sharedAddTaskParams.set("create_mode", "template");
+    if (templateTaskId) {
+      sharedAddTaskParams.set("template_task_id", templateTaskId);
+    }
+  }
+  const sharedAddTaskUrl = `/tasks?${sharedAddTaskParams.toString()}`;
 
   if (!isAdmin && currentUserId) {
     const { data: assignment } = await supabase
@@ -187,6 +202,10 @@ export default async function ProjectTasksPage(props: {
     }
   } else if (!isAdmin && !currentUserId) {
     redirect("/projects?error=User%20profile%20missing");
+  }
+
+  if (activeTab === "add" || hasLegacyProjectAddParams) {
+    redirect(sharedAddTaskUrl);
   }
 
   const { data: users } = await supabase
@@ -657,6 +676,16 @@ export default async function ProjectTasksPage(props: {
         </p>
       ) : null}
 
+      <div className="flex justify-start">
+        <Link
+          href={sharedAddTaskUrl}
+          className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+        >
+          Add task
+        </Link>
+      </div>
+
+      {activeTab === "add" ? (
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <details>
           <summary className="cursor-pointer text-lg font-semibold text-slate-900">
@@ -832,6 +861,7 @@ export default async function ProjectTasksPage(props: {
           </div>
         </details>
       </section>
+      ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <TasksView
