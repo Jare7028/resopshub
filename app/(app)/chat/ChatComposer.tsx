@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
+import { insertTextAtSelection } from "@/lib/emoji";
 
 export type LinkEntityType =
   | "task"
@@ -65,6 +67,7 @@ export default function ChatComposer(props: {
   const [uploadError, setUploadError] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!isSlashOpen) return;
@@ -179,6 +182,27 @@ export default function ChatComposer(props: {
     isUploadingImage ||
     (!body.trim() && !attachedLinks.length && !attachedImages.length);
 
+  const insertEmoji = (emoji: string) => {
+    setBody((current) => {
+      const textarea = bodyTextareaRef.current;
+      const selectionStart = textarea?.selectionStart ?? current.length;
+      const selectionEnd = textarea?.selectionEnd ?? current.length;
+      const { nextValue, nextSelection } = insertTextAtSelection({
+        value: current,
+        selectionStart,
+        selectionEnd,
+        text: emoji,
+      });
+      requestAnimationFrame(() => {
+        const nextTextarea = bodyTextareaRef.current;
+        if (!nextTextarea) return;
+        nextTextarea.focus();
+        nextTextarea.setSelectionRange(nextSelection, nextSelection);
+      });
+      return nextValue;
+    });
+  };
+
   return (
     <form
       onSubmit={async (event) => {
@@ -207,6 +231,7 @@ export default function ChatComposer(props: {
     >
       <div className="rounded-md border border-slate-300 bg-white">
         <textarea
+          ref={bodyTextareaRef}
           value={body}
           onChange={(event) => setBody(event.target.value)}
           onPaste={async (event) => {
@@ -239,6 +264,7 @@ export default function ChatComposer(props: {
         />
         <div className="flex items-center justify-between border-t border-slate-200 px-2 py-1.5">
           <div className="flex items-center gap-1">
+            <EmojiPickerButton onSelect={insertEmoji} disabled={isSending || isUploadingImage} />
             <button
               type="button"
               onClick={() => setIsSlashOpen((prev) => !prev)}
@@ -308,7 +334,7 @@ export default function ChatComposer(props: {
       {uploadError ? <p className="text-xs text-red-600">{uploadError}</p> : null}
       {!uploadError ? (
         <p className="text-[11px] text-slate-500">
-          Enter to send. Shift+Enter for a new line. Paste or upload images.
+          Enter to send. Shift+Enter for a new line. Add emoji, paste, or upload images.
         </p>
       ) : null}
 

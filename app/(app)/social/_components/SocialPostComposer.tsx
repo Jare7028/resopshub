@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
+import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
+import { insertTextAtSelection } from "@/lib/emoji";
 
 type UploadedSocialImage = {
   storage_path: string;
@@ -44,6 +46,7 @@ export default function SocialPostComposer({
   const [uploadError, setUploadError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const maxImages = 6;
 
@@ -97,6 +100,27 @@ export default function SocialPostComposer({
     }
   };
 
+  const insertEmoji = (emoji: string) => {
+    setBody((current) => {
+      const textarea = bodyTextareaRef.current;
+      const selectionStart = textarea?.selectionStart ?? current.length;
+      const selectionEnd = textarea?.selectionEnd ?? current.length;
+      const { nextValue, nextSelection } = insertTextAtSelection({
+        value: current,
+        selectionStart,
+        selectionEnd,
+        text: emoji,
+      });
+      requestAnimationFrame(() => {
+        const nextTextarea = bodyTextareaRef.current;
+        if (!nextTextarea) return;
+        nextTextarea.focus();
+        nextTextarea.setSelectionRange(nextSelection, nextSelection);
+      });
+      return nextValue;
+    });
+  };
+
   return (
     <form action={onPost} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="space-y-1">
@@ -119,6 +143,7 @@ export default function SocialPostComposer({
       />
 
       <textarea
+        ref={bodyTextareaRef}
         name="body"
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -141,6 +166,11 @@ export default function SocialPostComposer({
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
+          <EmojiPickerButton
+            onSelect={insertEmoji}
+            disabled={!canPost || isUploading}
+            className="inline-flex h-[36px] w-[36px] items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+          />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}

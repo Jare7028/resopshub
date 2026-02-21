@@ -7,6 +7,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+import SocialCommentComposer from "../_components/SocialCommentComposer";
 import SocialPostComposer from "../_components/SocialPostComposer";
 
 type SocialPageRow = {
@@ -973,26 +974,7 @@ export default async function SocialPageDetail(props: {
                         Comments ({commentsForPost.length})
                       </p>
 
-                      <form action={addComment} className="mt-2 flex flex-col gap-2">
-                        <input type="hidden" name="post_id" value={post.id} />
-                        <textarea
-                          name="body"
-                          rows={2}
-                          placeholder="Write a comment"
-                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                          disabled={!canPost}
-                          required
-                        />
-                        <div className="flex justify-end">
-                          <button
-                            type="submit"
-                            disabled={!canPost}
-                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Add comment
-                          </button>
-                        </div>
-                      </form>
+                      <SocialCommentComposer postId={post.id} canPost={canPost} onComment={addComment} />
 
                       <div className="mt-3 space-y-2">
                         {commentsForPost.length ? (
