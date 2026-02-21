@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
@@ -186,7 +187,9 @@ export default async function SocialPage(props: {
       redirect("/social?error=Missing%20user%20profile");
     }
 
-    const { data: insertedPage, error: insertError } = await supabase
+    const supabaseAdmin = createSupabaseAdminClient();
+
+    const { data: insertedPage, error: insertError } = await supabaseAdmin
       .from("social_pages")
       .insert({
         name,
@@ -199,14 +202,14 @@ export default async function SocialPage(props: {
     if (insertError || !insertedPage?.id) {
       const insertMessage = String(insertError?.message || "Unable to create page");
       const friendlyMessage = /row-level security/i.test(insertMessage)
-        ? "Social page creation was blocked by a database policy mismatch. Please sign out/in and retry."
+        ? "Social page creation failed due to a policy mismatch. Contact support if this persists."
         : insertMessage;
       redirect(
         `/social?error=${encodeURIComponent(friendlyMessage)}`
       );
     }
 
-    const { error: addManagerError } = await supabase
+    const { error: addManagerError } = await supabaseAdmin
       .from("social_page_members")
       .upsert(
         {
