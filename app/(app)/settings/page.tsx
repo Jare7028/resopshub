@@ -3,7 +3,10 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
 import {
   buildStatusOptions,
@@ -165,13 +168,46 @@ export default async function SettingsPage(props: {
     redirect("/login");
   }
 
-  const { data: profile } = await withPerfTiming("settings.profile", () =>
+  let profile:
+    | {
+        id: string;
+        email: string | null;
+        full_name: string | null;
+        role: string | null;
+        avatar_url: string | null;
+        avatar_storage_path: string | null;
+      }
+    | null = null;
+
+  const profileWithAvatarResult = await withPerfTiming("settings.profile", () =>
     supabase
       .from("users")
       .select("id,email,full_name,role,avatar_url,avatar_storage_path")
       .eq("id", user.id)
       .maybeSingle()
   );
+
+  if (profileWithAvatarResult.error) {
+    if (isSupabaseMissingColumnError(profileWithAvatarResult.error)) {
+      const profileFallbackResult = await withPerfTiming("settings.profile.fallback", () =>
+        supabase.from("users").select("id,email,full_name,role").eq("id", user.id).maybeSingle()
+      );
+      if (profileFallbackResult.error) {
+        redirect(`/dashboard?error=${encodeURIComponent(profileFallbackResult.error.message)}`);
+      }
+      profile = profileFallbackResult.data
+        ? {
+            ...profileFallbackResult.data,
+            avatar_url: null,
+            avatar_storage_path: null,
+          }
+        : null;
+    } else {
+      redirect(`/dashboard?error=${encodeURIComponent(profileWithAvatarResult.error.message)}`);
+    }
+  } else {
+    profile = profileWithAvatarResult.data;
+  }
 
   if (!profile) {
     redirect("/dashboard?error=Missing%20profile");
@@ -531,8 +567,15 @@ export default async function SettingsPage(props: {
       .select("avatar_url,avatar_storage_path")
       .eq("id", user.id)
       .maybeSingle();
-    if (currentProfileError) {
+    const avatarColumnsAvailable = !isSupabaseMissingColumnError(currentProfileError);
+    if (currentProfileError && avatarColumnsAvailable) {
       redirect(`/settings?error=${encodeURIComponent(currentProfileError.message)}`);
+    }
+
+    if (!avatarColumnsAvailable && (avatarFile || removeAvatar)) {
+      redirect(
+        "/settings?error=Profile%20photo%20is%20not%20available%20yet.%20Run%20the%20latest%20database%20migration."
+      );
     }
 
     const currentAvatarStoragePath = String(currentProfile?.avatar_storage_path || "").trim();
@@ -568,13 +611,18 @@ export default async function SettingsPage(props: {
       nextAvatarStoragePath = null;
     }
 
+    const profileUpdatePayload = avatarColumnsAvailable
+      ? {
+          full_name: fullName,
+          avatar_url: nextAvatarUrl,
+          avatar_storage_path: nextAvatarStoragePath,
+        }
+      : {
+          full_name: fullName,
+        };
     const { error } = await supabase
       .from("users")
-      .update({
-        full_name: fullName,
-        avatar_url: nextAvatarUrl,
-        avatar_storage_path: nextAvatarStoragePath,
-      })
+      .update(profileUpdatePayload)
       .eq("id", user.id);
 
     if (error) {
@@ -582,6 +630,7 @@ export default async function SettingsPage(props: {
     }
 
     const shouldDeleteOldAvatar =
+      avatarColumnsAvailable &&
       Boolean(currentAvatarStoragePath) && currentAvatarStoragePath !== (nextAvatarStoragePath || "");
     if (shouldDeleteOldAvatar) {
       await supabase.storage.from(USER_AVATARS_BUCKET).remove([currentAvatarStoragePath]);
