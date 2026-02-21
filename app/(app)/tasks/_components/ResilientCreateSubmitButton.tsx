@@ -17,8 +17,8 @@ type ResilientCreateSubmitButtonProps = Omit<
 export default function ResilientCreateSubmitButton({
   children,
   pendingLabel = "Creating...",
-  softRefreshDelayMs = 1400,
-  hardReloadDelayMs = 3600,
+  softRefreshDelayMs = 650,
+  hardReloadDelayMs = 1800,
   disabled,
   ...props
 }: ResilientCreateSubmitButtonProps) {
