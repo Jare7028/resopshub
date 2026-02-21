@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import ProjectTabs from "../_components/ProjectTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
@@ -89,6 +89,7 @@ export default async function ProjectTasksPage(props: {
     template_task_id?: string;
   }>;
 }) {
+  noStore();
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();

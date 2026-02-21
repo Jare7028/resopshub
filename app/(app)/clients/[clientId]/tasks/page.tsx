@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
@@ -102,6 +102,7 @@ export default async function ClientTasksPage(props: {
     page?: string;
   }>;
 }) {
+  noStore();
   const params = await props.params;
   const searchParams = await props.searchParams;
   const clientId = params.clientId;

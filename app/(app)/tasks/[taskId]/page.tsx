@@ -2,7 +2,7 @@ import Link from "next/link";
 import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import TaskNotesEditorClient from "./TaskNotesEditorClient";
 import TaskTabs, {
@@ -152,6 +152,7 @@ export default async function TaskDetailPage(props: {
     dir?: string;
   }>;
 }) {
+  noStore();
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
