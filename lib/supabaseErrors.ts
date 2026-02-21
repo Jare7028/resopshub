@@ -26,9 +26,12 @@ export function isSupabaseMissingFunctionError(error: MaybePostgrestError): bool
 // Example: "Could not find the 'foo' column of 'bar' in the schema cache"
 export function isSupabaseMissingColumnError(error: MaybePostgrestError): boolean {
   const code = String((error as { code?: string } | null | undefined)?.code || "");
-  if (code === "PGRST204") return true;
+  if (code === "PGRST204" || code === "42703") return true;
 
   const message = String((error as { message?: string } | null | undefined)?.message || "");
   const msg = message.toLowerCase();
-  return msg.includes("schema cache") && msg.includes("could not find") && msg.includes("column");
+  return (
+    (msg.includes("schema cache") && msg.includes("could not find") && msg.includes("column")) ||
+    (msg.includes("column") && msg.includes("does not exist"))
+  );
 }
