@@ -76,6 +76,7 @@ export default async function ProjectTasksPage(props: {
   searchParams?: Promise<{
     error?: string;
     success?: string;
+    created?: string;
     view?: string;
     status?: string | string[];
     priority?: string | string[];
@@ -627,7 +628,9 @@ export default async function ProjectTasksPage(props: {
     }
 
     revalidatePath(`/projects/${projectId}/tasks`);
-    redirect(`/projects/${projectId}/tasks?success=Task%20created`);
+    redirect(
+      `/projects/${projectId}/tasks?success=Task%20created&created=${encodeURIComponent(taskId)}`
+    );
   }
   const updateTaskInline = updateTaskInlineAction;
 

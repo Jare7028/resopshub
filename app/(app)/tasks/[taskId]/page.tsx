@@ -70,7 +70,12 @@ type TaskDetailRow = {
 function buildTaskUrl(
   taskId: string,
   tab: TaskTabKey,
-  params?: { error?: string; success?: string; addField?: "1" | "0" }
+  params?: {
+    error?: string;
+    success?: string;
+    addField?: "1" | "0";
+    created?: string;
+  }
 ) {
   const sp = new URLSearchParams();
 
@@ -85,6 +90,9 @@ function buildTaskUrl(
   }
   if (params?.addField === "1") {
     sp.set("add_field", "1");
+  }
+  if (params?.created) {
+    sp.set("created", params.created);
   }
 
   const qs = sp.toString();
@@ -108,6 +116,7 @@ export default async function TaskDetailPage(props: {
   searchParams?: Promise<{
     error?: string;
     success?: string;
+    created?: string;
     tab?: string;
     add_field?: string;
     view?: string;
@@ -793,8 +802,9 @@ export default async function TaskDetailPage(props: {
       );
     }
 
+    let createdSubtaskId: string;
     try {
-      await createTaskLikeRoot({
+      const created = await createTaskLikeRoot({
         supabase,
         context: "tasks.createSubtask",
         title,
@@ -811,6 +821,7 @@ export default async function TaskDetailPage(props: {
         assigneeUserIds: assigneeIds,
         defaultAssigneeUserId: defaultAssigneeUserId || null,
       });
+      createdSubtaskId = created.taskId;
     } catch (error) {
       if (error instanceof TaskCreateDbError) {
         redirect(
@@ -831,7 +842,12 @@ export default async function TaskDetailPage(props: {
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(buildTaskUrl(taskId, "subtasks", { success: "Subtask created" }));
+    redirect(
+      buildTaskUrl(taskId, "subtasks", {
+        success: "Subtask created",
+        created: createdSubtaskId,
+      })
+    );
   }
 
   async function deleteTask() {

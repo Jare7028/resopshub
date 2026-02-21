@@ -86,6 +86,7 @@ export default async function ClientTasksPage(props: {
   searchParams?: Promise<{
     error?: string;
     success?: string;
+    created?: string;
     status?: string | string[];
     priority?: string | string[];
     assignee?: string | string[];
@@ -248,7 +249,7 @@ export default async function ClientTasksPage(props: {
     : `/clients/${clientId}/tasks`;
   const buildClientTasksUrl = (
     tab: "list" | "add",
-    params?: { error?: string; success?: string }
+    params?: { error?: string; success?: string; created?: string }
   ) => {
     const sp = new URLSearchParams(returnParams);
     if (tab !== "list") {
@@ -259,6 +260,9 @@ export default async function ClientTasksPage(props: {
     }
     if (params?.success) {
       sp.set("success", params.success);
+    }
+    if (params?.created) {
+      sp.set("created", params.created);
     }
     const qs = sp.toString();
     return qs ? `/clients/${clientId}/tasks?${qs}` : `/clients/${clientId}/tasks`;
@@ -717,7 +721,12 @@ export default async function ClientTasksPage(props: {
     }
 
     revalidatePath(`/clients/${clientId}/tasks`);
-    redirect(buildClientTasksUrl("list", { success: "Task created" }));
+    redirect(
+      buildClientTasksUrl("list", {
+        success: "Task created",
+        created: taskId,
+      })
+    );
   }
   async function updateTaskInline(input: Parameters<typeof updateTaskInlineAction>[0]) {
     "use server";
