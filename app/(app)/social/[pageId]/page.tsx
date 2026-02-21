@@ -436,7 +436,17 @@ export default async function SocialPageDetail(props: {
       redirect(pageUrl({ error: "Missing user profile" }));
     }
 
-    const supabaseAdmin = createSupabaseAdminClient();
+    let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    try {
+      supabaseAdmin = createSupabaseAdminClient();
+    } catch (error) {
+      logError("social.post.create.admin_client_missing", {
+        action_id: actionId,
+        page_id: pageId,
+        error,
+      });
+      redirect(pageUrl({ error: "Social configuration is incomplete. Contact support." }));
+    }
 
     const { data: insertedPost, error: insertPostError } = await supabaseAdmin
       .from("social_posts")
@@ -629,7 +639,18 @@ export default async function SocialPageDetail(props: {
       redirect(pageUrl({ error: "Missing user profile" }));
     }
 
-    const supabaseAdmin = createSupabaseAdminClient();
+    let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    try {
+      supabaseAdmin = createSupabaseAdminClient();
+    } catch (error) {
+      logError("social.comment.create.admin_client_missing", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        error,
+      });
+      redirect(pageUrl({ error: "Social configuration is incomplete. Contact support." }));
+    }
 
     const { error: commentError } = await supabaseAdmin.from("social_post_comments").insert({
       post_id: postId,

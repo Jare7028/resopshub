@@ -1,5 +1,3 @@
-import "server-only";
-
 type LogLevel = "debug" | "info" | "warn" | "error";
 type LogFields = Record<string, unknown>;
 
@@ -33,7 +31,7 @@ function shouldLog(level: LogLevel) {
   return LOG_LEVEL_ORDER[level] >= LOG_LEVEL_ORDER[minimumLevel];
 }
 
-function sanitize(value: unknown, depth = 0): unknown {
+function sanitize(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
   if (value === null || value === undefined) {
     return value;
   }
@@ -59,10 +57,16 @@ function sanitize(value: unknown, depth = 0): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.slice(0, 50).map((entry) => sanitize(entry, depth + 1));
+    return value.slice(0, 50).map((entry) => sanitize(entry, depth + 1, seen));
   }
 
   if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+    if (seen.has(objectValue)) {
+      return "[circular]";
+    }
+    seen.add(objectValue);
+
     const entries = Object.entries(value as Record<string, unknown>).slice(0, 80);
     const result: Record<string, unknown> = {};
 
@@ -72,7 +76,7 @@ function sanitize(value: unknown, depth = 0): unknown {
         result[key] = "[redacted]";
         continue;
       }
-      result[key] = sanitize(entry, depth + 1);
+      result[key] = sanitize(entry, depth + 1, seen);
     }
 
     return result;
@@ -86,36 +90,47 @@ function emitLog(level: LogLevel, event: string, fields: LogFields = {}) {
     return;
   }
 
-  const sanitizedFields = sanitize(fields);
-  const safeFields =
-    typeof sanitizedFields === "object" && sanitizedFields
-      ? (sanitizedFields as Record<string, unknown>)
-      : { fields: sanitizedFields };
+  try {
+    const sanitizedFields = sanitize(fields);
+    const safeFields =
+      typeof sanitizedFields === "object" && sanitizedFields
+        ? (sanitizedFields as Record<string, unknown>)
+        : { fields: sanitizedFields };
 
-  const payload = {
-    ts: new Date().toISOString(),
-    level,
-    event,
-    vercel_env: process.env.VERCEL_ENV || "local",
-    vercel_region: process.env.VERCEL_REGION || null,
-    runtime: process.env.NEXT_RUNTIME || "nodejs",
-    ...safeFields,
-  };
+    const payload = {
+      ts: new Date().toISOString(),
+      level,
+      event,
+      vercel_env: process.env.VERCEL_ENV || "local",
+      vercel_region: process.env.VERCEL_REGION || null,
+      runtime: process.env.NEXT_RUNTIME || "nodejs",
+      ...safeFields,
+    };
 
-  const line = JSON.stringify(payload);
-  if (level === "error") {
-    console.error(line);
-    return;
+    const line = JSON.stringify(payload);
+    if (level === "error") {
+      console.error(line);
+      return;
+    }
+    if (level === "warn") {
+      console.warn(line);
+      return;
+    }
+    if (level === "debug") {
+      console.debug(line);
+      return;
+    }
+    console.info(line);
+  } catch (error) {
+    const fallback = JSON.stringify({
+      ts: new Date().toISOString(),
+      level: "error",
+      event: "logger.emit.failure",
+      original_event: event,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    console.error(fallback);
   }
-  if (level === "warn") {
-    console.warn(line);
-    return;
-  }
-  if (level === "debug") {
-    console.debug(line);
-    return;
-  }
-  console.info(line);
 }
 
 export function logDebug(event: string, fields: LogFields = {}) {

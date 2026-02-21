@@ -245,7 +245,16 @@ export default async function SocialPage(props: {
       redirect("/social?error=Missing%20user%20profile");
     }
 
-    const supabaseAdmin = createSupabaseAdminClient();
+    let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    try {
+      supabaseAdmin = createSupabaseAdminClient();
+    } catch (error) {
+      logError("social.page.create.admin_client_missing", {
+        create_attempt_id: createAttemptId,
+        error,
+      });
+      redirect("/social?error=Social%20configuration%20is%20incomplete.%20Contact%20support.");
+    }
 
     const { data: insertedPage, error: insertError } = await supabaseAdmin
       .from("social_pages")
