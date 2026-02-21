@@ -308,9 +308,21 @@ export default async function ClientTasksPage(props: {
     new: buildAddTaskUrl("new"),
     template: buildAddTaskUrl("template", templateTaskId || undefined),
   };
-  const sharedAddTaskUrl = `/tasks?tab=add&client=${encodeURIComponent(clientId)}`;
+  const hasLegacyClientAddParams =
+    typeof searchParams?.create_mode !== "undefined" ||
+    typeof searchParams?.template_task_id !== "undefined";
+  const sharedAddTaskParams = new URLSearchParams();
+  sharedAddTaskParams.set("tab", "add");
+  sharedAddTaskParams.set("client", clientId);
+  if (createMode === "template") {
+    sharedAddTaskParams.set("create_mode", "template");
+    if (templateTaskId) {
+      sharedAddTaskParams.set("template_task_id", templateTaskId);
+    }
+  }
+  const sharedAddTaskUrl = `/tasks?${sharedAddTaskParams.toString()}`;
 
-  if (wantsAddDialog) {
+  if (wantsAddDialog || hasLegacyClientAddParams) {
     redirect(sharedAddTaskUrl);
   }
 
