@@ -430,12 +430,16 @@ export default function TasksView({
       setCsvParam(params, "client", next.client);
       setCsvParam(params, "project", next.project);
       if (next.due && next.due !== "all") params.set("due", next.due);
-      params.set("hide", nextHideCompleted ? "1" : "0");
+      if (!nextHideCompleted) {
+        params.set("hide", "0");
+      }
       if (nextIncludeWatching) {
         params.set("watch", "1");
       }
-      params.set("sort", nextSortKey);
-      params.set("dir", nextSortDir);
+      if (nextSortKey !== "created" || nextSortDir !== "desc") {
+        params.set("sort", nextSortKey);
+        params.set("dir", nextSortDir);
+      }
       if (nextView !== "table") {
         params.set("view", nextView);
       }
