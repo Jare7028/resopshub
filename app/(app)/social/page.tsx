@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
 import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
@@ -137,14 +139,37 @@ export default async function SocialPage(props: {
         ? `Could not verify Social edit permission (${canEditResult.error.message}).`
         : null;
 
+  if (canViewResult.error && !isSupabaseMissingFunctionError(canViewResult.error)) {
+    logWarn("social.page.permission_check.view.warning", {
+      error: canViewResult.error,
+    });
+  }
+
+  if (canEditResult.error && !isSupabaseMissingFunctionError(canEditResult.error)) {
+    logWarn("social.page.permission_check.edit.warning", {
+      error: canEditResult.error,
+    });
+  }
+
   async function createSocialPage(formData: FormData) {
     "use server";
+    const createAttemptId = randomUUID();
     const supabase = createSupabaseServerClient();
 
     const name = String(formData.get("name") || "").trim();
     const description = String(formData.get("description") || "").trim();
 
+    logInfo("social.page.create.start", {
+      create_attempt_id: createAttemptId,
+      name_length: name.length,
+      description_length: description.length,
+    });
+
     if (!name) {
+      logWarn("social.page.create.validation_failed", {
+        create_attempt_id: createAttemptId,
+        reason: "missing_name",
+      });
       redirect("/social?error=Page%20name%20is%20required");
     }
 
@@ -153,10 +178,17 @@ export default async function SocialPage(props: {
     });
 
     if (canEditResult.error) {
+      logError("social.page.create.permission_check_error", {
+        create_attempt_id: createAttemptId,
+        error: canEditResult.error,
+      });
       redirect(`/social?error=${encodeURIComponent(`Could not verify Social edit permission (${canEditResult.error.message})`)}`);
     }
 
     if (!canEditResult.error && !canEditResult.data) {
+      logWarn("social.page.create.permission_denied", {
+        create_attempt_id: createAttemptId,
+      });
       redirect("/social?error=You%20only%20have%20view%20access%20to%20Social");
     }
 
@@ -165,6 +197,9 @@ export default async function SocialPage(props: {
     const authEmail = authData.user?.email;
 
     if (!authUserId) {
+      logWarn("social.page.create.unauthenticated", {
+        create_attempt_id: createAttemptId,
+      });
       redirect("/login");
     }
 
@@ -173,6 +208,15 @@ export default async function SocialPage(props: {
       .select("id")
       .eq("id", authUserId)
       .maybeSingle();
+    if (userByAuthIdResult.error) {
+      logError("social.page.create.lookup_by_auth_id_error", {
+        create_attempt_id: createAttemptId,
+        auth_user_id: authUserId,
+        error: userByAuthIdResult.error,
+      });
+      redirect("/social?error=Could%20not%20verify%20your%20user%20profile");
+    }
+
     const userByEmailResult =
       !userByAuthIdResult.data && authEmail
         ? await supabase
@@ -181,9 +225,23 @@ export default async function SocialPage(props: {
             .eq("email", authEmail)
             .maybeSingle()
         : null;
+    if (userByEmailResult?.error) {
+      logError("social.page.create.lookup_by_email_error", {
+        create_attempt_id: createAttemptId,
+        auth_email: authEmail,
+        error: userByEmailResult.error,
+      });
+      redirect("/social?error=Could%20not%20verify%20your%20user%20profile");
+    }
+
     const user = userByAuthIdResult.data || userByEmailResult?.data || null;
 
     if (!user?.id) {
+      logWarn("social.page.create.user_profile_missing", {
+        create_attempt_id: createAttemptId,
+        auth_user_id: authUserId,
+        auth_email: authEmail,
+      });
       redirect("/social?error=Missing%20user%20profile");
     }
 
@@ -200,6 +258,11 @@ export default async function SocialPage(props: {
       .single();
 
     if (insertError || !insertedPage?.id) {
+      logError("social.page.create.insert_failed", {
+        create_attempt_id: createAttemptId,
+        created_by: user.id,
+        error: insertError,
+      });
       const insertMessage = String(insertError?.message || "Unable to create page");
       const friendlyMessage = /row-level security/i.test(insertMessage)
         ? "Social page creation failed due to a policy mismatch. Contact support if this persists."
@@ -222,8 +285,20 @@ export default async function SocialPage(props: {
       );
 
     if (addManagerError && !isSupabaseMissingTableError(addManagerError)) {
+      logError("social.page.create.add_manager_failed", {
+        create_attempt_id: createAttemptId,
+        page_id: insertedPage.id,
+        user_id: user.id,
+        error: addManagerError,
+      });
       redirect(`/social?error=${encodeURIComponent(addManagerError.message)}`);
     }
+
+    logInfo("social.page.create.success", {
+      create_attempt_id: createAttemptId,
+      page_id: insertedPage.id,
+      created_by: user.id,
+    });
 
     revalidatePath("/social");
     revalidatePath(`/social/${insertedPage.id}`);

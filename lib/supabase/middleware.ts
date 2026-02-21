@@ -5,6 +5,7 @@ import {
 } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseCookieOptions } from "@/lib/supabase/cookieOptions";
+import { logError, logWarn } from "@/lib/vercelLogger";
 import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
@@ -29,6 +30,13 @@ export async function updateSession(request: NextRequest) {
   if (!pageKey) {
     return response;
   }
+
+  const requestContext = {
+    method: request.method,
+    pathname: request.nextUrl.pathname,
+    page_key: pageKey,
+    request_id: request.headers.get("x-vercel-id"),
+  };
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -68,11 +76,15 @@ export async function updateSession(request: NextRequest) {
       !isSupabaseMissingFunctionError(canEditResult.error) &&
       !isSupabaseMissingTableError(canEditResult.error)
     ) {
-      console.error("[middleware.can_edit_page]", canEditResult.error.message);
+      logError("middleware.permission_check.edit.error", {
+        ...requestContext,
+        error: canEditResult.error,
+      });
       return NextResponse.json({ error: "Permission check failed." }, { status: 500 });
     }
 
     if (!canEditResult.error && canEditResult.data === false) {
+      logWarn("middleware.permission_check.edit.denied", requestContext);
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -87,11 +99,15 @@ export async function updateSession(request: NextRequest) {
     !isSupabaseMissingFunctionError(canViewResult.error) &&
     !isSupabaseMissingTableError(canViewResult.error)
   ) {
-    console.error("[middleware.can_view_page]", canViewResult.error.message);
+    logError("middleware.permission_check.view.error", {
+      ...requestContext,
+      error: canViewResult.error,
+    });
     return NextResponse.json({ error: "Permission check failed." }, { status: 500 });
   }
 
   if (!canViewResult.error && canViewResult.data === false) {
+    logWarn("middleware.permission_check.view.denied", requestContext);
     if (pageKey !== "dashboard") {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = "/dashboard";

@@ -54,6 +54,12 @@ Right-click text capture into tasks is documented in:
 
 - `docs/browser-extension.md`
 
+## Vercel Structured Logging
+
+Server-side structured logging and filters are documented in:
+
+- `docs/vercel-logging.md`
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
