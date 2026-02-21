@@ -3,9 +3,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { splitSocialInlineContent, stripSocialInlineImageTokens } from "@/lib/socialPostContent";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
+import { isSupabaseMissingFunctionError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
 import SocialCommentComposer from "../_components/SocialCommentComposer";
 import SocialPostComposer from "../_components/SocialPostComposer";
@@ -32,6 +34,8 @@ type SocialPostRow = {
   page_id: string;
   user_id: string;
   body: string;
+  is_pinned: boolean;
+  pinned_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -52,7 +56,35 @@ type SocialPostCommentRow = {
   post_id: string;
   user_id: string;
   body: string;
+  parent_comment_id: string | null;
   created_at: string;
+  updated_at: string;
+};
+
+type SocialPostViewRow = {
+  post_id: string;
+  user_id: string;
+  viewed_at: string;
+};
+
+type SocialPostReactionRow = {
+  post_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
+type SocialCommentReactionRow = {
+  comment_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
+type SocialPageReadRow = {
+  page_id: string;
+  user_id: string;
+  last_read_at: string;
 };
 
 type UserRow = {
@@ -70,6 +102,10 @@ type PostImageInput = {
   mime_type: string;
   size_bytes: number;
 };
+
+type SocialPostFilter = "all" | "pinned" | "mine" | "unread";
+
+const SOCIAL_REACTION_OPTIONS = ["👍", "❤️", "🎉", "🔥", "👏"] as const;
 
 function parsePostImagesJson(raw: string): PostImageInput[] {
   let parsed: unknown;
@@ -139,12 +175,40 @@ function toDateTimeLabel(value: string) {
   return parsed.toLocaleString();
 }
 
+function toViewerSummary(viewerLabels: string[]) {
+  if (!viewerLabels.length) return "No views yet";
+  if (viewerLabels.length === 1) return `Seen by ${viewerLabels[0]}`;
+  if (viewerLabels.length === 2) return `Seen by ${viewerLabels[0]} and ${viewerLabels[1]}`;
+  return `Seen by ${viewerLabels[0]}, ${viewerLabels[1]} +${viewerLabels.length - 2}`;
+}
+
+function toTime(value: string | null | undefined) {
+  if (!value) return 0;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function normalizePostFilter(value: string): SocialPostFilter {
+  if (value === "pinned") return "pinned";
+  if (value === "mine") return "mine";
+  if (value === "unread") return "unread";
+  return "all";
+}
+
 function normalizeRole(value: string): "member" | "manager" {
   return value === "manager" ? "manager" : "member";
 }
 
-function buildSocialDetailUrl(pageId: string, extra?: { error?: string; success?: string }) {
+function buildSocialDetailUrl(
+  pageId: string,
+  extra?: { error?: string; success?: string },
+  options?: { q?: string; filter?: SocialPostFilter }
+) {
   const params = new URLSearchParams();
+  const q = String(options?.q || "").trim();
+  const filter = options?.filter || "all";
+  if (q) params.set("q", q);
+  if (filter !== "all") params.set("filter", filter);
   if (extra?.error) params.set("error", extra.error);
   if (extra?.success) params.set("success", extra.success);
   const query = params.toString();
@@ -153,10 +217,16 @@ function buildSocialDetailUrl(pageId: string, extra?: { error?: string; success?
 
 export default async function SocialPageDetail(props: {
   params: Promise<{ pageId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; q?: string; filter?: string }>;
 }) {
   const { pageId } = await props.params;
   const searchParams = await props.searchParams;
+  const searchQuery = String(searchParams?.q || "").trim();
+  const postFilter = normalizePostFilter(String(searchParams?.filter || ""));
+  const listQueryState = {
+    q: searchQuery,
+    filter: postFilter,
+  } satisfies { q: string; filter: SocialPostFilter };
 
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -220,8 +290,9 @@ export default async function SocialPageDetail(props: {
       .order("created_at", { ascending: true }),
     supabase
       .from("social_posts")
-      .select("id,page_id,user_id,body,created_at,updated_at")
+      .select("id,page_id,user_id,body,is_pinned,pinned_at,created_at,updated_at")
       .eq("page_id", pageId)
+      .order("is_pinned", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(60),
   ]);
@@ -239,7 +310,7 @@ export default async function SocialPageDetail(props: {
           .order("position", { ascending: true }),
         supabase
           .from("social_post_comments")
-          .select("id,post_id,user_id,body,created_at")
+          .select("id,post_id,user_id,body,parent_comment_id,created_at,updated_at")
           .in("post_id", postIds)
           .order("created_at", { ascending: true }),
       ])
@@ -251,12 +322,84 @@ export default async function SocialPageDetail(props: {
   const postImages = (imagesResult.data || []) as SocialPostImageRow[];
   const postComments = (commentsResult.data || []) as SocialPostCommentRow[];
 
+  const pageReadResult = await supabase
+    .from("social_page_reads")
+    .select("page_id,user_id,last_read_at")
+    .eq("page_id", pageId)
+    .eq("user_id", currentUser.id)
+    .maybeSingle();
+  const pageReadSchemaMissing = isSupabaseMissingTableError(pageReadResult.error);
+  const previousPageReadAt = pageReadSchemaMissing
+    ? null
+    : String((pageReadResult.data as SocialPageReadRow | null)?.last_read_at || "").trim() || null;
+  const pageReadUpsertResult = pageReadSchemaMissing
+    ? { error: null }
+    : await supabase.from("social_page_reads").upsert(
+        {
+          page_id: pageId,
+          user_id: currentUser.id,
+          last_read_at: new Date().toISOString(),
+        },
+        { onConflict: "page_id,user_id" }
+      );
+
+  const postViewsResult = postIds.length
+    ? await supabase
+        .from("social_post_views")
+        .select("post_id,user_id,viewed_at")
+        .in("post_id", postIds)
+        .order("viewed_at", { ascending: false })
+    : { data: [] as SocialPostViewRow[], error: null };
+  const postViewsSchemaMissing = isSupabaseMissingTableError(postViewsResult.error);
+  const postViews = postViewsSchemaMissing ? [] : ((postViewsResult.data || []) as SocialPostViewRow[]);
+  const postViewsUpsertResult =
+    postIds.length && !postViewsSchemaMissing
+      ? await supabase.from("social_post_views").upsert(
+          postIds.map((postId) => ({
+            post_id: postId,
+            user_id: currentUser.id,
+            viewed_at: new Date().toISOString(),
+          })),
+          { onConflict: "post_id,user_id" }
+        )
+      : { error: null };
+
+  const commentIds = postComments.map((comment) => comment.id);
+  const [postReactionsResult, commentReactionsResult] = postIds.length
+    ? await Promise.all([
+        supabase
+          .from("social_post_reactions")
+          .select("post_id,user_id,emoji,created_at")
+          .in("post_id", postIds),
+        commentIds.length
+          ? supabase
+              .from("social_comment_reactions")
+              .select("comment_id,user_id,emoji,created_at")
+              .in("comment_id", commentIds)
+          : Promise.resolve({ data: [] as SocialCommentReactionRow[], error: null }),
+      ])
+    : [
+        { data: [] as SocialPostReactionRow[], error: null },
+        { data: [] as SocialCommentReactionRow[], error: null },
+      ];
+  const postReactionsSchemaMissing = isSupabaseMissingTableError(postReactionsResult.error);
+  const commentReactionsSchemaMissing = isSupabaseMissingTableError(commentReactionsResult.error);
+  const postReactions = postReactionsSchemaMissing
+    ? []
+    : ((postReactionsResult.data || []) as SocialPostReactionRow[]);
+  const commentReactions = commentReactionsSchemaMissing
+    ? []
+    : ((commentReactionsResult.data || []) as SocialCommentReactionRow[]);
+
   const actorIds = Array.from(
     new Set([
       socialPage.created_by,
       ...members.map((member) => member.user_id),
       ...posts.map((post) => post.user_id),
       ...postComments.map((comment) => comment.user_id),
+      ...postViews.map((view) => view.user_id),
+      ...postReactions.map((reaction) => reaction.user_id),
+      ...commentReactions.map((reaction) => reaction.user_id),
     ])
   );
 
@@ -287,9 +430,6 @@ export default async function SocialPageDetail(props: {
     }
   });
 
-  const memberByUserId = new Map<string, SocialPageMemberRow>();
-  members.forEach((member) => memberByUserId.set(member.user_id, member));
-
   const memberUserIds = new Set<string>(members.map((member) => member.user_id));
   memberUserIds.add(socialPage.created_by);
 
@@ -316,6 +456,48 @@ export default async function SocialPageDetail(props: {
     commentsByPostId.set(comment.post_id, bucket);
   });
 
+  const viewsByPostId = new Map<string, SocialPostViewRow[]>();
+  postViews.forEach((view) => {
+    const bucket = viewsByPostId.get(view.post_id) || [];
+    bucket.push(view);
+    viewsByPostId.set(view.post_id, bucket);
+  });
+
+  const postReactionsByPostId = new Map<string, SocialPostReactionRow[]>();
+  postReactions.forEach((reaction) => {
+    const bucket = postReactionsByPostId.get(reaction.post_id) || [];
+    bucket.push(reaction);
+    postReactionsByPostId.set(reaction.post_id, bucket);
+  });
+
+  const commentReactionsByCommentId = new Map<string, SocialCommentReactionRow[]>();
+  commentReactions.forEach((reaction) => {
+    const bucket = commentReactionsByCommentId.get(reaction.comment_id) || [];
+    bucket.push(reaction);
+    commentReactionsByCommentId.set(reaction.comment_id, bucket);
+  });
+
+  const normalizedSearchQuery = searchQuery.toLowerCase();
+  const isPostUnreadForFilter = (post: SocialPostRow) =>
+    previousPageReadAt ? toTime(post.created_at) > toTime(previousPageReadAt) : true;
+  const filteredPosts = posts.filter((post) => {
+    const bodySearchText = stripSocialInlineImageTokens(post.body).toLowerCase();
+    if (normalizedSearchQuery && !bodySearchText.includes(normalizedSearchQuery)) {
+      return false;
+    }
+
+    if (postFilter === "pinned") {
+      return post.is_pinned;
+    }
+    if (postFilter === "mine") {
+      return post.user_id === currentUser.id;
+    }
+    if (postFilter === "unread") {
+      return isPostUnreadForFilter(post);
+    }
+    return true;
+  });
+
   const permissionWarning =
     canManageResult.error && !isSupabaseMissingFunctionError(canManageResult.error)
       ? `Could not verify page management permission (${canManageResult.error.message}).`
@@ -323,7 +505,52 @@ export default async function SocialPageDetail(props: {
         ? `Could not verify page edit permission (${canEditResult.error.message}).`
         : null;
 
-  const dataWarning = membersResult.error || postsResult.error || imagesResult.error || commentsResult.error;
+  const dataWarning =
+    membersResult.error ||
+    postsResult.error ||
+    imagesResult.error ||
+    commentsResult.error ||
+    (!pageReadSchemaMissing ? pageReadResult.error : null) ||
+    (!pageReadSchemaMissing ? pageReadUpsertResult.error : null) ||
+    (!postViewsSchemaMissing ? postViewsUpsertResult.error : null) ||
+    (!postViewsSchemaMissing ? postViewsResult.error : null) ||
+    (!postReactionsSchemaMissing ? postReactionsResult.error : null) ||
+    (!commentReactionsSchemaMissing ? commentReactionsResult.error : null);
+
+  const resolveActingUser = async (supabaseClient: ReturnType<typeof createSupabaseServerClient>) => {
+    const { data: authData } = await supabaseClient.auth.getUser();
+    const resolvedAuthUserId = String(authData.user?.id || "").trim();
+    const resolvedAuthEmail = authData.user?.email;
+    if (!resolvedAuthUserId) {
+      return null;
+    }
+
+    const userByAuthIdResult = await supabaseClient
+      .from("users")
+      .select("id")
+      .eq("id", resolvedAuthUserId)
+      .maybeSingle();
+
+    const userByEmailResult =
+      !userByAuthIdResult.data && resolvedAuthEmail
+        ? await supabaseClient
+            .from("users")
+            .select("id")
+            .eq("email", resolvedAuthEmail)
+            .maybeSingle()
+        : null;
+
+    const user = userByAuthIdResult.data || userByEmailResult?.data || null;
+    if (!user?.id) {
+      return null;
+    }
+
+    return {
+      authUserId: resolvedAuthUserId,
+      authEmail: resolvedAuthEmail,
+      userId: user.id,
+    };
+  };
 
   async function createPost(formData: FormData) {
     "use server";
@@ -519,9 +746,28 @@ export default async function SocialPageDetail(props: {
       image_count: images.length,
     });
 
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: authUserId,
+        previousText: null,
+        nextText: stripSocialInlineImageTokens(body),
+        sourceType: "social_post",
+        sourceId: insertedPost.id,
+        sourceUrl: `/social/${pageId}#post-${insertedPost.id}`,
+        sourceTitle: socialPage.name,
+      });
+    } catch (error) {
+      logError("social.post.create.mentions_notify_failed", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: insertedPost.id,
+        error,
+      });
+    }
+
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");
-    redirect(buildSocialDetailUrl(pageId, { success: "Update posted" }));
+    redirect(buildSocialDetailUrl(pageId, { success: "Update posted" }, listQueryState));
   }
 
   async function addComment(formData: FormData) {
@@ -530,12 +776,14 @@ export default async function SocialPageDetail(props: {
     const supabase = createSupabaseServerClient();
 
     const postId = String(formData.get("post_id") || "").trim();
+    const parentCommentId = String(formData.get("parent_comment_id") || "").trim();
     const body = String(formData.get("body") || "").trim();
 
     logInfo("social.comment.create.start", {
       action_id: actionId,
       page_id: pageId,
       post_id: postId,
+      parent_comment_id: parentCommentId || null,
       body_length: body.length,
     });
 
@@ -563,6 +811,36 @@ export default async function SocialPageDetail(props: {
         error: postError,
       });
       redirect(buildSocialDetailUrl(pageId, { error: "Post not found" }));
+    }
+
+    if (parentCommentId) {
+      const { data: parentComment, error: parentCommentError } = await supabase
+        .from("social_post_comments")
+        .select("id,post_id,parent_comment_id")
+        .eq("id", parentCommentId)
+        .eq("post_id", postId)
+        .maybeSingle();
+
+      if (parentCommentError || !parentComment) {
+        logWarn("social.comment.create.parent_not_found", {
+          action_id: actionId,
+          page_id: pageId,
+          post_id: postId,
+          parent_comment_id: parentCommentId,
+          error: parentCommentError,
+        });
+        redirect(buildSocialDetailUrl(pageId, { error: "Parent comment not found" }));
+      }
+
+      if (parentComment.parent_comment_id) {
+        logWarn("social.comment.create.parent_depth_invalid", {
+          action_id: actionId,
+          page_id: pageId,
+          post_id: postId,
+          parent_comment_id: parentCommentId,
+        });
+        redirect(buildSocialDetailUrl(pageId, { error: "Replies can only be one level deep" }));
+      }
     }
 
     const canEditResult = await supabase.rpc("can_edit_page", {
@@ -661,13 +939,18 @@ export default async function SocialPageDetail(props: {
       redirect(buildSocialDetailUrl(pageId, { error: "Social configuration is incomplete. Contact support." }));
     }
 
-    const { error: commentError } = await supabaseAdmin.from("social_post_comments").insert({
-      post_id: postId,
-      user_id: user.id,
-      body,
-    });
+    const { data: insertedComment, error: commentError } = await supabaseAdmin
+      .from("social_post_comments")
+      .insert({
+        post_id: postId,
+        user_id: user.id,
+        body,
+        parent_comment_id: parentCommentId || null,
+      })
+      .select("id")
+      .single();
 
-    if (commentError) {
+    if (commentError || !insertedComment?.id) {
       logError("social.comment.create.insert_failed", {
         action_id: actionId,
         page_id: pageId,
@@ -675,19 +958,324 @@ export default async function SocialPageDetail(props: {
         user_id: user.id,
         error: commentError,
       });
-      redirect(buildSocialDetailUrl(pageId, { error: commentError.message }));
+      redirect(buildSocialDetailUrl(pageId, { error: commentError?.message || "Unable to add comment" }));
     }
 
     logInfo("social.comment.create.success", {
       action_id: actionId,
       page_id: pageId,
       post_id: postId,
+      parent_comment_id: parentCommentId || null,
       user_id: user.id,
     });
 
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: authUserId,
+        previousText: null,
+        nextText: body,
+        sourceType: "social_comment",
+        sourceId: insertedComment.id,
+        sourceUrl: `/social/${pageId}#comment-${insertedComment.id}`,
+        sourceTitle: socialPage.name,
+      });
+    } catch (error) {
+      logError("social.comment.create.mentions_notify_failed", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        error,
+      });
+    }
+
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");
-    redirect(`/social/${pageId}#post-${postId}`);
+    redirect(`${buildSocialDetailUrl(pageId, undefined, listQueryState)}#post-${postId}`);
+  }
+
+  async function togglePostPinned(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const postId = String(formData.get("post_id") || "").trim();
+    const nextPinned = String(formData.get("next_pinned") || "") === "1";
+    if (!postId) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing post" }, listQueryState));
+    }
+
+    const canManageResult = await supabase.rpc("can_manage_social_page", {
+      social_page_uuid: pageId,
+    });
+    if (canManageResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify page management access (${canManageResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canManageResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can pin posts" }, listQueryState));
+    }
+
+    const { error } = await supabase
+      .from("social_posts")
+      .update({
+        is_pinned: nextPinned,
+        pinned_at: nextPinned ? new Date().toISOString() : null,
+      })
+      .eq("id", postId)
+      .eq("page_id", pageId);
+
+    if (error) {
+      redirect(buildSocialDetailUrl(pageId, { error: error.message }, listQueryState));
+    }
+
+    revalidatePath(`/social/${pageId}`);
+    revalidatePath("/social");
+    redirect(`${buildSocialDetailUrl(pageId, undefined, listQueryState)}#post-${postId}`);
+  }
+
+  async function togglePostReaction(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const postId = String(formData.get("post_id") || "").trim();
+    const emoji = String(formData.get("emoji") || "").trim();
+
+    if (!postId || !SOCIAL_REACTION_OPTIONS.includes(emoji as (typeof SOCIAL_REACTION_OPTIONS)[number])) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Invalid reaction" }, listQueryState));
+    }
+
+    const actingUser = await resolveActingUser(supabase);
+    if (!actingUser?.userId) {
+      redirect("/login");
+    }
+
+    const { data: existing } = await supabase
+      .from("social_post_reactions")
+      .select("post_id,user_id,emoji")
+      .eq("post_id", postId)
+      .eq("user_id", actingUser.userId)
+      .eq("emoji", emoji)
+      .maybeSingle();
+
+    if (existing) {
+      const { error } = await supabase
+        .from("social_post_reactions")
+        .delete()
+        .eq("post_id", postId)
+        .eq("user_id", actingUser.userId)
+        .eq("emoji", emoji);
+      if (error) {
+        redirect(buildSocialDetailUrl(pageId, { error: error.message }, listQueryState));
+      }
+    } else {
+      const { error } = await supabase.from("social_post_reactions").insert({
+        post_id: postId,
+        user_id: actingUser.userId,
+        emoji,
+      });
+      if (error) {
+        redirect(buildSocialDetailUrl(pageId, { error: error.message }, listQueryState));
+      }
+    }
+
+    revalidatePath(`/social/${pageId}`);
+    revalidatePath("/social");
+    redirect(`${buildSocialDetailUrl(pageId, undefined, listQueryState)}#post-${postId}`);
+  }
+
+  async function toggleCommentReaction(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const commentId = String(formData.get("comment_id") || "").trim();
+    const postId = String(formData.get("post_id") || "").trim();
+    const emoji = String(formData.get("emoji") || "").trim();
+
+    if (
+      !commentId ||
+      !postId ||
+      !SOCIAL_REACTION_OPTIONS.includes(emoji as (typeof SOCIAL_REACTION_OPTIONS)[number])
+    ) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Invalid reaction" }, listQueryState));
+    }
+
+    const actingUser = await resolveActingUser(supabase);
+    if (!actingUser?.userId) {
+      redirect("/login");
+    }
+
+    const { data: comment } = await supabase
+      .from("social_post_comments")
+      .select("id,post_id")
+      .eq("id", commentId)
+      .eq("post_id", postId)
+      .maybeSingle();
+    if (!comment?.id) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Comment not found" }, listQueryState));
+    }
+
+    const { data: existing } = await supabase
+      .from("social_comment_reactions")
+      .select("comment_id,user_id,emoji")
+      .eq("comment_id", commentId)
+      .eq("user_id", actingUser.userId)
+      .eq("emoji", emoji)
+      .maybeSingle();
+
+    if (existing) {
+      const { error } = await supabase
+        .from("social_comment_reactions")
+        .delete()
+        .eq("comment_id", commentId)
+        .eq("user_id", actingUser.userId)
+        .eq("emoji", emoji);
+      if (error) {
+        redirect(buildSocialDetailUrl(pageId, { error: error.message }, listQueryState));
+      }
+    } else {
+      const { error } = await supabase.from("social_comment_reactions").insert({
+        comment_id: commentId,
+        user_id: actingUser.userId,
+        emoji,
+      });
+      if (error) {
+        redirect(buildSocialDetailUrl(pageId, { error: error.message }, listQueryState));
+      }
+    }
+
+    revalidatePath(`/social/${pageId}`);
+    revalidatePath("/social");
+    redirect(`${buildSocialDetailUrl(pageId, undefined, listQueryState)}#post-${postId}`);
+  }
+
+  async function updateComment(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const commentId = String(formData.get("comment_id") || "").trim();
+    const body = String(formData.get("body") || "").trim();
+    if (!commentId || !body) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Comment cannot be empty" }, listQueryState));
+    }
+
+    const { data: comment, error: commentLookupError } = await supabase
+      .from("social_post_comments")
+      .select("id,post_id,body")
+      .eq("id", commentId)
+      .maybeSingle();
+    if (commentLookupError || !comment?.id) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Comment not found" }, listQueryState));
+    }
+
+    const canManageCommentResult = await supabase.rpc("can_manage_social_comment", {
+      social_comment_uuid: commentId,
+    });
+    if (canManageCommentResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify comment permissions (${canManageCommentResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canManageCommentResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You cannot edit this comment" }, listQueryState));
+    }
+
+    const actingUser = await resolveActingUser(supabase);
+    if (!actingUser?.userId) {
+      redirect("/login");
+    }
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    try {
+      supabaseAdmin = createSupabaseAdminClient();
+    } catch {
+      redirect(buildSocialDetailUrl(pageId, { error: "Social configuration is incomplete." }, listQueryState));
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from("social_post_comments")
+      .update({
+        body,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", commentId);
+    if (updateError) {
+      redirect(buildSocialDetailUrl(pageId, { error: updateError.message }, listQueryState));
+    }
+
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: actingUser.authUserId,
+        previousText: comment.body,
+        nextText: body,
+        sourceType: "social_comment",
+        sourceId: comment.id,
+        sourceUrl: `/social/${pageId}#comment-${comment.id}`,
+        sourceTitle: socialPage.name,
+      });
+    } catch {
+      // Mention notifications are non-blocking for comment edits.
+    }
+
+    revalidatePath(`/social/${pageId}`);
+    revalidatePath("/social");
+    redirect(`${buildSocialDetailUrl(pageId, { success: "Comment updated" }, listQueryState)}#post-${comment.post_id}`);
+  }
+
+  async function deleteComment(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const commentId = String(formData.get("comment_id") || "").trim();
+    if (!commentId) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing comment" }, listQueryState));
+    }
+
+    const { data: comment, error: lookupError } = await supabase
+      .from("social_post_comments")
+      .select("id,post_id")
+      .eq("id", commentId)
+      .maybeSingle();
+    if (lookupError || !comment?.id) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Comment not found" }, listQueryState));
+    }
+
+    const canManageCommentResult = await supabase.rpc("can_manage_social_comment", {
+      social_comment_uuid: commentId,
+    });
+    if (canManageCommentResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify comment permissions (${canManageCommentResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canManageCommentResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You cannot delete this comment" }, listQueryState));
+    }
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    try {
+      supabaseAdmin = createSupabaseAdminClient();
+    } catch {
+      redirect(buildSocialDetailUrl(pageId, { error: "Social configuration is incomplete." }, listQueryState));
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from("social_post_comments")
+      .delete()
+      .eq("id", commentId);
+    if (deleteError) {
+      redirect(buildSocialDetailUrl(pageId, { error: deleteError.message }, listQueryState));
+    }
+
+    revalidatePath(`/social/${pageId}`);
+    revalidatePath("/social");
+    redirect(`${buildSocialDetailUrl(pageId, { success: "Comment deleted" }, listQueryState)}#post-${comment.post_id}`);
   }
 
   async function addMember(formData: FormData) {
@@ -864,13 +1452,12 @@ export default async function SocialPageDetail(props: {
       <section className="rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-slate-50 to-slate-100 px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
-              Private page
-            </span>
             <span>Owner: {ownerLabel}</span>
             <span>Created: {toDateTimeLabel(socialPage.created_at)}</span>
           </div>
-          <span>{posts.length} recent posts</span>
+          <span>
+            {posts.length} posts{previousPageReadAt ? ` - ${posts.filter(isPostUnreadForFilter).length} unread` : ""}
+          </span>
         </div>
       </section>
 
@@ -903,21 +1490,104 @@ export default async function SocialPageDetail(props: {
         <section className="space-y-5">
           <SocialPostComposer socialPageId={pageId} onPost={createPost} canPost={canPost} />
 
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <form method="get" className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[220px] flex-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Search posts
+                <input
+                  name="q"
+                  defaultValue={searchQuery}
+                  placeholder="Search updates"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Filter
+                <select
+                  name="filter"
+                  defaultValue={postFilter}
+                  className="mt-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal"
+                >
+                  <option value="all">All posts</option>
+                  <option value="pinned">Pinned</option>
+                  <option value="mine">My posts</option>
+                  <option value="unread">Unread</option>
+                </select>
+              </label>
+              <button
+                type="submit"
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+              >
+                Apply
+              </button>
+              {(searchQuery || postFilter !== "all") && (
+                <Link
+                  href={`/social/${pageId}`}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-800"
+                >
+                  Clear
+                </Link>
+              )}
+            </form>
+            <p className="mt-2 text-xs text-slate-500">
+              Showing {filteredPosts.length} of {posts.length} posts
+            </p>
+          </section>
+
           <div className="space-y-4">
-            {posts.length ? (
-              posts.map((post) => {
+            {filteredPosts.length ? (
+              filteredPosts.map((post) => {
                 const postUser = userById.get(post.user_id);
                 const postLabel = toUserLabel(postUser);
                 const postInitials = toInitials(postLabel);
                 const postAvatarUrl = toAvatarUrl(postUser);
                 const postImagesForItem = imagesByPostId.get(post.id) || [];
+                const imageByStoragePath = new Map(postImagesForItem.map((image) => [image.storage_path, image]));
+                const inlineSegments = splitSocialInlineContent(post.body);
+                const inlineImagePaths = new Set(
+                  inlineSegments
+                    .filter((segment) => segment.type === "image")
+                    .map((segment) => (segment.type === "image" ? segment.storagePath : ""))
+                );
+                const trailingImages = postImagesForItem.filter(
+                  (image) => !inlineImagePaths.has(image.storage_path)
+                );
                 const commentsForPost = commentsByPostId.get(post.id) || [];
+                const postViewsForItem = viewsByPostId.get(post.id) || [];
+                const postReactionRows = postReactionsByPostId.get(post.id) || [];
+                const postReactionCounts = postReactionRows.reduce<Record<string, number>>((acc, reaction) => {
+                  acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+                  return acc;
+                }, {});
+                const myPostReactionSet = new Set(
+                  postReactionRows
+                    .filter((reaction) => reaction.user_id === currentUser.id)
+                    .map((reaction) => reaction.emoji)
+                );
+                const viewerLabels = Array.from(
+                  new Set(
+                    [...postViewsForItem, { post_id: post.id, user_id: currentUser.id, viewed_at: "" }]
+                      .sort((left, right) => right.viewed_at.localeCompare(left.viewed_at))
+                      .map((view) => toUserLabel(userById.get(view.user_id)))
+                  )
+                );
+                const isUnread = previousPageReadAt ? toTime(post.created_at) > toTime(previousPageReadAt) : false;
+                const topLevelComments = commentsForPost.filter((comment) => !comment.parent_comment_id);
+                const repliesByParentId = new Map<string, SocialPostCommentRow[]>();
+                commentsForPost.forEach((comment) => {
+                  if (!comment.parent_comment_id) return;
+                  const bucket = repliesByParentId.get(comment.parent_comment_id) || [];
+                  bucket.push(comment);
+                  repliesByParentId.set(comment.parent_comment_id, bucket);
+                });
 
                 return (
                   <article
                     id={`post-${post.id}`}
                     key={post.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                    className={`rounded-2xl border bg-white p-5 shadow-sm ${
+                      post.is_pinned ? "border-amber-300" : "border-slate-200"
+                    }`}
                   >
                     <header className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
@@ -938,15 +1608,74 @@ export default async function SocialPageDetail(props: {
                         <div>
                           <p className="text-sm font-semibold text-slate-900">{postLabel}</p>
                           <p className="text-xs text-slate-500">{toDateTimeLabel(post.created_at)}</p>
+                          <p className="text-[11px] text-slate-500">{toViewerSummary(viewerLabels)}</p>
                         </div>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {post.is_pinned ? (
+                          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                            Pinned
+                          </span>
+                        ) : null}
+                        {isUnread ? (
+                          <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            New
+                          </span>
+                        ) : null}
+                        {canManagePage ? (
+                          <form action={togglePostPinned}>
+                            <input type="hidden" name="post_id" value={post.id} />
+                            <input type="hidden" name="next_pinned" value={post.is_pinned ? "0" : "1"} />
+                            <button
+                              type="submit"
+                              className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-slate-400"
+                            >
+                              {post.is_pinned ? "Unpin" : "Pin"}
+                            </button>
+                          </form>
+                        ) : null}
                       </div>
                     </header>
 
-                    <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-800">{post.body}</p>
+                    <div className="mt-4 space-y-3">
+                      {inlineSegments.map((segment) => {
+                        if (segment.type === "text") {
+                          if (!segment.text.trim()) return null;
+                          return (
+                            <p key={segment.key} className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                              {segment.text}
+                            </p>
+                          );
+                        }
 
-                    {postImagesForItem.length ? (
+                        const image = imageByStoragePath.get(segment.storagePath);
+                        if (!image) return null;
+                        return (
+                          <a
+                            key={segment.key}
+                            href={image.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group block overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                          >
+                            <div className="relative aspect-[16/10]">
+                              <Image
+                                src={image.url}
+                                alt={image.filename || "Post image"}
+                                fill
+                                unoptimized
+                                sizes="(max-width: 768px) 100vw, 740px"
+                                className="object-cover transition duration-150 group-hover:scale-[1.02]"
+                              />
+                            </div>
+                          </a>
+                        );
+                      })}
+                    </div>
+
+                    {trailingImages.length ? (
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        {postImagesForItem.map((image) => (
+                        {trailingImages.map((image) => (
                           <a
                             key={image.id}
                             href={image.url}
@@ -969,59 +1698,310 @@ export default async function SocialPageDetail(props: {
                       </div>
                     ) : null}
 
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                        Comments ({commentsForPost.length})
-                      </p>
-
-                      <SocialCommentComposer postId={post.id} canPost={canPost} onComment={addComment} />
-
-                      <div className="mt-3 space-y-2">
-                        {commentsForPost.length ? (
-                          commentsForPost.map((comment) => {
-                            const commentUser = userById.get(comment.user_id);
-                            const commentLabel = toUserLabel(commentUser);
-                            const commentAvatarUrl = toAvatarUrl(commentUser);
-                            const commentInitials = toInitials(commentLabel);
-                            return (
-                              <article
-                                key={comment.id}
-                                className="rounded-md border border-slate-200 bg-white px-3 py-2"
-                              >
-                                <div className="flex items-start gap-2">
-                                  <span className="relative mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
-                                    {commentAvatarUrl ? (
-                                      <Image
-                                        src={commentAvatarUrl}
-                                        alt={`${commentLabel} avatar`}
-                                        fill
-                                        unoptimized
-                                        sizes="28px"
-                                        className="object-cover"
-                                      />
-                                    ) : (
-                                      commentInitials
-                                    )}
-                                  </span>
-                                  <div className="min-w-0">
-                                    <p className="text-xs text-slate-500">
-                                      <span className="font-semibold text-slate-700">{commentLabel}</span> -{" "}
-                                      {toDateTimeLabel(comment.created_at)}
-                                    </p>
-                                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
-                                  </div>
-                                </div>
-                              </article>
-                            );
-                          })
-                        ) : (
-                          <p className="text-xs text-slate-500">No comments yet.</p>
-                        )}
-                      </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                      {SOCIAL_REACTION_OPTIONS.map((emoji) => {
+                        const count = postReactionCounts[emoji] || 0;
+                        const active = myPostReactionSet.has(emoji);
+                        return (
+                          <form key={`${post.id}-${emoji}`} action={togglePostReaction}>
+                            <input type="hidden" name="post_id" value={post.id} />
+                            <input type="hidden" name="emoji" value={emoji} />
+                            <button
+                              type="submit"
+                              disabled={!canPost}
+                              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                                active
+                                  ? "border-slate-400 bg-slate-100 text-slate-900"
+                                  : "border-slate-200 bg-white text-slate-700"
+                              } disabled:cursor-not-allowed disabled:opacity-50`}
+                            >
+                              {emoji} {count > 0 ? count : ""}
+                            </button>
+                          </form>
+                        );
+                      })}
                     </div>
+
+                    <details className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
+                      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Comments ({commentsForPost.length})
+                      </summary>
+
+                      <div className="border-t border-slate-200 px-3 py-3">
+                        <SocialCommentComposer
+                          postId={post.id}
+                          canPost={canPost}
+                          onComment={addComment}
+                          placeholder="Write a comment (use @name to mention)"
+                          className="flex flex-col gap-2"
+                        />
+
+                        <div className="mt-3 space-y-2">
+                          {topLevelComments.length ? (
+                            topLevelComments.map((comment) => {
+                              const commentUser = userById.get(comment.user_id);
+                              const commentLabel = toUserLabel(commentUser);
+                              const commentAvatarUrl = toAvatarUrl(commentUser);
+                              const commentInitials = toInitials(commentLabel);
+                              const replies = repliesByParentId.get(comment.id) || [];
+                              const canManageComment = canManagePage || comment.user_id === currentUser.id;
+                              const commentReactionRows = commentReactionsByCommentId.get(comment.id) || [];
+                              const commentReactionCounts = commentReactionRows.reduce<Record<string, number>>(
+                                (acc, reaction) => {
+                                  acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+                                  return acc;
+                                },
+                                {}
+                              );
+                              const myCommentReactionSet = new Set(
+                                commentReactionRows
+                                  .filter((reaction) => reaction.user_id === currentUser.id)
+                                  .map((reaction) => reaction.emoji)
+                              );
+
+                              return (
+                                <article
+                                  id={`comment-${comment.id}`}
+                                  key={comment.id}
+                                  className="rounded-md border border-slate-200 bg-white px-3 py-2"
+                                >
+                                  <div className="flex items-start gap-2">
+                                    <span className="relative mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
+                                      {commentAvatarUrl ? (
+                                        <Image
+                                          src={commentAvatarUrl}
+                                          alt={`${commentLabel} avatar`}
+                                          fill
+                                          unoptimized
+                                          sizes="28px"
+                                          className="object-cover"
+                                        />
+                                      ) : (
+                                        commentInitials
+                                      )}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs text-slate-500">
+                                        <span className="font-semibold text-slate-700">{commentLabel}</span> -{" "}
+                                        {toDateTimeLabel(comment.created_at)}
+                                        {toTime(comment.updated_at) > toTime(comment.created_at) ? " (edited)" : ""}
+                                      </p>
+                                      <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+                                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                        {SOCIAL_REACTION_OPTIONS.map((emoji) => {
+                                          const count = commentReactionCounts[emoji] || 0;
+                                          const active = myCommentReactionSet.has(emoji);
+                                          return (
+                                            <form key={`${comment.id}-${emoji}`} action={toggleCommentReaction}>
+                                              <input type="hidden" name="comment_id" value={comment.id} />
+                                              <input type="hidden" name="post_id" value={post.id} />
+                                              <input type="hidden" name="emoji" value={emoji} />
+                                              <button
+                                                type="submit"
+                                                disabled={!canPost}
+                                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                                                  active
+                                                    ? "border-slate-400 bg-slate-100 text-slate-900"
+                                                    : "border-slate-200 bg-white text-slate-700"
+                                                } disabled:cursor-not-allowed disabled:opacity-50`}
+                                              >
+                                                {emoji} {count > 0 ? count : ""}
+                                              </button>
+                                            </form>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {canManageComment ? (
+                                    <details className="mt-2 rounded-md border border-slate-200 bg-slate-50">
+                                      <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[11px] font-semibold text-slate-600">
+                                        Edit or delete
+                                      </summary>
+                                      <div className="space-y-2 border-t border-slate-200 px-2.5 py-2">
+                                        <form action={updateComment} className="space-y-2">
+                                          <input type="hidden" name="comment_id" value={comment.id} />
+                                          <textarea
+                                            name="body"
+                                            defaultValue={comment.body}
+                                            rows={3}
+                                            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                            required
+                                          />
+                                          <button
+                                            type="submit"
+                                            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                                          >
+                                            Save comment
+                                          </button>
+                                        </form>
+                                        <form action={deleteComment}>
+                                          <input type="hidden" name="comment_id" value={comment.id} />
+                                          <button
+                                            type="submit"
+                                            className="text-xs font-semibold text-red-600 hover:text-red-800"
+                                          >
+                                            Delete comment
+                                          </button>
+                                        </form>
+                                      </div>
+                                    </details>
+                                  ) : null}
+
+                                  <details className="mt-2 rounded-md border border-slate-200 bg-slate-50">
+                                    <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[11px] font-semibold text-slate-600">
+                                      {replies.length ? `Replies (${replies.length})` : "Reply"}
+                                    </summary>
+                                    <div className="border-t border-slate-200 px-2.5 py-2">
+                                      <SocialCommentComposer
+                                        postId={post.id}
+                                        canPost={canPost}
+                                        onComment={addComment}
+                                        parentCommentId={comment.id}
+                                        placeholder={`Reply to ${commentLabel} (use @name to mention)`}
+                                        submitLabel="Reply"
+                                        className="flex flex-col gap-2"
+                                      />
+
+                                      {replies.length ? (
+                                        <div className="mt-3 space-y-2">
+                                          {replies.map((reply) => {
+                                            const replyUser = userById.get(reply.user_id);
+                                            const replyLabel = toUserLabel(replyUser);
+                                            const replyAvatarUrl = toAvatarUrl(replyUser);
+                                            const replyInitials = toInitials(replyLabel);
+                                            const canManageReply = canManagePage || reply.user_id === currentUser.id;
+                                            const replyReactionRows =
+                                              commentReactionsByCommentId.get(reply.id) || [];
+                                            const replyReactionCounts = replyReactionRows.reduce<Record<string, number>>(
+                                              (acc, reaction) => {
+                                                acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+                                                return acc;
+                                              },
+                                              {}
+                                            );
+                                            const myReplyReactionSet = new Set(
+                                              replyReactionRows
+                                                .filter((reaction) => reaction.user_id === currentUser.id)
+                                                .map((reaction) => reaction.emoji)
+                                            );
+                                            return (
+                                              <article
+                                                id={`comment-${reply.id}`}
+                                                key={reply.id}
+                                                className="rounded-md border border-slate-200 bg-white px-3 py-2"
+                                              >
+                                                <div className="flex items-start gap-2">
+                                                  <span className="relative mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[10px] font-semibold text-slate-700">
+                                                    {replyAvatarUrl ? (
+                                                      <Image
+                                                        src={replyAvatarUrl}
+                                                        alt={`${replyLabel} avatar`}
+                                                        fill
+                                                        unoptimized
+                                                        sizes="24px"
+                                                        className="object-cover"
+                                                      />
+                                                    ) : (
+                                                      replyInitials
+                                                    )}
+                                                  </span>
+                                                  <div className="min-w-0 flex-1">
+                                                    <p className="text-[11px] text-slate-500">
+                                                      <span className="font-semibold text-slate-700">{replyLabel}</span>{" "}
+                                                      - {toDateTimeLabel(reply.created_at)}
+                                                      {toTime(reply.updated_at) > toTime(reply.created_at)
+                                                        ? " (edited)"
+                                                        : ""}
+                                                    </p>
+                                                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
+                                                      {reply.body}
+                                                    </p>
+                                                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                                      {SOCIAL_REACTION_OPTIONS.map((emoji) => {
+                                                        const count = replyReactionCounts[emoji] || 0;
+                                                        const active = myReplyReactionSet.has(emoji);
+                                                        return (
+                                                          <form key={`${reply.id}-${emoji}`} action={toggleCommentReaction}>
+                                                            <input type="hidden" name="comment_id" value={reply.id} />
+                                                            <input type="hidden" name="post_id" value={post.id} />
+                                                            <input type="hidden" name="emoji" value={emoji} />
+                                                            <button
+                                                              type="submit"
+                                                              disabled={!canPost}
+                                                              className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                                                                active
+                                                                  ? "border-slate-400 bg-slate-100 text-slate-900"
+                                                                  : "border-slate-200 bg-white text-slate-700"
+                                                              } disabled:cursor-not-allowed disabled:opacity-50`}
+                                                            >
+                                                              {emoji} {count > 0 ? count : ""}
+                                                            </button>
+                                                          </form>
+                                                        );
+                                                      })}
+                                                    </div>
+                                                  </div>
+                                                </div>
+
+                                                {canManageReply ? (
+                                                  <details className="mt-2 rounded-md border border-slate-200 bg-slate-50">
+                                                    <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[11px] font-semibold text-slate-600">
+                                                      Edit or delete
+                                                    </summary>
+                                                    <div className="space-y-2 border-t border-slate-200 px-2.5 py-2">
+                                                      <form action={updateComment} className="space-y-2">
+                                                        <input type="hidden" name="comment_id" value={reply.id} />
+                                                        <textarea
+                                                          name="body"
+                                                          defaultValue={reply.body}
+                                                          rows={3}
+                                                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                                          required
+                                                        />
+                                                        <button
+                                                          type="submit"
+                                                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                                                        >
+                                                          Save reply
+                                                        </button>
+                                                      </form>
+                                                      <form action={deleteComment}>
+                                                        <input type="hidden" name="comment_id" value={reply.id} />
+                                                        <button
+                                                          type="submit"
+                                                          className="text-xs font-semibold text-red-600 hover:text-red-800"
+                                                        >
+                                                          Delete reply
+                                                        </button>
+                                                      </form>
+                                                    </div>
+                                                  </details>
+                                                ) : null}
+                                              </article>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </details>
+                                </article>
+                              );
+                            })
+                          ) : (
+                            <p className="text-xs text-slate-500">No comments yet.</p>
+                          )}
+                        </div>
+                      </div>
+                    </details>
                   </article>
                 );
               })
+            ) : posts.length ? (
+              <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-600">
+                No posts match your current search/filter.
+              </section>
             ) : (
               <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-600">
                 No posts yet. Share the first update for this page.
@@ -1034,7 +2014,7 @@ export default async function SocialPageDetail(props: {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-base font-semibold text-slate-900">Page access</h2>
             <p className="mt-1 text-xs text-slate-600">
-              Access is private. Add people manually to grant entry.
+              Add people manually to grant access.
             </p>
 
             {canManagePage ? (

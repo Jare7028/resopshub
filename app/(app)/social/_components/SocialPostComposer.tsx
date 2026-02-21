@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
 import { insertTextAtSelection } from "@/lib/emoji";
+import { buildSocialInlineImageToken } from "@/lib/socialPostContent";
 
 type UploadedSocialImage = {
   storage_path: string;
@@ -88,11 +89,35 @@ export default function SocialPostComposer({
 
     try {
       const uploaded = await Promise.all(limitedFiles.map((file) => uploadImage(file)));
-      setUploadedImages((previous) => {
-        const existingPaths = new Set(previous.map((item) => item.storage_path));
-        const deduped = uploaded.filter((item) => !existingPaths.has(item.storage_path));
-        return [...previous, ...deduped];
-      });
+      const existingPaths = new Set(uploadedImages.map((item) => item.storage_path));
+      const deduped = uploaded.filter((item) => !existingPaths.has(item.storage_path));
+      setUploadedImages((previous) => [...previous, ...deduped]);
+      if (deduped.length) {
+        const inlineText = deduped
+          .map((item) => buildSocialInlineImageToken(item.storage_path))
+          .filter(Boolean)
+          .map((token) => `\n${token}\n`)
+          .join("\n");
+
+        setBody((current) => {
+          const textarea = bodyTextareaRef.current;
+          const selectionStart = textarea?.selectionStart ?? current.length;
+          const selectionEnd = textarea?.selectionEnd ?? current.length;
+          const { nextValue, nextSelection } = insertTextAtSelection({
+            value: current,
+            selectionStart,
+            selectionEnd,
+            text: inlineText,
+          });
+          requestAnimationFrame(() => {
+            const nextTextarea = bodyTextareaRef.current;
+            if (!nextTextarea) return;
+            nextTextarea.focus();
+            nextTextarea.setSelectionRange(nextSelection, nextSelection);
+          });
+          return nextValue;
+        });
+      }
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Image upload failed.");
     } finally {
@@ -159,7 +184,7 @@ export default function SocialPostComposer({
           await uploadImageFiles(files);
         }}
         rows={4}
-        placeholder="What should people know today?"
+        placeholder="What should people know today? Type @name to mention someone."
         className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
         disabled={!canPost}
       />
@@ -205,7 +230,11 @@ export default function SocialPostComposer({
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
           {uploadError}
         </p>
-      ) : null}
+      ) : (
+        <p className="text-xs text-slate-500">
+          Images are inserted inline where your cursor is.
+        </p>
+      )}
 
       {uploadedImages.length ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -226,11 +255,19 @@ export default function SocialPostComposer({
               </div>
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
                   setUploadedImages((previous) =>
                     previous.filter((item) => item.storage_path !== image.storage_path)
-                  )
-                }
+                  );
+                  setBody((current) => {
+                    const token = buildSocialInlineImageToken(image.storage_path);
+                    return current
+                      .split(token)
+                      .join("")
+                      .replace(/\n{3,}/g, "\n\n")
+                      .trimStart();
+                  });
+                }}
                 className="absolute right-2 top-2 rounded-md bg-slate-900/75 px-2 py-1 text-[11px] font-semibold text-white"
                 title="Remove image"
                 aria-label="Remove image"

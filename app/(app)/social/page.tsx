@@ -31,10 +31,21 @@ type SocialPostRow = {
   created_at: string;
 };
 
+type SocialPageReadRow = {
+  page_id: string;
+  user_id: string;
+  last_read_at: string;
+};
+
 function toDisplayDate(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Unknown";
   return parsed.toLocaleString();
+}
+
+function toTimestamp(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
 export default async function SocialPage(props: {
@@ -87,7 +98,7 @@ export default async function SocialPage(props: {
 
   const pageIds = pages.map((page) => page.id);
 
-  const [membersResult, postsResult] = pageIds.length
+  const [membersResult, postsResult, pageReadsResult] = pageIds.length
     ? await Promise.all([
         supabase
           .from("social_page_members")
@@ -97,14 +108,22 @@ export default async function SocialPage(props: {
           .from("social_posts")
           .select("page_id,created_at")
           .in("page_id", pageIds),
+        supabase
+          .from("social_page_reads")
+          .select("page_id,user_id,last_read_at")
+          .eq("user_id", currentUser.id)
+          .in("page_id", pageIds),
       ])
     : [
         { data: [] as SocialPageMemberRow[], error: null },
         { data: [] as SocialPostRow[], error: null },
+        { data: [] as SocialPageReadRow[], error: null },
       ];
 
   const members = (membersResult.data || []) as SocialPageMemberRow[];
   const posts = (postsResult.data || []) as SocialPostRow[];
+  const pageReadsSchemaMissing = isSupabaseMissingTableError(pageReadsResult.error);
+  const pageReads = pageReadsSchemaMissing ? [] : ((pageReadsResult.data || []) as SocialPageReadRow[]);
 
   const ownerIds = Array.from(new Set(pages.map((page) => page.created_by)));
   const { data: ownerUsers } = ownerIds.length
@@ -141,6 +160,26 @@ export default async function SocialPage(props: {
       latest,
     });
   });
+
+  const lastReadByPage = new Map<string, string>();
+  pageReads.forEach((read) => {
+    lastReadByPage.set(read.page_id, read.last_read_at);
+  });
+
+  const unreadCountByPage = new Map<string, number>();
+  posts.forEach((post) => {
+    const lastReadAt = lastReadByPage.get(post.page_id);
+    const isUnread = !lastReadAt || toTimestamp(post.created_at) > toTimestamp(lastReadAt);
+    if (!isUnread) return;
+    unreadCountByPage.set(post.page_id, (unreadCountByPage.get(post.page_id) || 0) + 1);
+  });
+
+  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const postsLast7d = posts.filter((post) => toTimestamp(post.created_at) >= oneWeekAgo).length;
+  const activePagesLast7d = pages.filter((page) => {
+    const latest = postStatsByPage.get(page.id)?.latest;
+    return latest ? toTimestamp(latest) >= oneWeekAgo : false;
+  }).length;
 
   const socialPermissionWarning =
     canViewResult.error && !isSupabaseMissingFunctionError(canViewResult.error)
@@ -326,23 +365,6 @@ export default async function SocialPage(props: {
 
   return (
     <div className="space-y-7">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 px-6 py-6 text-white shadow-lg">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Social workspace</p>
-            <h1 className="text-2xl font-semibold">Social for work</h1>
-            <p className="max-w-2xl text-sm text-slate-200">
-              Create focused social pages for teams, updates, and lightweight conversations. Pages are private by default,
-              and access is only granted to people you add.
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-xs text-slate-100">
-            <p className="font-semibold uppercase tracking-wide">Privacy model</p>
-            <p className="mt-1 text-slate-200">No one is added automatically except the page creator.</p>
-          </div>
-        </div>
-      </section>
-
       {(searchParams?.error || searchParams?.success || socialPermissionWarning) && (
         <div className="space-y-2">
           {socialPermissionWarning ? (
@@ -362,6 +384,21 @@ export default async function SocialPage(props: {
           ) : null}
         </div>
       )}
+
+      <section className="grid gap-3 md:grid-cols-3">
+        <article className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pages</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">{pages.length}</p>
+        </article>
+        <article className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Posts (7d)</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">{postsLast7d}</p>
+        </article>
+        <article className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active Pages (7d)</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">{activePagesLast7d}</p>
+        </article>
+      </section>
 
       {pagesSchemaMissing ? (
         <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -431,6 +468,7 @@ export default async function SocialPage(props: {
                 memberRows.forEach((member) => memberIds.add(member.user_id));
 
                 const stat = postStatsByPage.get(page.id) || { total: 0, latest: null };
+                const unreadCount = unreadCountByPage.get(page.id) || 0;
                 const currentMember = memberRows.find((member) => member.user_id === currentUser.id);
                 const roleLabel =
                   page.created_by === currentUser.id
@@ -452,9 +490,16 @@ export default async function SocialPage(props: {
                         <h3 className="line-clamp-2 text-base font-semibold text-slate-900 group-hover:text-slate-950">
                           {page.name}
                         </h3>
-                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                          {roleLabel}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {unreadCount > 0 ? (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                              {unreadCount} new
+                            </span>
+                          ) : null}
+                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                            {roleLabel}
+                          </span>
+                        </div>
                       </div>
                       <p className="line-clamp-3 text-sm text-slate-600">
                         {page.description || "No description added yet."}
@@ -466,6 +511,12 @@ export default async function SocialPage(props: {
                         <span>{memberIds.size} people</span>
                         <span>-</span>
                         <span>{stat.total} posts</span>
+                        {unreadCount > 0 ? (
+                          <>
+                            <span>-</span>
+                            <span>{unreadCount} unread</span>
+                          </>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[10px] font-semibold text-slate-700">

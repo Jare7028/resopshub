@@ -5,7 +5,12 @@ import {
   resolveMentionHandlesToRecipients,
 } from "@/lib/mentions";
 
-type MentionSourceType = "personal_page" | "client_note" | "task";
+type MentionSourceType =
+  | "personal_page"
+  | "client_note"
+  | "task"
+  | "social_post"
+  | "social_comment";
 
 type MentionNotificationInput = {
   actorAuthUserId: string | null;
@@ -28,6 +33,8 @@ const SOURCE_LABEL: Record<MentionSourceType, string> = {
   personal_page: "personal page",
   client_note: "client note",
   task: "task",
+  social_post: "social post",
+  social_comment: "social comment",
 };
 
 function isMissingColumnError(error: unknown) {
