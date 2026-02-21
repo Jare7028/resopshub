@@ -228,7 +228,16 @@ create policy social_pages_insert
   with check (
     auth.uid() is not null
     and public.can_edit_page('social')
-    and created_by in (auth.uid(), public.current_app_user_id())
+    and (
+      created_by = auth.uid()
+      or created_by = public.current_app_user_id()
+      or exists (
+        select 1
+        from public.users u
+        where u.id = created_by
+          and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
+      )
+    )
   );
 
 drop policy if exists social_pages_update on public.social_pages;
@@ -290,7 +299,16 @@ create policy social_posts_insert
   with check (
     public.can_access_social_page(page_id)
     and public.can_edit_page('social')
-    and user_id in (auth.uid(), public.current_app_user_id())
+    and (
+      user_id = auth.uid()
+      or user_id = public.current_app_user_id()
+      or exists (
+        select 1
+        from public.users u
+        where u.id = user_id
+          and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
+      )
+    )
   );
 
 drop policy if exists social_posts_update on public.social_posts;
@@ -352,7 +370,16 @@ create policy social_post_comments_insert
   with check (
     public.can_access_social_post(post_id)
     and public.can_edit_page('social')
-    and user_id in (auth.uid(), public.current_app_user_id())
+    and (
+      user_id = auth.uid()
+      or user_id = public.current_app_user_id()
+      or exists (
+        select 1
+        from public.users u
+        where u.id = user_id
+          and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
+      )
+    )
   );
 
 drop policy if exists social_post_comments_update on public.social_post_comments;

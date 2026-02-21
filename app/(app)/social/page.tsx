@@ -151,6 +151,10 @@ export default async function SocialPage(props: {
       p_page_key: "social",
     });
 
+    if (canEditResult.error) {
+      redirect(`/social?error=${encodeURIComponent(`Could not verify Social edit permission (${canEditResult.error.message})`)}`);
+    }
+
     if (!canEditResult.error && !canEditResult.data) {
       redirect("/social?error=You%20only%20have%20view%20access%20to%20Social");
     }
@@ -183,8 +187,12 @@ export default async function SocialPage(props: {
       .single();
 
     if (insertError || !insertedPage?.id) {
+      const insertMessage = String(insertError?.message || "Unable to create page");
+      const friendlyMessage = /row-level security/i.test(insertMessage)
+        ? "You do not have permission to create Social pages. Ask an admin to grant Social edit access."
+        : insertMessage;
       redirect(
-        `/social?error=${encodeURIComponent(insertError?.message || "Unable to create page")}`
+        `/social?error=${encodeURIComponent(friendlyMessage)}`
       );
     }
 
