@@ -459,7 +459,7 @@ export default async function ProjectTasksPage(props: {
     const uniqueAssigneeIds = Array.from(
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
     );
-    const fallbackAssigneeId = defaultAssigneeUserId || authData.user.id;
+    const fallbackAssigneeId = defaultAssigneeUserId || null;
     const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || fallbackAssigneeId || "";
     const effectiveAssigneeIds = uniqueAssigneeIds.length
       ? uniqueAssigneeIds

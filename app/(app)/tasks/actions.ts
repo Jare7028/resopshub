@@ -9,7 +9,7 @@ function safeReturnTo(value: unknown, fallback: string) {
   const next = String(value || "").trim();
   if (!next) return fallback;
   // Only allow internal redirects.
-  if (!next.startsWith("/")) return fallback;
+  if (!next.startsWith("/") || next.startsWith("//")) return fallback;
   return next;
 }
 
@@ -27,7 +27,7 @@ export async function updateTaskInlineAction(formData: FormData) {
   const assigneeIds = formData
     .getAll("assignee_user_ids")
     .map((value) => String(value).trim())
-    .filter(Boolean);
+    .filter((value) => Boolean(value) && value !== "unassigned");
 
   const returnTo = safeReturnTo(formData.get("return_to"), "/tasks");
   const updates: Record<string, string | null> = {};
@@ -74,28 +74,15 @@ export async function updateTaskInlineAction(formData: FormData) {
 
   if (formData.has("assignee_user_ids")) {
     const uniqueIds = Array.from(new Set(assigneeIds));
-    await supabase.from("task_assignees").delete().eq("task_id", taskId);
-    if (uniqueIds.length) {
-      const inserts = uniqueIds.map((userId) => ({ task_id: taskId, user_id: userId }));
-      const { error: assigneeError } = await supabase.from("task_assignees").insert(inserts);
-      if (assigneeError) {
-        redirect(
-          returnTo.includes("?")
-            ? `${returnTo}&error=${encodeURIComponent(assigneeError.message)}`
-            : `${returnTo}?error=${encodeURIComponent(assigneeError.message)}`
-        );
-      }
-    }
-    // Keep legacy single-assignee column roughly in sync with the first selected assignee.
-    const { error: primaryAssigneeError } = await supabase
-      .from("tasks")
-      .update({ assignee_user_id: uniqueIds[0] || null })
-      .eq("id", taskId);
-    if (primaryAssigneeError) {
+    const { error: replaceAssigneesError } = await supabase.rpc("replace_task_assignees", {
+      p_task_id: taskId,
+      p_assignee_user_ids: uniqueIds,
+    });
+    if (replaceAssigneesError) {
       redirect(
         returnTo.includes("?")
-          ? `${returnTo}&error=${encodeURIComponent(primaryAssigneeError.message)}`
-          : `${returnTo}?error=${encodeURIComponent(primaryAssigneeError.message)}`
+          ? `${returnTo}&error=${encodeURIComponent(replaceAssigneesError.message)}`
+          : `${returnTo}?error=${encodeURIComponent(replaceAssigneesError.message)}`
       );
     }
   }

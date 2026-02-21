@@ -634,30 +634,29 @@ export default async function TasksPage(props: {
       .order("created_at", { ascending: false })
       .limit(MAX_TASK_ROWS);
 
-    const [directVisibilityRows, assignedRows, watcherRows] = await Promise.all([
-      assignmentUserIds.length
-        ? supabase
-            .from("tasks")
-            .select("id")
-            .is("parent_task_id", null)
-            .or(
-              `assignee_user_id.in.(${assignmentUserIds.join(",")}),created_by_user_id.in.(${assignmentUserIds.join(",")})`
-            )
-        : Promise.resolve({ data: [] as Array<{ id: string | null }> }),
-      assignmentUserIds.length
-        ? supabase.from("task_assignees").select("task_id").in("user_id", assignmentUserIds)
-        : Promise.resolve({ data: [] as Array<{ task_id: string | null }> }),
-      includeWatching && assignmentUserIds.length
-        ? supabase.from("task_watchers").select("task_id").in("user_id", assignmentUserIds)
-        : Promise.resolve({ data: [] as Array<{ task_id: string | null }> }),
-    ]);
+    const { data: visibleTaskIdRows, error: visibleTaskIdsError } = await withPerfTiming(
+      "tasks.page.visible_task_ids",
+      () =>
+        supabase.rpc("task_accessible_root_ids_for", {
+          p_user_ids: assignmentUserIds,
+          p_include_watching: includeWatching,
+        })
+    );
+
+    if (visibleTaskIdsError) {
+      redirect(
+        buildTasksRedirectUrl(returnTo, {
+          error: formatDbError("tasks.page.visible_task_ids", visibleTaskIdsError),
+        })
+      );
+    }
 
     const allowedTaskIds = Array.from(
-      new Set([
-        ...(directVisibilityRows.data || []).map((row) => row.id).filter(Boolean),
-        ...(assignedRows.data || []).map((row) => row.task_id).filter(Boolean),
-        ...(watcherRows.data || []).map((row) => row.task_id).filter(Boolean),
-      ])
+      new Set(
+        ((visibleTaskIdRows || []) as Array<{ task_id: string | null }>)
+          .map((row) => row.task_id)
+          .filter((taskId): taskId is string => Boolean(taskId))
+      )
     );
 
     if (allowedTaskIds.length) {
@@ -1005,7 +1004,7 @@ export default async function TasksPage(props: {
     const uniqueAssigneeIds = Array.from(
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
     );
-    const fallbackAssigneeId = defaultAssigneeUserId || authData.user.id;
+    const fallbackAssigneeId = defaultAssigneeUserId || null;
     const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || fallbackAssigneeId || "";
     const effectiveAssigneeIds = uniqueAssigneeIds.length
       ? uniqueAssigneeIds
