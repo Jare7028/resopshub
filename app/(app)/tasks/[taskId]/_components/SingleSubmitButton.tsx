@@ -16,6 +16,7 @@ export default function SingleSubmitButton({
   children,
   pendingLabel = "Saving...",
   disabled,
+  onClick,
   ...props
 }: SingleSubmitButtonProps) {
   const { pending } = useFormStatus();
@@ -35,8 +36,16 @@ export default function SingleSubmitButton({
       {...props}
       disabled={isDisabled}
       onClick={(event) => {
+        onClick?.(event);
+        if (event.defaultPrevented) {
+          return;
+        }
         if (isDisabled) {
           event.preventDefault();
+          return;
+        }
+        const form = event.currentTarget.form;
+        if (form && !form.checkValidity()) {
           return;
         }
         setSubmitted(true);
