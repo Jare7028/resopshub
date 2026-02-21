@@ -14,6 +14,7 @@ type TemplateAutoSelectProps = {
   preservedQuery?: string;
   disabled?: boolean;
   className?: string;
+  basePath?: string;
 };
 
 export default function TemplateAutoSelect({
@@ -22,6 +23,7 @@ export default function TemplateAutoSelect({
   preservedQuery = "",
   disabled = false,
   className,
+  basePath = "/tasks",
 }: TemplateAutoSelectProps) {
   const router = useRouter();
 
@@ -36,7 +38,7 @@ export default function TemplateAutoSelect({
       sp.delete("template_task_id");
     }
     const qs = sp.toString();
-    router.push(qs ? `/tasks?${qs}` : "/tasks?tab=add&create_mode=template");
+    router.push(qs ? `${basePath}?${qs}` : `${basePath}?tab=add&create_mode=template`);
   };
 
   return (
@@ -56,4 +58,3 @@ export default function TemplateAutoSelect({
     </select>
   );
 }
-
