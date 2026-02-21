@@ -672,7 +672,13 @@ export default async function TasksPage(props: {
     if (allowedTaskIds.length) {
       request = request.in("id", allowedTaskIds);
     } else {
-      request = request.eq("id", "00000000-0000-0000-0000-000000000000");
+      console.warn(
+        "[tasks.page.visible_task_ids] helper returned no ids; falling back to RLS query",
+        {
+          assignmentUserIds,
+          includeWatching,
+        }
+      );
     }
 
     if (selectedStatuses.length) {
