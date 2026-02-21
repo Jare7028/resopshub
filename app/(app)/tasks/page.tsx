@@ -263,11 +263,11 @@ export default async function TasksPage(props: {
   const sortSource =
     typeof searchParams?.sort !== "undefined"
       ? searchParams?.sort
-      : taskTablePreferences?.sort_key;
+      : undefined;
   const dirSource =
     typeof searchParams?.dir !== "undefined"
       ? searchParams?.dir
-      : taskTablePreferences?.sort_dir;
+      : undefined;
   const sortKey = normalizeTaskSortKey(sortSource as string | undefined);
   const sortDir = normalizeTaskSortDir(dirSource as string | undefined);
 
@@ -303,11 +303,11 @@ export default async function TasksPage(props: {
   const hideCompleted =
     typeof searchParams?.hide !== "undefined"
       ? (searchParams?.hide ?? "1").trim() !== "0"
-      : taskTablePreferences?.hide_completed ?? true;
+      : true;
   const includeWatching =
     typeof searchParams?.watch !== "undefined"
       ? (searchParams?.watch ?? "0").trim() === "1"
-      : taskTablePreferences?.include_watching ?? false;
+      : false;
   const activeTab = normalizeTasksTabKey(searchParams?.tab);
 
   const allowedDueValues = new Set<string>(
