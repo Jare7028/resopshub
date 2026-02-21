@@ -826,9 +826,15 @@ export default async function TaskDetailPage(props: {
       )
     );
 
-    const { data: rpcResult, error: createSubtaskError } = await supabase.rpc(
-      "create_subtask_with_assignees",
-      {
+    let rpcResult: unknown = null;
+    let createSubtaskError: {
+      message: string;
+      code?: string;
+      details?: string | null;
+      hint?: string | null;
+    } | null = null;
+    try {
+      const rpcResponse = await supabase.rpc("create_subtask_with_assignees", {
         p_parent_task_id: taskId,
         p_client_id: taskClientId,
         p_project_id: taskProjectId,
@@ -842,8 +848,19 @@ export default async function TaskDetailPage(props: {
         p_content: DEFAULT_EDITOR_CONTENT,
         p_content_text: defaultContentText,
         p_assignee_user_ids: effectiveAssigneeIds,
-      }
-    ).abortSignal(AbortSignal.timeout(12000));
+      });
+      rpcResult = rpcResponse.data;
+      createSubtaskError = rpcResponse.error;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown subtask RPC error";
+      createSubtaskError = { message: errorMessage };
+      console.error("Subtask RPC create threw", {
+        taskId,
+        userId: authData.user.id,
+        error,
+      });
+    }
     const createdSubtaskId = coerceUuidFromRpcResult(rpcResult);
 
     let finalSubtaskId = createdSubtaskId;
@@ -875,11 +892,32 @@ export default async function TaskDetailPage(props: {
         fallbackPayload.start_date = startDate;
       }
 
-      const { data: fallbackSubtask, error: fallbackInsertError } = await supabase
-        .from("tasks")
-        .insert(fallbackPayload)
-        .select("id")
-        .single();
+      let fallbackSubtask: { id?: string | null } | null = null;
+      let fallbackInsertError: {
+        message: string;
+        code?: string;
+        details?: string | null;
+        hint?: string | null;
+      } | null = null;
+      try {
+        const fallbackInsertResponse = await supabase
+          .from("tasks")
+          .insert(fallbackPayload)
+          .select("id")
+          .single();
+        fallbackSubtask = fallbackInsertResponse.data;
+        fallbackInsertError = fallbackInsertResponse.error;
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown subtask fallback insert error";
+        fallbackInsertError = { message: errorMessage };
+        console.error("Subtask fallback insert threw", {
+          taskId,
+          userId: authData.user.id,
+          createSubtaskError,
+          error,
+        });
+      }
 
       if (fallbackInsertError || !fallbackSubtask?.id) {
         console.error("Subtask fallback insert failed", {
@@ -932,7 +970,6 @@ export default async function TaskDetailPage(props: {
       }
     }
 
-    revalidatePath(`/tasks/${taskId}`);
     const successUrl = buildTaskUrl(taskId, "subtasks", { success: "Subtask created" });
     const [successPath, successQueryString = ""] = successUrl.split("?");
     const successParams = new URLSearchParams(successQueryString);
