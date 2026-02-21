@@ -3,14 +3,11 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
-import { extractPlainText } from "@/lib/tiptapText";
 import TaskNotesEditorClient from "./TaskNotesEditorClient";
 import TaskTabs, {
   normalizeTaskTabKey,
   type TaskTabKey,
 } from "./_components/TaskTabs";
-import SingleSubmitButton from "./_components/SingleSubmitButton";
 import ConfirmDelete from "../../_components/ConfirmDelete";
 import {
   TASK_STATUS_OPTIONS,
@@ -39,6 +36,11 @@ import {
   type CustomFieldValueRow,
 } from "@/lib/customFields";
 import { buildOutlookTaskComposeUrl } from "@/lib/outlookCalendar";
+import {
+  createTaskLikeRoot,
+  TaskCreateDbError,
+  TaskCreateInputError,
+} from "@/lib/tasks/createTaskLikeRoot";
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -46,7 +48,6 @@ const dueDateFilters = [
   { value: "next_7", label: "Next 7 days" },
   { value: "none", label: "No due date" },
 ] as const;
-const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 type TaskDetailRow = {
   id: string;
   title: string;
@@ -100,26 +101,6 @@ function formatDbError(
   if (error.details) parts.push(`details=${error.details}`);
   if (error.hint) parts.push(`hint=${error.hint}`);
   return parts.join(" | ");
-}
-
-function coerceUuidFromRpcResult(result: unknown): string | null {
-  if (typeof result === "string" && result.trim()) {
-    return result.trim();
-  }
-
-  if (Array.isArray(result) && result.length === 1) {
-    return coerceUuidFromRpcResult(result[0]);
-  }
-
-  if (result && typeof result === "object") {
-    const record = result as Record<string, unknown>;
-    const direct = record.create_subtask_with_assignees;
-    if (typeof direct === "string" && direct.trim()) {
-      return direct.trim();
-    }
-  }
-
-  return null;
 }
 
 export default async function TaskDetailPage(props: {
@@ -795,11 +776,11 @@ export default async function TaskDetailPage(props: {
       redirect("/login");
     }
     const title = String(formData.get("title") || "").trim();
-    const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
+    const status = String(formData.get("status") || "to_do");
     const priority = String(formData.get("priority") || "medium");
-    const startDate = String(formData.get("start_date") || "");
-    const dueDate = String(formData.get("due_date") || "");
-    const dueTime = String(formData.get("due_time") || "");
+    const startDate = String(formData.get("start_date") || "").trim();
+    const dueDate = String(formData.get("due_date") || "").trim();
+    const dueTime = String(formData.get("due_time") || "").trim();
     const assignee = String(formData.get("assignee_user_id") || "");
     const assigneeIds = formData
       .getAll("assignee_user_ids")
@@ -812,170 +793,45 @@ export default async function TaskDetailPage(props: {
       );
     }
 
-    const explicitAssigneeIds = assigneeIds.filter((value) => value !== "unassigned");
-    const fallbackAssigneeId = defaultAssigneeUserId || null;
-    const primaryAssignee =
-      explicitAssigneeIds[0] || assignee || fallbackAssigneeId || "";
-    const effectiveAssigneeIds = Array.from(
-      new Set(
-        explicitAssigneeIds.length
-          ? explicitAssigneeIds
-          : primaryAssignee
-            ? [primaryAssignee]
-            : []
-      )
-    );
-
-    let rpcResult: unknown = null;
-    let createSubtaskError: {
-      message: string;
-      code?: string;
-      details?: string | null;
-      hint?: string | null;
-    } | null = null;
     try {
-      const rpcResponse = await supabase.rpc("create_subtask_with_assignees", {
-        p_parent_task_id: taskId,
-        p_client_id: taskClientId,
-        p_project_id: taskProjectId,
-        p_title: title,
-        p_status: status,
-        p_priority: priority,
-        p_start_date: startDate || null,
-        p_due_date: dueDate || null,
-        p_due_time: dueTime || null,
-        p_created_by_user_id: authData.user.id,
-        p_content: DEFAULT_EDITOR_CONTENT,
-        p_content_text: defaultContentText,
-        p_assignee_user_ids: effectiveAssigneeIds,
-      });
-      rpcResult = rpcResponse.data;
-      createSubtaskError = rpcResponse.error;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown subtask RPC error";
-      createSubtaskError = { message: errorMessage };
-      console.error("Subtask RPC create threw", {
-        taskId,
-        userId: authData.user.id,
-        error,
-      });
-    }
-    const createdSubtaskId = coerceUuidFromRpcResult(rpcResult);
-
-    let finalSubtaskId = createdSubtaskId;
-
-    if (createSubtaskError || !finalSubtaskId) {
-      console.error("Subtask RPC create failed", {
-        taskId,
-        userId: authData.user.id,
-        error: createSubtaskError,
-        rpcResult,
-      });
-
-      const fallbackPayload: Record<string, unknown> = {
-        client_id: taskClientId,
-        project_id: taskProjectId,
-        parent_task_id: taskId,
+      await createTaskLikeRoot({
+        supabase,
+        context: "tasks.createSubtask",
         title,
         status,
         priority,
-        due_date: dueDate || null,
-        due_time: dueTime || null,
-        assignee_user_id: primaryAssignee || null,
-        created_by_user_id: authData.user.id,
-        content: DEFAULT_EDITOR_CONTENT,
-        content_text: defaultContentText,
-      };
-
-      if (startDate) {
-        fallbackPayload.start_date = startDate;
-      }
-
-      let fallbackSubtask: { id?: string | null } | null = null;
-      let fallbackInsertError: {
-        message: string;
-        code?: string;
-        details?: string | null;
-        hint?: string | null;
-      } | null = null;
-      try {
-        const fallbackInsertResponse = await supabase
-          .from("tasks")
-          .insert(fallbackPayload)
-          .select("id")
-          .single();
-        fallbackSubtask = fallbackInsertResponse.data;
-        fallbackInsertError = fallbackInsertResponse.error;
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Unknown subtask fallback insert error";
-        fallbackInsertError = { message: errorMessage };
-        console.error("Subtask fallback insert threw", {
-          taskId,
-          userId: authData.user.id,
-          createSubtaskError,
-          error,
-        });
-      }
-
-      if (fallbackInsertError || !fallbackSubtask?.id) {
-        console.error("Subtask fallback insert failed", {
-          taskId,
-          userId: authData.user.id,
-          createSubtaskError,
-          fallbackInsertError,
-        });
-        const errorParts = [
-          createSubtaskError
-            ? formatDbError(
-                "tasks.createSubtask.create_subtask_with_assignees",
-                createSubtaskError
-              )
-            : null,
-          fallbackInsertError
-            ? formatDbError("tasks.createSubtask.tasks.insert", fallbackInsertError)
-            : "tasks.createSubtask.tasks.insert returned no row",
-        ].filter(Boolean);
+        clientId: taskClientId,
+        projectId: taskProjectId,
+        parentTaskId: taskId,
+        dueDate: dueDate || null,
+        dueTime: dueTime || null,
+        startDate: startDate || null,
+        createdByUserId: authData.user.id,
+        assigneeUserId: assignee,
+        assigneeUserIds: assigneeIds,
+        defaultAssigneeUserId: defaultAssigneeUserId || null,
+      });
+    } catch (error) {
+      if (error instanceof TaskCreateDbError) {
         redirect(
           buildTaskUrl(taskId, "subtasks", {
-            error: errorParts.join(" | "),
+            error: formatDbError(error.context, error.dbError),
           })
         );
       }
-
-      finalSubtaskId = fallbackSubtask.id;
-
-      if (effectiveAssigneeIds.length) {
-        const assigneeRows = effectiveAssigneeIds.map((userId) => ({
-          task_id: finalSubtaskId,
-          user_id: userId,
-        }));
-        const { error: assigneeInsertError } = await supabase
-          .from("task_assignees")
-          .upsert(assigneeRows, {
-            onConflict: "task_id,user_id",
-            ignoreDuplicates: true,
-          });
-
-        if (assigneeInsertError) {
-          // Do not block subtask creation; this is a best-effort sync after fallback insert.
-          console.error("Subtask fallback assignee sync failed", {
-            taskId,
-            subtaskId: finalSubtaskId,
-            userId: authData.user.id,
-            error: assigneeInsertError,
-          });
-        }
+      if (error instanceof TaskCreateInputError) {
+        redirect(
+          buildTaskUrl(taskId, "subtasks", {
+            error: error.message,
+          })
+        );
       }
+      const message = error instanceof Error ? error.message : "Unable to create subtask";
+      redirect(buildTaskUrl(taskId, "subtasks", { error: message }));
     }
 
-    const successUrl = buildTaskUrl(taskId, "subtasks", { success: "Subtask created" });
-    const [successPath, successQueryString = ""] = successUrl.split("?");
-    const successParams = new URLSearchParams(successQueryString);
-    successParams.set("subtask_refresh", Date.now().toString());
-    const successQuery = successParams.toString();
-    redirect(successQuery ? `${successPath}?${successQuery}` : successPath);
+    revalidatePath(`/tasks/${taskId}`);
+    redirect(buildTaskUrl(taskId, "subtasks", { success: "Subtask created" }));
   }
 
   async function deleteTask() {
@@ -1604,12 +1460,12 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
-            <SingleSubmitButton
-              pendingLabel="Creating..."
-              className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
+            <button
+              type="submit"
+              className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
             >
               Create subtask
-            </SingleSubmitButton>
+            </button>
           </form>
         </div>
       </section>

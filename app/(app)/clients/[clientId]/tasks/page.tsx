@@ -32,6 +32,11 @@ import { parseTaskScheduleFormData } from "@/lib/taskSchedule";
 import { randomUUID } from "node:crypto";
 import { withPerfTiming } from "@/lib/perf";
 import {
+  createTaskLikeRoot,
+  TaskCreateDbError,
+  TaskCreateInputError,
+} from "@/lib/tasks/createTaskLikeRoot";
+import {
   ensureClientPageEditAccess,
   ensureClientPageViewAccess,
   getClientPageAccessData,
@@ -553,67 +558,54 @@ export default async function ClientTasksPage(props: {
     const uniqueAssigneeIds = Array.from(
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
     );
-    const fallbackAssigneeId = defaultAssigneeUserId || authData.user.id;
-    const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || fallbackAssigneeId || "";
-    const effectiveAssigneeIds = uniqueAssigneeIds.length
-      ? uniqueAssigneeIds
-      : primaryAssignee
-        ? [primaryAssignee]
-        : [];
-
-    const taskId = randomUUID();
-    const payload: Record<string, unknown> = {
-      id: taskId,
-      client_id: clientId,
-      project_id: projectId,
-      title,
-      status,
-      priority,
-      due_date: schedule.dueDate,
-      due_time: schedule.dueTime,
-      assignee_user_id: primaryAssignee || null,
-      created_by_user_id: authData.user.id,
-      content: DEFAULT_EDITOR_CONTENT,
-      content_text: defaultContentText,
-    };
-
-    if (schedule.recurrenceConfig) {
-      payload.recurrence_frequency = schedule.recurrenceConfig.frequency;
-      payload.recurrence_interval = schedule.recurrenceConfig.interval;
-      payload.recurrence_weekdays = schedule.recurrenceConfig.weekdays;
-      payload.recurrence_month_day = schedule.recurrenceConfig.monthDay;
-      payload.recurrence_month_week = schedule.recurrenceConfig.monthWeek;
-      payload.recurrence_month_weekday = schedule.recurrenceConfig.monthWeekday;
-      payload.recurrence_start_date = schedule.recurrenceConfig.startDate;
-      payload.recurrence_end_date = schedule.recurrenceConfig.endDate;
-      payload.recurrence_lead_days = schedule.recurrenceLeadDays;
-      payload.recurrence_next_date = schedule.recurrenceNextDate;
-      payload.recurrence_timezone = schedule.recurrenceTimezone;
-    }
-
-    if (schedule.startDate) {
-      payload.start_date = schedule.startDate;
-    }
-
-    const { error } = await supabase.from("tasks").insert(payload);
-
-    if (error) {
-      redirect(
-        buildClientTasksUrl("add", {
-          error: formatDbError("clients.tasks.createTask.tasks.insert", error),
-        })
-      );
-    }
-
-    if (taskId && effectiveAssigneeIds.length) {
-      const inserts = effectiveAssigneeIds.map((userId) => ({
-        task_id: taskId,
-        user_id: userId,
-      }));
-      const { error: assigneeError } = await supabase.from("task_assignees").insert(inserts);
-      if (assigneeError) {
-        redirect(buildClientTasksUrl("add", { error: assigneeError.message }));
-      }
+    let taskId: string;
+    let primaryAssignee: string | null;
+    let effectiveAssigneeIds: string[];
+    try {
+      const created = await createTaskLikeRoot({
+        supabase,
+        context: "clients.tasks.createTask",
+        title,
+        status,
+        priority,
+        clientId,
+        projectId,
+        dueDate: schedule.dueDate,
+        dueTime: schedule.dueTime,
+        startDate: schedule.startDate,
+        createdByUserId: authData.user.id,
+        assigneeUserId,
+        assigneeUserIds: uniqueAssigneeIds,
+        defaultAssigneeUserId: defaultAssigneeUserId || null,
+        recurrenceValues: schedule.recurrenceConfig
+          ? {
+              recurrence_frequency: schedule.recurrenceConfig.frequency,
+              recurrence_interval: schedule.recurrenceConfig.interval,
+              recurrence_weekdays: schedule.recurrenceConfig.weekdays,
+              recurrence_month_day: schedule.recurrenceConfig.monthDay,
+              recurrence_month_week: schedule.recurrenceConfig.monthWeek,
+              recurrence_month_weekday: schedule.recurrenceConfig.monthWeekday,
+              recurrence_start_date: schedule.recurrenceConfig.startDate,
+              recurrence_end_date: schedule.recurrenceConfig.endDate,
+              recurrence_lead_days: schedule.recurrenceLeadDays,
+              recurrence_next_date: schedule.recurrenceNextDate,
+              recurrence_timezone: schedule.recurrenceTimezone,
+            }
+          : null,
+      });
+      taskId = created.taskId;
+      primaryAssignee = created.primaryAssignee;
+      effectiveAssigneeIds = created.effectiveAssigneeIds;
+    } catch (error) {
+      const message =
+        error instanceof TaskCreateDbError
+          ? formatDbError(error.context, error.dbError)
+          : error instanceof TaskCreateInputError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "Unable to create task";
+      redirect(buildClientTasksUrl("add", { error: message }));
     }
 
     if (taskId && templateTaskIdFromForm) {
