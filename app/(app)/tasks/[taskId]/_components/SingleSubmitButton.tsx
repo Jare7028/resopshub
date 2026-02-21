@@ -25,10 +25,16 @@ export default function SingleSubmitButton({
 
   useEffect(() => {
     if (!pending) return;
-    const refreshTimer = window.setTimeout(() => {
+    const softRefreshTimer = window.setTimeout(() => {
       router.refresh();
-    }, 1800);
-    return () => window.clearTimeout(refreshTimer);
+    }, 900);
+    const hardRefreshTimer = window.setTimeout(() => {
+      window.location.reload();
+    }, 3200);
+    return () => {
+      window.clearTimeout(softRefreshTimer);
+      window.clearTimeout(hardRefreshTimer);
+    };
   }, [pending, router]);
 
   return (
