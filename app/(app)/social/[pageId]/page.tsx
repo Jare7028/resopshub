@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import Image from "next/image";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
+import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
 import SocialPostComposer from "../_components/SocialPostComposer";
 
 type SocialPageRow = {
@@ -315,13 +318,26 @@ export default async function SocialPageDetail(props: {
 
   async function createPost(formData: FormData) {
     "use server";
+    const actionId = randomUUID();
     const supabase = createSupabaseServerClient();
 
     const body = String(formData.get("body") || "").trim();
     const imagesJson = String(formData.get("images_json") || "[]");
     const parsedImages = parsePostImagesJson(imagesJson);
 
+    logInfo("social.post.create.start", {
+      action_id: actionId,
+      page_id: pageId,
+      body_length: body.length,
+      uploaded_image_count: parsedImages.length,
+    });
+
     if (!body) {
+      logWarn("social.post.create.validation_failed", {
+        action_id: actionId,
+        page_id: pageId,
+        reason: "missing_body",
+      });
       redirect(pageUrl({ error: "Post text is required" }));
     }
 
@@ -330,11 +346,37 @@ export default async function SocialPageDetail(props: {
       supabase.rpc("can_edit_page", { p_page_key: "social" }),
     ]);
 
+    if (canAccessResult.error) {
+      logError("social.post.create.page_access_check_error", {
+        action_id: actionId,
+        page_id: pageId,
+        error: canAccessResult.error,
+      });
+      redirect(pageUrl({ error: `Could not verify page access (${canAccessResult.error.message})` }));
+    }
+
     if (!canAccessResult.error && !canAccessResult.data) {
+      logWarn("social.post.create.page_access_denied", {
+        action_id: actionId,
+        page_id: pageId,
+      });
       redirect("/social?error=No%20access%20to%20this%20social%20page");
     }
 
+    if (canEditResult.error) {
+      logError("social.post.create.social_edit_check_error", {
+        action_id: actionId,
+        page_id: pageId,
+        error: canEditResult.error,
+      });
+      redirect(pageUrl({ error: `Could not verify Social edit access (${canEditResult.error.message})` }));
+    }
+
     if (!canEditResult.error && !canEditResult.data) {
+      logWarn("social.post.create.social_edit_denied", {
+        action_id: actionId,
+        page_id: pageId,
+      });
       redirect(pageUrl({ error: "You have view-only access to this page" }));
     }
 
@@ -342,6 +384,10 @@ export default async function SocialPageDetail(props: {
     const authUserId = String(authData.user?.id || "").trim();
     const authEmail = authData.user?.email;
     if (!authUserId) {
+      logWarn("social.post.create.unauthenticated", {
+        action_id: actionId,
+        page_id: pageId,
+      });
       redirect("/login");
     }
 
@@ -350,6 +396,16 @@ export default async function SocialPageDetail(props: {
       .select("id")
       .eq("id", authUserId)
       .maybeSingle();
+    if (userByAuthIdResult.error) {
+      logError("social.post.create.lookup_by_auth_id_error", {
+        action_id: actionId,
+        page_id: pageId,
+        auth_user_id: authUserId,
+        error: userByAuthIdResult.error,
+      });
+      redirect(pageUrl({ error: "Could not verify your user profile" }));
+    }
+
     const userByEmailResult =
       !userByAuthIdResult.data && authEmail
         ? await supabase
@@ -358,13 +414,31 @@ export default async function SocialPageDetail(props: {
             .eq("email", authEmail)
             .maybeSingle()
         : null;
+    if (userByEmailResult?.error) {
+      logError("social.post.create.lookup_by_email_error", {
+        action_id: actionId,
+        page_id: pageId,
+        auth_email: authEmail,
+        error: userByEmailResult.error,
+      });
+      redirect(pageUrl({ error: "Could not verify your user profile" }));
+    }
+
     const user = userByAuthIdResult.data || userByEmailResult?.data || null;
 
     if (!user?.id) {
+      logWarn("social.post.create.user_profile_missing", {
+        action_id: actionId,
+        page_id: pageId,
+        auth_user_id: authUserId,
+        auth_email: authEmail,
+      });
       redirect(pageUrl({ error: "Missing user profile" }));
     }
 
-    const { data: insertedPost, error: insertPostError } = await supabase
+    const supabaseAdmin = createSupabaseAdminClient();
+
+    const { data: insertedPost, error: insertPostError } = await supabaseAdmin
       .from("social_posts")
       .insert({
         page_id: pageId,
@@ -375,7 +449,17 @@ export default async function SocialPageDetail(props: {
       .single();
 
     if (insertPostError || !insertedPost?.id) {
-      redirect(pageUrl({ error: insertPostError?.message || "Unable to post update" }));
+      logError("social.post.create.insert_failed", {
+        action_id: actionId,
+        page_id: pageId,
+        user_id: user.id,
+        error: insertPostError,
+      });
+      const insertMessage = String(insertPostError?.message || "Unable to post update");
+      const friendlyMessage = /row-level security/i.test(insertMessage)
+        ? "Post creation failed due to a policy mismatch. Contact support if this persists."
+        : insertMessage;
+      redirect(pageUrl({ error: friendlyMessage }));
     }
 
     const images = parsedImages.filter((image) =>
@@ -383,7 +467,7 @@ export default async function SocialPageDetail(props: {
     );
 
     if (images.length) {
-      const { error: imageInsertError } = await supabase.from("social_post_images").insert(
+      const { error: imageInsertError } = await supabaseAdmin.from("social_post_images").insert(
         images.map((image, index) => ({
           post_id: insertedPost.id,
           storage_path: image.storage_path,
@@ -396,9 +480,25 @@ export default async function SocialPageDetail(props: {
       );
 
       if (imageInsertError) {
+        logError("social.post.create.image_insert_failed", {
+          action_id: actionId,
+          page_id: pageId,
+          post_id: insertedPost.id,
+          user_id: user.id,
+          image_count: images.length,
+          error: imageInsertError,
+        });
         redirect(pageUrl({ error: imageInsertError.message }));
       }
     }
+
+    logInfo("social.post.create.success", {
+      action_id: actionId,
+      page_id: pageId,
+      post_id: insertedPost.id,
+      user_id: user.id,
+      image_count: images.length,
+    });
 
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");
@@ -407,12 +507,25 @@ export default async function SocialPageDetail(props: {
 
   async function addComment(formData: FormData) {
     "use server";
+    const actionId = randomUUID();
     const supabase = createSupabaseServerClient();
 
     const postId = String(formData.get("post_id") || "").trim();
     const body = String(formData.get("body") || "").trim();
 
+    logInfo("social.comment.create.start", {
+      action_id: actionId,
+      page_id: pageId,
+      post_id: postId,
+      body_length: body.length,
+    });
+
     if (!postId || !body) {
+      logWarn("social.comment.create.validation_failed", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+      });
       redirect(pageUrl({ error: "Comment cannot be empty" }));
     }
 
@@ -424,6 +537,12 @@ export default async function SocialPageDetail(props: {
       .maybeSingle();
 
     if (postError || !post) {
+      logWarn("social.comment.create.post_not_found", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        error: postError,
+      });
       redirect(pageUrl({ error: "Post not found" }));
     }
 
@@ -431,7 +550,22 @@ export default async function SocialPageDetail(props: {
       p_page_key: "social",
     });
 
+    if (canEditResult.error) {
+      logError("social.comment.create.social_edit_check_error", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        error: canEditResult.error,
+      });
+      redirect(pageUrl({ error: `Could not verify Social edit access (${canEditResult.error.message})` }));
+    }
+
     if (!canEditResult.error && !canEditResult.data) {
+      logWarn("social.comment.create.social_edit_denied", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+      });
       redirect(pageUrl({ error: "You have view-only access to this page" }));
     }
 
@@ -439,6 +573,11 @@ export default async function SocialPageDetail(props: {
     const authUserId = String(authData.user?.id || "").trim();
     const authEmail = authData.user?.email;
     if (!authUserId) {
+      logWarn("social.comment.create.unauthenticated", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+      });
       redirect("/login");
     }
 
@@ -447,6 +586,17 @@ export default async function SocialPageDetail(props: {
       .select("id")
       .eq("id", authUserId)
       .maybeSingle();
+    if (userByAuthIdResult.error) {
+      logError("social.comment.create.lookup_by_auth_id_error", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        auth_user_id: authUserId,
+        error: userByAuthIdResult.error,
+      });
+      redirect(pageUrl({ error: "Could not verify your user profile" }));
+    }
+
     const userByEmailResult =
       !userByAuthIdResult.data && authEmail
         ? await supabase
@@ -455,21 +605,55 @@ export default async function SocialPageDetail(props: {
             .eq("email", authEmail)
             .maybeSingle()
         : null;
+    if (userByEmailResult?.error) {
+      logError("social.comment.create.lookup_by_email_error", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        auth_email: authEmail,
+        error: userByEmailResult.error,
+      });
+      redirect(pageUrl({ error: "Could not verify your user profile" }));
+    }
+
     const user = userByAuthIdResult.data || userByEmailResult?.data || null;
 
     if (!user?.id) {
+      logWarn("social.comment.create.user_profile_missing", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        auth_user_id: authUserId,
+        auth_email: authEmail,
+      });
       redirect(pageUrl({ error: "Missing user profile" }));
     }
 
-    const { error: commentError } = await supabase.from("social_post_comments").insert({
+    const supabaseAdmin = createSupabaseAdminClient();
+
+    const { error: commentError } = await supabaseAdmin.from("social_post_comments").insert({
       post_id: postId,
       user_id: user.id,
       body,
     });
 
     if (commentError) {
+      logError("social.comment.create.insert_failed", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        user_id: user.id,
+        error: commentError,
+      });
       redirect(pageUrl({ error: commentError.message }));
     }
+
+    logInfo("social.comment.create.success", {
+      action_id: actionId,
+      page_id: pageId,
+      post_id: postId,
+      user_id: user.id,
+    });
 
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");

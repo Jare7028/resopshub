@@ -25,6 +25,8 @@ Search by event names such as:
 
 - `social.page.create.insert_failed`
 - `social.page.create.permission_check_error`
+- `social.post.create.insert_failed`
+- `social.comment.create.insert_failed`
 - `social.image.upload.storage_upload_error`
 - `middleware.permission_check.edit.error`
 
