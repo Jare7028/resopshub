@@ -12,7 +12,19 @@ as $$
   select u.id
   from public.users u
   where auth.uid() is not null
-    and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
+    and lower(u.email::text) = lower(
+      coalesce(
+        auth.email(),
+        auth.jwt() ->> 'email',
+        (
+          select au.email
+          from auth.users au
+          where au.id = auth.uid()
+          limit 1
+        ),
+        ''
+      )
+    )
   limit 1;
 $$;
 

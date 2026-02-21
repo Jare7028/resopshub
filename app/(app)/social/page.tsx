@@ -160,17 +160,27 @@ export default async function SocialPage(props: {
     }
 
     const { data: authData } = await supabase.auth.getUser();
+    const authUserId = String(authData.user?.id || "").trim();
     const authEmail = authData.user?.email;
 
-    if (!authEmail) {
+    if (!authUserId) {
       redirect("/login");
     }
 
-    const { data: user } = await supabase
+    const userByAuthIdResult = await supabase
       .from("users")
       .select("id")
-      .eq("email", authEmail)
+      .eq("id", authUserId)
       .maybeSingle();
+    const userByEmailResult =
+      !userByAuthIdResult.data && authEmail
+        ? await supabase
+            .from("users")
+            .select("id")
+            .eq("email", authEmail)
+            .maybeSingle()
+        : null;
+    const user = userByAuthIdResult.data || userByEmailResult?.data || null;
 
     if (!user?.id) {
       redirect("/social?error=Missing%20user%20profile");
