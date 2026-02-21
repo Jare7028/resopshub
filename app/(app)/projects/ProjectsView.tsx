@@ -252,6 +252,26 @@ export default function ProjectsView({
 
   useEffect(() => clearDragPreview, [clearDragPreview]);
 
+  const resetDragState = useCallback(() => {
+    setDraggingProjectId(null);
+    setDragOverStatus(null);
+    clearDragPreview();
+  }, [clearDragPreview]);
+
+  useEffect(() => {
+    const onDragFinish = () => {
+      resetDragState();
+    };
+
+    window.addEventListener("dragend", onDragFinish);
+    window.addEventListener("drop", onDragFinish);
+
+    return () => {
+      window.removeEventListener("dragend", onDragFinish);
+      window.removeEventListener("drop", onDragFinish);
+    };
+  }, [resetDragState]);
+
   const setDragPreviewFromCard = useCallback(
     (event: { dataTransfer: DataTransfer; currentTarget: EventTarget & HTMLElement }) => {
       if (typeof document === "undefined") return;
@@ -1239,7 +1259,7 @@ export default function ProjectsView({
                         const projectId =
                           event.dataTransfer.getData("application/x-resopshub-project-id") ||
                           event.dataTransfer.getData("text/plain");
-                        setDragOverStatus(null);
+                        resetDragState();
                         if (!projectId) return;
                         const currentStatus = effectiveStatusByProjectId.get(projectId);
                         if (currentStatus === status) return;
@@ -1282,9 +1302,7 @@ export default function ProjectsView({
                                   setDragPreviewFromCard(event);
                                 }}
                                 onDragEnd={() => {
-                                  setDraggingProjectId(null);
-                                  setDragOverStatus(null);
-                                  clearDragPreview();
+                                  resetDragState();
                                 }}
                                 className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
                                   draggingProjectId === project.id

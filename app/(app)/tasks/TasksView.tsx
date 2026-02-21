@@ -346,6 +346,26 @@ export default function TasksView({
 
   useEffect(() => clearDragPreview, [clearDragPreview]);
 
+  const resetDragState = useCallback(() => {
+    setDraggingTaskId(null);
+    setDragOverStatus(null);
+    clearDragPreview();
+  }, [clearDragPreview]);
+
+  useEffect(() => {
+    const onDragFinish = () => {
+      resetDragState();
+    };
+
+    window.addEventListener("dragend", onDragFinish);
+    window.addEventListener("drop", onDragFinish);
+
+    return () => {
+      window.removeEventListener("dragend", onDragFinish);
+      window.removeEventListener("drop", onDragFinish);
+    };
+  }, [resetDragState]);
+
   const setDragPreviewFromCard = useCallback(
     (event: { dataTransfer: DataTransfer; currentTarget: EventTarget & HTMLElement }) => {
       if (typeof document === "undefined") return;
@@ -1443,7 +1463,7 @@ export default function TasksView({
                         const taskId =
                           event.dataTransfer.getData("application/x-resopshub-task-id") ||
                           event.dataTransfer.getData("text/plain");
-                        setDragOverStatus(null);
+                        resetDragState();
                         if (!taskId) return;
                         const currentStatus = effectiveStatusByTaskId.get(taskId);
                         if (currentStatus === status) return;
@@ -1492,9 +1512,7 @@ export default function TasksView({
                                   setDragPreviewFromCard(event);
                                 }}
                                 onDragEnd={() => {
-                                  setDraggingTaskId(null);
-                                  setDragOverStatus(null);
-                                  clearDragPreview();
+                                  resetDragState();
                                 }}
                                 className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
                                   draggingTaskId === task.id
