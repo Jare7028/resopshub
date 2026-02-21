@@ -12,7 +12,7 @@ as $$
   select u.id
   from public.users u
   where auth.uid() is not null
-    and lower(u.email::text) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
   limit 1;
 $$;
 
@@ -237,4 +237,3 @@ create policy client_users_select
       or user_id = public.current_app_user_id()
     )
   );
-
