@@ -797,9 +797,9 @@ export default function TasksView({
         nextExpandedTaskIds
       );
       const nextUrl = nextQuery ? `${basePath}?${nextQuery}` : basePath;
-      if (typeof window !== "undefined") {
-        window.history.replaceState(window.history.state, "", nextUrl);
-      }
+      startTransition(() => {
+        router.replace(nextUrl, { scroll: false });
+      });
 
       return nextExpandedTaskIds;
     });
