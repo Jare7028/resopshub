@@ -206,12 +206,17 @@ export default async function DashboardPage(props: {
     taskPriorities.includes(priority as (typeof taskPriorities)[number])
   );
 
-  const { data: clients } = await withPerfTiming("dashboard.clients", () =>
-    supabase
-      .from("clients")
-      .select("id,name,status,start_date")
-      .order("name", { ascending: true })
-  );
+  const [{ data: clients }, { data: users }] = await Promise.all([
+    withPerfTiming("dashboard.clients", () =>
+      supabase
+        .from("clients")
+        .select("id,name,status,start_date")
+        .order("name", { ascending: true })
+    ),
+    withPerfTiming("dashboard.users", () =>
+      supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
+    ),
+  ]);
 
   let visibleProjectIds: string[] = [];
   let watchedProjectIds: string[] = [];
@@ -279,11 +284,6 @@ export default async function DashboardPage(props: {
     projects = projectData || [];
   }
 
-  const { data: users } = await supabase
-    .from("users")
-    .select("id,full_name,email")
-    .order("full_name", { ascending: true });
-
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const filteredClientIds = selectedClientIds.filter((id) => clientIdSet.has(id));
 
@@ -292,6 +292,17 @@ export default async function DashboardPage(props: {
 
   const userIdSet = new Set((users || []).map((user) => user.id));
   const filteredUserIds = selectedUserIds.filter((id) => userIdSet.has(id));
+  const clientNameById = (clients || []).reduce<Record<string, string>>((acc, client) => {
+    acc[client.id] = client.name;
+    return acc;
+  }, {});
+  const projectNameById = (projects || []).reduce<Record<string, string>>((acc, project) => {
+    acc[project.id] = project.name;
+    return acc;
+  }, {});
+  const projectClientByProjectId = new Map(
+    (projects || []).map((project) => [project.id, String(project.client_id || "").trim()])
+  );
 
   const now = new Date();
   const todayIso = toIsoDate(now);
@@ -312,7 +323,6 @@ export default async function DashboardPage(props: {
   }
 
   let tasks: Array<{
-    id: string;
     title: string;
     status: string | null;
     priority: string | null;
@@ -321,62 +331,55 @@ export default async function DashboardPage(props: {
     project_id: string | null;
     client_id: string | null;
     created_at: string | null;
-    projects?: { id?: string | null; name?: string | null; status?: string | null } | { id?: string | null; name?: string | null; status?: string | null }[] | null;
-    clients?: { id?: string | null; name?: string | null } | { id?: string | null; name?: string | null }[] | null;
   }> = [];
 
-  const canQueryTasks = true;
+  let tasksQuery = supabase
+    .from("tasks")
+    .select("title,status,priority,due_date,assignee_user_id,project_id,client_id,created_at")
+    .is("parent_task_id", null)
+    .order("created_at", { ascending: false });
 
-  if (canQueryTasks) {
-    let tasksQuery = supabase
-      .from("tasks")
-      .select(
-        "id,title,status,priority,due_date,assignee_user_id,project_id,client_id,created_at,projects(id,name,status),clients(id,name)"
-      )
-      .is("parent_task_id", null);
-
-    if (filteredClientIds.length) {
-      tasksQuery = tasksQuery.in("client_id", filteredClientIds);
-    }
-
-    if (filteredProjectIds.length) {
-      tasksQuery = tasksQuery.in("project_id", filteredProjectIds);
-    }
-
-    if (filteredUserIds.length) {
-      tasksQuery = tasksQuery.in("assignee_user_id", filteredUserIds);
-    }
-
-    if (selectedStatuses.length) {
-      tasksQuery = tasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
-    }
-
-    if (selectedPriorities.length) {
-      tasksQuery = tasksQuery.in("priority", selectedPriorities);
-    }
-
-    if (rangeStart) {
-      tasksQuery = tasksQuery.gte("created_at", rangeStart).lte("created_at", now.toISOString());
-    }
-
-    if (!isAdmin) {
-      const orParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
-
-      if (explicitTaskIds.length) {
-        orParts.push(`id.in.(${explicitTaskIds.join(",")})`);
-      }
-
-      // If a user watches a project, include its tasks in dashboard visibility.
-      if (watchedProjectIds.length) {
-        orParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
-      }
-
-      tasksQuery = tasksQuery.or(orParts.join(","));
-    }
-
-    const { data: taskData } = await tasksQuery;
-    tasks = (taskData || []) as typeof tasks;
+  if (filteredClientIds.length) {
+    tasksQuery = tasksQuery.in("client_id", filteredClientIds);
   }
+
+  if (filteredProjectIds.length) {
+    tasksQuery = tasksQuery.in("project_id", filteredProjectIds);
+  }
+
+  if (filteredUserIds.length) {
+    tasksQuery = tasksQuery.in("assignee_user_id", filteredUserIds);
+  }
+
+  if (selectedStatuses.length) {
+    tasksQuery = tasksQuery.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
+  }
+
+  if (selectedPriorities.length) {
+    tasksQuery = tasksQuery.in("priority", selectedPriorities);
+  }
+
+  if (rangeStart) {
+    tasksQuery = tasksQuery.gte("created_at", rangeStart).lte("created_at", now.toISOString());
+  }
+
+  if (!isAdmin) {
+    const orParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
+
+    if (explicitTaskIds.length) {
+      orParts.push(`id.in.(${explicitTaskIds.join(",")})`);
+    }
+
+    // If a user watches a project, include its tasks in dashboard visibility.
+    if (watchedProjectIds.length) {
+      orParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
+    }
+
+    tasksQuery = tasksQuery.or(orParts.join(","));
+  }
+
+  const { data: taskData } = await withPerfTiming("dashboard.tasks", () => tasksQuery);
+  tasks = (taskData || []) as typeof tasks;
 
   const openTasks = (tasks || []).filter(
     (task) => task.status !== "completed" && task.status !== "cancelled"
@@ -441,20 +444,6 @@ export default async function DashboardPage(props: {
     );
   });
 
-  const getRelationName = (
-    relation:
-      | { name?: string | null }
-      | { name?: string | null }[]
-      | null
-      | undefined,
-    fallback: string
-  ) => {
-    if (Array.isArray(relation)) {
-      return relation[0]?.name ?? fallback;
-    }
-    return relation?.name ?? fallback;
-  };
-
   const clientWorkloadMap = new Map<
     string,
     {
@@ -470,7 +459,7 @@ export default async function DashboardPage(props: {
 
   openTasks.forEach((task) => {
     const clientId = task.client_id;
-    const clientName = getRelationName(task.clients, "Unknown");
+    const clientName = clientId ? clientNameById[clientId] || "Unknown" : "Unknown";
     if (!clientId) {
       return;
     }
@@ -616,8 +605,11 @@ export default async function DashboardPage(props: {
     if (!projectHealthMap.has(task.project_id)) {
       projectHealthMap.set(task.project_id, {
         projectId: task.project_id,
-        projectName: getRelationName(task.projects, "Untitled project"),
-        clientName: getRelationName(task.clients, "Unknown"),
+        projectName: projectNameById[task.project_id] || "Untitled project",
+        clientName:
+          (task.client_id ? clientNameById[task.client_id] : null) ||
+          clientNameById[projectClientByProjectId.get(task.project_id) || ""] ||
+          "Unknown",
         open: 0,
         blocked: 0,
         overdue: 0,
@@ -640,48 +632,9 @@ export default async function DashboardPage(props: {
     (a, b) => b.open - a.open
   );
 
-  let activityQuery = supabase
-    .from("tasks")
-    .select("id,title,created_at,project_id,client_id,projects(name),clients(name)")
-    .is("parent_task_id", null)
-    .order("created_at", { ascending: false })
-    .limit(6);
-
-  if (filteredClientIds.length) {
-    activityQuery = activityQuery.in("client_id", filteredClientIds);
-  }
-
-  if (filteredProjectIds.length) {
-    activityQuery = activityQuery.in("project_id", filteredProjectIds);
-  }
-
-  if (filteredUserIds.length) {
-    activityQuery = activityQuery.in("assignee_user_id", filteredUserIds);
-  }
-
-  if (rangeStart) {
-    activityQuery = activityQuery.gte("created_at", rangeStart).lte("created_at", now.toISOString());
-  }
-
-  if (!isAdmin) {
-    const orParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
-
-    if (explicitTaskIds.length) {
-      orParts.push(`id.in.(${explicitTaskIds.join(",")})`);
-    }
-
-    if (watchedProjectIds.length) {
-      orParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
-    }
-
-    activityQuery = activityQuery.or(orParts.join(","));
-  }
-
-  const { data: recentTasks } = await activityQuery;
-
-  const recentActivity = (recentTasks || []).map((task) => ({
+  const recentActivity = (tasks || []).slice(0, 6).map((task) => ({
     item: `Task created: ${task.title}`,
-    meta: `${getRelationName(task.clients, "No client")} - ${
+    meta: `${task.client_id ? clientNameById[task.client_id] || "No client" : "No client"} - ${
       task.created_at ? new Date(task.created_at).toLocaleDateString("en-US") : "-"
     }`,
   }));
@@ -693,9 +646,6 @@ export default async function DashboardPage(props: {
   const hasProjectScopeFilter = filteredProjectIds.length > 0;
   const hasTaskMetaScopeFilter =
     filteredUserIds.length > 0 || selectedStatuses.length > 0 || selectedPriorities.length > 0;
-  const projectClientByProjectId = new Map(
-    (projects || []).map((project) => [project.id, String(project.client_id || "").trim()])
-  );
   const projectScopedClientIds = Array.from(
     new Set(
       filteredProjectIds
@@ -714,7 +664,7 @@ export default async function DashboardPage(props: {
   } else {
     let scopedTasksQuery = supabase
       .from("tasks")
-      .select("id,client_id")
+      .select("client_id")
       .is("parent_task_id", null);
 
     if (filteredClientIds.length) {
@@ -754,7 +704,10 @@ export default async function DashboardPage(props: {
       scopedTasksQuery = scopedTasksQuery.or(scopedOrParts.join(","));
     }
 
-    const { data: scopedTasksRaw } = await scopedTasksQuery;
+    const { data: scopedTasksRaw } = await withPerfTiming(
+      "dashboard.scoped_tasks",
+      () => scopedTasksQuery
+    );
     scopedClientIds = Array.from(
       new Set(
         ((scopedTasksRaw || []) as Array<{ client_id: string | null }>)
@@ -763,11 +716,6 @@ export default async function DashboardPage(props: {
       )
     );
   }
-
-  const clientNameById = (clients || []).reduce<Record<string, string>>((acc, client) => {
-    acc[client.id] = client.name;
-    return acc;
-  }, {});
 
   const financeWarnings: string[] = [];
   let financeRoleCostRows: Array<{ roleLabel: string; totalCost: number; employeeCount: number }> = [];

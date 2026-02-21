@@ -48,29 +48,26 @@ export default function NotificationBell({ userId }: { userId: string }) {
 
   const loadPanel = useCallback(async () => {
     setLoading(true);
-    const [countResult, listResult] = await Promise.all([
-      supabase
-        .from("notifications")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .is("read_at", null),
-      supabase
-        .from("notifications")
-        .select("id,type,title,body,task_id,metadata,read_at,created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(12),
-    ]);
+    const listResult = await supabase
+      .from("notifications")
+      .select("id,type,title,body,task_id,metadata,read_at,created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(12);
 
-    if (!countResult.error) {
-      setUnreadCount(countResult.count || 0);
-    }
     if (!listResult.error) {
-      setItems((listResult.data || []) as NotificationRow[]);
+      const rows = (listResult.data || []) as NotificationRow[];
+      const unreadInPanel = rows.reduce(
+        (count, row) => count + (row.read_at ? 0 : 1),
+        0
+      );
+      setUnreadCount((current) => Math.max(current, unreadInPanel));
+      setItems(rows);
     }
 
     setLoading(false);
-  }, [userId]);
+    void loadUnreadCount();
+  }, [loadUnreadCount, userId]);
 
   useEffect(() => {
     void loadUnreadCount();

@@ -300,7 +300,7 @@ export default async function ClientTasksPage(props: {
   let tasksRequest = supabase
     .from("tasks")
     .select(
-      "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id,projects(name),clients(name)"
+      "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id"
     )
     .eq("client_id", clientId)
     .is("parent_task_id", null)
@@ -351,7 +351,24 @@ export default async function ClientTasksPage(props: {
   const { data: tasksRaw } = await withPerfTiming("clients.tasks.rows", () => tasksRequest);
   const hasNextPage = (tasksRaw || []).length > tasksPageSize;
   const hasPreviousPage = currentPage > 1;
-  const tasks = (tasksRaw || []).slice(0, tasksPageSize);
+  const projectNameById = new Map((projects || []).map((project) => [project.id, project.name]));
+  const tasks = ((tasksRaw || []).slice(0, tasksPageSize) as Array<{
+    id: string;
+    title: string;
+    status: string | null;
+    priority: string | null;
+    start_date: string | null;
+    due_date: string | null;
+    due_time: string | null;
+    created_at: string | null;
+    assignee_user_id: string | null;
+    client_id: string | null;
+    project_id: string | null;
+  }>).map((task) => ({
+    ...task,
+    clients: { name: client.name },
+    projects: task.project_id ? { name: projectNameById.get(task.project_id) || "" } : null,
+  }));
   const previousPageUrl = hasPreviousPage ? buildTaskListPageUrl(currentPage - 1) : null;
   const nextPageUrl = hasNextPage ? buildTaskListPageUrl(currentPage + 1) : null;
 

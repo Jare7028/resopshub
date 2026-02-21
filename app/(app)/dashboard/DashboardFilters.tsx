@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import MultiSelect from "../_components/MultiSelect";
 import { formatTaskStatusLabel } from "@/lib/taskStatus";
@@ -9,6 +9,8 @@ import {
   writeDashboardFiltersCookie,
 } from "./filterState";
 import type { DashboardFiltersState } from "./types";
+
+const FILTER_NAV_DEBOUNCE_MS = 300;
 
 type RangeOption = { value: string; label: string };
 type ClientOption = { id: string; name: string };
@@ -35,6 +37,8 @@ export default function DashboardFilters({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState<DashboardFiltersState>(initialFilters);
+  const filtersRef = useRef(filters);
+  const pendingNavTimerRef = useRef<number | null>(null);
 
   const initialKey = useMemo(
     () => JSON.stringify(initialFilters),
@@ -45,17 +49,47 @@ export default function DashboardFilters({
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
 
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingNavTimerRef.current) {
+        window.clearTimeout(pendingNavTimerRef.current);
+      }
+    };
+  }, []);
+
+  const cancelPendingNavigation = useCallback(() => {
+    if (!pendingNavTimerRef.current) return;
+    window.clearTimeout(pendingNavTimerRef.current);
+    pendingNavTimerRef.current = null;
+  }, []);
+
   const apply = useCallback(
-    (next: DashboardFiltersState) => {
+    (next: DashboardFiltersState, options?: { immediate?: boolean }) => {
+      const immediate = options?.immediate ?? false;
       writeDashboardFiltersCookie(next);
       const query = buildDashboardQuery(next);
-      startTransition(() => {
-        router.replace(query ? `/dashboard?${query}` : "/dashboard", {
-          scroll: false,
+      cancelPendingNavigation();
+      const navigate = () => {
+        startTransition(() => {
+          router.replace(query ? `/dashboard?${query}` : "/dashboard", {
+            scroll: false,
+          });
         });
-      });
+      };
+      if (immediate) {
+        navigate();
+        return;
+      }
+      pendingNavTimerRef.current = window.setTimeout(() => {
+        pendingNavTimerRef.current = null;
+        navigate();
+      }, FILTER_NAV_DEBOUNCE_MS);
     },
-    [router]
+    [cancelPendingNavigation, router]
   );
 
   const update = useCallback(
@@ -74,7 +108,7 @@ export default function DashboardFilters({
       className="grid gap-3 md:grid-cols-6"
       onSubmit={(event) => {
         event.preventDefault();
-        apply(filters);
+        apply(filtersRef.current, { immediate: true });
       }}
       >
       <input type="hidden" name="currency" value={filters.currency} />

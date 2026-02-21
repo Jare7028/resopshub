@@ -719,7 +719,13 @@ export default async function TasksPage(props: {
     }
 
     const { data: tasksRaw } = await withPerfTiming("tasks.page.tasks", () => request);
-    const tasks = (tasksRaw || []) as TaskListRow[];
+    const clientNameById = new Map((clients || []).map((client) => [client.id, client.name]));
+    const projectNameById = new Map((projects || []).map((project) => [project.id, project.name]));
+    const tasks = ((tasksRaw || []) as TaskListRow[]).map((task) => ({
+      ...task,
+      clients: task.client_id ? { name: clientNameById.get(task.client_id) || "" } : null,
+      projects: task.project_id ? { name: projectNameById.get(task.project_id) || "" } : null,
+    }));
     const taskIds = tasks.map((task) => task.id).filter(Boolean);
 
     if (taskIds.length) {

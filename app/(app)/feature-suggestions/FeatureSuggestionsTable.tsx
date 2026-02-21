@@ -40,6 +40,7 @@ type SortKey = "title" | "status" | "type" | "score" | "created_at";
 type SortDir = "asc" | "desc";
 
 type HeaderMenuKey = "title" | "status" | "type";
+const FILTER_NAV_DEBOUNCE_MS = 300;
 
 const statusColors: Record<string, string> = {
   idea: "bg-slate-400",
@@ -199,11 +200,20 @@ export default function FeatureSuggestionsTable({
   const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const pendingFilterNavTimerRef = useRef<number | null>(null);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingFilterNavTimerRef.current) {
+        window.clearTimeout(pendingFilterNavTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setView(initialView);
@@ -257,9 +267,13 @@ export default function FeatureSuggestionsTable({
     return params.toString();
   };
 
-  const applyFilters = (nextFilters: FilterState) => {
-    setFilters(nextFilters);
-    const query = buildQuery(nextFilters, sortKey, sortDir, view, hideCompleted);
+  const cancelPendingFilterNavigation = () => {
+    if (!pendingFilterNavTimerRef.current) return;
+    window.clearTimeout(pendingFilterNavTimerRef.current);
+    pendingFilterNavTimerRef.current = null;
+  };
+
+  const navigateWithQuery = (query: string) => {
     startTransition(() => {
       router.replace(query ? `/feature-suggestions?${query}` : "/feature-suggestions", {
         scroll: false,
@@ -267,14 +281,26 @@ export default function FeatureSuggestionsTable({
     });
   };
 
+  const applyFilters = (nextFilters: FilterState, options?: { immediate?: boolean }) => {
+    const immediate = options?.immediate ?? false;
+    setFilters(nextFilters);
+    const query = buildQuery(nextFilters, sortKey, sortDir, view, hideCompleted);
+    cancelPendingFilterNavigation();
+    if (immediate) {
+      navigateWithQuery(query);
+      return;
+    }
+    pendingFilterNavTimerRef.current = window.setTimeout(() => {
+      pendingFilterNavTimerRef.current = null;
+      navigateWithQuery(query);
+    }, FILTER_NAV_DEBOUNCE_MS);
+  };
+
   const applyView = (nextView: "table" | "gantt" | "board") => {
     setView(nextView);
+    cancelPendingFilterNavigation();
     const query = buildQuery(filters, sortKey, sortDir, nextView, hideCompleted);
-    startTransition(() => {
-      router.replace(query ? `/feature-suggestions?${query}` : "/feature-suggestions", {
-        scroll: false,
-      });
-    });
+    navigateWithQuery(query);
   };
 
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -293,12 +319,9 @@ export default function FeatureSuggestionsTable({
   };
 
   const toggleHideCompleted = () => {
+    cancelPendingFilterNavigation();
     const query = buildQuery(filters, sortKey, sortDir, view, !hideCompleted);
-    startTransition(() => {
-      router.replace(query ? `/feature-suggestions?${query}` : "/feature-suggestions", {
-        scroll: false,
-      });
-    });
+    navigateWithQuery(query);
   };
 
   const buildSortUrl = (key: SortKey) => {
