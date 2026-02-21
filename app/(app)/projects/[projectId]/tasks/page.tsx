@@ -7,6 +7,7 @@ import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import AssigneeMultiSelect from "@/app/(app)/tasks/_components/AssigneeMultiSelect";
+import ResilientCreateSubmitButton from "@/app/(app)/tasks/_components/ResilientCreateSubmitButton";
 import RecurrenceFields from "@/app/(app)/tasks/_components/RecurrenceFields";
 import TasksView from "@/app/(app)/tasks/TasksView";
 import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
@@ -820,12 +821,12 @@ export default async function ProjectTasksPage(props: {
                 initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
               />
               <div className="md:col-span-6 flex justify-end">
-                <button
-                  type="submit"
+                <ResilientCreateSubmitButton
+                  pendingLabel="Creating..."
                   className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"
                 >
                   Create task
-                </button>
+                </ResilientCreateSubmitButton>
               </div>
             </form>
           </div>

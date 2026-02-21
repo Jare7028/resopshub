@@ -22,6 +22,7 @@ import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
 import { statusSelectClasses } from "@/lib/taskIndicators";
 import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
+import ResilientCreateSubmitButton from "../_components/ResilientCreateSubmitButton";
 import TasksView from "../TasksView";
 import { updateTaskInlineAction } from "../actions";
 import {
@@ -1676,12 +1677,12 @@ export default async function TaskDetailPage(props: {
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
-            <button
-              type="submit"
+            <ResilientCreateSubmitButton
+              pendingLabel="Creating..."
               className="md:col-span-5 rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
             >
               Create subtask
-            </button>
+            </ResilientCreateSubmitButton>
           </form>
         </div>
       </section>
