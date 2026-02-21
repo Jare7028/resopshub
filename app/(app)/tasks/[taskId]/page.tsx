@@ -1,4 +1,5 @@
-﻿import Link from "next/link";
+import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -109,6 +110,26 @@ function formatDbError(
   if (error.details) parts.push(`details=${error.details}`);
   if (error.hint) parts.push(`hint=${error.hint}`);
   return parts.join(" | ");
+}
+function logSubtaskDebug(
+  level: "info" | "warn" | "error",
+  event: string,
+  payload: Record<string, unknown>
+) {
+  const entry = {
+    scope: "tasks.subtasks",
+    event,
+    at: new Date().toISOString(),
+    ...payload,
+  };
+  const line = JSON.stringify(entry);
+  if (level === "error") {
+    console.error(line);
+  } else if (level === "warn") {
+    console.warn(line);
+  } else {
+    console.info(line);
+  }
 }
 
 export default async function TaskDetailPage(props: {
@@ -241,6 +262,7 @@ export default async function TaskDetailPage(props: {
   const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
   let selectedDue = (searchParams?.due || "all").trim();
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const createdSubtaskId = String(searchParams?.created || "").trim();
   const headerList = await headers();
   const forwardedHost = headerList.get("x-forwarded-host");
   const forwardedProto = headerList.get("x-forwarded-proto");
@@ -432,7 +454,133 @@ export default async function TaskDetailPage(props: {
       subtasksQuery = subtasksQuery.is("due_date", null);
     }
 
-    const { data: subtasksRaw } = await subtasksQuery;
+    const { data: subtasksRaw, error: subtasksQueryError } = await subtasksQuery;
+    if (subtasksQueryError) {
+      logSubtaskDebug("error", "subtasks_query_failed", {
+        taskId,
+        activeTab,
+        createdSubtaskId: createdSubtaskId || null,
+        error: {
+          message: subtasksQueryError.message,
+          code: subtasksQueryError.code,
+          details: subtasksQueryError.details,
+          hint: subtasksQueryError.hint,
+        },
+      });
+    }
+
+    if (createdSubtaskId) {
+      const visibleInQuery = Boolean((subtasksRaw || []).find((row) => row.id === createdSubtaskId));
+      const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
+      const wantsUnassigned = selectedAssignees.includes("unassigned");
+      const expandedStatuses = expandTaskStatusFilterForQuery(selectedStatuses);
+      if (visibleInQuery) {
+        logSubtaskDebug("info", "created_subtask_visible", {
+          taskId,
+          createdSubtaskId,
+          queryRowCount: (subtasksRaw || []).length,
+          hideCompleted,
+          selectedStatuses,
+          selectedPriorities,
+          selectedAssignees,
+          selectedDue,
+          selectedClientIds,
+          selectedProjectIds,
+        });
+      } else {
+        const { data: createdRow, error: createdRowError } = await supabase
+          .from("tasks")
+          .select(
+            "id,parent_task_id,status,priority,due_date,assignee_user_id,client_id,project_id,created_at"
+          )
+          .eq("id", createdSubtaskId)
+          .maybeSingle();
+        const filterReasons: string[] = [];
+        const wantsCompletedStatuses =
+          selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+        if (!createdRow) {
+          filterReasons.push("row_missing");
+        } else {
+          if (createdRow.parent_task_id !== task.id) filterReasons.push("parent_mismatch");
+          if (selectedStatuses.length && !expandedStatuses.includes(createdRow.status)) {
+            filterReasons.push("status_filter");
+          }
+          if (
+            selectedPriorities.length &&
+            !selectedPriorities.includes(createdRow.priority as (typeof priorityOptions)[number])
+          ) {
+            filterReasons.push("priority_filter");
+          }
+          if (selectedClientIds.length && (!createdRow.client_id || !selectedClientIds.includes(createdRow.client_id))) {
+            filterReasons.push("client_filter");
+          }
+          if (selectedProjectIds.length && (!createdRow.project_id || !selectedProjectIds.includes(createdRow.project_id))) {
+            filterReasons.push("project_filter");
+          }
+          if (hideCompleted && !wantsCompletedStatuses && ["completed", "cancelled"].includes(createdRow.status)) {
+            filterReasons.push("hide_completed_filter");
+          }
+          if (selectedDue === "overdue") {
+            const todayIso = new Date().toISOString().slice(0, 10);
+            if (!createdRow.due_date || createdRow.due_date >= todayIso) {
+              filterReasons.push("due_filter_overdue");
+            }
+          }
+          if (selectedDue === "next_7") {
+            const today = new Date();
+            const todayIso = today.toISOString().slice(0, 10);
+            const next = new Date(today);
+            next.setDate(next.getDate() + 7);
+            const nextIso = next.toISOString().slice(0, 10);
+            if (
+              !createdRow.due_date ||
+              createdRow.due_date < todayIso ||
+              createdRow.due_date > nextIso
+            ) {
+              filterReasons.push("due_filter_next_7");
+            }
+          }
+          if (selectedDue === "none" && createdRow.due_date) {
+            filterReasons.push("due_filter_none");
+          }
+          if (selectedAssigneeIds.length || wantsUnassigned) {
+            const rowAssignee = createdRow.assignee_user_id;
+            const assigneeMatch =
+              (wantsUnassigned && !rowAssignee) ||
+              (rowAssignee ? selectedAssigneeIds.includes(rowAssignee) : false);
+            if (!assigneeMatch) {
+              filterReasons.push("assignee_filter");
+            }
+          }
+        }
+        logSubtaskDebug(createdRow ? "warn" : "error", "created_subtask_not_visible", {
+          taskId,
+          createdSubtaskId,
+          queryRowCount: (subtasksRaw || []).length,
+          returnedRowIds: (subtasksRaw || []).slice(0, 25).map((row) => row.id),
+          filters: {
+            hideCompleted,
+            selectedStatuses,
+            selectedPriorities,
+            selectedAssignees,
+            selectedDue,
+            selectedClientIds,
+            selectedProjectIds,
+          },
+          filterReasons,
+          createdRow: createdRow || null,
+          createdRowError: createdRowError
+            ? {
+                message: createdRowError.message,
+                code: createdRowError.code,
+                details: createdRowError.details,
+                hint: createdRowError.hint,
+              }
+            : null,
+        });
+      }
+    }
+
     const subtaskIds = (subtasksRaw || []).map((subtask) => subtask.id).filter(Boolean);
     if (subtaskIds.length) {
       const { data: subtaskAssignees } = await supabase
@@ -784,6 +932,8 @@ export default async function TaskDetailPage(props: {
     if (!authData.user?.id) {
       redirect("/login");
     }
+    const createAttemptId = randomUUID();
+    const startedAtMs = Date.now();
     const title = String(formData.get("title") || "").trim();
     const status = String(formData.get("status") || "to_do");
     const priority = String(formData.get("priority") || "medium");
@@ -796,13 +946,36 @@ export default async function TaskDetailPage(props: {
       .map((value) => String(value).trim())
       .filter(Boolean);
 
+    logSubtaskDebug("info", "create_subtask_start", {
+      createAttemptId,
+      taskId,
+      userId: authData.user.id,
+      titleLength: title.length,
+      status,
+      priority,
+      hasStartDate: Boolean(startDate),
+      hasDueDate: Boolean(dueDate),
+      hasDueTime: Boolean(dueTime),
+      assigneeInputCount: assigneeIds.length,
+      hasSingleAssigneeInput: Boolean(assignee),
+      activeTab,
+      createdSubtaskIdInQuery: createdSubtaskId || null,
+    });
+
     if (!title) {
+      logSubtaskDebug("warn", "create_subtask_validation_failed", {
+        createAttemptId,
+        taskId,
+        userId: authData.user.id,
+        reason: "title_required",
+        elapsedMs: Date.now() - startedAtMs,
+      });
       redirect(
         buildTaskUrl(taskId, "subtasks", { error: "Subtask title is required" })
       );
     }
 
-    let createdSubtaskId: string;
+    let newSubtaskId: string;
     try {
       const created = await createTaskLikeRoot({
         supabase,
@@ -821,8 +994,26 @@ export default async function TaskDetailPage(props: {
         assigneeUserIds: assigneeIds,
         defaultAssigneeUserId: defaultAssigneeUserId || null,
       });
-      createdSubtaskId = created.taskId;
+      newSubtaskId = created.taskId;
     } catch (error) {
+      logSubtaskDebug("error", "create_subtask_failed", {
+        createAttemptId,
+        taskId,
+        userId: authData.user.id,
+        elapsedMs: Date.now() - startedAtMs,
+        error:
+          error instanceof TaskCreateDbError
+            ? {
+                message: error.dbError.message,
+                code: error.dbError.code,
+                details: error.dbError.details,
+                hint: error.dbError.hint,
+                context: error.context,
+              }
+            : error instanceof Error
+              ? { message: error.message, name: error.name }
+              : { message: "unknown error" },
+      });
       if (error instanceof TaskCreateDbError) {
         redirect(
           buildTaskUrl(taskId, "subtasks", {
@@ -841,11 +1032,19 @@ export default async function TaskDetailPage(props: {
       redirect(buildTaskUrl(taskId, "subtasks", { error: message }));
     }
 
+    logSubtaskDebug("info", "create_subtask_success", {
+      createAttemptId,
+      taskId,
+      userId: authData.user.id,
+      createdSubtaskId: newSubtaskId,
+      elapsedMs: Date.now() - startedAtMs,
+    });
+
     revalidatePath(`/tasks/${taskId}`);
     redirect(
       buildTaskUrl(taskId, "subtasks", {
         success: "Subtask created",
-        created: createdSubtaskId,
+        created: newSubtaskId,
       })
     );
   }
@@ -1535,6 +1734,7 @@ export default async function TaskDetailPage(props: {
     </div>
   );
 }
+
 
 
 

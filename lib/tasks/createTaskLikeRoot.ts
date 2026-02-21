@@ -29,6 +29,27 @@ type RecurrenceValues = {
 
 type SupabaseServerClient = ReturnType<typeof createSupabaseServerClient>;
 
+function logTaskCreate(
+  level: "info" | "warn" | "error",
+  event: string,
+  payload: Record<string, unknown>
+) {
+  const entry = {
+    scope: "task.create",
+    event,
+    at: new Date().toISOString(),
+    ...payload,
+  };
+  const line = JSON.stringify(entry);
+  if (level === "error") {
+    console.error(line);
+  } else if (level === "warn") {
+    console.warn(line);
+  } else {
+    console.info(line);
+  }
+}
+
 export type CreateTaskLikeRootParams = {
   supabase: SupabaseServerClient;
   context: string;
@@ -94,16 +115,40 @@ export async function createTaskLikeRoot({
   defaultAssigneeUserId = null,
   recurrenceValues = null,
 }: CreateTaskLikeRootParams): Promise<CreateTaskLikeRootResult> {
-  const normalizedTitle = String(title || "").trim();
-  if (!normalizedTitle) {
-    throw new TaskCreateInputError(`${context}.input`, "Title is required");
-  }
-
+  const operationId = randomUUID();
+  const startedAtMs = Date.now();
   const normalizedStatus = normalizeTaskStatusOrDefault(String(status || "to_do"));
   const normalizedPriority = String(priority || "medium").trim() || "medium";
   const normalizedDueDate = String(dueDate || "").trim() || null;
   const normalizedDueTime = String(dueTime || "").trim() || null;
   const normalizedStartDate = String(startDate || "").trim() || null;
+  const normalizedTitle = String(title || "").trim();
+
+  logTaskCreate("info", "start", {
+    operationId,
+    context,
+    parentTaskId,
+    clientId,
+    projectId,
+    createdByUserId,
+    titleLength: normalizedTitle.length,
+    status: normalizedStatus,
+    priority: normalizedPriority,
+    hasStartDate: Boolean(normalizedStartDate),
+    hasDueDate: Boolean(normalizedDueDate),
+    hasDueTime: Boolean(normalizedDueTime),
+    hasRecurrence: Boolean(recurrenceValues),
+  });
+
+  if (!normalizedTitle) {
+    logTaskCreate("warn", "validation_failed", {
+      operationId,
+      context,
+      reason: "title_required",
+      elapsedMs: Date.now() - startedAtMs,
+    });
+    throw new TaskCreateInputError(`${context}.input`, "Title is required");
+  }
 
   const normalizedAssigneeIds = Array.from(
     new Set(
@@ -127,6 +172,13 @@ export async function createTaskLikeRoot({
     : primaryAssignee
       ? [primaryAssignee]
       : [];
+  logTaskCreate("info", "assignees_normalized", {
+    operationId,
+    context,
+    explicitAssigneeCount: normalizedAssigneeIds.length,
+    effectiveAssigneeCount: effectiveAssigneeIds.length,
+    hasPrimaryAssignee: Boolean(primaryAssignee),
+  });
 
   const taskId = randomUUID();
   const payload: Record<string, unknown> = {
@@ -158,6 +210,18 @@ export async function createTaskLikeRoot({
 
   const { error: taskInsertError } = await supabase.from("tasks").insert(payload);
   if (taskInsertError) {
+    logTaskCreate("error", "tasks_insert_failed", {
+      operationId,
+      context,
+      taskId,
+      elapsedMs: Date.now() - startedAtMs,
+      error: {
+        message: taskInsertError.message,
+        code: taskInsertError.code,
+        details: taskInsertError.details,
+        hint: taskInsertError.hint,
+      },
+    });
     throw new TaskCreateDbError(`${context}.tasks.insert`, taskInsertError);
   }
 
@@ -170,12 +234,33 @@ export async function createTaskLikeRoot({
       .from("task_assignees")
       .insert(assigneeRows);
     if (assigneeInsertError) {
+      logTaskCreate("error", "assignees_insert_failed", {
+        operationId,
+        context,
+        taskId,
+        elapsedMs: Date.now() - startedAtMs,
+        assigneeCount: assigneeRows.length,
+        error: {
+          message: assigneeInsertError.message,
+          code: assigneeInsertError.code,
+          details: assigneeInsertError.details,
+          hint: assigneeInsertError.hint,
+        },
+      });
       throw new TaskCreateDbError(
         `${context}.task_assignees.insert`,
         assigneeInsertError
       );
     }
   }
+
+  logTaskCreate("info", "success", {
+    operationId,
+    context,
+    taskId,
+    elapsedMs: Date.now() - startedAtMs,
+    effectiveAssigneeCount: effectiveAssigneeIds.length,
+  });
 
   return {
     taskId,
