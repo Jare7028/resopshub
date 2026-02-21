@@ -137,6 +137,14 @@ function normalizeRole(value: string): "member" | "manager" {
   return value === "manager" ? "manager" : "member";
 }
 
+function buildSocialDetailUrl(pageId: string, extra?: { error?: string; success?: string }) {
+  const params = new URLSearchParams();
+  if (extra?.error) params.set("error", extra.error);
+  if (extra?.success) params.set("success", extra.success);
+  const query = params.toString();
+  return query ? `/social/${pageId}?${query}` : `/social/${pageId}`;
+}
+
 export default async function SocialPageDetail(props: {
   params: Promise<{ pageId: string }>;
   searchParams?: Promise<{ error?: string; success?: string }>;
@@ -308,14 +316,6 @@ export default async function SocialPageDetail(props: {
 
   const dataWarning = membersResult.error || postsResult.error || imagesResult.error || commentsResult.error;
 
-  const pageUrl = (extra?: { error?: string; success?: string }) => {
-    const params = new URLSearchParams();
-    if (extra?.error) params.set("error", extra.error);
-    if (extra?.success) params.set("success", extra.success);
-    const query = params.toString();
-    return query ? `/social/${pageId}?${query}` : `/social/${pageId}`;
-  };
-
   async function createPost(formData: FormData) {
     "use server";
     const actionId = randomUUID();
@@ -338,7 +338,7 @@ export default async function SocialPageDetail(props: {
         page_id: pageId,
         reason: "missing_body",
       });
-      redirect(pageUrl({ error: "Post text is required" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Post text is required" }));
     }
 
     const [canAccessResult, canEditResult] = await Promise.all([
@@ -352,7 +352,7 @@ export default async function SocialPageDetail(props: {
         page_id: pageId,
         error: canAccessResult.error,
       });
-      redirect(pageUrl({ error: `Could not verify page access (${canAccessResult.error.message})` }));
+      redirect(buildSocialDetailUrl(pageId, { error: `Could not verify page access (${canAccessResult.error.message})` }));
     }
 
     if (!canAccessResult.error && !canAccessResult.data) {
@@ -369,7 +369,7 @@ export default async function SocialPageDetail(props: {
         page_id: pageId,
         error: canEditResult.error,
       });
-      redirect(pageUrl({ error: `Could not verify Social edit access (${canEditResult.error.message})` }));
+      redirect(buildSocialDetailUrl(pageId, { error: `Could not verify Social edit access (${canEditResult.error.message})` }));
     }
 
     if (!canEditResult.error && !canEditResult.data) {
@@ -377,7 +377,7 @@ export default async function SocialPageDetail(props: {
         action_id: actionId,
         page_id: pageId,
       });
-      redirect(pageUrl({ error: "You have view-only access to this page" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }));
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -403,7 +403,7 @@ export default async function SocialPageDetail(props: {
         auth_user_id: authUserId,
         error: userByAuthIdResult.error,
       });
-      redirect(pageUrl({ error: "Could not verify your user profile" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
     }
 
     const userByEmailResult =
@@ -421,7 +421,7 @@ export default async function SocialPageDetail(props: {
         auth_email: authEmail,
         error: userByEmailResult.error,
       });
-      redirect(pageUrl({ error: "Could not verify your user profile" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
     }
 
     const user = userByAuthIdResult.data || userByEmailResult?.data || null;
@@ -433,7 +433,7 @@ export default async function SocialPageDetail(props: {
         auth_user_id: authUserId,
         auth_email: authEmail,
       });
-      redirect(pageUrl({ error: "Missing user profile" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing user profile" }));
     }
 
     let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
@@ -445,7 +445,7 @@ export default async function SocialPageDetail(props: {
         page_id: pageId,
         error,
       });
-      redirect(pageUrl({ error: "Social configuration is incomplete. Contact support." }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Social configuration is incomplete. Contact support." }));
     }
 
     const { data: insertedPost, error: insertPostError } = await supabaseAdmin
@@ -469,7 +469,7 @@ export default async function SocialPageDetail(props: {
       const friendlyMessage = /row-level security/i.test(insertMessage)
         ? "Post creation failed due to a policy mismatch. Contact support if this persists."
         : insertMessage;
-      redirect(pageUrl({ error: friendlyMessage }));
+      redirect(buildSocialDetailUrl(pageId, { error: friendlyMessage }));
     }
 
     const images = parsedImages.filter((image) =>
@@ -498,7 +498,7 @@ export default async function SocialPageDetail(props: {
           image_count: images.length,
           error: imageInsertError,
         });
-        redirect(pageUrl({ error: imageInsertError.message }));
+        redirect(buildSocialDetailUrl(pageId, { error: imageInsertError.message }));
       }
     }
 
@@ -512,7 +512,7 @@ export default async function SocialPageDetail(props: {
 
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");
-    redirect(pageUrl({ success: "Update posted" }));
+    redirect(buildSocialDetailUrl(pageId, { success: "Update posted" }));
   }
 
   async function addComment(formData: FormData) {
@@ -536,7 +536,7 @@ export default async function SocialPageDetail(props: {
         page_id: pageId,
         post_id: postId,
       });
-      redirect(pageUrl({ error: "Comment cannot be empty" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Comment cannot be empty" }));
     }
 
     const { data: post, error: postError } = await supabase
@@ -553,7 +553,7 @@ export default async function SocialPageDetail(props: {
         post_id: postId,
         error: postError,
       });
-      redirect(pageUrl({ error: "Post not found" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Post not found" }));
     }
 
     const canEditResult = await supabase.rpc("can_edit_page", {
@@ -567,7 +567,7 @@ export default async function SocialPageDetail(props: {
         post_id: postId,
         error: canEditResult.error,
       });
-      redirect(pageUrl({ error: `Could not verify Social edit access (${canEditResult.error.message})` }));
+      redirect(buildSocialDetailUrl(pageId, { error: `Could not verify Social edit access (${canEditResult.error.message})` }));
     }
 
     if (!canEditResult.error && !canEditResult.data) {
@@ -576,7 +576,7 @@ export default async function SocialPageDetail(props: {
         page_id: pageId,
         post_id: postId,
       });
-      redirect(pageUrl({ error: "You have view-only access to this page" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }));
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -604,7 +604,7 @@ export default async function SocialPageDetail(props: {
         auth_user_id: authUserId,
         error: userByAuthIdResult.error,
       });
-      redirect(pageUrl({ error: "Could not verify your user profile" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
     }
 
     const userByEmailResult =
@@ -623,7 +623,7 @@ export default async function SocialPageDetail(props: {
         auth_email: authEmail,
         error: userByEmailResult.error,
       });
-      redirect(pageUrl({ error: "Could not verify your user profile" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
     }
 
     const user = userByAuthIdResult.data || userByEmailResult?.data || null;
@@ -636,7 +636,7 @@ export default async function SocialPageDetail(props: {
         auth_user_id: authUserId,
         auth_email: authEmail,
       });
-      redirect(pageUrl({ error: "Missing user profile" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing user profile" }));
     }
 
     let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
@@ -649,7 +649,7 @@ export default async function SocialPageDetail(props: {
         post_id: postId,
         error,
       });
-      redirect(pageUrl({ error: "Social configuration is incomplete. Contact support." }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Social configuration is incomplete. Contact support." }));
     }
 
     const { error: commentError } = await supabaseAdmin.from("social_post_comments").insert({
@@ -666,7 +666,7 @@ export default async function SocialPageDetail(props: {
         user_id: user.id,
         error: commentError,
       });
-      redirect(pageUrl({ error: commentError.message }));
+      redirect(buildSocialDetailUrl(pageId, { error: commentError.message }));
     }
 
     logInfo("social.comment.create.success", {
@@ -689,11 +689,11 @@ export default async function SocialPageDetail(props: {
     const role = normalizeRole(String(formData.get("role") || "member"));
 
     if (!userId) {
-      redirect(pageUrl({ error: "Select a user to add" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Select a user to add" }));
     }
 
     if (userId === socialPage.created_by) {
-      redirect(pageUrl({ error: "Owner already has full access" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Owner already has full access" }));
     }
 
     const canManageResult = await supabase.rpc("can_manage_social_page", {
@@ -701,7 +701,7 @@ export default async function SocialPageDetail(props: {
     });
 
     if (!canManageResult.error && !canManageResult.data) {
-      redirect(pageUrl({ error: "Only page managers can add members" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can add members" }));
     }
 
     const { data: authData } = await supabase.auth.getUser();
@@ -727,7 +727,7 @@ export default async function SocialPageDetail(props: {
     const user = userByAuthIdResult.data || userByEmailResult?.data || null;
 
     if (!user?.id) {
-      redirect(pageUrl({ error: "Missing user profile" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing user profile" }));
     }
 
     const { error } = await supabase
@@ -743,12 +743,12 @@ export default async function SocialPageDetail(props: {
       );
 
     if (error) {
-      redirect(pageUrl({ error: error.message }));
+      redirect(buildSocialDetailUrl(pageId, { error: error.message }));
     }
 
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");
-    redirect(pageUrl({ success: "Member added" }));
+    redirect(buildSocialDetailUrl(pageId, { success: "Member added" }));
   }
 
   async function updateMemberRole(formData: FormData) {
@@ -759,7 +759,7 @@ export default async function SocialPageDetail(props: {
     const role = normalizeRole(String(formData.get("role") || "member"));
 
     if (!memberId) {
-      redirect(pageUrl({ error: "Missing member" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing member" }));
     }
 
     const canManageResult = await supabase.rpc("can_manage_social_page", {
@@ -767,7 +767,7 @@ export default async function SocialPageDetail(props: {
     });
 
     if (!canManageResult.error && !canManageResult.data) {
-      redirect(pageUrl({ error: "Only page managers can update members" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can update members" }));
     }
 
     const { error } = await supabase
@@ -777,11 +777,11 @@ export default async function SocialPageDetail(props: {
       .eq("page_id", pageId);
 
     if (error) {
-      redirect(pageUrl({ error: error.message }));
+      redirect(buildSocialDetailUrl(pageId, { error: error.message }));
     }
 
     revalidatePath(`/social/${pageId}`);
-    redirect(pageUrl({ success: "Member updated" }));
+    redirect(buildSocialDetailUrl(pageId, { success: "Member updated" }));
   }
 
   async function removeMember(formData: FormData) {
@@ -790,7 +790,7 @@ export default async function SocialPageDetail(props: {
 
     const memberId = String(formData.get("member_id") || "").trim();
     if (!memberId) {
-      redirect(pageUrl({ error: "Missing member" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing member" }));
     }
 
     const canManageResult = await supabase.rpc("can_manage_social_page", {
@@ -798,7 +798,7 @@ export default async function SocialPageDetail(props: {
     });
 
     if (!canManageResult.error && !canManageResult.data) {
-      redirect(pageUrl({ error: "Only page managers can remove members" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can remove members" }));
     }
 
     const { data: member } = await supabase
@@ -809,11 +809,11 @@ export default async function SocialPageDetail(props: {
       .maybeSingle();
 
     if (!member?.id) {
-      redirect(pageUrl({ error: "Member not found" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Member not found" }));
     }
 
     if (member.user_id === socialPage.created_by) {
-      redirect(pageUrl({ error: "Cannot remove page owner" }));
+      redirect(buildSocialDetailUrl(pageId, { error: "Cannot remove page owner" }));
     }
 
     const { error } = await supabase
@@ -823,12 +823,12 @@ export default async function SocialPageDetail(props: {
       .eq("page_id", pageId);
 
     if (error) {
-      redirect(pageUrl({ error: error.message }));
+      redirect(buildSocialDetailUrl(pageId, { error: error.message }));
     }
 
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");
-    redirect(pageUrl({ success: "Member removed" }));
+    redirect(buildSocialDetailUrl(pageId, { success: "Member removed" }));
   }
 
   const ownerUser = userById.get(socialPage.created_by);
@@ -1123,3 +1123,4 @@ export default async function SocialPageDetail(props: {
     </div>
   );
 }
+
