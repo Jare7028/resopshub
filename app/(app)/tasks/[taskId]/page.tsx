@@ -813,7 +813,7 @@ export default async function TaskDetailPage(props: {
     }
 
     const explicitAssigneeIds = assigneeIds.filter((value) => value !== "unassigned");
-    const fallbackAssigneeId = defaultAssigneeUserId || authData.user.id;
+    const fallbackAssigneeId = defaultAssigneeUserId || null;
     const primaryAssignee =
       explicitAssigneeIds[0] || assignee || fallbackAssigneeId || "";
     const effectiveAssigneeIds = Array.from(
@@ -843,28 +843,96 @@ export default async function TaskDetailPage(props: {
         p_content_text: defaultContentText,
         p_assignee_user_ids: effectiveAssigneeIds,
       }
-    );
+    ).abortSignal(AbortSignal.timeout(12000));
     const createdSubtaskId = coerceUuidFromRpcResult(rpcResult);
 
-    if (createSubtaskError) {
-      redirect(
-        buildTaskUrl(taskId, "subtasks", {
-          error: formatDbError(
-            "tasks.createSubtask.create_subtask_with_assignees",
-            createSubtaskError
-          ),
-        })
-      );
+    let finalSubtaskId = createdSubtaskId;
+
+    if (createSubtaskError || !finalSubtaskId) {
+      console.error("Subtask RPC create failed", {
+        taskId,
+        userId: authData.user.id,
+        error: createSubtaskError,
+        rpcResult,
+      });
+
+      const fallbackPayload: Record<string, unknown> = {
+        client_id: taskClientId,
+        project_id: taskProjectId,
+        parent_task_id: taskId,
+        title,
+        status,
+        priority,
+        due_date: dueDate || null,
+        due_time: dueTime || null,
+        assignee_user_id: primaryAssignee || null,
+        created_by_user_id: authData.user.id,
+        content: DEFAULT_EDITOR_CONTENT,
+        content_text: defaultContentText,
+      };
+
+      if (startDate) {
+        fallbackPayload.start_date = startDate;
+      }
+
+      const { data: fallbackSubtask, error: fallbackInsertError } = await supabase
+        .from("tasks")
+        .insert(fallbackPayload)
+        .select("id")
+        .single();
+
+      if (fallbackInsertError || !fallbackSubtask?.id) {
+        console.error("Subtask fallback insert failed", {
+          taskId,
+          userId: authData.user.id,
+          createSubtaskError,
+          fallbackInsertError,
+        });
+        const errorParts = [
+          createSubtaskError
+            ? formatDbError(
+                "tasks.createSubtask.create_subtask_with_assignees",
+                createSubtaskError
+              )
+            : null,
+          fallbackInsertError
+            ? formatDbError("tasks.createSubtask.tasks.insert", fallbackInsertError)
+            : "tasks.createSubtask.tasks.insert returned no row",
+        ].filter(Boolean);
+        redirect(
+          buildTaskUrl(taskId, "subtasks", {
+            error: errorParts.join(" | "),
+          })
+        );
+      }
+
+      finalSubtaskId = fallbackSubtask.id;
+
+      if (effectiveAssigneeIds.length) {
+        const assigneeRows = effectiveAssigneeIds.map((userId) => ({
+          task_id: finalSubtaskId,
+          user_id: userId,
+        }));
+        const { error: assigneeInsertError } = await supabase
+          .from("task_assignees")
+          .upsert(assigneeRows, {
+            onConflict: "task_id,user_id",
+            ignoreDuplicates: true,
+          });
+
+        if (assigneeInsertError) {
+          // Do not block subtask creation; this is a best-effort sync after fallback insert.
+          console.error("Subtask fallback assignee sync failed", {
+            taskId,
+            subtaskId: finalSubtaskId,
+            userId: authData.user.id,
+            error: assigneeInsertError,
+          });
+        }
+      }
     }
 
-    if (!createdSubtaskId) {
-      redirect(
-        buildTaskUrl(taskId, "subtasks", {
-          error: "Subtask was not created. Please retry.",
-        })
-      );
-    }
-
+    revalidatePath(`/tasks/${taskId}`);
     const successUrl = buildTaskUrl(taskId, "subtasks", { success: "Subtask created" });
     const [successPath, successQueryString = ""] = successUrl.split("?");
     const successParams = new URLSearchParams(successQueryString);
