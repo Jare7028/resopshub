@@ -3,7 +3,6 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import TaskNotesEditorClient from "./TaskNotesEditorClient";
@@ -827,105 +826,6 @@ export default async function TaskDetailPage(props: {
       )
     );
 
-    const payload: Record<string, unknown> = {
-      client_id: taskClientId,
-      project_id: taskProjectId,
-      parent_task_id: taskId,
-      title,
-      status,
-      priority,
-      due_date: dueDate || null,
-      due_time: dueTime || null,
-      assignee_user_id: primaryAssignee || null,
-      created_by_user_id: authData.user.id,
-      content: DEFAULT_EDITOR_CONTENT,
-      content_text: defaultContentText,
-    };
-
-    if (startDate) {
-      payload.start_date = startDate;
-    }
-
-    const { data: parentTaskAtCreateTime, error: parentTaskAccessError } = await supabase
-      .from("tasks")
-      .select("id")
-      .eq("id", taskId)
-      .maybeSingle();
-
-    if (parentTaskAccessError || !parentTaskAtCreateTime) {
-      redirect(
-        buildTaskUrl(taskId, "subtasks", {
-          error: parentTaskAccessError?.message || "You no longer have access to this task.",
-        })
-      );
-    }
-
-    const insertSubtaskDirect = async () => {
-      let { data: created, error } = await supabase
-        .from("tasks")
-        .insert(payload)
-        .select("id")
-        .single();
-
-      if (error?.code === "42501") {
-        try {
-          const supabaseAdmin = createSupabaseAdminClient();
-          const fallback = await supabaseAdmin
-            .from("tasks")
-            .insert(payload)
-            .select("id")
-            .single();
-          created = fallback.data;
-          error = fallback.error;
-        } catch {
-          // Keep the original RLS error if admin client is unavailable.
-        }
-      }
-
-      if (error) {
-        return { id: null, error };
-      }
-
-      const subtaskId = created?.id || null;
-      if (!subtaskId) {
-        return {
-          id: null,
-          error: {
-            message: "Subtask was not created. Please retry.",
-          },
-        };
-      }
-
-      if (effectiveAssigneeIds.length) {
-        const inserts = effectiveAssigneeIds.map((userId) => ({
-          task_id: subtaskId,
-          user_id: userId,
-        }));
-        let { error: assigneeError } = await supabase.from("task_assignees").insert(inserts);
-
-        if (assigneeError?.code === "42501") {
-          try {
-            const supabaseAdmin = createSupabaseAdminClient();
-            const fallback = await supabaseAdmin
-              .from("task_assignees")
-              .upsert(inserts, {
-                onConflict: "task_id,user_id",
-                ignoreDuplicates: true,
-              });
-            assigneeError = fallback.error;
-          } catch {
-            // Keep the original RLS error if admin client is unavailable.
-          }
-        }
-
-        if (assigneeError) {
-          return { id: null, error: assigneeError };
-        }
-      }
-
-      return { id: subtaskId, error: null };
-    };
-
     const { data: rpcResult, error: createSubtaskError } = await supabase.rpc(
       "create_subtask_with_assignees",
       {
@@ -944,32 +844,27 @@ export default async function TaskDetailPage(props: {
         p_assignee_user_ids: effectiveAssigneeIds,
       }
     );
-    let createdSubtaskId = coerceUuidFromRpcResult(rpcResult);
+    const createdSubtaskId = coerceUuidFromRpcResult(rpcResult);
 
-    if (createSubtaskError || !createdSubtaskId) {
-      const fallback = await insertSubtaskDirect();
-      if (fallback.error || !fallback.id) {
-        const primaryError = createSubtaskError || fallback.error;
-        const context = createSubtaskError
-          ? "tasks.createSubtask.create_subtask_with_assignees"
-          : "tasks.createSubtask.tasks.insert";
-        console.error("Subtask creation failed", {
-          taskId,
-          userId: authData.user.id,
-          createSubtaskError,
-          fallbackError: fallback.error,
-        });
-        redirect(
-          buildTaskUrl(taskId, "subtasks", {
-            error: formatDbError(context, primaryError),
-          })
-        );
-      }
-
-      createdSubtaskId = fallback.id;
+    if (createSubtaskError) {
+      redirect(
+        buildTaskUrl(taskId, "subtasks", {
+          error: formatDbError(
+            "tasks.createSubtask.create_subtask_with_assignees",
+            createSubtaskError
+          ),
+        })
+      );
     }
 
-    revalidatePath(`/tasks/${taskId}`);
+    if (!createdSubtaskId) {
+      redirect(
+        buildTaskUrl(taskId, "subtasks", {
+          error: "Subtask was not created. Please retry.",
+        })
+      );
+    }
+
     const successUrl = buildTaskUrl(taskId, "subtasks", { success: "Subtask created" });
     const [successPath, successQueryString = ""] = successUrl.split("?");
     const successParams = new URLSearchParams(successQueryString);

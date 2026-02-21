@@ -74,6 +74,8 @@ as $$
 declare
   v_assignee_ids uuid[];
   v_subtask_id uuid;
+  v_status public.task_status;
+  v_priority public.task_priority;
 begin
   if p_parent_task_id is null then
     raise exception 'parent_task_id is required' using errcode = '22023';
@@ -90,6 +92,26 @@ begin
       where assignee_id is not null
     ),
     '{}'::uuid[]
+  );
+
+  v_status := coalesce(
+    (
+      select enum_value
+      from unnest(enum_range(null::public.task_status)) as enum_value
+      where enum_value::text = nullif(trim(p_status), '')
+      limit 1
+    ),
+    'to_do'::public.task_status
+  );
+
+  v_priority := coalesce(
+    (
+      select enum_value
+      from unnest(enum_range(null::public.task_priority)) as enum_value
+      where enum_value::text = nullif(trim(p_priority), '')
+      limit 1
+    ),
+    'medium'::public.task_priority
   );
 
   insert into public.tasks (
@@ -111,8 +133,8 @@ begin
     p_project_id,
     p_parent_task_id,
     p_title,
-    coalesce(nullif(trim(p_status), ''), 'to_do'),
-    coalesce(nullif(trim(p_priority), ''), 'medium'),
+    v_status,
+    v_priority,
     p_start_date,
     p_due_date,
     p_due_time,
