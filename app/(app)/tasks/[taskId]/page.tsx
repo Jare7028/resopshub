@@ -901,7 +901,13 @@ export default async function TaskDetailPage(props: {
     }
 
     revalidatePath(`/tasks/${taskId}`);
-    redirect(buildTaskUrl(taskId, "subtasks", { success: "Subtask created" }));
+    const successUrl = buildTaskUrl(taskId, "subtasks", { success: "Subtask created" });
+    const [successPath, successQueryString = ""] = successUrl.split("?");
+    const successParams = new URLSearchParams(successQueryString);
+    // Force a unique URL so client navigation always completes after create.
+    successParams.set("subtask_refresh", Date.now().toString());
+    const successQuery = successParams.toString();
+    redirect(successQuery ? `${successPath}?${successQuery}` : successPath);
   }
 
   async function deleteTask() {
