@@ -274,23 +274,23 @@ export default async function TasksPage(props: {
   const selectedStatusesRaw =
     typeof searchParams?.status !== "undefined"
       ? parseCsvParam(searchParams?.status)
-      : normalizePreferenceValues(taskTablePreferences?.status);
+      : [];
   const selectedPrioritiesRaw =
     typeof searchParams?.priority !== "undefined"
       ? parseCsvParam(searchParams?.priority)
-      : normalizePreferenceValues(taskTablePreferences?.priority);
+      : [];
   const selectedAssigneesRaw =
     typeof searchParams?.assignee !== "undefined"
       ? parseCsvParam(searchParams?.assignee)
-      : normalizePreferenceValues(taskTablePreferences?.assignee);
+      : [];
   const selectedClientIdsRaw =
     typeof searchParams?.client !== "undefined"
       ? parseCsvParam(searchParams?.client)
-      : normalizePreferenceValues(taskTablePreferences?.client);
+      : [];
   const selectedProjectIdsRaw =
     typeof searchParams?.project !== "undefined"
       ? parseCsvParam(searchParams?.project)
-      : normalizePreferenceValues(taskTablePreferences?.project);
+      : [];
   const initialExpandedTaskIds =
     typeof searchParams?.expand !== "undefined"
       ? parseCsvParam(searchParams?.expand)
@@ -298,7 +298,7 @@ export default async function TasksPage(props: {
   const dueSource =
     typeof searchParams?.due !== "undefined"
       ? searchParams?.due
-      : taskTablePreferences?.due;
+      : "all";
   let selectedDue = String(dueSource || "all").trim();
   const hideCompleted =
     typeof searchParams?.hide !== "undefined"
@@ -479,6 +479,7 @@ export default async function TasksPage(props: {
   const selectedAssignees = selectedAssigneesRaw.filter(
     (value) => value === "unassigned" || userIdSet.has(value)
   );
+  const allAssigneeFilterValues = Array.from(new Set(["unassigned", ...Array.from(userIdSet)]));
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
@@ -546,19 +547,45 @@ export default async function TasksPage(props: {
     }
   }
 
+  const statusValuesForQueryParam = areSameValueSets(selectedStatuses, [...statusOptions])
+    ? []
+    : selectedStatuses;
+  const priorityValuesForQueryParam = areSameValueSets(selectedPriorities, [...priorityOptions])
+    ? []
+    : selectedPriorities;
+  const assigneeValuesForQueryParam = areSameValueSets(
+    selectedAssignees,
+    allAssigneeFilterValues
+  )
+    ? []
+    : selectedAssignees;
+  const clientValuesForQueryParam = areSameValueSets(selectedClientIds, Array.from(clientIdSet))
+    ? []
+    : selectedClientIds;
+  const projectValuesForQueryParam = areSameValueSets(
+    selectedProjectIds,
+    Array.from(projectIdSet)
+  )
+    ? []
+    : selectedProjectIds;
+
   const returnParams = new URLSearchParams();
-  setCsvParam(returnParams, "status", selectedStatuses);
-  setCsvParam(returnParams, "priority", selectedPriorities);
-  setCsvParam(returnParams, "assignee", selectedAssignees);
+  setCsvParam(returnParams, "status", statusValuesForQueryParam);
+  setCsvParam(returnParams, "priority", priorityValuesForQueryParam);
+  setCsvParam(returnParams, "assignee", assigneeValuesForQueryParam);
   if (selectedDue !== "all") {
     returnParams.set("due", selectedDue);
   }
-  setCsvParam(returnParams, "client", selectedClientIds);
-  setCsvParam(returnParams, "project", selectedProjectIds);
+  setCsvParam(returnParams, "client", clientValuesForQueryParam);
+  setCsvParam(returnParams, "project", projectValuesForQueryParam);
   setCsvParam(returnParams, "expand", initialExpandedTaskIds);
-  returnParams.set("hide", hideCompleted ? "1" : "0");
-  returnParams.set("sort", sortKey);
-  returnParams.set("dir", sortDir);
+  if (!hideCompleted) {
+    returnParams.set("hide", "0");
+  }
+  if (sortKey !== "created" || sortDir !== "desc") {
+    returnParams.set("sort", sortKey);
+    returnParams.set("dir", sortDir);
+  }
   if (selectedView !== "table") {
     returnParams.set("view", selectedView);
   }
