@@ -228,6 +228,9 @@ export default function TasksView({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [optimisticStatusByTaskId, setOptimisticStatusByTaskId] = useState<
+    Record<string, string>
+  >({});
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
     () => new Set(initialExpandedTaskIds)
@@ -281,6 +284,30 @@ export default function TasksView({
         }
       });
       return next.size === current.size ? current : next;
+    });
+  }, [tasks]);
+
+  useEffect(() => {
+    const latestStatusByTaskId = new Map<string, string>();
+    tasks.forEach((task) => {
+      latestStatusByTaskId.set(task.id, normalizeTaskStatusOrDefault(task.status));
+    });
+    setOptimisticStatusByTaskId((current) => {
+      let changed = false;
+      const next: Record<string, string> = {};
+      Object.entries(current).forEach(([taskId, optimisticStatus]) => {
+        const latestStatus = latestStatusByTaskId.get(taskId);
+        if (!latestStatus) {
+          changed = true;
+          return;
+        }
+        if (latestStatus === optimisticStatus) {
+          changed = true;
+          return;
+        }
+        next[taskId] = optimisticStatus;
+      });
+      return changed ? next : current;
     });
   }, [tasks]);
 
@@ -646,11 +673,28 @@ export default function TasksView({
     return { leftPercent: (todayOffset / ganttData.rangeDays) * 100 };
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
+  const statusByTaskId = useMemo(() => {
+    const map = new Map<string, string>();
+    tasks.forEach((task) => {
+      map.set(task.id, normalizeTaskStatusOrDefault(task.status));
+    });
+    return map;
+  }, [tasks]);
+
+  const effectiveStatusByTaskId = useMemo(() => {
+    const map = new Map(statusByTaskId);
+    Object.entries(optimisticStatusByTaskId).forEach(([taskId, status]) => {
+      map.set(taskId, status);
+    });
+    return map;
+  }, [optimisticStatusByTaskId, statusByTaskId]);
+
   const boardTasksByStatus = useMemo(() => {
     const buckets = new Map<string, TaskRow[]>();
     statusOptions.forEach((status) => buckets.set(status, []));
     tasks.forEach((task) => {
-      const normalized = normalizeTaskStatusOrDefault(task.status);
+      const normalized =
+        effectiveStatusByTaskId.get(task.id) || normalizeTaskStatusOrDefault(task.status);
       const bucketKey = buckets.has(normalized)
         ? normalized
         : statusOptions[0] || normalized;
@@ -660,23 +704,42 @@ export default function TasksView({
       }
     });
     return buckets;
-  }, [tasks, statusOptions]);
-
-  const statusByTaskId = useMemo(() => {
-    const map = new Map<string, string>();
-    tasks.forEach((task) => {
-      map.set(task.id, normalizeTaskStatusOrDefault(task.status));
-    });
-    return map;
-  }, [tasks]);
+  }, [effectiveStatusByTaskId, tasks, statusOptions]);
 
   const submitStatusUpdate = (taskId: string, status: string) => {
+    const previousStatus = effectiveStatusByTaskId.get(taskId);
+    setOptimisticStatusByTaskId((current) => {
+      if (current[taskId] === status) {
+        return current;
+      }
+      return {
+        ...current,
+        [taskId]: status,
+      };
+    });
+
     const formData = new FormData();
     formData.set("task_id", taskId);
     formData.set("status", status);
     formData.set("return_to", inlineReturnTo);
+
     startTransition(() => {
-      void onUpdate(formData);
+      void Promise.resolve(onUpdate(formData)).catch(() => {
+        setOptimisticStatusByTaskId((current) => {
+          if (!(taskId in current)) {
+            return current;
+          }
+          if (!previousStatus) {
+            const next = { ...current };
+            delete next[taskId];
+            return next;
+          }
+          return {
+            ...current,
+            [taskId]: previousStatus,
+          };
+        });
+      });
     });
   };
 
@@ -1382,7 +1445,7 @@ export default function TasksView({
                           event.dataTransfer.getData("text/plain");
                         setDragOverStatus(null);
                         if (!taskId) return;
-                        const currentStatus = statusByTaskId.get(taskId);
+                        const currentStatus = effectiveStatusByTaskId.get(taskId);
                         if (currentStatus === status) return;
                         submitStatusUpdate(taskId, status);
                       }}

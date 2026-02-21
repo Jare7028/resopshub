@@ -176,6 +176,9 @@ export default function ProjectsView({
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [optimisticStatusByProjectId, setOptimisticStatusByProjectId] = useState<
+    Record<string, string>
+  >({});
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -195,6 +198,30 @@ export default function ProjectsView({
         }
       });
       return next.size === current.size ? current : next;
+    });
+  }, [projects]);
+
+  useEffect(() => {
+    const latestStatusByProjectId = new Map<string, string>();
+    projects.forEach((project) => {
+      latestStatusByProjectId.set(project.id, String(project.status || "planned"));
+    });
+    setOptimisticStatusByProjectId((current) => {
+      let changed = false;
+      const next: Record<string, string> = {};
+      Object.entries(current).forEach(([projectId, optimisticStatus]) => {
+        const latestStatus = latestStatusByProjectId.get(projectId);
+        if (!latestStatus) {
+          changed = true;
+          return;
+        }
+        if (latestStatus === optimisticStatus) {
+          changed = true;
+          return;
+        }
+        next[projectId] = optimisticStatus;
+      });
+      return changed ? next : current;
     });
   }, [projects]);
 
@@ -386,17 +413,25 @@ export default function ProjectsView({
     return map;
   }, [projects]);
 
+  const effectiveStatusByProjectId = useMemo(() => {
+    const map = new Map(projectStatusById);
+    Object.entries(optimisticStatusByProjectId).forEach(([projectId, status]) => {
+      map.set(projectId, status);
+    });
+    return map;
+  }, [optimisticStatusByProjectId, projectStatusById]);
+
   const boardProjectsByStatus = useMemo(() => {
     const buckets = new Map<string, ProjectRow[]>();
     statusOptions.forEach((status) => buckets.set(status, []));
     projects.forEach((project) => {
-      const normalized = String(project.status || "planned");
+      const normalized = effectiveStatusByProjectId.get(project.id) || String(project.status || "planned");
       const bucketKey = buckets.has(normalized) ? normalized : statusOptions[0] || normalized;
       const bucket = buckets.get(bucketKey);
       if (bucket) bucket.push(project);
     });
     return buckets;
-  }, [projects, statusOptions]);
+  }, [effectiveStatusByProjectId, projects, statusOptions]);
 
   const ganttData = useMemo(() => {
     const normalized = projects.map((project) => {
@@ -446,11 +481,37 @@ export default function ProjectsView({
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
   const submitStatusUpdate = (projectId: string, status: string) => {
+    const previousStatus = effectiveStatusByProjectId.get(projectId);
+    setOptimisticStatusByProjectId((current) => {
+      if (current[projectId] === status) {
+        return current;
+      }
+      return {
+        ...current,
+        [projectId]: status,
+      };
+    });
+
     const formData = new FormData();
     formData.set("project_id", projectId);
     formData.set("status", status);
     startTransition(() => {
-      void onUpdate(formData);
+      void Promise.resolve(onUpdate(formData)).catch(() => {
+        setOptimisticStatusByProjectId((current) => {
+          if (!(projectId in current)) {
+            return current;
+          }
+          if (!previousStatus) {
+            const next = { ...current };
+            delete next[projectId];
+            return next;
+          }
+          return {
+            ...current,
+            [projectId]: previousStatus,
+          };
+        });
+      });
     });
   };
 
@@ -1180,7 +1241,7 @@ export default function ProjectsView({
                           event.dataTransfer.getData("text/plain");
                         setDragOverStatus(null);
                         if (!projectId) return;
-                        const currentStatus = projectStatusById.get(projectId);
+                        const currentStatus = effectiveStatusByProjectId.get(projectId);
                         if (currentStatus === status) return;
                         submitStatusUpdate(projectId, status);
                       }}
