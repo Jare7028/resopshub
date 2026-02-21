@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   Fragment,
+  useCallback,
   type ChangeEvent,
   useEffect,
   useMemo,
@@ -174,6 +175,8 @@ export default function ProjectsView({
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -212,6 +215,42 @@ export default function ProjectsView({
       window.removeEventListener("pointerdown", onPointerDown);
     };
   }, [openMenu]);
+
+  const clearDragPreview = useCallback(() => {
+    if (dragPreviewRef.current) {
+      dragPreviewRef.current.remove();
+      dragPreviewRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearDragPreview, [clearDragPreview]);
+
+  const setDragPreviewFromCard = useCallback(
+    (event: { dataTransfer: DataTransfer; currentTarget: EventTarget & HTMLElement }) => {
+      if (typeof document === "undefined") return;
+      clearDragPreview();
+      const sourceCard = event.currentTarget;
+      const sourceRect = sourceCard.getBoundingClientRect();
+      if (!sourceRect.width || !sourceRect.height) return;
+      const preview = sourceCard.cloneNode(true) as HTMLElement;
+      preview.style.position = "fixed";
+      preview.style.top = "-10000px";
+      preview.style.left = "-10000px";
+      preview.style.width = `${sourceRect.width}px`;
+      preview.style.maxWidth = `${sourceRect.width}px`;
+      preview.style.pointerEvents = "none";
+      preview.style.margin = "0";
+      preview.style.opacity = "0.96";
+      preview.style.transform = "rotate(1.25deg)";
+      preview.style.boxShadow = "0 18px 40px rgba(15, 23, 42, 0.24)";
+      preview.style.borderRadius = "12px";
+      preview.style.zIndex = "2147483647";
+      document.body.appendChild(preview);
+      dragPreviewRef.current = preview;
+      event.dataTransfer.setDragImage(preview, 28, 24);
+    },
+    [clearDragPreview]
+  );
 
   const usersById = useMemo(
     () =>
@@ -1120,19 +1159,25 @@ export default function ProjectsView({
                     <div
                       key={status}
                       className={`w-72 rounded-xl border border-slate-200 bg-slate-50/60 ${
-                        isOver ? "ring-2 ring-slate-300" : ""
+                        isOver
+                          ? "bg-slate-100/80 ring-2 ring-blue-200 shadow-[0_6px_24px_rgba(15,23,42,0.12)]"
+                          : ""
                       }`}
                       onDragOver={(event) => {
                         event.preventDefault();
                         setDragOverStatus(status);
                         event.dataTransfer.dropEffect = "move";
                       }}
-                      onDragLeave={() =>
-                        setDragOverStatus((current) => (current === status ? null : current))
-                      }
+                      onDragLeave={(event) => {
+                        const nextTarget = event.relatedTarget as Node | null;
+                        if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+                        setDragOverStatus((current) => (current === status ? null : current));
+                      }}
                       onDrop={(event) => {
                         event.preventDefault();
-                        const projectId = event.dataTransfer.getData("text/plain");
+                        const projectId =
+                          event.dataTransfer.getData("application/x-resopshub-project-id") ||
+                          event.dataTransfer.getData("text/plain");
                         setDragOverStatus(null);
                         if (!projectId) return;
                         const currentStatus = projectStatusById.get(projectId);
@@ -1167,12 +1212,28 @@ export default function ProjectsView({
                                 draggable
                                 onDragStart={(event) => {
                                   event.dataTransfer.effectAllowed = "move";
+                                  event.dataTransfer.setData(
+                                    "application/x-resopshub-project-id",
+                                    project.id
+                                  );
                                   event.dataTransfer.setData("text/plain", project.id);
+                                  setDraggingProjectId(project.id);
+                                  setDragPreviewFromCard(event);
                                 }}
-                                className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                                onDragEnd={() => {
+                                  setDraggingProjectId(null);
+                                  setDragOverStatus(null);
+                                  clearDragPreview();
+                                }}
+                                className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
+                                  draggingProjectId === project.id
+                                    ? "scale-[0.98] cursor-grabbing opacity-45 shadow-none"
+                                    : "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
+                                }`}
                               >
                                 <Link
                                   href={`/projects/${project.id}`}
+                                  draggable={false}
                                   className="block text-sm font-semibold text-slate-900 hover:underline"
                                 >
                                   {project.name}

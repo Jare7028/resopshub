@@ -227,6 +227,8 @@ export default function TasksView({
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
     () => new Set(initialExpandedTaskIds)
   );
@@ -307,6 +309,42 @@ export default function TasksView({
       window.removeEventListener("pointerdown", onPointerDown);
     };
   }, [openMenu]);
+
+  const clearDragPreview = useCallback(() => {
+    if (dragPreviewRef.current) {
+      dragPreviewRef.current.remove();
+      dragPreviewRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearDragPreview, [clearDragPreview]);
+
+  const setDragPreviewFromCard = useCallback(
+    (event: { dataTransfer: DataTransfer; currentTarget: EventTarget & HTMLElement }) => {
+      if (typeof document === "undefined") return;
+      clearDragPreview();
+      const sourceCard = event.currentTarget;
+      const sourceRect = sourceCard.getBoundingClientRect();
+      if (!sourceRect.width || !sourceRect.height) return;
+      const preview = sourceCard.cloneNode(true) as HTMLElement;
+      preview.style.position = "fixed";
+      preview.style.top = "-10000px";
+      preview.style.left = "-10000px";
+      preview.style.width = `${sourceRect.width}px`;
+      preview.style.maxWidth = `${sourceRect.width}px`;
+      preview.style.pointerEvents = "none";
+      preview.style.margin = "0";
+      preview.style.opacity = "0.96";
+      preview.style.transform = "rotate(1.25deg)";
+      preview.style.boxShadow = "0 18px 40px rgba(15, 23, 42, 0.24)";
+      preview.style.borderRadius = "12px";
+      preview.style.zIndex = "2147483647";
+      document.body.appendChild(preview);
+      dragPreviewRef.current = preview;
+      event.dataTransfer.setDragImage(preview, 28, 24);
+    },
+    [clearDragPreview]
+  );
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   const initialExpandedKey = useMemo(
@@ -1323,19 +1361,25 @@ export default function TasksView({
                     <div
                       key={status}
                       className={`w-72 rounded-xl border border-slate-200 bg-slate-50/60 ${
-                        isOver ? "ring-2 ring-slate-300" : ""
+                        isOver
+                          ? "bg-slate-100/80 ring-2 ring-blue-200 shadow-[0_6px_24px_rgba(15,23,42,0.12)]"
+                          : ""
                       }`}
                       onDragOver={(event) => {
                         event.preventDefault();
                         setDragOverStatus(status);
                         event.dataTransfer.dropEffect = "move";
                       }}
-                      onDragLeave={() => {
+                      onDragLeave={(event) => {
+                        const nextTarget = event.relatedTarget as Node | null;
+                        if (nextTarget && event.currentTarget.contains(nextTarget)) return;
                         setDragOverStatus((current) => (current === status ? null : current));
                       }}
                       onDrop={(event) => {
                         event.preventDefault();
-                        const taskId = event.dataTransfer.getData("text/plain");
+                        const taskId =
+                          event.dataTransfer.getData("application/x-resopshub-task-id") ||
+                          event.dataTransfer.getData("text/plain");
                         setDragOverStatus(null);
                         if (!taskId) return;
                         const currentStatus = statusByTaskId.get(taskId);
@@ -1376,12 +1420,28 @@ export default function TasksView({
                                 draggable
                                 onDragStart={(event) => {
                                   event.dataTransfer.effectAllowed = "move";
+                                  event.dataTransfer.setData(
+                                    "application/x-resopshub-task-id",
+                                    task.id
+                                  );
                                   event.dataTransfer.setData("text/plain", task.id);
+                                  setDraggingTaskId(task.id);
+                                  setDragPreviewFromCard(event);
                                 }}
-                                className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                                onDragEnd={() => {
+                                  setDraggingTaskId(null);
+                                  setDragOverStatus(null);
+                                  clearDragPreview();
+                                }}
+                                className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
+                                  draggingTaskId === task.id
+                                    ? "scale-[0.98] cursor-grabbing opacity-45 shadow-none"
+                                    : "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
+                                }`}
                               >
                                 <Link
                                   href={`/tasks/${task.id}`}
+                                  draggable={false}
                                   className="block text-sm font-semibold text-slate-900 hover:underline"
                                 >
                                   {task.title}
