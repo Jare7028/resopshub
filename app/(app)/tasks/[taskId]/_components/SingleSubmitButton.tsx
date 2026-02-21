@@ -30,7 +30,7 @@ export default function SingleSubmitButton({
     }, 900);
     const hardRefreshTimer = window.setTimeout(() => {
       window.location.reload();
-    }, 3200);
+    }, 1500);
     return () => {
       window.clearTimeout(softRefreshTimer);
       window.clearTimeout(hardRefreshTimer);
