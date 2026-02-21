@@ -18,6 +18,7 @@ type NavIconName =
   | "employeeInfo"
   | "forms"
   | "chat"
+  | "social"
   | "personal"
   | "notes"
   | "featureSuggestions"
@@ -104,6 +105,15 @@ function SidebarIcon({ name }: { name: NavIconName }) {
           <path d="M21 12a8.8 8.8 0 0 1-.9 3.8 9 9 0 0 1-8.1 5.2 8.8 8.8 0 0 1-3.8-.9L3 21l1.9-5.1a8.8 8.8 0 0 1-.9-3.8 9 9 0 0 1 5.2-8.1A8.8 8.8 0 0 1 13 3h.5a9 9 0 0 1 7.5 7.5V12Z" />
         </svg>
       );
+    case "social":
+      return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="8.5" cy="7" r="4" />
+          <path d="M20 8v6" />
+          <path d="M17 11h6" />
+        </svg>
+      );
     case "personal":
       return (
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
@@ -154,6 +164,7 @@ const baseNavLinks: NavLink[] = [
   },
   { href: "/forms", label: "Forms", icon: "forms", pageKey: "forms" },
   { href: "/chat", label: "Chat", icon: "chat", pageKey: "chat" },
+  { href: "/social", label: "Social", icon: "social", pageKey: "social" },
   { href: "/personal", label: "Personal", icon: "personal", pageKey: "personal" },
   { href: "/notes", label: "Notes", icon: "notes", pageKey: "notes" },
   {

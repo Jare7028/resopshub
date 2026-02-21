@@ -638,6 +638,7 @@ values
   ('employee_info', 'Employee Info', '/employee-info', 50),
   ('forms', 'Forms', '/forms', 60),
   ('chat', 'Chat', '/chat', 70),
+  ('social', 'Social', '/social', 75),
   ('personal', 'Personal', '/personal', 80),
   ('notes', 'Notes', '/notes', 90),
   ('feature_suggestions', 'Feature Suggestions', '/feature-suggestions', 100),
