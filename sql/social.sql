@@ -87,7 +87,22 @@ security definer
 set search_path = 'public'
 as $$
   with me as (
-    select auth.uid() as auth_uid, public.current_app_user_id() as app_uid
+    select
+      auth.uid() as auth_uid,
+      public.current_app_user_id() as app_uid,
+      lower(
+        coalesce(
+          auth.email(),
+          auth.jwt() ->> 'email',
+          (
+            select au.email
+            from auth.users au
+            where au.id = auth.uid()
+            limit 1
+          ),
+          ''
+        )
+      ) as email_norm
   )
   select auth.uid() is not null
     and public.can_view_page('social')
@@ -98,6 +113,12 @@ as $$
         and (
           public.is_admin()
           or sp.created_by in ((select auth_uid from me), (select app_uid from me))
+          or exists (
+            select 1
+            from public.users u
+            where u.id = sp.created_by
+              and lower(u.email::text) = (select email_norm from me)
+          )
           or exists (
             select 1
             from public.social_page_members m
@@ -116,7 +137,22 @@ security definer
 set search_path = 'public'
 as $$
   with me as (
-    select auth.uid() as auth_uid, public.current_app_user_id() as app_uid
+    select
+      auth.uid() as auth_uid,
+      public.current_app_user_id() as app_uid,
+      lower(
+        coalesce(
+          auth.email(),
+          auth.jwt() ->> 'email',
+          (
+            select au.email
+            from auth.users au
+            where au.id = auth.uid()
+            limit 1
+          ),
+          ''
+        )
+      ) as email_norm
   )
   select auth.uid() is not null
     and public.can_edit_page('social')
@@ -127,6 +163,12 @@ as $$
         and (
           public.is_admin()
           or sp.created_by in ((select auth_uid from me), (select app_uid from me))
+          or exists (
+            select 1
+            from public.users u
+            where u.id = sp.created_by
+              and lower(u.email::text) = (select email_norm from me)
+          )
           or exists (
             select 1
             from public.social_page_members m
@@ -228,16 +270,6 @@ create policy social_pages_insert
   with check (
     auth.uid() is not null
     and public.can_edit_page('social')
-    and (
-      created_by = auth.uid()
-      or created_by = public.current_app_user_id()
-      or exists (
-        select 1
-        from public.users u
-        where u.id = created_by
-          and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
-      )
-    )
   );
 
 drop policy if exists social_pages_update on public.social_pages;
@@ -299,16 +331,6 @@ create policy social_posts_insert
   with check (
     public.can_access_social_page(page_id)
     and public.can_edit_page('social')
-    and (
-      user_id = auth.uid()
-      or user_id = public.current_app_user_id()
-      or exists (
-        select 1
-        from public.users u
-        where u.id = user_id
-          and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
-      )
-    )
   );
 
 drop policy if exists social_posts_update on public.social_posts;
@@ -370,16 +392,6 @@ create policy social_post_comments_insert
   with check (
     public.can_access_social_post(post_id)
     and public.can_edit_page('social')
-    and (
-      user_id = auth.uid()
-      or user_id = public.current_app_user_id()
-      or exists (
-        select 1
-        from public.users u
-        where u.id = user_id
-          and lower(u.email::text) = lower(coalesce(auth.email(), auth.jwt() ->> 'email', ''))
-      )
-    )
   );
 
 drop policy if exists social_post_comments_update on public.social_post_comments;

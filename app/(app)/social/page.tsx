@@ -199,7 +199,7 @@ export default async function SocialPage(props: {
     if (insertError || !insertedPage?.id) {
       const insertMessage = String(insertError?.message || "Unable to create page");
       const friendlyMessage = /row-level security/i.test(insertMessage)
-        ? "You do not have permission to create Social pages. Ask an admin to grant Social edit access."
+        ? "Social page creation was blocked by a database policy mismatch. Please sign out/in and retry."
         : insertMessage;
       redirect(
         `/social?error=${encodeURIComponent(friendlyMessage)}`
