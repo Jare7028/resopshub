@@ -145,6 +145,71 @@ export function hasStringId(value: unknown): value is { id: string } {
   );
 }
 
+function normalizeFilterToken(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function isReasonForLeavingColumn(column: Pick<EmployeeInfoColumnRow, "key" | "label">) {
+  const keyToken = normalizeFilterToken(column.key);
+  const labelToken = normalizeFilterToken(column.label);
+  const isReasonForLeavingToken = (token: string) =>
+    token === "reason_for_leaving" || (token.includes("reason") && token.includes("leaving"));
+  return isReasonForLeavingToken(keyToken) || isReasonForLeavingToken(labelToken);
+}
+
+function hasNonEmptyCellValue(value: Pick<EmployeeInfoValueRow, "text_value" | "option_value">) {
+  return (
+    String(value.text_value || "").trim().length > 0 ||
+    String(value.option_value || "").trim().length > 0
+  );
+}
+
+export function excludeInactiveEmployeeRecordsForBilling(args: {
+  employeeRecords: EmployeeInfoRecordRow[];
+  employeeColumns: EmployeeInfoColumnRow[];
+  employeeValues: EmployeeInfoValueRow[];
+}) {
+  const { employeeRecords, employeeColumns, employeeValues } = args;
+  const reasonForLeavingColumnIds = new Set(
+    employeeColumns.filter((column) => isReasonForLeavingColumn(column)).map((column) => column.id)
+  );
+  if (!reasonForLeavingColumnIds.size || !employeeRecords.length || !employeeValues.length) {
+    return {
+      employeeRecords,
+      employeeValues,
+    };
+  }
+
+  const inactiveRecordIds = new Set<string>();
+  employeeValues.forEach((valueRow) => {
+    if (!reasonForLeavingColumnIds.has(valueRow.column_id)) {
+      return;
+    }
+    if (!hasNonEmptyCellValue(valueRow)) {
+      return;
+    }
+    inactiveRecordIds.add(valueRow.record_id);
+  });
+
+  if (!inactiveRecordIds.size) {
+    return {
+      employeeRecords,
+      employeeValues,
+    };
+  }
+
+  const activeEmployeeRecords = employeeRecords.filter((record) => !inactiveRecordIds.has(record.id));
+  const activeRecordIds = new Set(activeEmployeeRecords.map((record) => record.id));
+  return {
+    employeeRecords: activeEmployeeRecords,
+    employeeValues: employeeValues.filter((valueRow) => activeRecordIds.has(valueRow.record_id)),
+  };
+}
+
 function buildEmployeeInfoValueMap(
   rows: EmployeeInfoValueRow[]
 ): Record<
@@ -343,11 +408,18 @@ export function computeClientBillingSnapshot(args: {
   const filteredEmployeeValues = employeeValues.filter(
     (row) => !!row && !!row.record_id && !!row.column_id
   );
+  const activeEmployeeRows = excludeInactiveEmployeeRecordsForBilling({
+    employeeRecords: filteredEmployeeRecords,
+    employeeColumns: filteredEmployeeColumns,
+    employeeValues: filteredEmployeeValues,
+  });
+  const activeEmployeeRecords = activeEmployeeRows.employeeRecords;
+  const activeEmployeeValues = activeEmployeeRows.employeeValues;
 
   const employeeMonthlyCostSummary: EmployeeMonthlyCostSummary = {
     amount: 0,
     currencyCode: billingCurrencyCode,
-    clientRowCount: filteredEmployeeRecords.length,
+    clientRowCount: activeEmployeeRecords.length,
     contributingRowCount: 0,
     roleColumnLabel: null,
     breakdownRows: [],
@@ -435,7 +507,7 @@ export function computeClientBillingSnapshot(args: {
       totalAmount: number;
     }
   >();
-  const valuesByRecordId = buildEmployeeInfoValueMap(filteredEmployeeValues);
+  const valuesByRecordId = buildEmployeeInfoValueMap(activeEmployeeValues);
 
   const effectiveMonthStart = toMonthStart(monthStart);
   const exchangeRateMap = buildEmployeeInfoExchangeRateMap(exchangeRateRows, effectiveMonthStart);
@@ -472,7 +544,7 @@ export function computeClientBillingSnapshot(args: {
     filteredEmployeeColumns.map((column, index) => [column.id, index + 2])
   );
 
-  filteredEmployeeRecords.forEach((record) => {
+  activeEmployeeRecords.forEach((record) => {
     const valuesByColumnId = valuesByRecordId[record.id] || {};
     const roleSourceValue = roleBreakdownColumn ? valuesByColumnId[roleBreakdownColumn.id] : null;
     const roleLabel = String(

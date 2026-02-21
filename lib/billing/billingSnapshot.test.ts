@@ -214,6 +214,51 @@ describe("computeClientBillingSnapshot", () => {
     expect(snapshot.employeeMonthlyCostSummary.hasMissingExchangeRate).toBe(true);
     expect(snapshot.employeeMonthlyCostSummary.amount).toBe(0);
   });
+
+  it("excludes employees with a populated reason for leaving from cost and per-user revenue", () => {
+    const snapshot = computeClientBillingSnapshot({
+      clientId: "c1",
+      clientName: "Acme",
+      billingProfile: {
+        currency: "USD",
+        hourly_rate: 0,
+        total_billable_hours: 0,
+        revenue_charge_items: [{ id: "rev_seat", label: "Seat fee", amount: 10, mode: "per_user" }],
+        monthly_cost_items: [
+          { id: "cost_per_user", source: "custom", label: "Insurance", amount: 100, mode: "per_user" },
+        ],
+      },
+      employeeRecords: [
+        { id: "r1", full_name: "Ada", client_id: "c1" },
+        { id: "r2", full_name: "Lin", client_id: "c1" },
+      ],
+      employeeColumns: [
+        createColumn({
+          id: "col_reason",
+          key: "reason_for_leaving",
+          label: "Reason for Leaving",
+          column_kind: "text",
+          position: 1,
+        }),
+      ],
+      employeeValues: [
+        {
+          record_id: "r2",
+          column_id: "col_reason",
+          text_value: "Fired",
+          option_value: null,
+          money_currency_code: null,
+        },
+      ],
+      exchangeRateRows: [],
+    });
+
+    expect(snapshot.employeeMonthlyCostSummary.clientRowCount).toBe(1);
+    expect(snapshot.employeeMonthlyCostSummary.amount).toBe(100);
+    expect(snapshot.revenueBreakdownRows.map((row) => row.quantity)).toEqual([1]);
+    expect(snapshot.estimatedMonthlyRevenue).toBe(10);
+    expect(snapshot.estimatedMonthlyMargin).toBe(-90);
+  });
 });
 
 describe("convertSnapshotAmountsToCurrency", () => {
