@@ -20,6 +20,7 @@ type UserRow = {
   id: string;
   full_name: string | null;
   email: string | null;
+  avatar_url: string | null;
 };
 
 type ConversationRow = {
@@ -103,7 +104,7 @@ export default async function ChatPage(props: {
 
   const { data: usersRaw } = await supabase
     .from("users")
-    .select("id,full_name,email")
+    .select("id,full_name,email,avatar_url")
     .order("full_name", { ascending: true });
   const users = (usersRaw || []) as UserRow[];
 

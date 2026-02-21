@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -57,6 +59,31 @@ const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
   feature_suggestion_status: true,
 };
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
+const USER_AVATARS_BUCKET = "user-avatars";
+const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
+
+function getImageExtension(file: File) {
+  const fromName = file.name.split(".").pop()?.trim().toLowerCase();
+  if (fromName && /^[a-z0-9]+$/.test(fromName)) {
+    return fromName;
+  }
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/jpeg") return "jpg";
+  if (file.type === "image/webp") return "webp";
+  if (file.type === "image/gif") return "gif";
+  if (file.type === "image/avif") return "avif";
+  return "bin";
+}
+
+function toInitials(label: string) {
+  const words = label
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  if (!words.length) return "NA";
+  return words.map((word) => word.charAt(0).toUpperCase()).join("");
+}
 
 function checkbox(formData: FormData, key: string) {
   return String(formData.get(key) || "") === "on";
@@ -139,7 +166,11 @@ export default async function SettingsPage(props: {
   }
 
   const { data: profile } = await withPerfTiming("settings.profile", () =>
-    supabase.from("users").select("id,email,full_name,role").eq("id", user.id).maybeSingle()
+    supabase
+      .from("users")
+      .select("id,email,full_name,role,avatar_url,avatar_storage_path")
+      .eq("id", user.id)
+      .maybeSingle()
   );
 
   if (!profile) {
@@ -475,6 +506,11 @@ export default async function SettingsPage(props: {
     if (!user) redirect("/login");
 
     const fullName = String(formData.get("full_name") || "").trim();
+    const removeAvatar = checkbox(formData, "remove_avatar");
+    const avatarFileRaw = formData.get("avatar_file");
+    const avatarFile =
+      avatarFileRaw instanceof File && avatarFileRaw.size > 0 ? avatarFileRaw : null;
+
     if (fullName.length < 2) {
       redirect("/settings?error=Name%20is%20too%20short");
     }
@@ -482,17 +518,79 @@ export default async function SettingsPage(props: {
       redirect("/settings?error=Name%20is%20too%20long");
     }
 
+    if (avatarFile && !avatarFile.type.startsWith("image/")) {
+      redirect("/settings?error=Profile%20photo%20must%20be%20an%20image");
+    }
+
+    if (avatarFile && avatarFile.size > MAX_AVATAR_SIZE_BYTES) {
+      redirect("/settings?error=Profile%20photo%20must%20be%205MB%20or%20smaller");
+    }
+
+    const { data: currentProfile, error: currentProfileError } = await supabase
+      .from("users")
+      .select("avatar_url,avatar_storage_path")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (currentProfileError) {
+      redirect(`/settings?error=${encodeURIComponent(currentProfileError.message)}`);
+    }
+
+    const currentAvatarStoragePath = String(currentProfile?.avatar_storage_path || "").trim();
+    let nextAvatarUrl = String(currentProfile?.avatar_url || "").trim() || null;
+    let nextAvatarStoragePath = currentAvatarStoragePath || null;
+
+    if (avatarFile) {
+      const extension = getImageExtension(avatarFile);
+      const storagePath = `${user.id}/${Date.now()}-${randomBytes(5).toString("hex")}.${extension}`;
+      const arrayBuffer = await avatarFile.arrayBuffer();
+      const { error: uploadError } = await supabase.storage
+        .from(USER_AVATARS_BUCKET)
+        .upload(storagePath, arrayBuffer, {
+          contentType: avatarFile.type || "application/octet-stream",
+          upsert: false,
+        });
+      if (uploadError) {
+        redirect(`/settings?error=${encodeURIComponent(uploadError.message)}`);
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from(USER_AVATARS_BUCKET)
+        .getPublicUrl(storagePath);
+      const publicUrl = String(publicUrlData.publicUrl || "").trim();
+      if (!publicUrl) {
+        redirect("/settings?error=Could%20not%20create%20profile%20photo%20URL");
+      }
+
+      nextAvatarUrl = publicUrl;
+      nextAvatarStoragePath = storagePath;
+    } else if (removeAvatar) {
+      nextAvatarUrl = null;
+      nextAvatarStoragePath = null;
+    }
+
     const { error } = await supabase
       .from("users")
-      .update({ full_name: fullName })
+      .update({
+        full_name: fullName,
+        avatar_url: nextAvatarUrl,
+        avatar_storage_path: nextAvatarStoragePath,
+      })
       .eq("id", user.id);
 
     if (error) {
       redirect(`/settings?error=${encodeURIComponent(error.message)}`);
     }
 
+    const shouldDeleteOldAvatar =
+      Boolean(currentAvatarStoragePath) && currentAvatarStoragePath !== (nextAvatarStoragePath || "");
+    if (shouldDeleteOldAvatar) {
+      await supabase.storage.from(USER_AVATARS_BUCKET).remove([currentAvatarStoragePath]);
+    }
+
     revalidatePath("/settings");
     revalidatePath("/dashboard");
+    revalidatePath("/chat");
+    revalidatePath("/social");
     redirect("/settings?success=Profile%20updated");
   }
 
@@ -1763,6 +1861,10 @@ export default async function SettingsPage(props: {
     );
   };
 
+  const profileDisplayName = String(profile.full_name || profile.email || "User").trim() || "User";
+  const profileInitials = toInitials(profileDisplayName);
+  const profileAvatarUrl = String(profile.avatar_url || "").trim();
+
   return (
     <div className="space-y-8">
       <section className="flex flex-wrap items-start justify-between gap-4">
@@ -1785,7 +1887,34 @@ export default async function SettingsPage(props: {
             <h2 className="text-lg font-semibold text-slate-900">Profile</h2>
           </div>
           <div className="p-6">
-            <form action={updateProfile} className="grid gap-4 md:max-w-xl">
+            <form
+              action={updateProfile}
+              encType="multipart/form-data"
+              className="grid gap-4 md:max-w-xl"
+            >
+              <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="relative h-14 w-14 overflow-hidden rounded-full border border-slate-200 bg-white">
+                  {profileAvatarUrl ? (
+                    <Image
+                      src={profileAvatarUrl}
+                      alt={`${profileDisplayName} profile photo`}
+                      fill
+                      unoptimized
+                      sizes="56px"
+                      className="object-cover"
+                    />
+                  ) : (
+                    <span className="inline-flex h-full w-full items-center justify-center text-sm font-semibold text-slate-700">
+                      {profileInitials}
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{profileDisplayName}</p>
+                  <p className="text-xs text-slate-600">Used in chat and social activity.</p>
+                </div>
+              </div>
+
               <label className="grid gap-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Full name
@@ -1809,6 +1938,28 @@ export default async function SettingsPage(props: {
                   readOnly
                 />
               </label>
+
+              <label className="grid gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Profile photo
+                </span>
+                <input
+                  type="file"
+                  name="avatar_file"
+                  accept="image/*"
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                />
+                <span className="text-xs text-slate-500">
+                  PNG, JPG, WEBP, GIF, or AVIF. Max 5MB.
+                </span>
+              </label>
+
+              {profileAvatarUrl ? (
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" name="remove_avatar" className="h-4 w-4 rounded border-slate-300" />
+                  Remove current photo
+                </label>
+              ) : null}
 
               <div className="flex items-center justify-end">
                 <button

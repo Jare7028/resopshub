@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import Image from "next/image";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -107,12 +108,21 @@ export default async function SocialPage(props: {
 
   const ownerIds = Array.from(new Set(pages.map((page) => page.created_by)));
   const { data: ownerUsers } = ownerIds.length
-    ? await supabase.from("users").select("id,full_name,email").in("id", ownerIds)
-    : { data: [] as Array<{ id: string; full_name: string | null; email: string | null }> };
+    ? await supabase.from("users").select("id,full_name,email,avatar_url").in("id", ownerIds)
+    : {
+        data: [] as Array<{
+          id: string;
+          full_name: string | null;
+          email: string | null;
+          avatar_url: string | null;
+        }>,
+      };
 
   const ownerLabelById = new Map<string, string>();
+  const ownerAvatarById = new Map<string, string>();
   (ownerUsers || []).forEach((owner) => {
     ownerLabelById.set(owner.id, owner.full_name || owner.email || "Unknown user");
+    ownerAvatarById.set(owner.id, String(owner.avatar_url || "").trim());
   });
 
   const memberRowsByPage = new Map<string, SocialPageMemberRow[]>();
@@ -428,6 +438,8 @@ export default async function SocialPage(props: {
                     : currentMember?.role === "manager"
                       ? "Manager"
                       : "Member";
+                const ownerLabel = ownerLabelById.get(page.created_by) || "Unknown user";
+                const ownerAvatarUrl = ownerAvatarById.get(page.created_by) || "";
 
                 return (
                   <Link
@@ -455,9 +467,28 @@ export default async function SocialPage(props: {
                         <span>-</span>
                         <span>{stat.total} posts</span>
                       </div>
-                      <p>
-                        Owner: {ownerLabelById.get(page.created_by) || "Unknown user"}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <span className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[10px] font-semibold text-slate-700">
+                          {ownerAvatarUrl ? (
+                            <Image
+                              src={ownerAvatarUrl}
+                              alt={`${ownerLabel} avatar`}
+                              fill
+                              unoptimized
+                              sizes="24px"
+                              className="object-cover"
+                            />
+                          ) : (
+                            ownerLabel
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .map((word) => word.charAt(0).toUpperCase())
+                              .join("")
+                          )}
+                        </span>
+                        <p>Owner: {ownerLabel}</p>
+                      </div>
                       <p>
                         Last activity: {stat.latest ? toDisplayDate(stat.latest) : toDisplayDate(page.updated_at)}
                       </p>

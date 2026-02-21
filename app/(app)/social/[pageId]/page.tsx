@@ -59,6 +59,7 @@ type UserRow = {
   full_name: string | null;
   email: string | null;
   status: string | null;
+  avatar_url: string | null;
 };
 
 type PostImageInput = {
@@ -125,6 +126,10 @@ function toInitials(label: string) {
 
   if (!words.length) return "NA";
   return words.map((word) => word.charAt(0).toUpperCase()).join("");
+}
+
+function toAvatarUrl(user: { avatar_url: string | null } | null | undefined) {
+  return String(user?.avatar_url || "").trim();
 }
 
 function toDateTimeLabel(value: string) {
@@ -256,12 +261,15 @@ export default async function SocialPageDetail(props: {
 
   const [participantsResult, allUsersResult] = await Promise.all([
     actorIds.length
-      ? supabase.from("users").select("id,full_name,email,status").in("id", actorIds)
+      ? supabase
+          .from("users")
+          .select("id,full_name,email,status,avatar_url")
+          .in("id", actorIds)
       : Promise.resolve({ data: [] as UserRow[], error: null }),
     canManagePage
       ? supabase
           .from("users")
-          .select("id,full_name,email,status")
+          .select("id,full_name,email,status,avatar_url")
           .eq("status", "active")
           .order("full_name", { ascending: true })
       : Promise.resolve({ data: [] as UserRow[], error: null }),
@@ -900,6 +908,7 @@ export default async function SocialPageDetail(props: {
                 const postUser = userById.get(post.user_id);
                 const postLabel = toUserLabel(postUser);
                 const postInitials = toInitials(postLabel);
+                const postAvatarUrl = toAvatarUrl(postUser);
                 const postImagesForItem = imagesByPostId.get(post.id) || [];
                 const commentsForPost = commentsByPostId.get(post.id) || [];
 
@@ -911,8 +920,19 @@ export default async function SocialPageDetail(props: {
                   >
                     <header className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold tracking-wide text-white">
-                          {postInitials}
+                        <span className="relative inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-xs font-semibold tracking-wide text-slate-700">
+                          {postAvatarUrl ? (
+                            <Image
+                              src={postAvatarUrl}
+                              alt={`${postLabel} avatar`}
+                              fill
+                              unoptimized
+                              sizes="40px"
+                              className="object-cover"
+                            />
+                          ) : (
+                            postInitials
+                          )}
                         </span>
                         <div>
                           <p className="text-sm font-semibold text-slate-900">{postLabel}</p>
@@ -977,16 +997,38 @@ export default async function SocialPageDetail(props: {
                       <div className="mt-3 space-y-2">
                         {commentsForPost.length ? (
                           commentsForPost.map((comment) => {
-                            const commentLabel = toUserLabel(userById.get(comment.user_id));
+                            const commentUser = userById.get(comment.user_id);
+                            const commentLabel = toUserLabel(commentUser);
+                            const commentAvatarUrl = toAvatarUrl(commentUser);
+                            const commentInitials = toInitials(commentLabel);
                             return (
                               <article
                                 key={comment.id}
                                 className="rounded-md border border-slate-200 bg-white px-3 py-2"
                               >
-                                <p className="text-xs text-slate-500">
-                                  <span className="font-semibold text-slate-700">{commentLabel}</span> - {toDateTimeLabel(comment.created_at)}
-                                </p>
-                                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+                                <div className="flex items-start gap-2">
+                                  <span className="relative mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
+                                    {commentAvatarUrl ? (
+                                      <Image
+                                        src={commentAvatarUrl}
+                                        alt={`${commentLabel} avatar`}
+                                        fill
+                                        unoptimized
+                                        sizes="28px"
+                                        className="object-cover"
+                                      />
+                                    ) : (
+                                      commentInitials
+                                    )}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="text-xs text-slate-500">
+                                      <span className="font-semibold text-slate-700">{commentLabel}</span> -{" "}
+                                      {toDateTimeLabel(comment.created_at)}
+                                    </p>
+                                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+                                  </div>
+                                </div>
                               </article>
                             );
                           })
@@ -1065,17 +1107,54 @@ export default async function SocialPageDetail(props: {
 
             <div className="mt-3 space-y-2">
               <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <p className="text-xs font-semibold text-slate-900">{ownerLabel}</p>
-                <p className="text-[11px] text-slate-600">Owner</p>
+                <div className="flex items-center gap-2">
+                  <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
+                    {toAvatarUrl(ownerUser) ? (
+                      <Image
+                        src={toAvatarUrl(ownerUser)}
+                        alt={`${ownerLabel} avatar`}
+                        fill
+                        unoptimized
+                        sizes="28px"
+                        className="object-cover"
+                      />
+                    ) : (
+                      toInitials(ownerLabel)
+                    )}
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-900">{ownerLabel}</p>
+                    <p className="text-[11px] text-slate-600">Owner</p>
+                  </div>
+                </div>
               </div>
 
               {members
                 .filter((member) => member.user_id !== socialPage.created_by)
                 .map((member) => {
-                  const memberLabel = toUserLabel(userById.get(member.user_id));
+                  const memberUser = userById.get(member.user_id);
+                  const memberLabel = toUserLabel(memberUser);
+                  const memberAvatarUrl = toAvatarUrl(memberUser);
+                  const memberInitials = toInitials(memberLabel);
                   return (
                     <div key={member.id} className="rounded-md border border-slate-200 px-3 py-2">
-                      <p className="text-xs font-semibold text-slate-900">{memberLabel}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
+                          {memberAvatarUrl ? (
+                            <Image
+                              src={memberAvatarUrl}
+                              alt={`${memberLabel} avatar`}
+                              fill
+                              unoptimized
+                              sizes="28px"
+                              className="object-cover"
+                            />
+                          ) : (
+                            memberInitials
+                          )}
+                        </span>
+                        <p className="text-xs font-semibold text-slate-900">{memberLabel}</p>
+                      </div>
 
                       {canManagePage ? (
                         <form action={updateMemberRole} className="mt-2 flex items-center gap-2">

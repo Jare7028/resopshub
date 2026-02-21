@@ -17,6 +17,7 @@ type UserRow = {
   id: string;
   full_name: string | null;
   email: string | null;
+  avatar_url: string | null;
 };
 
 type ConversationRow = {
@@ -124,6 +125,20 @@ function mergeMessages(current: MessageRow[], incoming: MessageRow[]) {
 function getUserDisplayName(user: UserRow | null | undefined) {
   if (!user) return "Unknown user";
   return user.full_name || user.email || "Unknown user";
+}
+
+function getInitials(label: string) {
+  const words = label
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  if (!words.length) return "NA";
+  return words.map((word) => word.charAt(0).toUpperCase()).join("");
+}
+
+function getUserAvatarUrl(user: UserRow | null | undefined) {
+  return String(user?.avatar_url || "").trim();
 }
 
 function chatUrl(params: { c?: string }) {
@@ -967,6 +982,20 @@ export default function ChatPageClient(props: {
                   const latestBody = renderPreviewText(latest);
                   const unreadCount = unreadByConversationId[conversation.id] || 0;
                   const title = getConversationTitle(conversation);
+                  const directOtherUser =
+                    conversation.type === "direct"
+                      ? (() => {
+                          const rowMembers = membersByConversationId[conversation.id] || [];
+                          const other = rowMembers.find((member) => member.user_id !== currentUserId);
+                          return userById[other?.user_id || ""] || null;
+                        })()
+                      : null;
+                  const conversationAvatarUrl = getUserAvatarUrl(directOtherUser);
+                  const conversationAvatarLabel =
+                    conversation.type === "group"
+                      ? String(conversation.title || "Group")
+                      : getUserDisplayName(directOtherUser);
+                  const conversationAvatarInitials = getInitials(conversationAvatarLabel);
 
                   return (
                     <button
@@ -978,12 +1007,28 @@ export default function ChatPageClient(props: {
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
-                          <p className="mt-1 line-clamp-1 text-xs text-slate-600">
-                            {latestSender ? `${latestSender}: ` : ""}
-                            {latestBody}
-                          </p>
+                        <div className="flex min-w-0 items-start gap-2">
+                          <span className="relative mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
+                            {conversationAvatarUrl ? (
+                              <Image
+                                src={conversationAvatarUrl}
+                                alt={`${conversationAvatarLabel} avatar`}
+                                fill
+                                unoptimized
+                                sizes="32px"
+                                className="object-cover"
+                              />
+                            ) : (
+                              conversationAvatarInitials
+                            )}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
+                            <p className="mt-1 line-clamp-1 text-xs text-slate-600">
+                              {latestSender ? `${latestSender}: ` : ""}
+                              {latestBody}
+                            </p>
+                          </div>
                         </div>
                         <div className="flex min-w-[56px] flex-col items-end gap-1">
                           <span className="text-[11px] text-slate-500">
@@ -1038,7 +1083,10 @@ export default function ChatPageClient(props: {
               >
                 {selectedMessages.length ? (
                   selectedMessages.map((message) => {
-                    const senderName = getUserDisplayName(userById[message.sender_id]);
+                    const senderUser = userById[message.sender_id] || null;
+                    const senderName = getUserDisplayName(senderUser);
+                    const senderAvatarUrl = getUserAvatarUrl(senderUser);
+                    const senderInitials = getInitials(senderName);
                     const isMine = message.sender_id === currentUserId;
                     const isDeleted = Boolean(message.deleted_at);
                     const isEditing = editingMessageId === message.id;
@@ -1067,8 +1115,24 @@ export default function ChatPageClient(props: {
                     return (
                       <div
                         key={message.id}
-                        className={`flex ${isMine ? "justify-end" : "justify-start"}`}
+                        className={`flex items-end gap-2 ${isMine ? "justify-end" : "justify-start"}`}
                       >
+                        {!isMine ? (
+                          <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
+                            {senderAvatarUrl ? (
+                              <Image
+                                src={senderAvatarUrl}
+                                alt={`${senderName} avatar`}
+                                fill
+                                unoptimized
+                                sizes="32px"
+                                className="object-cover"
+                              />
+                            ) : (
+                              senderInitials
+                            )}
+                          </span>
+                        ) : null}
                         <article className="group max-w-[min(760px,92%)]">
                           <div
                             className={`rounded-2xl border px-3 py-2 shadow-sm ${
@@ -1284,6 +1348,22 @@ export default function ChatPageClient(props: {
                             </p>
                           ) : null}
                         </article>
+                        {isMine ? (
+                          <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
+                            {senderAvatarUrl ? (
+                              <Image
+                                src={senderAvatarUrl}
+                                alt={`${senderName} avatar`}
+                                fill
+                                unoptimized
+                                sizes="32px"
+                                className="object-cover"
+                              />
+                            ) : (
+                              senderInitials
+                            )}
+                          </span>
+                        ) : null}
                       </div>
                     );
                   })
