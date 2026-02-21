@@ -11,6 +11,7 @@ import { isSupabaseMissingFunctionError, isSupabaseMissingTableError } from "@/l
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
 import SocialCommentComposer from "../_components/SocialCommentComposer";
 import SocialPostComposer from "../_components/SocialPostComposer";
+import SocialReadTracker from "../_components/SocialReadTracker";
 
 type SocialPageRow = {
   id: string;
@@ -106,6 +107,7 @@ type PostImageInput = {
 type SocialPostFilter = "all" | "pinned" | "mine" | "unread";
 
 const SOCIAL_REACTION_OPTIONS = ["👍", "❤️", "🎉", "🔥", "👏"] as const;
+const SOCIAL_POSTS_PAGE_SIZE = 20;
 
 function parsePostImagesJson(raw: string): PostImageInput[] {
   let parsed: unknown;
@@ -202,13 +204,15 @@ function normalizeRole(value: string): "member" | "manager" {
 function buildSocialDetailUrl(
   pageId: string,
   extra?: { error?: string; success?: string },
-  options?: { q?: string; filter?: SocialPostFilter }
+  options?: { q?: string; filter?: SocialPostFilter; p?: number }
 ) {
   const params = new URLSearchParams();
   const q = String(options?.q || "").trim();
   const filter = options?.filter || "all";
+  const page = Math.max(1, Number(options?.p || 1));
   if (q) params.set("q", q);
   if (filter !== "all") params.set("filter", filter);
+  if (page > 1) params.set("p", String(page));
   if (extra?.error) params.set("error", extra.error);
   if (extra?.success) params.set("success", extra.success);
   const query = params.toString();
@@ -217,16 +221,19 @@ function buildSocialDetailUrl(
 
 export default async function SocialPageDetail(props: {
   params: Promise<{ pageId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string; q?: string; filter?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; q?: string; filter?: string; p?: string }>;
 }) {
   const { pageId } = await props.params;
   const searchParams = await props.searchParams;
   const searchQuery = String(searchParams?.q || "").trim();
   const postFilter = normalizePostFilter(String(searchParams?.filter || ""));
+  const parsedPage = Number(searchParams?.p || "1");
+  const postPageNumber = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;
   const listQueryState = {
     q: searchQuery,
     filter: postFilter,
-  } satisfies { q: string; filter: SocialPostFilter };
+    p: postPageNumber,
+  } satisfies { q: string; filter: SocialPostFilter; p: number };
 
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -282,25 +289,76 @@ export default async function SocialPageDetail(props: {
     : Boolean(canManageResult.data);
   const canPost = canEditResult.error ? true : Boolean(canEditResult.data);
 
-  const [membersResult, postsResult] = await Promise.all([
+  const pageReadResult = await supabase
+    .from("social_page_reads")
+    .select("page_id,user_id,last_read_at")
+    .eq("page_id", pageId)
+    .eq("user_id", currentUser.id)
+    .maybeSingle();
+  const pageReadSchemaMissing = isSupabaseMissingTableError(pageReadResult.error);
+  const previousPageReadAt = pageReadSchemaMissing
+    ? null
+    : String((pageReadResult.data as SocialPageReadRow | null)?.last_read_at || "").trim() || null;
+
+  const postsOffset = (postPageNumber - 1) * SOCIAL_POSTS_PAGE_SIZE;
+  let postsQuery = supabase
+    .from("social_posts")
+    .select("id,page_id,user_id,body,is_pinned,pinned_at,created_at,updated_at", { count: "exact" })
+    .eq("page_id", pageId);
+
+  if (postFilter === "pinned") {
+    postsQuery = postsQuery.eq("is_pinned", true);
+  } else if (postFilter === "mine") {
+    postsQuery = postsQuery.eq("user_id", currentUser.id);
+  } else if (postFilter === "unread" && previousPageReadAt) {
+    postsQuery = postsQuery.gt("created_at", previousPageReadAt);
+  }
+
+  if (searchQuery) {
+    postsQuery = postsQuery.ilike("body", `%${searchQuery}%`);
+  }
+
+  const [membersResult, postsResult, totalPostsResult, unreadPostsResult] = await Promise.all([
     supabase
       .from("social_page_members")
       .select("id,page_id,user_id,role,created_at")
       .eq("page_id", pageId)
       .order("created_at", { ascending: true }),
-    supabase
-      .from("social_posts")
-      .select("id,page_id,user_id,body,is_pinned,pinned_at,created_at,updated_at")
-      .eq("page_id", pageId)
+    postsQuery
       .order("is_pinned", { ascending: false })
       .order("created_at", { ascending: false })
-      .limit(60),
+      .range(postsOffset, postsOffset + SOCIAL_POSTS_PAGE_SIZE - 1),
+    supabase
+      .from("social_posts")
+      .select("id", { head: true, count: "exact" })
+      .eq("page_id", pageId),
+    previousPageReadAt
+      ? supabase
+          .from("social_posts")
+          .select("id", { head: true, count: "exact" })
+          .eq("page_id", pageId)
+          .gt("created_at", previousPageReadAt)
+      : Promise.resolve({ count: null, error: null } as { count: number | null; error: null }),
   ]);
 
   const members = (membersResult.data || []) as SocialPageMemberRow[];
   const posts = (postsResult.data || []) as SocialPostRow[];
-
+  const filteredPostCount = postsResult.count || 0;
+  const totalPostsCount = totalPostsResult.count || 0;
+  const unreadPostsCount = previousPageReadAt ? unreadPostsResult.count || 0 : totalPostsCount;
+  const totalPostPages = Math.max(1, Math.ceil(filteredPostCount / SOCIAL_POSTS_PAGE_SIZE));
   const postIds = posts.map((post) => post.id);
+
+  if (postPageNumber > totalPostPages && filteredPostCount > 0) {
+    redirect(
+      buildSocialDetailUrl(pageId, undefined, {
+        q: searchQuery,
+        filter: postFilter,
+        p: totalPostPages,
+      })
+    );
+  }
+
   const [imagesResult, commentsResult] = postIds.length
     ? await Promise.all([
         supabase
@@ -322,27 +380,6 @@ export default async function SocialPageDetail(props: {
   const postImages = (imagesResult.data || []) as SocialPostImageRow[];
   const postComments = (commentsResult.data || []) as SocialPostCommentRow[];
 
-  const pageReadResult = await supabase
-    .from("social_page_reads")
-    .select("page_id,user_id,last_read_at")
-    .eq("page_id", pageId)
-    .eq("user_id", currentUser.id)
-    .maybeSingle();
-  const pageReadSchemaMissing = isSupabaseMissingTableError(pageReadResult.error);
-  const previousPageReadAt = pageReadSchemaMissing
-    ? null
-    : String((pageReadResult.data as SocialPageReadRow | null)?.last_read_at || "").trim() || null;
-  const pageReadUpsertResult = pageReadSchemaMissing
-    ? { error: null }
-    : await supabase.from("social_page_reads").upsert(
-        {
-          page_id: pageId,
-          user_id: currentUser.id,
-          last_read_at: new Date().toISOString(),
-        },
-        { onConflict: "page_id,user_id" }
-      );
-
   const postViewsResult = postIds.length
     ? await supabase
         .from("social_post_views")
@@ -352,17 +389,6 @@ export default async function SocialPageDetail(props: {
     : { data: [] as SocialPostViewRow[], error: null };
   const postViewsSchemaMissing = isSupabaseMissingTableError(postViewsResult.error);
   const postViews = postViewsSchemaMissing ? [] : ((postViewsResult.data || []) as SocialPostViewRow[]);
-  const postViewsUpsertResult =
-    postIds.length && !postViewsSchemaMissing
-      ? await supabase.from("social_post_views").upsert(
-          postIds.map((postId) => ({
-            post_id: postId,
-            user_id: currentUser.id,
-            viewed_at: new Date().toISOString(),
-          })),
-          { onConflict: "post_id,user_id" }
-        )
-      : { error: null };
 
   const commentIds = postComments.map((comment) => comment.id);
   const [postReactionsResult, commentReactionsResult] = postIds.length
@@ -477,26 +503,9 @@ export default async function SocialPageDetail(props: {
     commentReactionsByCommentId.set(reaction.comment_id, bucket);
   });
 
-  const normalizedSearchQuery = searchQuery.toLowerCase();
-  const isPostUnreadForFilter = (post: SocialPostRow) =>
-    previousPageReadAt ? toTime(post.created_at) > toTime(previousPageReadAt) : true;
-  const filteredPosts = posts.filter((post) => {
-    const bodySearchText = stripSocialInlineImageTokens(post.body).toLowerCase();
-    if (normalizedSearchQuery && !bodySearchText.includes(normalizedSearchQuery)) {
-      return false;
-    }
-
-    if (postFilter === "pinned") {
-      return post.is_pinned;
-    }
-    if (postFilter === "mine") {
-      return post.user_id === currentUser.id;
-    }
-    if (postFilter === "unread") {
-      return isPostUnreadForFilter(post);
-    }
-    return true;
-  });
+  const filteredPosts = posts;
+  const hasPreviousPage = postPageNumber > 1;
+  const hasNextPage = postPageNumber < totalPostPages;
 
   const permissionWarning =
     canManageResult.error && !isSupabaseMissingFunctionError(canManageResult.error)
@@ -508,11 +517,11 @@ export default async function SocialPageDetail(props: {
   const dataWarning =
     membersResult.error ||
     postsResult.error ||
+    totalPostsResult.error ||
+    (previousPageReadAt ? unreadPostsResult.error : null) ||
     imagesResult.error ||
     commentsResult.error ||
     (!pageReadSchemaMissing ? pageReadResult.error : null) ||
-    (!pageReadSchemaMissing ? pageReadUpsertResult.error : null) ||
-    (!postViewsSchemaMissing ? postViewsUpsertResult.error : null) ||
     (!postViewsSchemaMissing ? postViewsResult.error : null) ||
     (!postReactionsSchemaMissing ? postReactionsResult.error : null) ||
     (!commentReactionsSchemaMissing ? commentReactionsResult.error : null);
@@ -616,60 +625,13 @@ export default async function SocialPageDetail(props: {
       redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }));
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authUserId = String(authData.user?.id || "").trim();
-    const authEmail = authData.user?.email;
-    if (!authUserId) {
+    const actingUser = await resolveActingUser(supabase);
+    if (!actingUser?.userId) {
       logWarn("social.post.create.unauthenticated", {
         action_id: actionId,
         page_id: pageId,
       });
       redirect("/login");
-    }
-
-    const userByAuthIdResult = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", authUserId)
-      .maybeSingle();
-    if (userByAuthIdResult.error) {
-      logError("social.post.create.lookup_by_auth_id_error", {
-        action_id: actionId,
-        page_id: pageId,
-        auth_user_id: authUserId,
-        error: userByAuthIdResult.error,
-      });
-      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
-    }
-
-    const userByEmailResult =
-      !userByAuthIdResult.data && authEmail
-        ? await supabase
-            .from("users")
-            .select("id")
-            .eq("email", authEmail)
-            .maybeSingle()
-        : null;
-    if (userByEmailResult?.error) {
-      logError("social.post.create.lookup_by_email_error", {
-        action_id: actionId,
-        page_id: pageId,
-        auth_email: authEmail,
-        error: userByEmailResult.error,
-      });
-      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
-    }
-
-    const user = userByAuthIdResult.data || userByEmailResult?.data || null;
-
-    if (!user?.id) {
-      logWarn("social.post.create.user_profile_missing", {
-        action_id: actionId,
-        page_id: pageId,
-        auth_user_id: authUserId,
-        auth_email: authEmail,
-      });
-      redirect(buildSocialDetailUrl(pageId, { error: "Missing user profile" }));
     }
 
     let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
@@ -688,7 +650,7 @@ export default async function SocialPageDetail(props: {
       .from("social_posts")
       .insert({
         page_id: pageId,
-        user_id: user.id,
+        user_id: actingUser.userId,
         body,
       })
       .select("id")
@@ -698,7 +660,7 @@ export default async function SocialPageDetail(props: {
       logError("social.post.create.insert_failed", {
         action_id: actionId,
         page_id: pageId,
-        user_id: user.id,
+        user_id: actingUser.userId,
         error: insertPostError,
       });
       const insertMessage = String(insertPostError?.message || "Unable to post update");
@@ -709,7 +671,7 @@ export default async function SocialPageDetail(props: {
     }
 
     const images = parsedImages.filter((image) =>
-      image.storage_path.startsWith(`${pageId}/${user.id}/`)
+      image.storage_path.startsWith(`${pageId}/${actingUser.userId}/`)
     );
 
     if (images.length) {
@@ -730,7 +692,7 @@ export default async function SocialPageDetail(props: {
           action_id: actionId,
           page_id: pageId,
           post_id: insertedPost.id,
-          user_id: user.id,
+          user_id: actingUser.userId,
           image_count: images.length,
           error: imageInsertError,
         });
@@ -742,13 +704,13 @@ export default async function SocialPageDetail(props: {
       action_id: actionId,
       page_id: pageId,
       post_id: insertedPost.id,
-      user_id: user.id,
+      user_id: actingUser.userId,
       image_count: images.length,
     });
 
     try {
       await notifyMentionedUsersFromTextChange({
-        actorAuthUserId: authUserId,
+        actorAuthUserId: actingUser.authUserId,
         previousText: null,
         nextText: stripSocialInlineImageTokens(body),
         sourceType: "social_post",
@@ -866,64 +828,14 @@ export default async function SocialPageDetail(props: {
       redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }));
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authUserId = String(authData.user?.id || "").trim();
-    const authEmail = authData.user?.email;
-    if (!authUserId) {
+    const actingUser = await resolveActingUser(supabase);
+    if (!actingUser?.userId) {
       logWarn("social.comment.create.unauthenticated", {
         action_id: actionId,
         page_id: pageId,
         post_id: postId,
       });
       redirect("/login");
-    }
-
-    const userByAuthIdResult = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", authUserId)
-      .maybeSingle();
-    if (userByAuthIdResult.error) {
-      logError("social.comment.create.lookup_by_auth_id_error", {
-        action_id: actionId,
-        page_id: pageId,
-        post_id: postId,
-        auth_user_id: authUserId,
-        error: userByAuthIdResult.error,
-      });
-      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
-    }
-
-    const userByEmailResult =
-      !userByAuthIdResult.data && authEmail
-        ? await supabase
-            .from("users")
-            .select("id")
-            .eq("email", authEmail)
-            .maybeSingle()
-        : null;
-    if (userByEmailResult?.error) {
-      logError("social.comment.create.lookup_by_email_error", {
-        action_id: actionId,
-        page_id: pageId,
-        post_id: postId,
-        auth_email: authEmail,
-        error: userByEmailResult.error,
-      });
-      redirect(buildSocialDetailUrl(pageId, { error: "Could not verify your user profile" }));
-    }
-
-    const user = userByAuthIdResult.data || userByEmailResult?.data || null;
-
-    if (!user?.id) {
-      logWarn("social.comment.create.user_profile_missing", {
-        action_id: actionId,
-        page_id: pageId,
-        post_id: postId,
-        auth_user_id: authUserId,
-        auth_email: authEmail,
-      });
-      redirect(buildSocialDetailUrl(pageId, { error: "Missing user profile" }));
     }
 
     let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
@@ -943,7 +855,7 @@ export default async function SocialPageDetail(props: {
       .from("social_post_comments")
       .insert({
         post_id: postId,
-        user_id: user.id,
+        user_id: actingUser.userId,
         body,
         parent_comment_id: parentCommentId || null,
       })
@@ -955,7 +867,7 @@ export default async function SocialPageDetail(props: {
         action_id: actionId,
         page_id: pageId,
         post_id: postId,
-        user_id: user.id,
+        user_id: actingUser.userId,
         error: commentError,
       });
       redirect(buildSocialDetailUrl(pageId, { error: commentError?.message || "Unable to add comment" }));
@@ -966,12 +878,12 @@ export default async function SocialPageDetail(props: {
       page_id: pageId,
       post_id: postId,
       parent_comment_id: parentCommentId || null,
-      user_id: user.id,
+      user_id: actingUser.userId,
     });
 
     try {
       await notifyMentionedUsersFromTextChange({
-        actorAuthUserId: authUserId,
+        actorAuthUserId: actingUser.authUserId,
         previousText: null,
         nextText: body,
         sourceType: "social_comment",
@@ -1301,30 +1213,9 @@ export default async function SocialPageDetail(props: {
       redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can add members" }));
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authUserId = String(authData.user?.id || "").trim();
-    const authEmail = authData.user?.email;
-    if (!authUserId) {
+    const actingUser = await resolveActingUser(supabase);
+    if (!actingUser?.userId) {
       redirect("/login");
-    }
-
-    const userByAuthIdResult = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", authUserId)
-      .maybeSingle();
-    const userByEmailResult =
-      !userByAuthIdResult.data && authEmail
-        ? await supabase
-            .from("users")
-            .select("id")
-            .eq("email", authEmail)
-            .maybeSingle()
-        : null;
-    const user = userByAuthIdResult.data || userByEmailResult?.data || null;
-
-    if (!user?.id) {
-      redirect(buildSocialDetailUrl(pageId, { error: "Missing user profile" }));
     }
 
     const { error } = await supabase
@@ -1334,7 +1225,7 @@ export default async function SocialPageDetail(props: {
           page_id: pageId,
           user_id: userId,
           role,
-          created_by_user_id: user.id,
+          created_by_user_id: actingUser.userId,
         },
         { onConflict: "page_id,user_id" }
       );
@@ -1456,7 +1347,7 @@ export default async function SocialPageDetail(props: {
             <span>Created: {toDateTimeLabel(socialPage.created_at)}</span>
           </div>
           <span>
-            {posts.length} posts{previousPageReadAt ? ` - ${posts.filter(isPostUnreadForFilter).length} unread` : ""}
+            {totalPostsCount} posts{` - ${unreadPostsCount} unread`}
           </span>
         </div>
       </section>
@@ -1485,6 +1376,8 @@ export default async function SocialPageDetail(props: {
           ) : null}
         </div>
       )}
+
+      <SocialReadTracker pageId={pageId} postIds={postIds} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <section className="space-y-5">
@@ -1530,8 +1423,47 @@ export default async function SocialPageDetail(props: {
               )}
             </form>
             <p className="mt-2 text-xs text-slate-500">
-              Showing {filteredPosts.length} of {posts.length} posts
+              Showing {filteredPosts.length} of {filteredPostCount} posts
             </p>
+            {filteredPostCount > SOCIAL_POSTS_PAGE_SIZE ? (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                <span>
+                  Page {Math.min(postPageNumber, totalPostPages)} of {totalPostPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  {hasPreviousPage ? (
+                    <Link
+                      href={buildSocialDetailUrl(pageId, undefined, {
+                        ...listQueryState,
+                        p: postPageNumber - 1,
+                      })}
+                      className="rounded-md border border-slate-300 px-2.5 py-1 font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                    >
+                      Previous
+                    </Link>
+                  ) : (
+                    <span className="rounded-md border border-slate-200 px-2.5 py-1 text-slate-400">
+                      Previous
+                    </span>
+                  )}
+                  {hasNextPage ? (
+                    <Link
+                      href={buildSocialDetailUrl(pageId, undefined, {
+                        ...listQueryState,
+                        p: postPageNumber + 1,
+                      })}
+                      className="rounded-md border border-slate-300 px-2.5 py-1 font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                    >
+                      Next
+                    </Link>
+                  ) : (
+                    <span className="rounded-md border border-slate-200 px-2.5 py-1 text-slate-400">
+                      Next
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <div className="space-y-4">
@@ -1597,7 +1529,6 @@ export default async function SocialPageDetail(props: {
                               src={postAvatarUrl}
                               alt={`${postLabel} avatar`}
                               fill
-                              unoptimized
                               sizes="40px"
                               className="object-cover"
                             />
@@ -1663,7 +1594,6 @@ export default async function SocialPageDetail(props: {
                                 src={image.url}
                                 alt={image.filename || "Post image"}
                                 fill
-                                unoptimized
                                 sizes="(max-width: 768px) 100vw, 740px"
                                 className="object-cover transition duration-150 group-hover:scale-[1.02]"
                               />
@@ -1688,7 +1618,6 @@ export default async function SocialPageDetail(props: {
                                 src={image.url}
                                 alt={image.filename || "Post image"}
                                 fill
-                                unoptimized
                                 sizes="(max-width: 768px) 100vw, 420px"
                                 className="object-cover transition duration-150 group-hover:scale-[1.02]"
                               />
@@ -1772,7 +1701,6 @@ export default async function SocialPageDetail(props: {
                                           src={commentAvatarUrl}
                                           alt={`${commentLabel} avatar`}
                                           fill
-                                          unoptimized
                                           sizes="28px"
                                           className="object-cover"
                                         />
@@ -1899,7 +1827,6 @@ export default async function SocialPageDetail(props: {
                                                         src={replyAvatarUrl}
                                                         alt={`${replyLabel} avatar`}
                                                         fill
-                                                        unoptimized
                                                         sizes="24px"
                                                         className="object-cover"
                                                       />
@@ -1998,7 +1925,7 @@ export default async function SocialPageDetail(props: {
                   </article>
                 );
               })
-            ) : posts.length ? (
+            ) : filteredPostCount ? (
               <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-600">
                 No posts match your current search/filter.
               </section>
@@ -2076,7 +2003,6 @@ export default async function SocialPageDetail(props: {
                         src={toAvatarUrl(ownerUser)}
                         alt={`${ownerLabel} avatar`}
                         fill
-                        unoptimized
                         sizes="28px"
                         className="object-cover"
                       />
@@ -2107,7 +2033,6 @@ export default async function SocialPageDetail(props: {
                               src={memberAvatarUrl}
                               alt={`${memberLabel} avatar`}
                               fill
-                              unoptimized
                               sizes="28px"
                               className="object-cover"
                             />

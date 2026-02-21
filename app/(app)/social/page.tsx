@@ -37,6 +37,14 @@ type SocialPageReadRow = {
   last_read_at: string;
 };
 
+type SocialPageSummaryRow = {
+  page_id: string;
+  member_count: number;
+  post_total: number;
+  latest_post_at: string | null;
+  unread_count: number;
+};
+
 function toDisplayDate(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Unknown";
@@ -97,33 +105,110 @@ export default async function SocialPage(props: {
     : ((pagesRaw || []) as SocialPageRow[]);
 
   const pageIds = pages.map((page) => page.id);
+  const oneWeekAgoTimestamp = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const oneWeekAgoIso = new Date(oneWeekAgoTimestamp).toISOString();
 
-  const [membersResult, postsResult, pageReadsResult] = pageIds.length
+  const [myMembershipResult, summaryResult, postsLast7dResult] = pageIds.length
     ? await Promise.all([
         supabase
           .from("social_page_members")
           .select("page_id,user_id,role")
-          .in("page_id", pageIds),
-        supabase
-          .from("social_posts")
-          .select("page_id,created_at")
-          .in("page_id", pageIds),
-        supabase
-          .from("social_page_reads")
-          .select("page_id,user_id,last_read_at")
           .eq("user_id", currentUser.id)
           .in("page_id", pageIds),
+        supabase.rpc("social_page_summaries_for_user", { p_user_id: currentUser.id }),
+        supabase
+          .from("social_posts")
+          .select("id", { head: true, count: "exact" })
+          .in("page_id", pageIds)
+          .gte("created_at", oneWeekAgoIso),
       ])
     : [
         { data: [] as SocialPageMemberRow[], error: null },
-        { data: [] as SocialPostRow[], error: null },
-        { data: [] as SocialPageReadRow[], error: null },
+        { data: [] as SocialPageSummaryRow[], error: null },
+        { count: 0, error: null } as { count: number | null; error: null },
       ];
 
-  const members = (membersResult.data || []) as SocialPageMemberRow[];
-  const posts = (postsResult.data || []) as SocialPostRow[];
-  const pageReadsSchemaMissing = isSupabaseMissingTableError(pageReadsResult.error);
-  const pageReads = pageReadsSchemaMissing ? [] : ((pageReadsResult.data || []) as SocialPageReadRow[]);
+  const myMembershipRows = (myMembershipResult.data || []) as SocialPageMemberRow[];
+  const summaryRowsRaw = (summaryResult.data || []) as SocialPageSummaryRow[];
+
+  let summaryRows = summaryRowsRaw;
+  let summaryWarning: string | null = null;
+
+  if (summaryResult.error && isSupabaseMissingFunctionError(summaryResult.error)) {
+    const [membersFallbackResult, postsFallbackResult, pageReadsFallbackResult] = pageIds.length
+      ? await Promise.all([
+          supabase
+            .from("social_page_members")
+            .select("page_id,user_id,role")
+            .in("page_id", pageIds),
+          supabase
+            .from("social_posts")
+            .select("page_id,created_at")
+            .in("page_id", pageIds),
+          supabase
+            .from("social_page_reads")
+            .select("page_id,user_id,last_read_at")
+            .eq("user_id", currentUser.id)
+            .in("page_id", pageIds),
+        ])
+      : [
+          { data: [] as SocialPageMemberRow[], error: null },
+          { data: [] as SocialPostRow[], error: null },
+          { data: [] as SocialPageReadRow[], error: null },
+        ];
+
+    const membersFallback = (membersFallbackResult.data || []) as SocialPageMemberRow[];
+    const postsFallback = (postsFallbackResult.data || []) as SocialPostRow[];
+    const pageReadsFallback = isSupabaseMissingTableError(pageReadsFallbackResult.error)
+      ? []
+      : ((pageReadsFallbackResult.data || []) as SocialPageReadRow[]);
+
+    const memberIdsByPage = new Map<string, Set<string>>();
+    pages.forEach((page) => {
+      memberIdsByPage.set(page.id, new Set([page.created_by]));
+    });
+    membersFallback.forEach((member) => {
+      const bucket = memberIdsByPage.get(member.page_id) || new Set<string>();
+      bucket.add(member.user_id);
+      memberIdsByPage.set(member.page_id, bucket);
+    });
+
+    const postStatsByPage = new Map<string, { total: number; latest: string | null }>();
+    postsFallback.forEach((post) => {
+      const current = postStatsByPage.get(post.page_id) || { total: 0, latest: null };
+      const latest = !current.latest || post.created_at > current.latest ? post.created_at : current.latest;
+      postStatsByPage.set(post.page_id, {
+        total: current.total + 1,
+        latest,
+      });
+    });
+
+    const pageReadByPage = new Map<string, string>();
+    pageReadsFallback.forEach((read) => {
+      pageReadByPage.set(read.page_id, read.last_read_at);
+    });
+
+    const unreadCountByPage = new Map<string, number>();
+    postsFallback.forEach((post) => {
+      const lastReadAt = pageReadByPage.get(post.page_id);
+      const isUnread = !lastReadAt || toTimestamp(post.created_at) > toTimestamp(lastReadAt);
+      if (!isUnread) return;
+      unreadCountByPage.set(post.page_id, (unreadCountByPage.get(post.page_id) || 0) + 1);
+    });
+
+    summaryRows = pages.map((page) => {
+      const postStats = postStatsByPage.get(page.id) || { total: 0, latest: null };
+      return {
+        page_id: page.id,
+        member_count: memberIdsByPage.get(page.id)?.size || 1,
+        post_total: postStats.total,
+        latest_post_at: postStats.latest,
+        unread_count: unreadCountByPage.get(page.id) || 0,
+      };
+    });
+  } else if (summaryResult.error) {
+    summaryWarning = `Could not load Social page summaries (${summaryResult.error.message}).`;
+  }
 
   const ownerIds = Array.from(new Set(pages.map((page) => page.created_by)));
   const { data: ownerUsers } = ownerIds.length
@@ -144,41 +229,20 @@ export default async function SocialPage(props: {
     ownerAvatarById.set(owner.id, String(owner.avatar_url || "").trim());
   });
 
-  const memberRowsByPage = new Map<string, SocialPageMemberRow[]>();
-  members.forEach((member) => {
-    const bucket = memberRowsByPage.get(member.page_id) || [];
-    bucket.push(member);
-    memberRowsByPage.set(member.page_id, bucket);
+  const membershipByPage = new Map<string, SocialPageMemberRow>();
+  myMembershipRows.forEach((member) => {
+    membershipByPage.set(member.page_id, member);
   });
 
-  const postStatsByPage = new Map<string, { total: number; latest: string | null }>();
-  posts.forEach((post) => {
-    const current = postStatsByPage.get(post.page_id) || { total: 0, latest: null };
-    const latest = !current.latest || post.created_at > current.latest ? post.created_at : current.latest;
-    postStatsByPage.set(post.page_id, {
-      total: current.total + 1,
-      latest,
-    });
+  const summaryByPage = new Map<string, SocialPageSummaryRow>();
+  summaryRows.forEach((row) => {
+    summaryByPage.set(row.page_id, row);
   });
 
-  const lastReadByPage = new Map<string, string>();
-  pageReads.forEach((read) => {
-    lastReadByPage.set(read.page_id, read.last_read_at);
-  });
-
-  const unreadCountByPage = new Map<string, number>();
-  posts.forEach((post) => {
-    const lastReadAt = lastReadByPage.get(post.page_id);
-    const isUnread = !lastReadAt || toTimestamp(post.created_at) > toTimestamp(lastReadAt);
-    if (!isUnread) return;
-    unreadCountByPage.set(post.page_id, (unreadCountByPage.get(post.page_id) || 0) + 1);
-  });
-
-  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const postsLast7d = posts.filter((post) => toTimestamp(post.created_at) >= oneWeekAgo).length;
+  const postsLast7d = postsLast7dResult.count || 0;
   const activePagesLast7d = pages.filter((page) => {
-    const latest = postStatsByPage.get(page.id)?.latest;
-    return latest ? toTimestamp(latest) >= oneWeekAgo : false;
+    const latest = summaryByPage.get(page.id)?.latest_post_at;
+    return latest ? toTimestamp(latest) >= oneWeekAgoTimestamp : false;
   }).length;
 
   const socialPermissionWarning =
@@ -197,6 +261,18 @@ export default async function SocialPage(props: {
   if (canEditResult.error && !isSupabaseMissingFunctionError(canEditResult.error)) {
     logWarn("social.page.permission_check.edit.warning", {
       error: canEditResult.error,
+    });
+  }
+
+  if (summaryResult.error && !isSupabaseMissingFunctionError(summaryResult.error)) {
+    logWarn("social.page.summary_query.warning", {
+      error: summaryResult.error,
+    });
+  }
+
+  if (postsLast7dResult.error && !isSupabaseMissingTableError(postsLast7dResult.error)) {
+    logWarn("social.page.posts_last_7d_query.warning", {
+      error: postsLast7dResult.error,
     });
   }
 
@@ -365,11 +441,16 @@ export default async function SocialPage(props: {
 
   return (
     <div className="space-y-7">
-      {(searchParams?.error || searchParams?.success || socialPermissionWarning) && (
+      {(searchParams?.error || searchParams?.success || socialPermissionWarning || summaryWarning) && (
         <div className="space-y-2">
           {socialPermissionWarning ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
               {socialPermissionWarning}
+            </p>
+          ) : null}
+          {summaryWarning ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+              {summaryWarning}
             </p>
           ) : null}
           {searchParams?.error ? (
@@ -463,13 +544,15 @@ export default async function SocialPage(props: {
           {pages.length ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {pages.map((page) => {
-                const memberRows = memberRowsByPage.get(page.id) || [];
-                const memberIds = new Set<string>([page.created_by]);
-                memberRows.forEach((member) => memberIds.add(member.user_id));
-
-                const stat = postStatsByPage.get(page.id) || { total: 0, latest: null };
-                const unreadCount = unreadCountByPage.get(page.id) || 0;
-                const currentMember = memberRows.find((member) => member.user_id === currentUser.id);
+                const stat = summaryByPage.get(page.id) || {
+                  page_id: page.id,
+                  member_count: 1,
+                  post_total: 0,
+                  latest_post_at: null,
+                  unread_count: 0,
+                };
+                const unreadCount = stat.unread_count;
+                const currentMember = membershipByPage.get(page.id);
                 const roleLabel =
                   page.created_by === currentUser.id
                     ? "Owner"
@@ -508,9 +591,9 @@ export default async function SocialPage(props: {
 
                     <div className="mt-4 space-y-2 border-t border-slate-200 pt-3 text-xs text-slate-500">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span>{memberIds.size} people</span>
+                        <span>{stat.member_count} people</span>
                         <span>-</span>
-                        <span>{stat.total} posts</span>
+                        <span>{stat.post_total} posts</span>
                         {unreadCount > 0 ? (
                           <>
                             <span>-</span>
@@ -525,7 +608,6 @@ export default async function SocialPage(props: {
                               src={ownerAvatarUrl}
                               alt={`${ownerLabel} avatar`}
                               fill
-                              unoptimized
                               sizes="24px"
                               className="object-cover"
                             />
@@ -541,7 +623,8 @@ export default async function SocialPage(props: {
                         <p>Owner: {ownerLabel}</p>
                       </div>
                       <p>
-                        Last activity: {stat.latest ? toDisplayDate(stat.latest) : toDisplayDate(page.updated_at)}
+                        Last activity:{" "}
+                        {stat.latest_post_at ? toDisplayDate(stat.latest_post_at) : toDisplayDate(page.updated_at)}
                       </p>
                     </div>
                   </Link>

@@ -29,6 +29,14 @@ type MentionUserRow = {
   status?: string | null;
 };
 
+const MENTION_USER_CACHE_TTL_MS = 60_000;
+let mentionCandidatesCache:
+  | {
+      expiresAt: number;
+      rows: MentionUserRow[];
+    }
+  | null = null;
+
 const SOURCE_LABEL: Record<MentionSourceType, string> = {
   personal_page: "personal page",
   client_note: "client note",
@@ -76,6 +84,11 @@ function buildExcerpt(text: string, handles: string[]) {
 }
 
 async function fetchMentionCandidates() {
+  const now = Date.now();
+  if (mentionCandidatesCache && mentionCandidatesCache.expiresAt > now) {
+    return mentionCandidatesCache.rows;
+  }
+
   const supabaseAdmin = createSupabaseAdminClient();
 
   const fullQuery = await supabaseAdmin
@@ -83,7 +96,12 @@ async function fetchMentionCandidates() {
     .select("id,email,full_name,status");
 
   if (!fullQuery.error) {
-    return (fullQuery.data || []) as MentionUserRow[];
+    const rows = (fullQuery.data || []) as MentionUserRow[];
+    mentionCandidatesCache = {
+      expiresAt: now + MENTION_USER_CACHE_TTL_MS,
+      rows,
+    };
+    return rows;
   }
 
   if (!isMissingColumnError(fullQuery.error)) {
@@ -98,7 +116,12 @@ async function fetchMentionCandidates() {
     throw new Error(fallbackQuery.error.message);
   }
 
-  return (fallbackQuery.data || []) as MentionUserRow[];
+  const fallbackRows = (fallbackQuery.data || []) as MentionUserRow[];
+  mentionCandidatesCache = {
+    expiresAt: now + MENTION_USER_CACHE_TTL_MS,
+    rows: fallbackRows,
+  };
+  return fallbackRows;
 }
 
 export async function notifyMentionedUsersFromTextChange(

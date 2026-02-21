@@ -248,7 +248,6 @@ export default function SocialPostComposer({
                   src={image.url}
                   alt={image.filename || "Uploaded image"}
                   fill
-                  unoptimized
                   sizes="(max-width: 768px) 50vw, 180px"
                   className="object-cover"
                 />
