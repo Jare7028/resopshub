@@ -185,7 +185,6 @@ export default async function TasksPage(props: {
     due?: string;
     client?: string | string[];
     project?: string | string[];
-    expand?: string | string[];
     hide?: string;
     watch?: string;
     sort?: string;
@@ -290,10 +289,6 @@ export default async function TasksPage(props: {
   const selectedProjectIdsRaw =
     typeof searchParams?.project !== "undefined"
       ? parseCsvParam(searchParams?.project)
-      : [];
-  const initialExpandedTaskIds =
-    typeof searchParams?.expand !== "undefined"
-      ? parseCsvParam(searchParams?.expand)
       : [];
   const dueSource =
     typeof searchParams?.due !== "undefined"
@@ -578,7 +573,6 @@ export default async function TasksPage(props: {
   }
   setCsvParam(returnParams, "client", clientValuesForQueryParam);
   setCsvParam(returnParams, "project", projectValuesForQueryParam);
-  setCsvParam(returnParams, "expand", initialExpandedTaskIds);
   if (!hideCompleted) {
     returnParams.set("hide", "0");
   }
@@ -803,7 +797,6 @@ export default async function TasksPage(props: {
 
     const taskIdsForSubtaskCounts = sortedTasks.map((task) => task.id).filter(Boolean) as string[];
     if (taskIdsForSubtaskCounts.length) {
-      const parentTaskIdSet = new Set(taskIdsForSubtaskCounts);
       const { data: openSubtaskCountRowsRaw, error: openSubtaskCountError } = await withPerfTiming(
         "tasks.page.open_subtasks.count_rows",
         () =>
@@ -827,12 +820,8 @@ export default async function TasksPage(props: {
         });
       }
 
-      const expandedParentTaskIds =
-        selectedView === "table"
-          ? initialExpandedTaskIds.filter((taskId) => parentTaskIdSet.has(taskId))
-          : [];
-
-      if (expandedParentTaskIds.length) {
+      const parentTaskIdsWithOpenSubtasks = Object.keys(openSubtaskCountByTaskId);
+      if (parentTaskIdsWithOpenSubtasks.length) {
         const { data: openExpandedSubtasksRaw, error: openExpandedSubtasksError } =
           await withPerfTiming("tasks.page.open_subtasks.expanded_rows", () =>
             supabase
@@ -840,12 +829,17 @@ export default async function TasksPage(props: {
               .select(
                 "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id"
               )
-              .in("parent_task_id", expandedParentTaskIds)
+              .in("parent_task_id", parentTaskIdsWithOpenSubtasks)
               .not("status", "in", "(completed,cancelled)")
               .order("created_at", { ascending: true })
           );
 
-        if (!openExpandedSubtasksError) {
+        if (openExpandedSubtasksError) {
+          console.error(
+            "[tasks.page.open_subtasks.expanded_rows]",
+            openExpandedSubtasksError.message
+          );
+        } else {
           const openExpandedSubtasks = (openExpandedSubtasksRaw || []) as Array<{
             id: string;
             parent_task_id: string | null;
@@ -1746,7 +1740,6 @@ export default async function TasksPage(props: {
           priorityOptions={priorityOptions}
           dueOptions={dueDateFilters}
           returnTo={returnTo}
-          initialExpandedTaskIds={initialExpandedTaskIds}
           initialFilters={{
             status: selectedStatuses,
             priority: selectedPriorities,
@@ -1770,6 +1763,4 @@ export default async function TasksPage(props: {
     </div>
   );
 }
-
-
 

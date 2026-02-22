@@ -98,7 +98,6 @@ type TasksViewProps = {
   dueOptions: readonly { value: string; label: string }[];
   initialView?: "table" | "gantt" | "board";
   returnTo: string;
-  initialExpandedTaskIds?: string[];
   initialFilters: {
     status: string[];
     priority: string[];
@@ -201,7 +200,6 @@ export default function TasksView({
   dueOptions,
   initialView = "table",
   returnTo,
-  initialExpandedTaskIds = [],
   initialFilters,
   onUpdate,
   hideCompleted,
@@ -232,9 +230,7 @@ export default function TasksView({
     Record<string, string>
   >({});
   const dragPreviewRef = useRef<HTMLElement | null>(null);
-  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
-    () => new Set(initialExpandedTaskIds)
-  );
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
   const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
 
   const taskFilterPersistenceKey = useMemo(() => {
@@ -394,18 +390,9 @@ export default function TasksView({
   );
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
-  const initialExpandedKey = useMemo(
-    () => initialExpandedTaskIds.join(","),
-    [initialExpandedTaskIds]
-  );
-
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
-
-  useEffect(() => {
-    setExpandedTaskIds(new Set(initialExpandedTaskIds));
-  }, [initialExpandedKey, initialExpandedTaskIds]);
 
   const buildQuery = useCallback(
     (
@@ -414,7 +401,6 @@ export default function TasksView({
       nextSortDir: TaskSortDir,
       nextView: typeof view,
       nextHideCompleted: boolean,
-      nextExpandedTaskIds: Set<string> = expandedTaskIds,
       nextIncludeWatching: boolean = includeWatching
     ) => {
       const params = new URLSearchParams();
@@ -443,10 +429,9 @@ export default function TasksView({
       if (nextView !== "table") {
         params.set("view", nextView);
       }
-      setCsvParam(params, "expand", Array.from(nextExpandedTaskIds));
       return params.toString();
     },
-    [expandedTaskIds, fixedParams, includeWatching]
+    [fixedParams, includeWatching]
   );
 
   useEffect(() => {
@@ -500,7 +485,6 @@ export default function TasksView({
           nextSortDir,
           nextView,
           nextHideCompleted,
-          new Set(initialExpandedTaskIds),
           nextIncludeWatching
         );
 
@@ -529,7 +513,6 @@ export default function TasksView({
     hasLoadedPersistedFilters,
     hideCompleted,
     includeWatching,
-    initialExpandedTaskIds,
     priorityOptions,
     projects,
     router,
@@ -791,20 +774,6 @@ export default function TasksView({
       } else {
         nextExpandedTaskIds.add(taskId);
       }
-
-      const nextQuery = buildQuery(
-        filters,
-        sortKey,
-        sortDir,
-        view,
-        hideCompleted,
-        nextExpandedTaskIds
-      );
-      const nextUrl = nextQuery ? `${basePath}?${nextQuery}` : basePath;
-      startTransition(() => {
-        router.replace(nextUrl, { scroll: false });
-      });
-
       return nextExpandedTaskIds;
     });
   };
@@ -1614,4 +1583,3 @@ export default function TasksView({
     </>
   );
 }
-
