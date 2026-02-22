@@ -10,7 +10,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
 import {
   normalizeTaskSortDir,
@@ -222,6 +222,8 @@ export default function TasksView({
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
@@ -407,6 +409,21 @@ export default function TasksView({
     setExpandedTaskIds(new Set(initialExpandedTaskIds));
   }, [initialExpandedKey, initialExpandedTaskIds]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    if (!params.has("expand")) {
+      return;
+    }
+    params.delete("expand");
+    const qs = params.toString();
+    const fallbackPath = basePath || "/tasks";
+    const targetPath = pathname || fallbackPath;
+    const nextUrl = qs ? `${targetPath}?${qs}` : targetPath;
+    startTransition(() => {
+      router.replace(nextUrl, { scroll: false });
+    });
+  }, [basePath, pathname, router, searchParams, startTransition]);
+
   const buildQuery = useCallback(
     (
       next: typeof filters,
@@ -414,7 +431,6 @@ export default function TasksView({
       nextSortDir: TaskSortDir,
       nextView: typeof view,
       nextHideCompleted: boolean,
-      nextExpandedTaskIds: Set<string> = expandedTaskIds,
       nextIncludeWatching: boolean = includeWatching
     ) => {
       const params = new URLSearchParams();
@@ -443,10 +459,9 @@ export default function TasksView({
       if (nextView !== "table") {
         params.set("view", nextView);
       }
-      setCsvParam(params, "expand", Array.from(nextExpandedTaskIds));
       return params.toString();
     },
-    [expandedTaskIds, fixedParams, includeWatching]
+    [fixedParams, includeWatching]
   );
 
   useEffect(() => {
@@ -500,7 +515,6 @@ export default function TasksView({
           nextSortDir,
           nextView,
           nextHideCompleted,
-          new Set(initialExpandedTaskIds),
           nextIncludeWatching
         );
 
@@ -791,20 +805,6 @@ export default function TasksView({
       } else {
         nextExpandedTaskIds.add(taskId);
       }
-
-      const nextQuery = buildQuery(
-        filters,
-        sortKey,
-        sortDir,
-        view,
-        hideCompleted,
-        nextExpandedTaskIds
-      );
-      const nextUrl = nextQuery ? `${basePath}?${nextQuery}` : basePath;
-      startTransition(() => {
-        router.replace(nextUrl, { scroll: false });
-      });
-
       return nextExpandedTaskIds;
     });
   };
@@ -1614,4 +1614,3 @@ export default function TasksView({
     </>
   );
 }
-
