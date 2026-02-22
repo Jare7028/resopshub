@@ -414,7 +414,6 @@ export default function TasksView({
       nextSortDir: TaskSortDir,
       nextView: typeof view,
       nextHideCompleted: boolean,
-      nextExpandedTaskIds: Set<string> = expandedTaskIds,
       nextIncludeWatching: boolean = includeWatching
     ) => {
       const params = new URLSearchParams();
@@ -443,10 +442,9 @@ export default function TasksView({
       if (nextView !== "table") {
         params.set("view", nextView);
       }
-      setCsvParam(params, "expand", Array.from(nextExpandedTaskIds));
       return params.toString();
     },
-    [expandedTaskIds, fixedParams, includeWatching]
+    [fixedParams, includeWatching]
   );
 
   useEffect(() => {
@@ -500,7 +498,6 @@ export default function TasksView({
           nextSortDir,
           nextView,
           nextHideCompleted,
-          new Set(initialExpandedTaskIds),
           nextIncludeWatching
         );
 
@@ -791,19 +788,6 @@ export default function TasksView({
       } else {
         nextExpandedTaskIds.add(taskId);
       }
-
-      const nextQuery = buildQuery(
-        filters,
-        sortKey,
-        sortDir,
-        view,
-        hideCompleted,
-        nextExpandedTaskIds
-      );
-      const nextUrl = nextQuery ? `${basePath}?${nextQuery}` : basePath;
-      startTransition(() => {
-        router.replace(nextUrl, { scroll: false });
-      });
 
       return nextExpandedTaskIds;
     });
@@ -1614,4 +1598,3 @@ export default function TasksView({
     </>
   );
 }
-

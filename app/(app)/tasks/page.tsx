@@ -578,7 +578,6 @@ export default async function TasksPage(props: {
   }
   setCsvParam(returnParams, "client", clientValuesForQueryParam);
   setCsvParam(returnParams, "project", projectValuesForQueryParam);
-  setCsvParam(returnParams, "expand", initialExpandedTaskIds);
   if (!hideCompleted) {
     returnParams.set("hide", "0");
   }
@@ -1770,6 +1769,5 @@ export default async function TasksPage(props: {
     </div>
   );
 }
-
 
 
