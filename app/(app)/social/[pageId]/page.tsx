@@ -201,6 +201,41 @@ function normalizeRole(value: string): "member" | "manager" {
   return value === "manager" ? "manager" : "member";
 }
 
+async function resolveActingUser(supabaseClient: ReturnType<typeof createSupabaseServerClient>) {
+  const { data: authData } = await supabaseClient.auth.getUser();
+  const resolvedAuthUserId = String(authData.user?.id || "").trim();
+  const resolvedAuthEmail = authData.user?.email;
+  if (!resolvedAuthUserId) {
+    return null;
+  }
+
+  const userByAuthIdResult = await supabaseClient
+    .from("users")
+    .select("id")
+    .eq("id", resolvedAuthUserId)
+    .maybeSingle();
+
+  const userByEmailResult =
+    !userByAuthIdResult.data && resolvedAuthEmail
+      ? await supabaseClient
+          .from("users")
+          .select("id")
+          .eq("email", resolvedAuthEmail)
+          .maybeSingle()
+      : null;
+
+  const user = userByAuthIdResult.data || userByEmailResult?.data || null;
+  if (!user?.id) {
+    return null;
+  }
+
+  return {
+    authUserId: resolvedAuthUserId,
+    authEmail: resolvedAuthEmail,
+    userId: user.id,
+  };
+}
+
 function buildSocialDetailUrl(
   pageId: string,
   extra?: { error?: string; success?: string },
@@ -525,41 +560,6 @@ export default async function SocialPageDetail(props: {
     (!postViewsSchemaMissing ? postViewsResult.error : null) ||
     (!postReactionsSchemaMissing ? postReactionsResult.error : null) ||
     (!commentReactionsSchemaMissing ? commentReactionsResult.error : null);
-
-  const resolveActingUser = async (supabaseClient: ReturnType<typeof createSupabaseServerClient>) => {
-    const { data: authData } = await supabaseClient.auth.getUser();
-    const resolvedAuthUserId = String(authData.user?.id || "").trim();
-    const resolvedAuthEmail = authData.user?.email;
-    if (!resolvedAuthUserId) {
-      return null;
-    }
-
-    const userByAuthIdResult = await supabaseClient
-      .from("users")
-      .select("id")
-      .eq("id", resolvedAuthUserId)
-      .maybeSingle();
-
-    const userByEmailResult =
-      !userByAuthIdResult.data && resolvedAuthEmail
-        ? await supabaseClient
-            .from("users")
-            .select("id")
-            .eq("email", resolvedAuthEmail)
-            .maybeSingle()
-        : null;
-
-    const user = userByAuthIdResult.data || userByEmailResult?.data || null;
-    if (!user?.id) {
-      return null;
-    }
-
-    return {
-      authUserId: resolvedAuthUserId,
-      authEmail: resolvedAuthEmail,
-      userId: user.id,
-    };
-  };
 
   async function createPost(formData: FormData) {
     "use server";
