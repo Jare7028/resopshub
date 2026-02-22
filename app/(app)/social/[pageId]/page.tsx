@@ -1629,7 +1629,7 @@ export default async function SocialPageDetail(props: {
               Share an update
             </summary>
             <div>
-              <SocialPostComposer socialPageId={pageId} onPost={createPost} canPost={canPost} />
+              <SocialPostComposer socialPageId={pageId} postAction={createPost} canPost={canPost} />
             </div>
           </details>
 
@@ -1827,7 +1827,7 @@ export default async function SocialPageDetail(props: {
                         <SocialCommentComposer
                           postId={post.id}
                           canPost={canPost}
-                          onComment={addComment}
+                          commentAction={addComment}
                           placeholder="Write a comment (use @name to mention)"
                           className="flex flex-col gap-2"
                         />
@@ -1952,7 +1952,7 @@ export default async function SocialPageDetail(props: {
                                       <SocialCommentComposer
                                         postId={post.id}
                                         canPost={canPost}
-                                        onComment={addComment}
+                                        commentAction={addComment}
                                         parentCommentId={comment.id}
                                         placeholder={`Reply to ${commentLabel} (use @name to mention)`}
                                         submitLabel="Reply"
