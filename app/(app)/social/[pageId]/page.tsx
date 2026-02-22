@@ -958,6 +958,22 @@ export default async function SocialPageDetail(props: {
       redirect(buildSocialDetailUrl(pageId, { error: "Invalid reaction" }, listQueryState));
     }
 
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "social",
+    });
+    if (canEditResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify Social edit access (${canEditResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canEditResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }, listQueryState));
+    }
+
     const actingUser = await resolveActingUser(supabase);
     if (!actingUser?.userId) {
       redirect("/login");
@@ -1010,6 +1026,22 @@ export default async function SocialPageDetail(props: {
       !SOCIAL_REACTION_OPTIONS.includes(emoji as (typeof SOCIAL_REACTION_OPTIONS)[number])
     ) {
       redirect(buildSocialDetailUrl(pageId, { error: "Invalid reaction" }, listQueryState));
+    }
+
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "social",
+    });
+    if (canEditResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify Social edit access (${canEditResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canEditResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }, listQueryState));
     }
 
     const actingUser = await resolveActingUser(supabase);
@@ -1077,6 +1109,22 @@ export default async function SocialPageDetail(props: {
       .maybeSingle();
     if (commentLookupError || !comment?.id) {
       redirect(buildSocialDetailUrl(pageId, { error: "Comment not found" }, listQueryState));
+    }
+
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "social",
+    });
+    if (canEditResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify Social edit access (${canEditResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canEditResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }, listQueryState));
     }
 
     const canManageCommentResult = await supabase.rpc("can_manage_social_comment", {
@@ -1154,6 +1202,22 @@ export default async function SocialPageDetail(props: {
       redirect(buildSocialDetailUrl(pageId, { error: "Comment not found" }, listQueryState));
     }
 
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "social",
+    });
+    if (canEditResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify Social edit access (${canEditResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canEditResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }, listQueryState));
+    }
+
     const canManageCommentResult = await supabase.rpc("can_manage_social_comment", {
       social_comment_uuid: commentId,
     });
@@ -1209,7 +1273,10 @@ export default async function SocialPageDetail(props: {
       social_page_uuid: pageId,
     });
 
-    if (!canManageResult.error && !canManageResult.data) {
+    if (canManageResult.error) {
+      redirect(buildSocialDetailUrl(pageId, { error: `Could not verify page management access (${canManageResult.error.message})` }));
+    }
+    if (!canManageResult.data) {
       redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can add members" }));
     }
 
@@ -1254,7 +1321,10 @@ export default async function SocialPageDetail(props: {
       social_page_uuid: pageId,
     });
 
-    if (!canManageResult.error && !canManageResult.data) {
+    if (canManageResult.error) {
+      redirect(buildSocialDetailUrl(pageId, { error: `Could not verify page management access (${canManageResult.error.message})` }));
+    }
+    if (!canManageResult.data) {
       redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can update members" }));
     }
 
@@ -1285,7 +1355,10 @@ export default async function SocialPageDetail(props: {
       social_page_uuid: pageId,
     });
 
-    if (!canManageResult.error && !canManageResult.data) {
+    if (canManageResult.error) {
+      redirect(buildSocialDetailUrl(pageId, { error: `Could not verify page management access (${canManageResult.error.message})` }));
+    }
+    if (!canManageResult.data) {
       redirect(buildSocialDetailUrl(pageId, { error: "Only page managers can remove members" }));
     }
 
