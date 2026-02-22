@@ -291,10 +291,7 @@ export default async function TasksPage(props: {
     typeof searchParams?.project !== "undefined"
       ? parseCsvParam(searchParams?.project)
       : [];
-  const initialExpandedTaskIds =
-    typeof searchParams?.expand !== "undefined"
-      ? parseCsvParam(searchParams?.expand)
-      : [];
+  const initialExpandedTaskIds: string[] = [];
   const dueSource =
     typeof searchParams?.due !== "undefined"
       ? searchParams?.due
@@ -578,7 +575,6 @@ export default async function TasksPage(props: {
   }
   setCsvParam(returnParams, "client", clientValuesForQueryParam);
   setCsvParam(returnParams, "project", projectValuesForQueryParam);
-  setCsvParam(returnParams, "expand", initialExpandedTaskIds);
   if (!hideCompleted) {
     returnParams.set("hide", "0");
   }
