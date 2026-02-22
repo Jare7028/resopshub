@@ -389,6 +389,7 @@ export default async function AppLayout({
                     key={link.href}
                     initialUnreadCount={unreadChatCount}
                     userId={user.id}
+                    closeMobileSidebarOnClick
                     className="nav-item min-h-11"
                     labelClassName="nav-label"
                     badgeClassName="chat-badge"
@@ -397,6 +398,7 @@ export default async function AppLayout({
                   <AppNavLink
                     key={link.href}
                     href={link.href}
+                    closeMobileSidebarOnClick
                     className="nav-item relative flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                     title={link.label}
                     aria-label={link.label}
@@ -413,6 +415,7 @@ export default async function AppLayout({
             <div className="px-3 pb-4">
               <AppNavLink
                 href="/settings"
+                closeMobileSidebarOnClick
                 className="nav-item group flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                 aria-label="Settings"
                 title="Settings"
@@ -502,4 +505,3 @@ export default async function AppLayout({
     </div>
   );
 }
-
