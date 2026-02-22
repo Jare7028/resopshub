@@ -195,6 +195,21 @@ export default async function TasksPage(props: {
   }>;
 }) {
   const searchParams = await props.searchParams;
+
+  if (typeof searchParams?.expand !== "undefined") {
+    const cleanedParams = new URLSearchParams();
+    Object.entries(searchParams || {}).forEach(([key, value]) => {
+      if (key === "expand" || typeof value === "undefined") {
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((entry) => cleanedParams.append(key, String(entry)));
+        return;
+      }
+      cleanedParams.set(key, String(value));
+    });
+    redirect(cleanedParams.toString() ? `/tasks?${cleanedParams}` : "/tasks");
+  }
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
   const authUserId = authData.user?.id;
@@ -291,10 +306,7 @@ export default async function TasksPage(props: {
     typeof searchParams?.project !== "undefined"
       ? parseCsvParam(searchParams?.project)
       : [];
-  const initialExpandedTaskIds =
-    typeof searchParams?.expand !== "undefined"
-      ? parseCsvParam(searchParams?.expand)
-      : [];
+  const initialExpandedTaskIds: string[] = [];
   const dueSource =
     typeof searchParams?.due !== "undefined"
       ? searchParams?.due
@@ -578,7 +590,6 @@ export default async function TasksPage(props: {
   }
   setCsvParam(returnParams, "client", clientValuesForQueryParam);
   setCsvParam(returnParams, "project", projectValuesForQueryParam);
-  setCsvParam(returnParams, "expand", initialExpandedTaskIds);
   if (!hideCompleted) {
     returnParams.set("hide", "0");
   }
