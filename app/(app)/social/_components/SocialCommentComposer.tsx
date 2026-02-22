@@ -27,7 +27,7 @@ function SubmitButton({
 export default function SocialCommentComposer({
   postId,
   canPost,
-  commentAction,
+  action,
   parentCommentId = "",
   placeholder = "Write a comment",
   submitLabel = "Add comment",
@@ -35,7 +35,7 @@ export default function SocialCommentComposer({
 }: {
   postId: string;
   canPost: boolean;
-  commentAction: (formData: FormData) => Promise<void>;
+  action: (formData: FormData) => Promise<void>;
   parentCommentId?: string;
   placeholder?: string;
   submitLabel?: string;
@@ -66,7 +66,7 @@ export default function SocialCommentComposer({
   };
 
   return (
-    <form action={commentAction} className={className}>
+    <form action={action} className={className}>
       <input type="hidden" name="post_id" value={postId} />
       {parentCommentId ? (
         <input type="hidden" name="parent_comment_id" value={parentCommentId} />

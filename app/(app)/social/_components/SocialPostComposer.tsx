@@ -36,11 +36,11 @@ function SubmitButton({
 export default function SocialPostComposer({
   socialPageId,
   canPost,
-  postAction,
+  action,
 }: {
   socialPageId: string;
   canPost: boolean;
-  postAction: (formData: FormData) => Promise<void>;
+  action: (formData: FormData) => Promise<void>;
 }) {
   const [body, setBody] = useState("");
   const [uploadedImages, setUploadedImages] = useState<UploadedSocialImage[]>([]);
@@ -147,7 +147,7 @@ export default function SocialPostComposer({
   };
 
   return (
-    <form action={postAction} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <form action={action} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="space-y-1">
         <h2 className="text-base font-semibold text-slate-900">Share an update</h2>
         <p className="text-xs text-slate-500">Post text, add images, and keep your team aligned.</p>
