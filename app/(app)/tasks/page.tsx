@@ -202,10 +202,17 @@ export default async function TasksPage(props: {
   }
   const { data: currentUserProfile } = await supabase
     .from("users")
-    .select("id")
+    .select("id,role,status")
     .eq("email", authData.user?.email || "")
     .maybeSingle();
   const currentAppUserId = currentUserProfile?.id || null;
+  const currentUserRole = String(currentUserProfile?.role || "")
+    .trim()
+    .toLowerCase();
+  const currentUserStatus = String(currentUserProfile?.status || "active")
+    .trim()
+    .toLowerCase();
+  const isAdminUser = currentUserRole === "admin" && currentUserStatus !== "disabled";
   const assignmentUserIds = Array.from(
     new Set([authUserId, currentAppUserId].filter(Boolean))
   ) as string[];
@@ -665,41 +672,43 @@ export default async function TasksPage(props: {
       .order("created_at", { ascending: false })
       .limit(MAX_TASK_ROWS);
 
-    const { data: visibleTaskIdRows, error: visibleTaskIdsError } = await withPerfTiming(
-      "tasks.page.visible_task_ids",
-      () =>
-        supabase.rpc("task_accessible_root_ids_for", {
-          p_user_ids: assignmentUserIds,
-          p_include_watching: includeWatching,
-        })
-    );
-
-    if (visibleTaskIdsError) {
-      redirect(
-        buildTasksRedirectUrl(returnTo, {
-          error: formatDbError("tasks.page.visible_task_ids", visibleTaskIdsError),
-        })
+    if (!isAdminUser) {
+      const { data: visibleTaskIdRows, error: visibleTaskIdsError } = await withPerfTiming(
+        "tasks.page.visible_task_ids",
+        () =>
+          supabase.rpc("task_accessible_root_ids_for", {
+            p_user_ids: assignmentUserIds,
+            p_include_watching: includeWatching,
+          })
       );
-    }
 
-    const allowedTaskIds = Array.from(
-      new Set(
-        ((visibleTaskIdRows || []) as Array<{ task_id: string | null }>)
-          .map((row) => row.task_id)
-          .filter((taskId): taskId is string => Boolean(taskId))
-      )
-    );
+      if (visibleTaskIdsError) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            error: formatDbError("tasks.page.visible_task_ids", visibleTaskIdsError),
+          })
+        );
+      }
 
-    if (allowedTaskIds.length) {
-      request = request.in("id", allowedTaskIds);
-    } else {
-      console.warn(
-        "[tasks.page.visible_task_ids] helper returned no ids; falling back to RLS query",
-        {
-          assignmentUserIds,
-          includeWatching,
-        }
+      const allowedTaskIds = Array.from(
+        new Set(
+          ((visibleTaskIdRows || []) as Array<{ task_id: string | null }>)
+            .map((row) => row.task_id)
+            .filter((taskId): taskId is string => Boolean(taskId))
+        )
       );
+
+      if (allowedTaskIds.length) {
+        request = request.in("id", allowedTaskIds);
+      } else {
+        console.warn(
+          "[tasks.page.visible_task_ids] helper returned no ids; falling back to RLS query",
+          {
+            assignmentUserIds,
+            includeWatching,
+          }
+        );
+      }
     }
 
     if (selectedStatuses.length) {
@@ -712,15 +721,56 @@ export default async function TasksPage(props: {
 
     const wantsUnassigned = selectedAssignees.includes("unassigned");
     const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
+    let selectedAssigneeTaskIds: string[] = [];
+
+    if (selectedAssigneeIds.length) {
+      const { data: selectedAssigneeTaskRows, error: selectedAssigneeTaskError } =
+        await withPerfTiming("tasks.page.selected_assignee_task_ids", () =>
+          supabase
+            .from("task_assignees")
+            .select("task_id")
+            .in("user_id", selectedAssigneeIds)
+        );
+
+      if (selectedAssigneeTaskError) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            error: formatDbError(
+              "tasks.page.selected_assignee_task_ids",
+              selectedAssigneeTaskError
+            ),
+          })
+        );
+      }
+
+      selectedAssigneeTaskIds = Array.from(
+        new Set(
+          ((selectedAssigneeTaskRows || []) as Array<{ task_id: string | null }>)
+            .map((row) => row.task_id)
+            .filter((taskId): taskId is string => Boolean(taskId))
+        )
+      );
+    }
 
     if (wantsUnassigned && selectedAssigneeIds.length) {
-      request = request.or(
-        `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
-      );
+      const assigneeOrFilters = [
+        "assignee_user_id.is.null",
+        `assignee_user_id.in.(${selectedAssigneeIds.join(",")})`,
+      ];
+      if (selectedAssigneeTaskIds.length) {
+        assigneeOrFilters.push(`id.in.(${selectedAssigneeTaskIds.join(",")})`);
+      }
+      request = request.or(assigneeOrFilters.join(","));
     } else if (wantsUnassigned) {
       request = request.is("assignee_user_id", null);
     } else if (selectedAssigneeIds.length) {
-      request = request.in("assignee_user_id", selectedAssigneeIds);
+      if (selectedAssigneeTaskIds.length) {
+        request = request.or(
+          `assignee_user_id.in.(${selectedAssigneeIds.join(",")}),id.in.(${selectedAssigneeTaskIds.join(",")})`
+        );
+      } else {
+        request = request.in("assignee_user_id", selectedAssigneeIds);
+      }
     }
 
     if (selectedClientIds.length) {
