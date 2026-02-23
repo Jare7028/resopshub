@@ -700,6 +700,7 @@ export default async function EmployeeInfoPage(props: {
       return { ok: false, error: error.message };
     }
 
+    revalidatePath("/inventory");
     return { ok: true };
   }
 
@@ -775,6 +776,7 @@ export default async function EmployeeInfoPage(props: {
         .update({ full_name: value, updated_at: new Date().toISOString() })
         .eq("id", recordId);
       if (error) return { ok: false, error: error.message };
+      revalidatePath("/inventory");
       return { ok: true };
     }
 
@@ -790,6 +792,7 @@ export default async function EmployeeInfoPage(props: {
         .update({ client_id: value || null, updated_at: new Date().toISOString() })
         .eq("id", recordId);
       if (error) return { ok: false, error: error.message };
+      revalidatePath("/inventory");
       return { ok: true };
     }
 
@@ -820,6 +823,7 @@ export default async function EmployeeInfoPage(props: {
         .eq("record_id", recordId)
         .eq("column_id", columnId);
       if (error) return { ok: false, error: error.message };
+      revalidatePath("/inventory");
       return { ok: true };
     }
 
@@ -847,6 +851,7 @@ export default async function EmployeeInfoPage(props: {
       .upsert(payload, { onConflict: "record_id,column_id" });
     if (error) return { ok: false, error: error.message };
 
+    revalidatePath("/inventory");
     return { ok: true };
   }
 
@@ -1212,6 +1217,7 @@ export default async function EmployeeInfoPage(props: {
       }
     }
 
+    revalidatePath("/inventory");
     return { ok: true };
   }
 
@@ -1250,6 +1256,7 @@ export default async function EmployeeInfoPage(props: {
       return { ok: false, error: error.message };
     }
 
+    revalidatePath("/inventory");
     return { ok: true };
   }
 
@@ -1335,6 +1342,7 @@ export default async function EmployeeInfoPage(props: {
       return { ok: false, error: failedUpdate.error.message };
     }
 
+    revalidatePath("/inventory");
     return { ok: true };
   }
 
