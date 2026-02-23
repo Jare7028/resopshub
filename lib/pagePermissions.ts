@@ -25,6 +25,7 @@ export const PAGE_PERMISSION_ROUTE_PREFIXES: Array<{
   { pageKey: "projects", prefix: "/projects" },
   { pageKey: "tasks", prefix: "/tasks" },
   { pageKey: "employee_info", prefix: "/employee-info" },
+  { pageKey: "employee_info", prefix: "/inventory" },
   { pageKey: "forms", prefix: "/forms" },
   { pageKey: "chat", prefix: "/chat" },
   { pageKey: "social", prefix: "/social" },
