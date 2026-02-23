@@ -2038,14 +2038,14 @@ export default async function SocialPageDetail(props: {
                             href={image.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="group block overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                            className="group block w-full max-w-[460px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
                           >
-                            <div className="relative aspect-[16/10]">
+                            <div className="relative aspect-[4/3]">
                               <Image
                                 src={image.url}
                                 alt={image.filename || "Post image"}
                                 fill
-                                sizes="(max-width: 768px) 100vw, 740px"
+                                sizes="(max-width: 768px) 92vw, 460px"
                                 className="object-cover transition duration-150 group-hover:scale-[1.02]"
                               />
                             </div>
@@ -2055,21 +2055,21 @@ export default async function SocialPageDetail(props: {
                     </div>
 
                     {trailingImages.length ? (
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="mt-4 flex flex-wrap gap-3">
                         {trailingImages.map((image) => (
                           <a
                             key={image.id}
                             href={image.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="group overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                            className="group w-full max-w-[320px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
                           >
                             <div className="relative aspect-[4/3]">
                               <Image
                                 src={image.url}
                                 alt={image.filename || "Post image"}
                                 fill
-                                sizes="(max-width: 768px) 100vw, 420px"
+                                sizes="(max-width: 768px) 88vw, 320px"
                                 className="object-cover transition duration-150 group-hover:scale-[1.02]"
                               />
                             </div>
