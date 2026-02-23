@@ -291,10 +291,7 @@ export default async function TasksPage(props: {
     typeof searchParams?.project !== "undefined"
       ? parseCsvParam(searchParams?.project)
       : [];
-  const initialExpandedTaskIds =
-    typeof searchParams?.expand !== "undefined"
-      ? parseCsvParam(searchParams?.expand)
-      : [];
+  const initialExpandedTaskIds: string[] = [];
   const dueSource =
     typeof searchParams?.due !== "undefined"
       ? searchParams?.due
@@ -578,7 +575,6 @@ export default async function TasksPage(props: {
   }
   setCsvParam(returnParams, "client", clientValuesForQueryParam);
   setCsvParam(returnParams, "project", projectValuesForQueryParam);
-  setCsvParam(returnParams, "expand", initialExpandedTaskIds);
   if (!hideCompleted) {
     returnParams.set("hide", "0");
   }
@@ -803,7 +799,6 @@ export default async function TasksPage(props: {
 
     const taskIdsForSubtaskCounts = sortedTasks.map((task) => task.id).filter(Boolean) as string[];
     if (taskIdsForSubtaskCounts.length) {
-      const parentTaskIdSet = new Set(taskIdsForSubtaskCounts);
       const { data: openSubtaskCountRowsRaw, error: openSubtaskCountError } = await withPerfTiming(
         "tasks.page.open_subtasks.count_rows",
         () =>
@@ -827,12 +822,9 @@ export default async function TasksPage(props: {
         });
       }
 
-      const expandedParentTaskIds =
-        selectedView === "table"
-          ? initialExpandedTaskIds.filter((taskId) => parentTaskIdSet.has(taskId))
-          : [];
+      const parentTaskIdsForSubtaskRows = taskIdsForSubtaskCounts;
 
-      if (expandedParentTaskIds.length) {
+      if (parentTaskIdsForSubtaskRows.length) {
         const { data: openExpandedSubtasksRaw, error: openExpandedSubtasksError } =
           await withPerfTiming("tasks.page.open_subtasks.expanded_rows", () =>
             supabase
@@ -840,7 +832,7 @@ export default async function TasksPage(props: {
               .select(
                 "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id"
               )
-              .in("parent_task_id", expandedParentTaskIds)
+              .in("parent_task_id", parentTaskIdsForSubtaskRows)
               .not("status", "in", "(completed,cancelled)")
               .order("created_at", { ascending: true })
           );
