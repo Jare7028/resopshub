@@ -9,6 +9,7 @@ import { splitSocialInlineContent, stripSocialInlineImageTokens } from "@/lib/so
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingFunctionError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import SocialCommentComposer from "../_components/SocialCommentComposer";
 import SocialPostComposer from "../_components/SocialPostComposer";
 import SocialReadTracker from "../_components/SocialReadTracker";
@@ -105,9 +106,11 @@ type PostImageInput = {
 };
 
 type SocialPostFilter = "all" | "pinned" | "mine" | "unread";
+type SocialDetailPanel = "none" | "compose" | "edit";
 
 const SOCIAL_REACTION_OPTIONS = ["👍", "❤️", "🎉", "🔥", "👏"] as const;
 const SOCIAL_POSTS_PAGE_SIZE = 20;
+const SOCIAL_REACTION_OPTION_SET = new Set<string>(SOCIAL_REACTION_OPTIONS);
 
 function parsePostImagesJson(raw: string): PostImageInput[] {
   let parsed: unknown;
@@ -201,6 +204,12 @@ function normalizeRole(value: string): "member" | "manager" {
   return value === "manager" ? "manager" : "member";
 }
 
+function normalizeSocialPanel(value: string): SocialDetailPanel {
+  if (value === "compose") return "compose";
+  if (value === "edit") return "edit";
+  return "none";
+}
+
 async function resolveActingUser(supabaseClient: ReturnType<typeof createSupabaseServerClient>) {
   const { data: authData } = await supabaseClient.auth.getUser();
   const resolvedAuthUserId = String(authData.user?.id || "").trim();
@@ -239,15 +248,17 @@ async function resolveActingUser(supabaseClient: ReturnType<typeof createSupabas
 function buildSocialDetailUrl(
   pageId: string,
   extra?: { error?: string; success?: string },
-  options?: { q?: string; filter?: SocialPostFilter; p?: number }
+  options?: { q?: string; filter?: SocialPostFilter; p?: number; panel?: SocialDetailPanel | null }
 ) {
   const params = new URLSearchParams();
   const q = String(options?.q || "").trim();
   const filter = options?.filter || "all";
   const page = Math.max(1, Number(options?.p || 1));
+  const panel = options?.panel && options.panel !== "none" ? options.panel : null;
   if (q) params.set("q", q);
   if (filter !== "all") params.set("filter", filter);
   if (page > 1) params.set("p", String(page));
+  if (panel) params.set("panel", panel);
   if (extra?.error) params.set("error", extra.error);
   if (extra?.success) params.set("success", extra.success);
   const query = params.toString();
@@ -256,13 +267,14 @@ function buildSocialDetailUrl(
 
 export default async function SocialPageDetail(props: {
   params: Promise<{ pageId: string }>;
-  searchParams?: Promise<{ error?: string; success?: string; q?: string; filter?: string; p?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; q?: string; filter?: string; p?: string; panel?: string }>;
 }) {
   const { pageId } = await props.params;
   const searchParams = await props.searchParams;
   const searchQuery = String(searchParams?.q || "").trim();
   const postFilter = normalizePostFilter(String(searchParams?.filter || ""));
   const parsedPage = Number(searchParams?.p || "1");
+  const panel = normalizeSocialPanel(String(searchParams?.panel || ""));
   const postPageNumber = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;
   const listQueryState = {
     q: searchQuery,
@@ -379,8 +391,6 @@ export default async function SocialPageDetail(props: {
   const members = (membersResult.data || []) as SocialPageMemberRow[];
   const posts = (postsResult.data || []) as SocialPostRow[];
   const filteredPostCount = postsResult.count || 0;
-  const totalPostsCount = totalPostsResult.count || 0;
-  const unreadPostsCount = previousPageReadAt ? unreadPostsResult.count || 0 : totalPostsCount;
   const totalPostPages = Math.max(1, Math.ceil(filteredPostCount / SOCIAL_POSTS_PAGE_SIZE));
   const postIds = posts.map((post) => post.id);
 
@@ -948,6 +958,177 @@ export default async function SocialPageDetail(props: {
     redirect(`${buildSocialDetailUrl(pageId, undefined, listQueryState)}#post-${postId}`);
   }
 
+  async function updatePost(formData: FormData) {
+    "use server";
+    const actionId = randomUUID();
+    const supabase = createSupabaseServerClient();
+    const postId = String(formData.get("post_id") || "").trim();
+    const body = String(formData.get("body") || "").trim();
+    if (!postId || !body) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Post text is required" }, listQueryState));
+    }
+
+    const { data: post, error: lookupError } = await supabase
+      .from("social_posts")
+      .select("id,page_id,body")
+      .eq("id", postId)
+      .eq("page_id", pageId)
+      .maybeSingle();
+    if (lookupError || !post?.id) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Post not found" }, listQueryState));
+    }
+
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "social",
+    });
+    if (canEditResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify Social edit access (${canEditResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canEditResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }, listQueryState));
+    }
+
+    const canManagePostResult = await supabase.rpc("can_manage_social_post", {
+      social_post_uuid: postId,
+    });
+    if (canManagePostResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify post permissions (${canManagePostResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canManagePostResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You cannot edit this post" }, listQueryState));
+    }
+
+    const actingUser = await resolveActingUser(supabase);
+    if (!actingUser?.userId) {
+      redirect("/login");
+    }
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    try {
+      supabaseAdmin = createSupabaseAdminClient();
+    } catch {
+      redirect(buildSocialDetailUrl(pageId, { error: "Social configuration is incomplete." }, listQueryState));
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from("social_posts")
+      .update({
+        body,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", postId)
+      .eq("page_id", pageId);
+    if (updateError) {
+      redirect(buildSocialDetailUrl(pageId, { error: updateError.message }, listQueryState));
+    }
+
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: actingUser.authUserId,
+        previousText: stripSocialInlineImageTokens(post.body),
+        nextText: stripSocialInlineImageTokens(body),
+        sourceType: "social_post",
+        sourceId: postId,
+        sourceUrl: `/social/${pageId}#post-${postId}`,
+        sourceTitle: socialPage.name,
+      });
+    } catch (error) {
+      logError("social.post.update.mentions_notify_failed", {
+        action_id: actionId,
+        page_id: pageId,
+        post_id: postId,
+        error,
+      });
+    }
+
+    revalidatePath(`/social/${pageId}`);
+    revalidatePath("/social");
+    redirect(`${buildSocialDetailUrl(pageId, { success: "Post updated" }, listQueryState)}#post-${postId}`);
+  }
+
+  async function deletePost(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const postId = String(formData.get("post_id") || "").trim();
+    if (!postId) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Missing post" }, listQueryState));
+    }
+
+    const { data: post, error: lookupError } = await supabase
+      .from("social_posts")
+      .select("id")
+      .eq("id", postId)
+      .eq("page_id", pageId)
+      .maybeSingle();
+    if (lookupError || !post?.id) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Post not found" }, listQueryState));
+    }
+
+    const canEditResult = await supabase.rpc("can_edit_page", {
+      p_page_key: "social",
+    });
+    if (canEditResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify Social edit access (${canEditResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canEditResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You have view-only access to this page" }, listQueryState));
+    }
+
+    const canManagePostResult = await supabase.rpc("can_manage_social_post", {
+      social_post_uuid: postId,
+    });
+    if (canManagePostResult.error) {
+      redirect(
+        buildSocialDetailUrl(
+          pageId,
+          { error: `Could not verify post permissions (${canManagePostResult.error.message})` },
+          listQueryState
+        )
+      );
+    }
+    if (!canManagePostResult.data) {
+      redirect(buildSocialDetailUrl(pageId, { error: "You cannot delete this post" }, listQueryState));
+    }
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    try {
+      supabaseAdmin = createSupabaseAdminClient();
+    } catch {
+      redirect(buildSocialDetailUrl(pageId, { error: "Social configuration is incomplete." }, listQueryState));
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from("social_posts")
+      .delete()
+      .eq("id", postId)
+      .eq("page_id", pageId);
+    if (deleteError) {
+      redirect(buildSocialDetailUrl(pageId, { error: deleteError.message }, listQueryState));
+    }
+
+    revalidatePath(`/social/${pageId}`);
+    revalidatePath("/social");
+    redirect(buildSocialDetailUrl(pageId, { success: "Post deleted" }, listQueryState));
+  }
+
   async function togglePostReaction(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -1394,196 +1575,35 @@ export default async function SocialPageDetail(props: {
 
   const ownerUser = userById.get(socialPage.created_by);
   const ownerLabel = toUserLabel(ownerUser);
+  const closePanelHref = buildSocialDetailUrl(pageId, undefined, listQueryState);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Social page</p>
           <h1 className="text-2xl font-semibold text-slate-900">{socialPage.name}</h1>
           <p className="max-w-3xl text-sm text-slate-600">
             {socialPage.description || "No description added yet."}
           </p>
         </div>
 
-        <div className="w-full space-y-3 xl:max-w-[360px]">
-          <div className="flex justify-start xl:justify-end">
+        <div className="flex flex-wrap items-center gap-2">
+          {canManagePage ? (
             <Link
-              href="/social"
+              href={buildSocialDetailUrl(pageId, undefined, { ...listQueryState, panel: "edit" })}
               className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
             >
-              Back to Social
+              Edit page
             </Link>
-          </div>
-
-          <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <summary className="flex cursor-pointer items-center justify-between px-4 py-3">
-              <span className="text-sm font-semibold text-slate-900">Page access</span>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Expand
-              </span>
-            </summary>
-
-            <div className="border-t border-slate-200 px-4 py-4">
-              <p className="text-xs text-slate-600">
-                Add people manually to grant access.
-              </p>
-
-              {canManagePage ? (
-                <form action={addMember} className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                    Add user
-                    <select
-                      name="user_id"
-                      className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
-                      defaultValue=""
-                    >
-                      <option value="">Select user</option>
-                      {availableUsers.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {toUserLabel(user)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                    Role
-                    <select
-                      name="role"
-                      defaultValue="member"
-                      className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
-                    >
-                      <option value="member">Member</option>
-                      <option value="manager">Manager</option>
-                    </select>
-                  </label>
-                  <button
-                    type="submit"
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-                  >
-                    Add to page
-                  </button>
-                </form>
-              ) : (
-                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                  You can view members, but only page managers can edit access.
-                </p>
-              )}
-            </div>
-          </details>
-
-          <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <summary className="flex cursor-pointer items-center justify-between px-4 py-3">
-              <span className="text-sm font-semibold text-slate-900">Members</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                {memberUserIds.size}
-              </span>
-            </summary>
-
-            <div className="space-y-2 border-t border-slate-200 px-4 py-4">
-              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
-                    {toAvatarUrl(ownerUser) ? (
-                      <Image
-                        src={toAvatarUrl(ownerUser)}
-                        alt={`${ownerLabel} avatar`}
-                        fill
-                        sizes="28px"
-                        className="object-cover"
-                      />
-                    ) : (
-                      toInitials(ownerLabel)
-                    )}
-                  </span>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-900">{ownerLabel}</p>
-                    <p className="text-[11px] text-slate-600">Owner</p>
-                  </div>
-                </div>
-              </div>
-
-              {members
-                .filter((member) => member.user_id !== socialPage.created_by)
-                .map((member) => {
-                  const memberUser = userById.get(member.user_id);
-                  const memberLabel = toUserLabel(memberUser);
-                  const memberAvatarUrl = toAvatarUrl(memberUser);
-                  const memberInitials = toInitials(memberLabel);
-                  return (
-                    <div key={member.id} className="rounded-md border border-slate-200 px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
-                          {memberAvatarUrl ? (
-                            <Image
-                              src={memberAvatarUrl}
-                              alt={`${memberLabel} avatar`}
-                              fill
-                              sizes="28px"
-                              className="object-cover"
-                            />
-                          ) : (
-                            memberInitials
-                          )}
-                        </span>
-                        <p className="text-xs font-semibold text-slate-900">{memberLabel}</p>
-                      </div>
-
-                      {canManagePage ? (
-                        <form action={updateMemberRole} className="mt-2 flex items-center gap-2">
-                          <input type="hidden" name="member_id" value={member.id} />
-                          <select
-                            name="role"
-                            defaultValue={member.role}
-                            className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                          >
-                            <option value="member">Member</option>
-                            <option value="manager">Manager</option>
-                          </select>
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="submit"
-                            formAction={removeMember}
-                            className="text-xs font-semibold text-red-600 hover:text-red-800"
-                          >
-                            Remove
-                          </button>
-                        </form>
-                      ) : (
-                        <p className="mt-1 text-[11px] text-slate-600">
-                          {member.role === "manager" ? "Manager" : "Member"}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-
-              {!members.filter((member) => member.user_id !== socialPage.created_by).length ? (
-                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
-                  No additional members yet.
-                </p>
-              ) : null}
-            </div>
-          </details>
+          ) : null}
+          <Link
+            href="/social"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+          >
+            Back to Social
+          </Link>
         </div>
       </div>
-
-      <section className="rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-slate-50 to-slate-100 px-5 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
-          <div className="flex flex-wrap items-center gap-3">
-            <span>Owner: {ownerLabel}</span>
-            <span>Created: {toDateTimeLabel(socialPage.created_at)}</span>
-          </div>
-          <span>
-            {totalPostsCount} posts{` - ${unreadPostsCount} unread`}
-          </span>
-        </div>
-      </section>
 
       {(searchParams?.error || searchParams?.success || permissionWarning || dataWarning) && (
         <div className="space-y-2">
@@ -1611,6 +1631,193 @@ export default async function SocialPageDetail(props: {
       )}
 
       <SocialReadTracker pageId={pageId} postIds={postIds} />
+
+      {panel === "compose" ? (
+        <RouteModalOverlay
+          closeHref={closePanelHref}
+          overlayLabel="Close share update dialog"
+        >
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pb-8 md:pt-8 lg:p-10">
+            <section className="w-full max-w-none max-h-[92vh] overflow-y-auto rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:max-w-4xl md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Share an update</h2>
+                <a
+                  href={closePanelHref}
+                  className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Close
+                </a>
+              </div>
+              <div className="px-4 pb-5 pt-4 md:px-6 md:pb-6">
+                <SocialPostComposer socialPageId={pageId} action={createPost} canPost={canPost} />
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
+
+      {panel === "edit" && canManagePage ? (
+        <RouteModalOverlay
+          closeHref={closePanelHref}
+          overlayLabel="Close edit page dialog"
+        >
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pb-8 md:pt-8 lg:p-10">
+            <section className="w-full max-w-none max-h-[92vh] overflow-y-auto rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:max-w-3xl md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Edit page</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Manage access and members for this social page.
+                  </p>
+                </div>
+                <a
+                  href={closePanelHref}
+                  className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Close
+                </a>
+              </div>
+
+              <div className="grid gap-4 px-4 py-4 md:grid-cols-2 md:px-6 md:py-6">
+                <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">Page Access</h3>
+                    <p className="mt-1 text-xs text-slate-600">Add people manually to grant access.</p>
+                  </div>
+
+                  <form action={addMember} className="space-y-2">
+                    <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Add user
+                      <select
+                        name="user_id"
+                        className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
+                        defaultValue=""
+                      >
+                        <option value="">Select user</option>
+                        {availableUsers.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {toUserLabel(user)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Role
+                      <select
+                        name="role"
+                        defaultValue="member"
+                        className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
+                      >
+                        <option value="member">Member</option>
+                        <option value="manager">Manager</option>
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                    >
+                      Add to page
+                    </button>
+                  </form>
+                </section>
+
+                <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900">Members</h3>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                      {memberUserIds.size}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
+                          {toAvatarUrl(ownerUser) ? (
+                            <Image
+                              src={toAvatarUrl(ownerUser)}
+                              alt={`${ownerLabel} avatar`}
+                              fill
+                              sizes="28px"
+                              className="object-cover"
+                            />
+                          ) : (
+                            toInitials(ownerLabel)
+                          )}
+                        </span>
+                        <div>
+                          <p className="text-xs font-semibold text-slate-900">{ownerLabel}</p>
+                          <p className="text-[11px] text-slate-600">Owner</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {members
+                      .filter((member) => member.user_id !== socialPage.created_by)
+                      .map((member) => {
+                        const memberUser = userById.get(member.user_id);
+                        const memberLabel = toUserLabel(memberUser);
+                        const memberAvatarUrl = toAvatarUrl(memberUser);
+                        const memberInitials = toInitials(memberLabel);
+                        return (
+                          <div key={member.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-700">
+                                {memberAvatarUrl ? (
+                                  <Image
+                                    src={memberAvatarUrl}
+                                    alt={`${memberLabel} avatar`}
+                                    fill
+                                    sizes="28px"
+                                    className="object-cover"
+                                  />
+                                ) : (
+                                  memberInitials
+                                )}
+                              </span>
+                              <p className="text-xs font-semibold text-slate-900">{memberLabel}</p>
+                            </div>
+
+                            <form action={updateMemberRole} className="mt-2 flex items-center gap-2">
+                              <input type="hidden" name="member_id" value={member.id} />
+                              <select
+                                name="role"
+                                defaultValue={member.role}
+                                className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                              >
+                                <option value="member">Member</option>
+                                <option value="manager">Manager</option>
+                              </select>
+                              <button
+                                type="submit"
+                                className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="submit"
+                                formAction={removeMember}
+                                className="text-xs font-semibold text-red-600 hover:text-red-800"
+                              >
+                                Remove
+                              </button>
+                            </form>
+                          </div>
+                        );
+                      })}
+
+                    {!members.filter((member) => member.user_id !== socialPage.created_by).length ? (
+                      <p className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-3 text-xs text-slate-500">
+                        No additional members yet.
+                      </p>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
 
       <div className="grid gap-6">
         <section className="space-y-5">
@@ -1697,14 +1904,17 @@ export default async function SocialPageDetail(props: {
             ) : null}
           </section>
 
-          <details open className="space-y-2">
-            <summary className="cursor-pointer select-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+          <div className="flex justify-end">
+            <Link
+              href={buildSocialDetailUrl(pageId, undefined, {
+                ...listQueryState,
+                panel: "compose",
+              })}
+              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+            >
               Share an update
-            </summary>
-            <div>
-              <SocialPostComposer socialPageId={pageId} action={createPost} canPost={canPost} />
-            </div>
-          </details>
+            </Link>
+          </div>
 
           <div className="space-y-4">
             {filteredPosts.length ? (
@@ -1743,6 +1953,7 @@ export default async function SocialPageDetail(props: {
                       .map((view) => toUserLabel(userById.get(view.user_id)))
                   )
                 );
+                const canManagePost = canManagePage || post.user_id === currentUser.id;
                 const isUnread = previousPageReadAt ? toTime(post.created_at) > toTime(previousPageReadAt) : false;
                 const topLevelComments = commentsForPost.filter((comment) => !comment.parent_comment_id);
                 const repliesByParentId = new Map<string, SocialPostCommentRow[]>();
@@ -1891,6 +2102,41 @@ export default async function SocialPageDetail(props: {
                       })}
                     </div>
 
+                    {canManagePost ? (
+                      <details className="mt-3 rounded-md border border-slate-200 bg-slate-50">
+                        <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-slate-600">
+                          Edit or delete
+                        </summary>
+                        <div className="space-y-2 border-t border-slate-200 px-3 py-3">
+                          <form action={updatePost} className="space-y-2">
+                            <input type="hidden" name="post_id" value={post.id} />
+                            <textarea
+                              name="body"
+                              defaultValue={post.body}
+                              rows={4}
+                              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                              required
+                            />
+                            <button
+                              type="submit"
+                              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                            >
+                              Save post
+                            </button>
+                          </form>
+                          <form action={deletePost}>
+                            <input type="hidden" name="post_id" value={post.id} />
+                            <button
+                              type="submit"
+                              className="text-xs font-semibold text-red-600 hover:text-red-800"
+                            >
+                              Delete post
+                            </button>
+                          </form>
+                        </div>
+                      </details>
+                    ) : null}
+
                     <details className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
                       <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
                         Comments ({commentsForPost.length})
@@ -1927,6 +2173,23 @@ export default async function SocialPageDetail(props: {
                                   .filter((reaction) => reaction.user_id === currentUser.id)
                                   .map((reaction) => reaction.emoji)
                               );
+                              const visibleCommentReactions = [
+                                ...SOCIAL_REACTION_OPTIONS.map((emoji) => ({
+                                  emoji,
+                                  count: commentReactionCounts[emoji] || 0,
+                                  active: myCommentReactionSet.has(emoji),
+                                })).filter((reaction) => reaction.count > 0),
+                                ...Object.entries(commentReactionCounts)
+                                  .filter(
+                                    ([emoji, count]) =>
+                                      Number(count) > 0 && !SOCIAL_REACTION_OPTION_SET.has(emoji)
+                                  )
+                                  .map(([emoji, count]) => ({
+                                    emoji,
+                                    count: Number(count),
+                                    active: myCommentReactionSet.has(emoji),
+                                  })),
+                              ];
 
                               return (
                                 <article
@@ -1955,29 +2218,68 @@ export default async function SocialPageDetail(props: {
                                         {toTime(comment.updated_at) > toTime(comment.created_at) ? " (edited)" : ""}
                                       </p>
                                       <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
-                                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                        {SOCIAL_REACTION_OPTIONS.map((emoji) => {
-                                          const count = commentReactionCounts[emoji] || 0;
-                                          const active = myCommentReactionSet.has(emoji);
-                                          return (
-                                            <form key={`${comment.id}-${emoji}`} action={toggleCommentReaction}>
-                                              <input type="hidden" name="comment_id" value={comment.id} />
-                                              <input type="hidden" name="post_id" value={post.id} />
-                                              <input type="hidden" name="emoji" value={emoji} />
-                                              <button
-                                                type="submit"
-                                                disabled={!canPost}
-                                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                                                  active
-                                                    ? "border-slate-400 bg-slate-100 text-slate-900"
-                                                    : "border-slate-200 bg-white text-slate-700"
-                                                } disabled:cursor-not-allowed disabled:opacity-50`}
+                                      <div className="mt-2 flex flex-wrap items-center gap-1">
+                                        {visibleCommentReactions.map((reaction) => (
+                                          <form
+                                            key={`${comment.id}-${reaction.emoji}`}
+                                            action={toggleCommentReaction}
+                                          >
+                                            <input type="hidden" name="comment_id" value={comment.id} />
+                                            <input type="hidden" name="post_id" value={post.id} />
+                                            <input type="hidden" name="emoji" value={reaction.emoji} />
+                                            <button
+                                              type="submit"
+                                              disabled={!canPost}
+                                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                                                reaction.active
+                                                  ? "border-slate-400 bg-slate-100 text-slate-900"
+                                                  : "border-slate-200 bg-white text-slate-700"
+                                              } disabled:cursor-not-allowed disabled:opacity-50`}
+                                            >
+                                              <span>{reaction.emoji}</span>
+                                              <span>{reaction.count}</span>
+                                            </button>
+                                          </form>
+                                        ))}
+                                        <details className="relative">
+                                          <summary className="list-none inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:bg-slate-100 hover:text-slate-700 [&::-webkit-details-marker]:hidden">
+                                            <span className="sr-only">Add reaction</span>
+                                            <svg
+                                              viewBox="0 0 24 24"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              strokeWidth="2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              className="h-3.5 w-3.5"
+                                              aria-hidden="true"
+                                            >
+                                              <circle cx="12" cy="12" r="9" />
+                                              <path d="M8 15s1.5 2 4 2 4-2 4-2" />
+                                              <line x1="9" y1="10" x2="9.01" y2="10" />
+                                              <line x1="15" y1="10" x2="15.01" y2="10" />
+                                            </svg>
+                                          </summary>
+                                          <div className="absolute bottom-7 left-0 z-20 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                            {SOCIAL_REACTION_OPTIONS.map((emoji) => (
+                                              <form
+                                                key={`${comment.id}-picker-${emoji}`}
+                                                action={toggleCommentReaction}
                                               >
-                                                {emoji} {count > 0 ? count : ""}
-                                              </button>
-                                            </form>
-                                          );
-                                        })}
+                                                <input type="hidden" name="comment_id" value={comment.id} />
+                                                <input type="hidden" name="post_id" value={post.id} />
+                                                <input type="hidden" name="emoji" value={emoji} />
+                                                <button
+                                                  type="submit"
+                                                  disabled={!canPost}
+                                                  className="rounded px-1 py-0.5 text-base hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                  {emoji}
+                                                </button>
+                                              </form>
+                                            ))}
+                                          </div>
+                                        </details>
                                       </div>
                                     </div>
                                   </div>
@@ -2054,6 +2356,24 @@ export default async function SocialPageDetail(props: {
                                                 .filter((reaction) => reaction.user_id === currentUser.id)
                                                 .map((reaction) => reaction.emoji)
                                             );
+                                            const visibleReplyReactions = [
+                                              ...SOCIAL_REACTION_OPTIONS.map((emoji) => ({
+                                                emoji,
+                                                count: replyReactionCounts[emoji] || 0,
+                                                active: myReplyReactionSet.has(emoji),
+                                              })).filter((reaction) => reaction.count > 0),
+                                              ...Object.entries(replyReactionCounts)
+                                                .filter(
+                                                  ([emoji, count]) =>
+                                                    Number(count) > 0 &&
+                                                    !SOCIAL_REACTION_OPTION_SET.has(emoji)
+                                                )
+                                                .map(([emoji, count]) => ({
+                                                  emoji,
+                                                  count: Number(count),
+                                                  active: myReplyReactionSet.has(emoji),
+                                                })),
+                                            ];
                                             return (
                                               <article
                                                 id={`comment-${reply.id}`}
@@ -2085,29 +2405,88 @@ export default async function SocialPageDetail(props: {
                                                     <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
                                                       {reply.body}
                                                     </p>
-                                                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                                      {SOCIAL_REACTION_OPTIONS.map((emoji) => {
-                                                        const count = replyReactionCounts[emoji] || 0;
-                                                        const active = myReplyReactionSet.has(emoji);
-                                                        return (
-                                                          <form key={`${reply.id}-${emoji}`} action={toggleCommentReaction}>
-                                                            <input type="hidden" name="comment_id" value={reply.id} />
-                                                            <input type="hidden" name="post_id" value={post.id} />
-                                                            <input type="hidden" name="emoji" value={emoji} />
-                                                            <button
-                                                              type="submit"
-                                                              disabled={!canPost}
-                                                              className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                                                                active
-                                                                  ? "border-slate-400 bg-slate-100 text-slate-900"
-                                                                  : "border-slate-200 bg-white text-slate-700"
-                                                              } disabled:cursor-not-allowed disabled:opacity-50`}
+                                                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                                                      {visibleReplyReactions.map((reaction) => (
+                                                        <form
+                                                          key={`${reply.id}-${reaction.emoji}`}
+                                                          action={toggleCommentReaction}
+                                                        >
+                                                          <input
+                                                            type="hidden"
+                                                            name="comment_id"
+                                                            value={reply.id}
+                                                          />
+                                                          <input type="hidden" name="post_id" value={post.id} />
+                                                          <input
+                                                            type="hidden"
+                                                            name="emoji"
+                                                            value={reaction.emoji}
+                                                          />
+                                                          <button
+                                                            type="submit"
+                                                            disabled={!canPost}
+                                                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                                                              reaction.active
+                                                                ? "border-slate-400 bg-slate-100 text-slate-900"
+                                                                : "border-slate-200 bg-white text-slate-700"
+                                                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                                                          >
+                                                            <span>{reaction.emoji}</span>
+                                                            <span>{reaction.count}</span>
+                                                          </button>
+                                                        </form>
+                                                      ))}
+                                                      <details className="relative">
+                                                        <summary className="list-none inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:bg-slate-100 hover:text-slate-700 [&::-webkit-details-marker]:hidden">
+                                                          <span className="sr-only">Add reaction</span>
+                                                          <svg
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            strokeWidth="2"
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            className="h-3.5 w-3.5"
+                                                            aria-hidden="true"
+                                                          >
+                                                            <circle cx="12" cy="12" r="9" />
+                                                            <path d="M8 15s1.5 2 4 2 4-2 4-2" />
+                                                            <line x1="9" y1="10" x2="9.01" y2="10" />
+                                                            <line x1="15" y1="10" x2="15.01" y2="10" />
+                                                          </svg>
+                                                        </summary>
+                                                        <div className="absolute bottom-7 left-0 z-20 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                                          {SOCIAL_REACTION_OPTIONS.map((emoji) => (
+                                                            <form
+                                                              key={`${reply.id}-picker-${emoji}`}
+                                                              action={toggleCommentReaction}
                                                             >
-                                                              {emoji} {count > 0 ? count : ""}
-                                                            </button>
-                                                          </form>
-                                                        );
-                                                      })}
+                                                              <input
+                                                                type="hidden"
+                                                                name="comment_id"
+                                                                value={reply.id}
+                                                              />
+                                                              <input
+                                                                type="hidden"
+                                                                name="post_id"
+                                                                value={post.id}
+                                                              />
+                                                              <input
+                                                                type="hidden"
+                                                                name="emoji"
+                                                                value={emoji}
+                                                              />
+                                                              <button
+                                                                type="submit"
+                                                                disabled={!canPost}
+                                                                className="rounded px-1 py-0.5 text-base hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                                              >
+                                                                {emoji}
+                                                              </button>
+                                                            </form>
+                                                          ))}
+                                                        </div>
+                                                      </details>
                                                     </div>
                                                   </div>
                                                 </div>
