@@ -31,14 +31,6 @@ import {
   type EmployeeInfoDisplayCurrencyCode,
   type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
-import {
-  isEmployeeInfoRecordVisible,
-  normalizeEmployeeInfoRoleToken,
-  parseEmployeeInfoRoleValuesInput,
-  type EmployeeInfoVisibilityRule,
-  toEmployeeInfoVisibilityRule,
-  type EmployeeInfoVisibilityRuleRow,
-} from "@/lib/employeeInfoVisibilityRules";
 
 type EmployeeInfoRecordRow = {
   id: string;
@@ -72,39 +64,22 @@ type EmployeeInfoValuesByRecordId = Record<
   Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
 >;
 
-type UserRow = {
-  id: string;
-  full_name: string | null;
-  email: string | null;
-  role: string | null;
-};
-
 type EmployeeInfoActionResult = {
   ok: boolean;
   error?: string;
 };
 type InventoryDropdownSource = "custom" | "employee_names" | "clients";
 
-type EmployeeInfoRoleValueLookup = Record<string, string>;
-type ClientUserMembershipRow = { user_id: string; client_id: string };
-
-const DEFAULT_EMPLOYEE_INFO_ROLE_VALUE = "Customer Service Representative";
-const DEFAULT_EMPLOYEE_INFO_ROLE_VALUES = [DEFAULT_EMPLOYEE_INFO_ROLE_VALUE];
-
 function buildEmployeeInfoUrl(params?: {
   error?: string;
   success?: string;
   displayCurrency?: EmployeeInfoDisplayCurrencyCode;
-  visibilityUserId?: string | null;
 }) {
   const sp = new URLSearchParams();
   if (params?.error) sp.set("error", params.error);
   if (params?.success) sp.set("success", params.success);
   if (params?.displayCurrency && params.displayCurrency !== "ORIGINAL") {
     sp.set("display_currency", params.displayCurrency);
-  }
-  if (params?.visibilityUserId) {
-    sp.set("visibility_user_id", params.visibilityUserId);
   }
   const qs = sp.toString();
   return qs ? `/inventory?${qs}` : "/inventory";
@@ -200,140 +175,6 @@ function buildValueMap(rows: EmployeeInfoValueRow[]): EmployeeInfoValuesByRecord
     };
     return acc;
   }, {});
-}
-
-function normalizeUuidList(values: string[]) {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => String(value || "").trim())
-        .filter((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
-    )
-  );
-}
-
-function buildRoleValueLookup(args: {
-  records: EmployeeInfoRecordRow[];
-  valuesByRecordId: EmployeeInfoValuesByRecordId;
-  roleColumnId: string | null;
-}) {
-  const { records, valuesByRecordId, roleColumnId } = args;
-  if (!roleColumnId) return {} as EmployeeInfoRoleValueLookup;
-
-  return records.reduce<EmployeeInfoRoleValueLookup>((acc, record) => {
-    const roleCell = valuesByRecordId[record.id]?.[roleColumnId];
-    acc[record.id] = roleCell?.option_value || roleCell?.text_value || "";
-    return acc;
-  }, {});
-}
-
-function filterRecordsByVisibilityRule(args: {
-  records: EmployeeInfoRecordRow[];
-  valuesByRecordId: EmployeeInfoValuesByRecordId;
-  rule: EmployeeInfoVisibilityRule;
-}) {
-  const { records, valuesByRecordId, rule } = args;
-  if (!rule.enabled) return records;
-
-  const roleValueByRecordId = buildRoleValueLookup({
-    records,
-    valuesByRecordId,
-    roleColumnId: rule.roleColumnId,
-  });
-
-  return records.filter((record) =>
-    isEmployeeInfoRecordVisible({
-      rule,
-      clientId: record.client_id,
-      roleValue: roleValueByRecordId[record.id] || "",
-    })
-  );
-}
-
-function resolveDefaultRoleColumnId(columns: EmployeeInfoColumnRow[]) {
-  const candidateKeys = new Set(["role", "employee_role", "job_role"]);
-  for (const column of columns) {
-    if (column.column_kind === "formula") continue;
-    const normalizedKey = toEmployeeInfoColumnKey(column.key || "");
-    const normalizedLabel = toEmployeeInfoColumnKey(column.label || "");
-    if (candidateKeys.has(normalizedKey) || candidateKeys.has(normalizedLabel)) {
-      return column.id;
-    }
-  }
-  return null as string | null;
-}
-
-function resolveEffectiveVisibilityRule(args: {
-  isAdmin: boolean;
-  ruleRow: EmployeeInfoVisibilityRuleRow | null;
-  assignedClientIds: string[];
-  defaultRoleColumnId: string | null;
-}) {
-  const { isAdmin, ruleRow, assignedClientIds, defaultRoleColumnId } = args;
-  const explicitRule = toEmployeeInfoVisibilityRule(ruleRow);
-  if (explicitRule.enabled || isAdmin) {
-    return explicitRule;
-  }
-  if (ruleRow) {
-    return explicitRule;
-  }
-  return {
-    enabled: true,
-    allowedClientIds: Array.from(new Set(assignedClientIds)),
-    roleColumnId: defaultRoleColumnId,
-    allowedRoleTokens: DEFAULT_EMPLOYEE_INFO_ROLE_VALUES.map((value) =>
-      normalizeEmployeeInfoRoleToken(value)
-    ).filter(Boolean),
-  } satisfies EmployeeInfoVisibilityRule;
-}
-
-function buildRoleValueSuggestions(args: {
-  records: EmployeeInfoRecordRow[];
-  valuesByRecordId: EmployeeInfoValuesByRecordId;
-  roleColumnId: string | null;
-}) {
-  const { records, valuesByRecordId, roleColumnId } = args;
-  if (!roleColumnId) return [] as string[];
-
-  return Array.from(
-    new Set(
-      records
-        .map((record) => {
-          const value = valuesByRecordId[record.id]?.[roleColumnId];
-          return String(value?.option_value || value?.text_value || "").trim();
-        })
-        .filter(Boolean)
-    )
-  );
-}
-
-async function readVisibilityRuleForUser(args: {
-  supabase: ReturnType<typeof createSupabaseServerClient>;
-  userId: string;
-}) {
-  const { supabase, userId } = args;
-  const result = await supabase
-    .from("employee_info_visibility_rules")
-    .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (isSupabaseMissingTableError(result.error)) {
-    return { tableMissing: true, ruleRow: null as EmployeeInfoVisibilityRuleRow | null, error: null };
-  }
-  if (result.error) {
-    return {
-      tableMissing: false,
-      ruleRow: null as EmployeeInfoVisibilityRuleRow | null,
-      error: result.error.message,
-    };
-  }
-
-  return {
-    tableMissing: false,
-    ruleRow: (result.data || null) as EmployeeInfoVisibilityRuleRow | null,
-    error: null,
-  };
 }
 
 function buildFormulaValueMap(args: {
@@ -589,7 +430,6 @@ export default async function EmployeeInfoPage(props: {
     error?: string;
     success?: string;
     display_currency?: string;
-    visibility_user_id?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -627,66 +467,18 @@ export default async function EmployeeInfoPage(props: {
   ) {
     canManageColumns = Boolean(canManageColumnsResult.data);
   }
-  const canManageVisibilityRules = isAdmin;
 
   if (!canAccessEmployeeInfo) {
     redirect("/dashboard?error=You%20do%20not%20have%20access%20to%20Inventory");
   }
 
-  const usersPromise = canManageVisibilityRules
-    ? supabase.from("users").select("id,full_name,email,role").order("full_name", { ascending: true })
-    : Promise.resolve({ data: [] as UserRow[], error: null });
-  const viewerClientMembershipPromise = supabase
+  const viewerClientMembershipResult = await supabase
     .from("client_users")
     .select("client_id")
     .eq("user_id", currentAppUserId);
-  const userClientMembershipsPromise = canManageVisibilityRules
-    ? supabase.from("client_users").select("user_id,client_id")
-    : Promise.resolve({ data: [] as ClientUserMembershipRow[], error: null });
-  const [
-    { data: clientsRaw, error: clientsError },
-    usersResult,
-    viewerVisibilityRuleResult,
-    viewerClientMembershipResult,
-    userClientMembershipsResult,
-  ] = await Promise.all([
-      supabase.from("clients").select("id,name").order("name", { ascending: true }),
-      usersPromise,
-      readVisibilityRuleForUser({ supabase, userId: currentAppUserId }),
-      viewerClientMembershipPromise,
-      userClientMembershipsPromise,
-    ]);
-  if (clientsError) {
-    redirect(buildEmployeeInfoUrl({ error: clientsError.message }));
-  }
-  if (usersResult.error) {
-    redirect(buildEmployeeInfoUrl({ error: usersResult.error.message }));
-  }
   if (viewerClientMembershipResult.error && !isSupabaseMissingTableError(viewerClientMembershipResult.error)) {
     redirect(buildEmployeeInfoUrl({ error: viewerClientMembershipResult.error.message }));
   }
-  if (
-    userClientMembershipsResult.error &&
-    !isSupabaseMissingTableError(userClientMembershipsResult.error)
-  ) {
-    redirect(buildEmployeeInfoUrl({ error: userClientMembershipsResult.error.message }));
-  }
-  if (viewerVisibilityRuleResult.error) {
-    redirect(buildEmployeeInfoUrl({ error: viewerVisibilityRuleResult.error }));
-  }
-  const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
-  const employeeNameOptionsResult = await supabase
-    .from("employee_info_records")
-    .select("full_name")
-    .order("full_name", { ascending: true });
-  const employeeNameOptions =
-    employeeNameOptionsResult.error && isSupabaseMissingTableError(employeeNameOptionsResult.error)
-      ? []
-      : (employeeNameOptionsResult.data || [])
-          .map((row) => String((row as { full_name: string | null }).full_name || "").trim())
-          .filter(Boolean);
-
-  const users = (usersResult.data || []) as UserRow[];
   const viewerAssignedClientIds = Array.from(
     new Set(
       (viewerClientMembershipResult.data || [])
@@ -694,32 +486,26 @@ export default async function EmployeeInfoPage(props: {
         .filter(Boolean)
     )
   );
-  const assignedClientIdsByUserId = ((userClientMembershipsResult.data || []) as ClientUserMembershipRow[]).reduce(
-    (acc, row) => {
-      const userId = String(row.user_id || "").trim();
-      const clientId = String(row.client_id || "").trim();
-      if (!userId || !clientId) return acc;
-      if (!acc.has(userId)) acc.set(userId, new Set<string>());
-      acc.get(userId)?.add(clientId);
-      return acc;
-    },
-    new Map<string, Set<string>>()
-  );
-  const viewerVisibilityRuleRow = viewerVisibilityRuleResult.ruleRow;
-  const viewerVisibilityTableMissing = viewerVisibilityRuleResult.tableMissing;
-  const viewerCustomRule = toEmployeeInfoVisibilityRule(viewerVisibilityRuleRow);
 
   let recordsQuery = supabase
     .from("inventory_records")
     .select("id,full_name,client_id,created_at")
     .order("created_at", { ascending: false });
-  const shouldApplyDefaultClientScope = !isAdmin && !viewerVisibilityRuleRow;
-  if (viewerCustomRule.enabled && viewerCustomRule.allowedClientIds.length) {
-    recordsQuery = recordsQuery.in("client_id", viewerCustomRule.allowedClientIds);
-  } else if (shouldApplyDefaultClientScope && viewerAssignedClientIds.length) {
+  if (!isAdmin && viewerAssignedClientIds.length) {
     recordsQuery = recordsQuery.in("client_id", viewerAssignedClientIds);
   }
-  const [recordsResult, columnsResult] = await Promise.all([
+
+  const [
+    { data: clientsRaw, error: clientsError },
+    employeeNameOptionsResult,
+    recordsResult,
+    columnsResult,
+  ] = await Promise.all([
+    supabase.from("clients").select("id,name").order("name", { ascending: true }),
+    supabase
+      .from("employee_info_records")
+      .select("full_name")
+      .order("full_name", { ascending: true }),
     recordsQuery,
     supabase
       .from("inventory_columns")
@@ -729,6 +515,17 @@ export default async function EmployeeInfoPage(props: {
       .order("position", { ascending: true })
       .order("created_at", { ascending: true }),
   ]);
+  if (clientsError) {
+    redirect(buildEmployeeInfoUrl({ error: clientsError.message }));
+  }
+  const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
+  const employeeNameOptions =
+    employeeNameOptionsResult.error && isSupabaseMissingTableError(employeeNameOptionsResult.error)
+      ? []
+      : (employeeNameOptionsResult.data || [])
+          .map((row) => String((row as { full_name: string | null }).full_name || "").trim())
+          .filter(Boolean);
+
   const recordsRaw = recordsResult.data;
   const recordsError = recordsResult.error;
   let columnsRaw = columnsResult.data;
@@ -766,71 +563,15 @@ export default async function EmployeeInfoPage(props: {
   }
 
   const records =
-    shouldApplyDefaultClientScope && viewerAssignedClientIds.length === 0
+    !isAdmin && viewerAssignedClientIds.length === 0
       ? ([] as EmployeeInfoRecordRow[])
       : ((recordsRaw || []) as EmployeeInfoRecordRow[]);
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
-  const defaultRoleColumnId = resolveDefaultRoleColumnId(columns);
-  const viewerVisibilityRule = resolveEffectiveVisibilityRule({
-    isAdmin,
-    ruleRow: viewerVisibilityRuleRow,
-    assignedClientIds: viewerAssignedClientIds,
-    defaultRoleColumnId,
-  });
   const formulaSuggestions = buildFormulaSuggestions(columns);
   const hasFormulaColumns = columns.some((column) => column.column_kind === "formula");
   const hasCurrencyColumns = columns.some((column) => column.column_kind === "currency");
 
-  const visibilityRulesPromise =
-    canManageVisibilityRules && !viewerVisibilityTableMissing
-      ? supabase
-          .from("employee_info_visibility_rules")
-          .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values")
-      : Promise.resolve({
-          data: [] as EmployeeInfoVisibilityRuleRow[],
-          error: null as { message?: string } | null,
-        });
-  let recordsForValues = records;
-  const shouldPrefilterByRole =
-    viewerVisibilityRule.enabled &&
-    Boolean(viewerVisibilityRule.roleColumnId) &&
-    viewerVisibilityRule.allowedRoleTokens.length > 0 &&
-    recordsForValues.length > 0;
-
-  if (shouldPrefilterByRole) {
-    const roleColumnId = viewerVisibilityRule.roleColumnId as string;
-    const rolePrefilterRecordIds = recordsForValues.map((row) => row.id).filter(Boolean);
-    const roleValuesResult = await supabase
-      .from("inventory_values")
-      .select("record_id,text_value,option_value")
-      .in("record_id", rolePrefilterRecordIds)
-      .eq("column_id", roleColumnId);
-
-    if (roleValuesResult.error && !isSupabaseMissingTableError(roleValuesResult.error)) {
-      redirect(buildEmployeeInfoUrl({ error: roleValuesResult.error.message }));
-    }
-
-    const roleValueByRecordId = new Map<string, string>();
-    ((roleValuesResult.data || []) as Array<{
-      record_id: string;
-      text_value: string | null;
-      option_value: string | null;
-    }>).forEach((row) => {
-      const roleValue = String(row.option_value || row.text_value || "").trim();
-      if (!row.record_id) return;
-      roleValueByRecordId.set(row.record_id, roleValue);
-    });
-
-    recordsForValues = recordsForValues.filter((record) =>
-      isEmployeeInfoRecordVisible({
-        rule: viewerVisibilityRule,
-        clientId: record.client_id,
-        roleValue: roleValueByRecordId.get(record.id) || "",
-      })
-    );
-  }
-
-  const recordIds = recordsForValues.map((row) => row.id).filter(Boolean);
+  const recordIds = records.map((row) => row.id).filter(Boolean);
   let valuesRaw: EmployeeInfoValueRow[] = [];
   let valuesError: { message?: string; code?: string } | null = null;
   if (recordIds.length) {
@@ -858,11 +599,7 @@ export default async function EmployeeInfoPage(props: {
 
   const valueRows = (isSupabaseMissingTableError(valuesError) ? [] : valuesRaw || []) as EmployeeInfoValueRow[];
   const valuesByRecordId = buildValueMap(valueRows);
-  const visibleRecords = filterRecordsByVisibilityRule({
-    records: recordsForValues,
-    valuesByRecordId,
-    rule: viewerVisibilityRule,
-  });
+  const visibleRecords = records;
   const shouldLoadExchangeRates =
     visibleRecords.length > 0 &&
     (hasFormulaColumns || (displayCurrency !== "ORIGINAL" && hasCurrencyColumns));
@@ -903,22 +640,6 @@ export default async function EmployeeInfoPage(props: {
         })
       : {};
 
-  let visibilityRuleRowsByUserId = new Map<string, EmployeeInfoVisibilityRuleRow>();
-  let visibilityRulesLoadError: string | null = null;
-  const visibilityRulesResult = await visibilityRulesPromise;
-  if (canManageVisibilityRules && !viewerVisibilityTableMissing) {
-    if (visibilityRulesResult.error) {
-      visibilityRulesLoadError = visibilityRulesResult.error.message || "Failed to load visibility rules";
-    } else {
-      visibilityRuleRowsByUserId = new Map(
-        ((visibilityRulesResult.data || []) as EmployeeInfoVisibilityRuleRow[]).map((row) => [
-          row.user_id,
-          row,
-        ])
-      );
-    }
-  }
-
   async function createRecord(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -940,50 +661,34 @@ export default async function EmployeeInfoPage(props: {
       .maybeSingle();
     const actorUserId = currentUser?.id || auth.user.id;
     const actorIsAdmin = currentUser?.role === "admin";
-    const visibilityRuleResult = await readVisibilityRuleForUser({
-      supabase,
-      userId: actorUserId,
-    });
-    if (visibilityRuleResult.error) {
-      return { ok: false, error: visibilityRuleResult.error };
-    }
-    const assignedClientsResult = await supabase
-      .from("client_users")
-      .select("client_id")
-      .eq("user_id", actorUserId);
-    if (assignedClientsResult.error && !isSupabaseMissingTableError(assignedClientsResult.error)) {
-      return { ok: false, error: assignedClientsResult.error.message };
-    }
-    const actorAssignedClientIds = Array.from(
-      new Set(
-        (assignedClientsResult.data || [])
-          .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
-          .filter(Boolean)
-      )
-    );
-    const visibilityRule = resolveEffectiveVisibilityRule({
-      isAdmin: actorIsAdmin,
-      ruleRow: visibilityRuleResult.ruleRow,
-      assignedClientIds: actorAssignedClientIds,
-      defaultRoleColumnId,
-    });
-    const isUsingDefaultRule = !actorIsAdmin && !visibilityRuleResult.ruleRow;
-    if (isUsingDefaultRule && actorAssignedClientIds.length === 0) {
+    if (!actorIsAdmin) {
+      const assignedClientsResult = await supabase
+        .from("client_users")
+        .select("client_id")
+        .eq("user_id", actorUserId);
+      if (assignedClientsResult.error && !isSupabaseMissingTableError(assignedClientsResult.error)) {
+        return { ok: false, error: assignedClientsResult.error.message };
+      }
+      const actorAssignedClientIds = Array.from(
+        new Set(
+          (assignedClientsResult.data || [])
+            .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
+            .filter(Boolean)
+        )
+      );
+      if (actorAssignedClientIds.length === 0) {
         return {
           ok: false,
           error:
             "You are not assigned to any clients, so you cannot create inventory records until a client assignment is added.",
         };
       }
-    if (
-      visibilityRule.enabled &&
-      visibilityRule.allowedClientIds.length &&
-      (!clientId || !visibilityRule.allowedClientIds.includes(clientId))
-    ) {
-      return {
-        ok: false,
-        error: "You can only create inventory records for clients included in your visibility scope.",
-      };
+      if (!clientId || !actorAssignedClientIds.includes(clientId)) {
+        return {
+          ok: false,
+          error: "You can only create inventory records for your assigned clients.",
+        };
+      }
     }
 
     const { error } = await supabase.from("inventory_records").insert({
@@ -1023,39 +728,30 @@ export default async function EmployeeInfoPage(props: {
       .maybeSingle();
     const actorUserId = currentUser?.id || auth.user.id;
     const actorIsAdmin = currentUser?.role === "admin";
-    const visibilityRuleResult = await readVisibilityRuleForUser({
-      supabase,
-      userId: actorUserId,
-    });
-    if (visibilityRuleResult.error) return { ok: false, error: visibilityRuleResult.error };
-    const assignedClientsResult = await supabase
-      .from("client_users")
-      .select("client_id")
-      .eq("user_id", actorUserId);
-    if (assignedClientsResult.error && !isSupabaseMissingTableError(assignedClientsResult.error)) {
-      return { ok: false, error: assignedClientsResult.error.message };
-    }
-    const actorAssignedClientIds = Array.from(
-      new Set(
-        (assignedClientsResult.data || [])
-          .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
-          .filter(Boolean)
-      )
-    );
-    const visibilityRule = resolveEffectiveVisibilityRule({
-      isAdmin: actorIsAdmin,
-      ruleRow: visibilityRuleResult.ruleRow,
-      assignedClientIds: actorAssignedClientIds,
-      defaultRoleColumnId,
-    });
-    const isUsingDefaultRule = !actorIsAdmin && !visibilityRuleResult.ruleRow;
-    if (isUsingDefaultRule && actorAssignedClientIds.length === 0) {
+    let actorAssignedClientIds = [] as string[];
+    if (!actorIsAdmin) {
+      const assignedClientsResult = await supabase
+        .from("client_users")
+        .select("client_id")
+        .eq("user_id", actorUserId);
+      if (assignedClientsResult.error && !isSupabaseMissingTableError(assignedClientsResult.error)) {
+        return { ok: false, error: assignedClientsResult.error.message };
+      }
+      actorAssignedClientIds = Array.from(
+        new Set(
+          (assignedClientsResult.data || [])
+            .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
+            .filter(Boolean)
+        )
+      );
+      if (actorAssignedClientIds.length === 0) {
         return {
           ok: false,
           error:
             "You are not assigned to any clients, so you cannot edit inventory records until a client assignment is added.",
         };
       }
+    }
 
     const { data: recordRow, error: recordError } = await supabase
       .from("inventory_records")
@@ -1065,42 +761,15 @@ export default async function EmployeeInfoPage(props: {
     if (recordError) return { ok: false, error: recordError.message };
     if (!recordRow) return { ok: false, error: "Employee record not found" };
 
-    let cachedRoleValue: string | null = null;
-    const resolveCurrentRoleValue = async () => {
-      if (
-        !visibilityRule.enabled ||
-        !visibilityRule.roleColumnId ||
-        !visibilityRule.allowedRoleTokens.length
-      ) {
-        return "";
-      }
-      if (cachedRoleValue !== null) return cachedRoleValue;
-      const { data: roleValueRow, error: roleValueError } = await supabase
-        .from("inventory_values")
-        .select("text_value,option_value")
-        .eq("record_id", recordId)
-        .eq("column_id", visibilityRule.roleColumnId)
-        .maybeSingle();
-      if (roleValueError) {
-        return "";
-      }
-      cachedRoleValue = roleValueRow?.option_value || roleValueRow?.text_value || "";
-      return cachedRoleValue;
-    };
+    if (!actorIsAdmin && !actorAssignedClientIds.includes(String(recordRow.client_id || ""))) {
+      return {
+        ok: false,
+        error: "You can only edit inventory records for your assigned clients.",
+      };
+    }
 
     if (baseField === "full_name") {
       if (!value) return { ok: false, error: "Inventory item is required" };
-      const allowed = isEmployeeInfoRecordVisible({
-        rule: visibilityRule,
-        clientId: recordRow.client_id || null,
-        roleValue: await resolveCurrentRoleValue(),
-      });
-      if (!allowed) {
-        return {
-          ok: false,
-          error: "You do not have permission to edit this inventory record based on visibility rules.",
-        };
-      }
       const { error } = await supabase
         .from("inventory_records")
         .update({ full_name: value, updated_at: new Date().toISOString() })
@@ -1110,16 +779,10 @@ export default async function EmployeeInfoPage(props: {
     }
 
     if (baseField === "client_id") {
-      const allowed = isEmployeeInfoRecordVisible({
-        rule: visibilityRule,
-        clientId: value || null,
-        roleValue: await resolveCurrentRoleValue(),
-      });
-      if (!allowed) {
+      if (!actorIsAdmin && (!value || !actorAssignedClientIds.includes(value))) {
         return {
           ok: false,
-          error:
-            "You do not have permission to move this inventory record to the selected client based on visibility rules.",
+          error: "You can only move inventory records to your assigned clients.",
         };
       }
       const { error } = await supabase
@@ -1149,25 +812,6 @@ export default async function EmployeeInfoPage(props: {
       columnKind === "currency"
         ? normalizeEmployeeInfoCurrencyCode(parsedCurrencyInput?.currencyCode || submittedCurrencyCode)
         : null;
-
-    const effectiveRoleValue =
-      visibilityRule.enabled &&
-      visibilityRule.roleColumnId &&
-      visibilityRule.allowedRoleTokens.length &&
-      columnId === visibilityRule.roleColumnId
-        ? normalizedValue || ""
-        : await resolveCurrentRoleValue();
-    const allowed = isEmployeeInfoRecordVisible({
-      rule: visibilityRule,
-      clientId: recordRow.client_id || null,
-      roleValue: effectiveRoleValue,
-    });
-    if (!allowed) {
-      return {
-        ok: false,
-        error: "You do not have permission to edit this inventory record based on visibility rules.",
-      };
-    }
 
     if (!normalizedValue) {
       const { error } = await supabase
@@ -1694,230 +1338,6 @@ export default async function EmployeeInfoPage(props: {
     return { ok: true };
   }
 
-  async function updateVisibilityRule(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
-      redirect("/login");
-    }
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", auth.user.email || "")
-      .maybeSingle();
-    let canManageVisibilityRules = currentUser?.role === "admin";
-    const isAdminResult = await supabase.rpc("is_admin");
-    if (!isSupabaseMissingFunctionError(isAdminResult.error)) {
-      if (isAdminResult.error) {
-        redirect(buildEmployeeInfoUrl({ error: isAdminResult.error.message }));
-      }
-      canManageVisibilityRules = Boolean(isAdminResult.data);
-    }
-    if (!canManageVisibilityRules) {
-      redirect(buildEmployeeInfoUrl({ error: "Only admins can update visibility rules" }));
-    }
-
-    const targetUserId = String(formData.get("user_id") || "").trim();
-    if (!targetUserId) {
-      redirect(buildEmployeeInfoUrl({ error: "User is required for visibility rule updates" }));
-    }
-
-    const enabled = String(formData.get("enabled") || "") === "on";
-    const allowedClientIds = normalizeUuidList(
-      formData.getAll("allowed_client_ids").map((value) => String(value || ""))
-    );
-    const roleColumnId = String(formData.get("role_column_id") || "").trim() || null;
-    const allowedRoleValues = parseEmployeeInfoRoleValuesInput(
-      String(formData.get("allowed_role_values") || "")
-    );
-
-    if (!enabled) {
-      const { error: clearError } = await supabase
-        .from("employee_info_visibility_rules")
-        .delete()
-        .eq("user_id", targetUserId);
-      if (clearError) {
-        if (isSupabaseMissingTableError(clearError)) {
-          redirect(
-            buildEmployeeInfoUrl({
-              error:
-                "Visibility rules table is missing. Run sql/employee_info_visibility_rules.sql first.",
-              visibilityUserId: targetUserId,
-            })
-          );
-        }
-        redirect(buildEmployeeInfoUrl({ error: clearError.message, visibilityUserId: targetUserId }));
-      }
-
-      revalidatePath("/inventory");
-      redirect(buildEmployeeInfoUrl({ success: "Visibility rule cleared", visibilityUserId: targetUserId }));
-    }
-
-    if (!roleColumnId && allowedRoleValues.length) {
-      redirect(
-        buildEmployeeInfoUrl({
-          error: "Select a role column before setting allowed role values.",
-          visibilityUserId: targetUserId,
-        })
-      );
-    }
-
-    if (roleColumnId) {
-      const { data: roleColumn, error: roleColumnError } = await supabase
-        .from("inventory_columns")
-        .select("id,column_kind")
-        .eq("id", roleColumnId)
-        .maybeSingle();
-      if (roleColumnError) {
-        redirect(buildEmployeeInfoUrl({ error: roleColumnError.message, visibilityUserId: targetUserId }));
-      }
-      if (!roleColumn) {
-        redirect(
-          buildEmployeeInfoUrl({ error: "Selected role column does not exist", visibilityUserId: targetUserId })
-        );
-      }
-      if (roleColumn.column_kind === "formula") {
-        redirect(
-          buildEmployeeInfoUrl({
-            error: "Formula columns cannot be used for role filtering",
-            visibilityUserId: targetUserId,
-          })
-        );
-      }
-    }
-
-    const { error: upsertError } = await supabase.from("employee_info_visibility_rules").upsert(
-      {
-        user_id: targetUserId,
-        enabled: true,
-        allowed_client_ids: allowedClientIds,
-        role_column_id: roleColumnId,
-        allowed_role_values: allowedRoleValues,
-        created_by_user_id: currentUser?.id || auth.user.id,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    );
-    if (upsertError) {
-      if (isSupabaseMissingTableError(upsertError)) {
-        redirect(
-          buildEmployeeInfoUrl({
-            error:
-              "Visibility rules table is missing. Run sql/employee_info_visibility_rules.sql first.",
-            visibilityUserId: targetUserId,
-          })
-        );
-      }
-      redirect(buildEmployeeInfoUrl({ error: upsertError.message, visibilityUserId: targetUserId }));
-    }
-
-    revalidatePath("/inventory");
-    redirect(buildEmployeeInfoUrl({ success: "Visibility rule updated", visibilityUserId: targetUserId }));
-  }
-
-  async function clearVisibilityRule(formData: FormData) {
-    "use server";
-    const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
-      redirect("/login");
-    }
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", auth.user.email || "")
-      .maybeSingle();
-    let canManageVisibilityRules = currentUser?.role === "admin";
-    const isAdminResult = await supabase.rpc("is_admin");
-    if (!isSupabaseMissingFunctionError(isAdminResult.error)) {
-      if (isAdminResult.error) {
-        redirect(buildEmployeeInfoUrl({ error: isAdminResult.error.message }));
-      }
-      canManageVisibilityRules = Boolean(isAdminResult.data);
-    }
-    if (!canManageVisibilityRules) {
-      redirect(buildEmployeeInfoUrl({ error: "Only admins can clear visibility rules" }));
-    }
-
-    const targetUserId = String(formData.get("user_id") || "").trim();
-    if (!targetUserId) {
-      redirect(buildEmployeeInfoUrl({ error: "User is required for visibility rule clear" }));
-    }
-
-    const { error: clearError } = await supabase
-      .from("employee_info_visibility_rules")
-      .delete()
-      .eq("user_id", targetUserId);
-    if (clearError) {
-      if (isSupabaseMissingTableError(clearError)) {
-        redirect(
-          buildEmployeeInfoUrl({
-            error:
-              "Visibility rules table is missing. Run sql/employee_info_visibility_rules.sql first.",
-            visibilityUserId: targetUserId,
-          })
-        );
-      }
-      redirect(buildEmployeeInfoUrl({ error: clearError.message, visibilityUserId: targetUserId }));
-    }
-
-    revalidatePath("/inventory");
-    redirect(buildEmployeeInfoUrl({ success: "Visibility rule cleared", visibilityUserId: targetUserId }));
-  }
-
-  const viewerAllowedClientNames = viewerVisibilityRule.allowedClientIds
-    .map((clientId) => clientNameById[clientId] || "")
-    .filter(Boolean);
-  const viewerRoleColumnLabel =
-    columns.find((column) => column.id === viewerVisibilityRule.roleColumnId)?.label || "";
-  const viewerAllowedRoleValues =
-    viewerVisibilityRuleRow && Array.isArray(viewerVisibilityRuleRow.allowed_role_values)
-      ? viewerVisibilityRuleRow.allowed_role_values
-          .map((value) => String(value || "").trim())
-          .filter(Boolean)
-      : viewerVisibilityRule.enabled
-      ? DEFAULT_EMPLOYEE_INFO_ROLE_VALUES
-      : [];
-  const viewerUsesDefaultScope = !isAdmin && !viewerVisibilityRuleRow;
-  const visibilityEditableUsers = users.filter((user) => user.role !== "admin");
-  const selectedVisibilityUserId =
-    canManageVisibilityRules && searchParams?.visibility_user_id
-      ? String(searchParams.visibility_user_id).trim()
-      : "";
-  const selectedVisibilityUser =
-    canManageVisibilityRules && selectedVisibilityUserId
-      ? visibilityEditableUsers.find((user) => user.id === selectedVisibilityUserId) || null
-      : null;
-  const selectedVisibilityRuleRow = selectedVisibilityUser
-    ? visibilityRuleRowsByUserId.get(selectedVisibilityUser.id) || null
-    : null;
-  const selectedAssignedClientIds = selectedVisibilityUser
-    ? Array.from(assignedClientIdsByUserId.get(selectedVisibilityUser.id) || [])
-    : [];
-  const selectedHasCustomRule = Boolean(selectedVisibilityRuleRow);
-  const selectedRule = toEmployeeInfoVisibilityRule(selectedVisibilityRuleRow);
-  const selectedRoleColumnId =
-    (selectedHasCustomRule ? selectedRule.roleColumnId : defaultRoleColumnId) || "";
-  const selectedAllowedClientIds = selectedHasCustomRule
-    ? selectedRule.allowedClientIds
-    : selectedAssignedClientIds;
-  const selectedAllowedRoleValuesText = selectedHasCustomRule
-    ? ((selectedVisibilityRuleRow?.allowed_role_values || []) as string[])
-        .map((value) => String(value || "").trim())
-        .filter(Boolean)
-        .join(", ")
-    : DEFAULT_EMPLOYEE_INFO_ROLE_VALUES.join(", ");
-  const selectedRoleValueHints = selectedVisibilityUser
-    ? buildRoleValueSuggestions({
-        records,
-        valuesByRecordId,
-        roleColumnId: selectedRoleColumnId || null,
-      })
-    : [];
-  const selectedRoleColumnLabel =
-    columns.find((column) => column.id === selectedRoleColumnId)?.label || "";
-
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -1941,203 +1361,6 @@ export default async function EmployeeInfoPage(props: {
           ) : null}
         </div>
       )}
-
-      {isAdmin && viewerVisibilityRule.enabled ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-          <p className="font-semibold uppercase tracking-wide">
-            {viewerUsesDefaultScope ? "Default scope is active" : "Custom scope is active"}
-          </p>
-          <p className="mt-1">
-            {viewerAllowedClientNames.length
-              ? `Clients: ${viewerAllowedClientNames.join(", ")}.`
-              : viewerUsesDefaultScope
-              ? "Clients: none assigned."
-              : "Clients: all."}{" "}
-            {viewerRoleColumnLabel
-              ? viewerAllowedRoleValues.length
-                ? `Role filter (${viewerRoleColumnLabel}): ${viewerAllowedRoleValues.join(", ")}.`
-                : `Role filter column (${viewerRoleColumnLabel}) is set, but no role values are limited.`
-              : "Role filter: none."}
-          </p>
-        </div>
-      ) : null}
-
-      {canManageVisibilityRules ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              <span
-                aria-hidden="true"
-                className="inline-block text-[10px] transition-transform group-open:rotate-90"
-              >
-                &gt;
-              </span>
-              <span>Visibility Rules</span>
-            </summary>
-            <p className="mt-2 text-xs text-slate-500">
-              Access to Inventory is controlled in <code>/permissions</code>. Rules here only
-              narrow what each user can see.
-            </p>
-            {viewerVisibilityTableMissing ? (
-              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Run <code>sql/employee_info_visibility_rules.sql</code> in Supabase SQL editor to
-                enable per-user visibility rules.
-              </p>
-            ) : visibilityRulesLoadError ? (
-              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                Failed to load visibility rules: {visibilityRulesLoadError}
-              </p>
-            ) : (
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50/70">
-                <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Users
-                </div>
-                <div className="max-h-80 space-y-1 overflow-y-auto p-2">
-                  {visibilityEditableUsers.map((user) => {
-                    const userRuleRow = visibilityRuleRowsByUserId.get(user.id) || null;
-                    const userAssignedClientCount = (assignedClientIdsByUserId.get(user.id) || new Set()).size;
-                    const isSelected = selectedVisibilityUserId === user.id;
-                    return (
-                      <a
-                        key={user.id}
-                        href={buildEmployeeInfoUrl({
-                          displayCurrency,
-                          visibilityUserId: user.id,
-                        })}
-                        className={[
-                          "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
-                          isSelected
-                            ? "border-slate-400 bg-white text-slate-900"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
-                        ].join(" ")}
-                      >
-                        <span>{user.full_name || user.email || "Unnamed user"}</span>
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          {userRuleRow
-                            ? "Custom scope"
-                            : `Default: ${userAssignedClientCount} clients, CSR only`}
-                        </span>
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </details>
-        </section>
-      ) : null}
-
-      {canManageVisibilityRules &&
-      selectedVisibilityUser &&
-      !viewerVisibilityTableMissing &&
-      !visibilityRulesLoadError ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
-          <section className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white p-4 shadow-xl md:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Visibility Scope: {selectedVisibilityUser.full_name || selectedVisibilityUser.email || "User"}
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Default scope is assigned clients plus {DEFAULT_EMPLOYEE_INFO_ROLE_VALUE}.
-                </p>
-              </div>
-              <a
-                href={buildEmployeeInfoUrl({ displayCurrency })}
-                className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-              >
-                Close
-              </a>
-            </div>
-
-            <form action={updateVisibilityRule} className="mt-4 space-y-4">
-              <input type="hidden" name="user_id" value={selectedVisibilityUser.id} />
-              <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                <input type="checkbox" name="enabled" defaultChecked={selectedHasCustomRule} />
-                Enable custom scope override
-              </label>
-
-              <div className="grid gap-3 lg:grid-cols-3">
-                <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Restrict by Client
-                  <select
-                    name="allowed_client_ids"
-                    defaultValue={selectedAllowedClientIds}
-                    multiple
-                    className="min-h-[140px] rounded-md border border-slate-300 bg-white px-2 py-2 text-xs font-normal text-slate-700"
-                  >
-                    {clients.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="font-normal normal-case tracking-normal text-slate-500">
-                    Empty means all clients when custom scope is enabled.
-                  </span>
-                </label>
-
-                <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Restrict by Role Column
-                  <select
-                    name="role_column_id"
-                    defaultValue={selectedRoleColumnId}
-                    className="h-11 rounded-md border border-slate-300 bg-white px-2 text-sm font-normal text-slate-700"
-                  >
-                    <option value="">No role filter</option>
-                    {columns
-                      .filter((column) => column.column_kind !== "formula")
-                      .map((column) => (
-                        <option key={column.id} value={column.id}>
-                          {column.label}
-                        </option>
-                      ))}
-                  </select>
-                  <span className="font-normal normal-case tracking-normal text-slate-500">
-                    {selectedRoleColumnLabel
-                      ? `Using ${selectedRoleColumnLabel} for role matching.`
-                      : "Pick the employee-role column."}
-                  </span>
-                </label>
-
-                <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Restrict by Role Values
-                  <input
-                    name="allowed_role_values"
-                    defaultValue={selectedAllowedRoleValuesText}
-                    placeholder="Customer Service Representative"
-                    className="h-11 rounded-md border border-slate-300 bg-white px-2 text-sm font-normal text-slate-700"
-                  />
-                  <span className="font-normal normal-case tracking-normal text-slate-500">
-                    Comma separated. Empty means all roles when custom scope is enabled.
-                  </span>
-                  {selectedRoleValueHints.length ? (
-                    <span className="font-normal normal-case tracking-normal text-slate-500">
-                      Current values: {selectedRoleValueHints.join(", ")}
-                    </span>
-                  ) : null}
-                </label>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="submit"
-                  className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                >
-                  Save custom scope
-                </button>
-                <button
-                  type="submit"
-                  formAction={clearVisibilityRule}
-                  className="h-10 rounded-md border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 hover:bg-red-100"
-                >
-                  Revert to default
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">

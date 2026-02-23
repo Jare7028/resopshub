@@ -22,13 +22,6 @@ import {
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import {
-  isEmployeeInfoRecordVisible,
-  normalizeEmployeeInfoRoleToken,
-  type EmployeeInfoVisibilityRule,
-  toEmployeeInfoVisibilityRule,
-  type EmployeeInfoVisibilityRuleRow,
-} from "@/lib/employeeInfoVisibilityRules";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -65,8 +58,6 @@ type EmployeeInfoValuesByRecordId = Record<
   Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
 >;
 
-const DEFAULT_EMPLOYEE_INFO_ROLE_VALUES = ["Customer Service Representative"];
-
 function csvEscape(value: unknown) {
   const text = String(value ?? "");
   if (!/["\n,\r]/.test(text)) return text;
@@ -83,81 +74,6 @@ function buildValueMap(rows: EmployeeInfoValueRow[]): EmployeeInfoValuesByRecord
     };
     return acc;
   }, {});
-}
-
-function buildRoleValueLookup(args: {
-  records: EmployeeInfoRecordRow[];
-  valuesByRecordId: EmployeeInfoValuesByRecordId;
-  roleColumnId: string | null;
-}) {
-  const { records, valuesByRecordId, roleColumnId } = args;
-  if (!roleColumnId) return {} as Record<string, string>;
-
-  return records.reduce<Record<string, string>>((acc, record) => {
-    const roleCell = valuesByRecordId[record.id]?.[roleColumnId];
-    acc[record.id] = roleCell?.option_value || roleCell?.text_value || "";
-    return acc;
-  }, {});
-}
-
-function filterRecordsByVisibilityRule(args: {
-  records: EmployeeInfoRecordRow[];
-  valuesByRecordId: EmployeeInfoValuesByRecordId;
-  rule: EmployeeInfoVisibilityRule;
-}) {
-  const { records, valuesByRecordId, rule } = args;
-  if (!rule.enabled) return records;
-
-  const roleValueByRecordId = buildRoleValueLookup({
-    records,
-    valuesByRecordId,
-    roleColumnId: rule.roleColumnId,
-  });
-
-  return records.filter((record) =>
-    isEmployeeInfoRecordVisible({
-      rule,
-      clientId: record.client_id,
-      roleValue: roleValueByRecordId[record.id] || "",
-    })
-  );
-}
-
-function resolveDefaultRoleColumnId(columns: EmployeeInfoColumnRow[]) {
-  const candidateKeys = new Set(["role", "employee_role", "job_role"]);
-  for (const column of columns) {
-    if (column.column_kind === "formula") continue;
-    const normalizedKey = toEmployeeInfoColumnKey(column.key || "");
-    const normalizedLabel = toEmployeeInfoColumnKey(column.label || "");
-    if (candidateKeys.has(normalizedKey) || candidateKeys.has(normalizedLabel)) {
-      return column.id;
-    }
-  }
-  return null as string | null;
-}
-
-function resolveEffectiveVisibilityRule(args: {
-  isAdmin: boolean;
-  ruleRow: EmployeeInfoVisibilityRuleRow | null;
-  assignedClientIds: string[];
-  defaultRoleColumnId: string | null;
-}) {
-  const { isAdmin, ruleRow, assignedClientIds, defaultRoleColumnId } = args;
-  const explicitRule = toEmployeeInfoVisibilityRule(ruleRow);
-  if (explicitRule.enabled || isAdmin) {
-    return explicitRule;
-  }
-  if (ruleRow) {
-    return explicitRule;
-  }
-  return {
-    enabled: true,
-    allowedClientIds: Array.from(new Set(assignedClientIds)),
-    roleColumnId: defaultRoleColumnId,
-    allowedRoleTokens: DEFAULT_EMPLOYEE_INFO_ROLE_VALUES.map((value) =>
-      normalizeEmployeeInfoRoleToken(value)
-    ).filter(Boolean),
-  } satisfies EmployeeInfoVisibilityRule;
 }
 
 function buildFormulaValueMap(args: {
@@ -431,17 +347,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const visibilityRuleResult = await supabase
-    .from("employee_info_visibility_rules")
-    .select("user_id,enabled,allowed_client_ids,role_column_id,allowed_role_values")
-    .eq("user_id", currentAppUserId)
-    .maybeSingle();
-  if (visibilityRuleResult.error && !isSupabaseMissingTableError(visibilityRuleResult.error)) {
-    return NextResponse.json({ error: visibilityRuleResult.error.message }, { status: 400 });
-  }
-  const viewerRuleRow = isSupabaseMissingTableError(visibilityRuleResult.error)
-    ? null
-    : ((visibilityRuleResult.data || null) as EmployeeInfoVisibilityRuleRow | null);
   const viewerClientMembershipResult = await supabase
     .from("client_users")
     .select("client_id")
@@ -459,17 +364,13 @@ export async function GET(request: Request) {
         .filter(Boolean)
     )
   );
-  const viewerCustomRule = toEmployeeInfoVisibilityRule(viewerRuleRow);
 
   const { data: clientsRaw } = await supabase.from("clients").select("id,name");
   let recordsQuery = supabase
     .from("inventory_records")
     .select("id,full_name,client_id,created_at")
     .order("created_at", { ascending: false });
-  const shouldApplyDefaultClientScope = !isAdmin && !viewerRuleRow;
-  if (viewerCustomRule.enabled && viewerCustomRule.allowedClientIds.length) {
-    recordsQuery = recordsQuery.in("client_id", viewerCustomRule.allowedClientIds);
-  } else if (shouldApplyDefaultClientScope && viewerAssignedClientIds.length) {
+  if (!isAdmin && viewerAssignedClientIds.length) {
     recordsQuery = recordsQuery.in("client_id", viewerAssignedClientIds);
   }
   const { data: recordsRaw, error: recordsError } = await recordsQuery;
@@ -502,15 +403,8 @@ export async function GET(request: Request) {
   }
 
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
-  const defaultRoleColumnId = resolveDefaultRoleColumnId(columns);
-  const viewerRule = resolveEffectiveVisibilityRule({
-    isAdmin,
-    ruleRow: viewerRuleRow,
-    assignedClientIds: viewerAssignedClientIds,
-    defaultRoleColumnId,
-  });
   const records =
-    shouldApplyDefaultClientScope && viewerAssignedClientIds.length === 0
+    !isAdmin && viewerAssignedClientIds.length === 0
       ? ([] as EmployeeInfoRecordRow[])
       : ((recordsRaw || []) as EmployeeInfoRecordRow[]);
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
@@ -553,11 +447,7 @@ export async function GET(request: Request) {
   ) as EmployeeInfoExchangeRateRow[];
 
   const valuesByRecordId = buildValueMap((valuesRaw || []) as EmployeeInfoValueRow[]);
-  const visibleRecords = filterRecordsByVisibilityRule({
-    records,
-    valuesByRecordId,
-    rule: viewerRule,
-  });
+  const visibleRecords = records;
   const clientNameById = clients.reduce<Record<string, string>>((acc, client) => {
     acc[client.id] = client.name;
     return acc;
