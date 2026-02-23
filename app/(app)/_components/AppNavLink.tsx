@@ -9,6 +9,7 @@ const STALLED_NAV_FALLBACK_MS = 2200;
 type AppNavLinkProps = Omit<ComponentProps<typeof Link>, "href"> & {
   href: string;
   forceHardNavigation?: boolean;
+  closeMobileSidebarOnClick?: boolean;
 };
 
 function shouldForceHardNavigation(pathname: string | null, href: string) {
@@ -27,6 +28,7 @@ export default function AppNavLink({
   target,
   prefetch,
   forceHardNavigation = false,
+  closeMobileSidebarOnClick = false,
   ...props
 }: AppNavLinkProps) {
   const pathname = usePathname();
@@ -49,6 +51,15 @@ export default function AppNavLink({
       nextUrl.search === window.location.search
     ) {
       return;
+    }
+
+    if (closeMobileSidebarOnClick) {
+      const sidebarToggle = document.getElementById(
+        "app-sidebar-open"
+      ) as HTMLInputElement | null;
+      if (sidebarToggle) {
+        sidebarToggle.checked = false;
+      }
     }
 
     if (shouldUseHardNavigation) {
