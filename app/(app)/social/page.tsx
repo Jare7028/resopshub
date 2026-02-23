@@ -88,21 +88,13 @@ export default async function SocialPage(props: {
     redirect("/tasks?error=Missing%20user%20profile");
   }
 
-  const [canViewResult, canEditResult] = await Promise.all([
-    supabase.rpc("can_view_page", { p_page_key: "social" }),
-    supabase.rpc("can_edit_page", { p_page_key: "social" }),
-  ]);
+  const canEditResult = await supabase.rpc("can_edit_page", {
+    p_page_key: "social",
+  });
 
-  const canViewSocial = canViewResult.error
-    ? true
-    : Boolean(canViewResult.data);
   const canEditSocial = canEditResult.error
     ? true
     : Boolean(canEditResult.data);
-
-  if (!canViewSocial) {
-    redirect("/dashboard?error=No%20access%20to%20Social");
-  }
 
   const { data: pagesRaw, error: pagesError } = await supabase
     .from("social_pages")
@@ -256,17 +248,9 @@ export default async function SocialPage(props: {
   }).length;
 
   const socialPermissionWarning =
-    canViewResult.error && !isSupabaseMissingFunctionError(canViewResult.error)
-      ? `Could not verify Social view permission (${canViewResult.error.message}).`
-      : canEditResult.error && !isSupabaseMissingFunctionError(canEditResult.error)
-        ? `Could not verify Social edit permission (${canEditResult.error.message}).`
-        : null;
-
-  if (canViewResult.error && !isSupabaseMissingFunctionError(canViewResult.error)) {
-    logWarn("social.page.permission_check.view.warning", {
-      error: canViewResult.error,
-    });
-  }
+    canEditResult.error && !isSupabaseMissingFunctionError(canEditResult.error)
+      ? `Could not verify Social edit permission (${canEditResult.error.message}).`
+      : null;
 
   if (canEditResult.error && !isSupabaseMissingFunctionError(canEditResult.error)) {
     logWarn("social.page.permission_check.edit.warning", {

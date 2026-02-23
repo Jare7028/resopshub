@@ -130,6 +130,7 @@ export default function ChatNavLink({
   return (
     <AppNavLink
       href="/chat"
+      prefetch={false}
       className={`flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 ${className || ""}`}
       title="Chat"
       aria-label="Chat"

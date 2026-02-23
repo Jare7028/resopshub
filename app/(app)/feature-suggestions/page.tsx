@@ -90,22 +90,12 @@ export default async function FeatureSuggestionsPage(props: {
     redirect("/tasks?error=Missing%20user%20profile");
   }
 
-  const [canViewResult, canEditResult] = await Promise.all([
-    supabase.rpc("can_view_page", { p_page_key: "feature_suggestions" }),
-    supabase.rpc("can_edit_page", { p_page_key: "feature_suggestions" }),
-  ]);
+  const canEditResult = await supabase.rpc("can_edit_page", {
+    p_page_key: "feature_suggestions",
+  });
 
-  let canViewFeatureSuggestions = true;
   let canEditFeatureSuggestions = true;
   let featureSuggestionsPermissionErrorMessage: string | null = null;
-
-  if (canViewResult.error) {
-    if (!isSupabaseMissingFunctionError(canViewResult.error)) {
-      featureSuggestionsPermissionErrorMessage = `Could not verify page view permission (${canViewResult.error.message}).`;
-    }
-  } else {
-    canViewFeatureSuggestions = Boolean(canViewResult.data);
-  }
 
   if (canEditResult.error) {
     if (!isSupabaseMissingFunctionError(canEditResult.error)) {
@@ -113,10 +103,6 @@ export default async function FeatureSuggestionsPage(props: {
     }
   } else {
     canEditFeatureSuggestions = Boolean(canEditResult.data);
-  }
-
-  if (!canViewFeatureSuggestions) {
-    redirect("/dashboard?error=No%20access%20to%20Feature%20Suggestions");
   }
 
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";

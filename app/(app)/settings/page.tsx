@@ -213,26 +213,42 @@ export default async function SettingsPage(props: {
     redirect("/dashboard?error=Missing%20profile");
   }
 
-  const { data: usersRaw } = await withPerfTiming("settings.users", () =>
-    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
-  );
-  const users = usersRaw || [];
+  const shouldLoadTemplatesTab = activeTab === "templates";
+  const shouldLoadUsers = shouldLoadTemplatesTab;
+  const shouldLoadNotificationPrefs = activeTab === "notifications";
+  const shouldLoadStatusOptions = activeTab === "statuses" || shouldLoadTemplatesTab;
+
+  const usersResult = shouldLoadUsers
+    ? await withPerfTiming("settings.users", () =>
+        supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
+      )
+    : { data: [] as Array<{ id: string; full_name: string | null; email: string | null }> };
+  const users = (usersResult.data || []) as Array<{
+    id: string;
+    full_name: string | null;
+    email: string | null;
+  }>;
   const userNameById = users.reduce<Record<string, string>>((acc, row) => {
     acc[row.id] = row.full_name || row.email || "Unknown user";
     return acc;
   }, {});
 
-  const { data: prefsRaw } = await withPerfTiming("settings.notification_prefs", () =>
-    supabase
-      .from("user_notification_preferences")
-      .select(
-        "user_id,task_assigned,task_updated,task_due_today,task_overdue,feature_suggestion_comment,feature_suggestion_status"
+  const prefsResult = shouldLoadNotificationPrefs
+    ? await withPerfTiming("settings.notification_prefs", () =>
+        supabase
+          .from("user_notification_preferences")
+          .select(
+            "user_id,task_assigned,task_updated,task_due_today,task_overdue,feature_suggestion_comment,feature_suggestion_status"
+          )
+          .eq("user_id", user.id)
+          .maybeSingle()
       )
-      .eq("user_id", user.id)
-      .maybeSingle()
-  );
+    : ({ data: null, error: null } as {
+        data: NotificationPrefsDbRow | null;
+        error: null;
+      });
 
-  const prefsDb = (prefsRaw || null) as NotificationPrefsDbRow | null;
+  const prefsDb = (prefsResult.data || null) as NotificationPrefsDbRow | null;
   const prefs: NotificationPrefs = {
     user_id: user.id,
     task_assigned: prefValue(prefsDb?.task_assigned, defaultPrefs.task_assigned),
@@ -249,13 +265,22 @@ export default async function SettingsPage(props: {
     ),
   };
 
-  const { data: statusOptionsRaw, error: statusOptionsError } = await supabase
-    .from("status_options")
-    .select("id,entity_type,value,position")
-    .order("entity_type", { ascending: true })
-    .order("position", { ascending: true })
-    .order("value", { ascending: true });
-  const statusOptions = (statusOptionsError ? [] : statusOptionsRaw || []) as Array<
+  const statusOptionsResult = shouldLoadStatusOptions
+    ? await supabase
+        .from("status_options")
+        .select("id,entity_type,value,position")
+        .order("entity_type", { ascending: true })
+        .order("position", { ascending: true })
+        .order("value", { ascending: true })
+    : ({
+        data: [] as Array<StatusOptionRow & { id: string }>,
+        error: null,
+      } as {
+        data: Array<StatusOptionRow & { id: string }>;
+        error: null;
+      });
+  const statusOptionsError = statusOptionsResult.error;
+  const statusOptions = (statusOptionsError ? [] : statusOptionsResult.data || []) as Array<
     StatusOptionRow & { id: string }
   >;
   const taskStatusOptions = buildStatusOptions(
@@ -288,110 +313,6 @@ export default async function SettingsPage(props: {
     status: string;
   };
 
-  const { data: taskTemplatesRaw, error: taskTemplatesError } = await supabase
-    .from("task_templates")
-    .select(
-      "id,name,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
-    )
-    .order("name", { ascending: true });
-  const { data: mirroredTaskTemplateRows } = await supabase
-    .from("tasks")
-    .select("id")
-    .eq("status", "template")
-    .is("parent_task_id", null);
-
-  const { data: projectTemplatesRaw, error: projectTemplatesError } = await supabase
-    .from("project_templates")
-    .select("id,name,description,status")
-    .order("name", { ascending: true });
-
-  const taskTemplates = (taskTemplatesError ? [] : taskTemplatesRaw || []) as TaskTemplateRow[];
-  const mirroredTaskTemplateIds = new Set(
-    ((mirroredTaskTemplateRows || []) as Array<{ id: string }>).map((row) => row.id)
-  );
-  const projectTemplates = (projectTemplatesError ? [] : projectTemplatesRaw || []) as ProjectTemplateRow[];
-  const selectedTaskTemplate =
-    selectedTaskTemplateId && templatesTab === "tasks"
-      ? taskTemplates.find((tpl) => tpl.id === selectedTaskTemplateId) || null
-      : null;
-  const selectedProjectTemplate =
-    selectedProjectTemplateId && templatesTab === "projects"
-      ? projectTemplates.find((tpl) => tpl.id === selectedProjectTemplateId) || null
-      : null;
-  const templateCustomFieldEntityFilters: Array<[string, string]> = [];
-  if (selectedTaskTemplate?.id) {
-    templateCustomFieldEntityFilters.push(["task_template", selectedTaskTemplate.id]);
-  }
-  if (selectedProjectTemplate?.id) {
-    templateCustomFieldEntityFilters.push(["project_template", selectedProjectTemplate.id]);
-  }
-  let templateCustomFields: CustomFieldRow[] = [];
-  let templateCustomFieldOptionsByFieldId: Record<string, CustomFieldOptionRow[]> = {};
-  let templateCustomFieldValueByFieldId = new Map<string, string>();
-  if (templateCustomFieldEntityFilters.length) {
-    const filterExpr = templateCustomFieldEntityFilters
-      .map(
-        ([entityType, entityId]) =>
-          `and(entity_type.eq.${entityType},entity_id.eq.${entityId})`
-      )
-      .join(",");
-    const { data: templateFieldsRaw } = await supabase
-      .from("custom_fields")
-      .select("id,entity_type,entity_id,key,label,field_kind,position")
-      .or(filterExpr)
-      .order("position", { ascending: true })
-      .order("label", { ascending: true });
-    templateCustomFields = (templateFieldsRaw || []) as CustomFieldRow[];
-    const fieldIds = templateCustomFields.map((field) => field.id);
-    if (fieldIds.length) {
-      const { data: templateOptionsRaw } = await supabase
-        .from("custom_field_options")
-        .select("id,field_id,value,position")
-        .in("field_id", fieldIds)
-        .order("position", { ascending: true })
-        .order("value", { ascending: true });
-      templateCustomFieldOptionsByFieldId = ((templateOptionsRaw || []) as CustomFieldOptionRow[]).reduce<
-        Record<string, CustomFieldOptionRow[]>
-      >((acc, option) => {
-        acc[option.field_id] ||= [];
-        acc[option.field_id].push(option);
-        return acc;
-      }, {});
-      const templateValueExpr = templateCustomFieldEntityFilters
-        .map(
-          ([entityType, entityId]) =>
-            `and(entity_type.eq.${entityType},entity_id.eq.${entityId})`
-        )
-        .join(",");
-      const { data: templateValuesRaw } = await supabase
-        .from("custom_field_values")
-        .select("field_id,text_value,option_value,entity_type,entity_id")
-        .or(templateValueExpr)
-        .in("field_id", fieldIds);
-      templateCustomFieldValueByFieldId = new Map<string, string>(
-        ((templateValuesRaw || []) as Array<{
-          field_id: string;
-          text_value: string | null;
-          option_value: string | null;
-        }>).map((row) => [row.field_id, row.option_value || row.text_value || ""])
-      );
-    }
-  }
-  const selectedTaskTemplateCustomFields = selectedTaskTemplate
-    ? templateCustomFields.filter(
-        (field) =>
-          field.entity_type === "task_template" &&
-          field.entity_id === selectedTaskTemplate.id
-      )
-    : [];
-  const selectedProjectTemplateCustomFields = selectedProjectTemplate
-    ? templateCustomFields.filter(
-        (field) =>
-          field.entity_type === "project_template" &&
-          field.entity_id === selectedProjectTemplate.id
-      )
-    : [];
-
   type TaskTemplateSubtaskRow = {
     id: string;
     task_template_id: string;
@@ -418,46 +339,180 @@ export default async function SettingsPage(props: {
     user_id: string;
   };
 
-  const {
-    data: taskTemplateSubtasksRaw,
-    error: taskTemplateSubtasksError,
-  } = await supabase
-    .from("task_template_subtasks")
-    .select("id,task_template_id,position,title,description,status,priority")
-    .order("task_template_id", { ascending: true })
-    .order("position", { ascending: true });
+  let taskTemplatesError: unknown = null;
+  let projectTemplatesError: unknown = null;
+  let taskTemplateSubtasksError: unknown = null;
+  let projectTemplateTasksError: unknown = null;
+  let taskTemplateAssigneesError: unknown = null;
+  let taskTemplateSubtaskAssigneesError: unknown = null;
+  let taskTemplates: TaskTemplateRow[] = [];
+  let mirroredTaskTemplateIds = new Set<string>();
+  let projectTemplates: ProjectTemplateRow[] = [];
+  let selectedTaskTemplate: TaskTemplateRow | null = null;
+  let selectedProjectTemplate: ProjectTemplateRow | null = null;
+  const templateCustomFieldEntityFilters: Array<[string, string]> = [];
+  let templateCustomFields: CustomFieldRow[] = [];
+  let templateCustomFieldOptionsByFieldId: Record<string, CustomFieldOptionRow[]> = {};
+  let templateCustomFieldValueByFieldId = new Map<string, string>();
+  let taskTemplateSubtasks: TaskTemplateSubtaskRow[] = [];
+  let projectTemplateTasks: ProjectTemplateTaskRow[] = [];
+  let taskTemplateAssignees: TaskTemplateAssigneeRow[] = [];
+  let taskTemplateSubtaskAssignees: TaskTemplateSubtaskAssigneeRow[] = [];
 
-  const { data: projectTemplateTasksRaw, error: projectTemplateTasksError } = await supabase
-    .from("project_template_tasks")
-    .select("id,project_template_id,task_template_id,position")
-    .order("project_template_id", { ascending: true })
-    .order("position", { ascending: true });
+  if (shouldLoadTemplatesTab) {
+    const [taskTemplatesResult, mirroredTaskTemplateResult, projectTemplatesResult] =
+      await Promise.all([
+        supabase
+          .from("task_templates")
+          .select(
+            "id,name,title,description,status,priority,due_time,recurrence_frequency,recurrence_lead_days"
+          )
+          .order("name", { ascending: true }),
+        supabase
+          .from("tasks")
+          .select("id")
+          .eq("status", "template")
+          .is("parent_task_id", null),
+        supabase
+          .from("project_templates")
+          .select("id,name,description,status")
+          .order("name", { ascending: true }),
+      ]);
 
-  const { data: taskTemplateAssigneesRaw, error: taskTemplateAssigneesError } = await supabase
-    .from("task_template_assignees")
-    .select("task_template_id,user_id")
-    .order("created_at", { ascending: true });
-  const {
-    data: taskTemplateSubtaskAssigneesRaw,
-    error: taskTemplateSubtaskAssigneesError,
-  } = await supabase
-    .from("task_template_subtask_assignees")
-    .select("task_template_subtask_id,user_id")
-    .order("created_at", { ascending: true });
+    taskTemplatesError = taskTemplatesResult.error;
+    projectTemplatesError = projectTemplatesResult.error;
+    taskTemplates = (taskTemplatesResult.error ? [] : taskTemplatesResult.data || []) as TaskTemplateRow[];
+    mirroredTaskTemplateIds = new Set(
+      ((mirroredTaskTemplateResult.data || []) as Array<{ id: string }>).map((row) => row.id)
+    );
+    projectTemplates = (projectTemplatesResult.error
+      ? []
+      : projectTemplatesResult.data || []) as ProjectTemplateRow[];
 
-  const taskTemplateSubtasks = (taskTemplateSubtasksError
-    ? []
-    : taskTemplateSubtasksRaw || []) as TaskTemplateSubtaskRow[];
+    selectedTaskTemplate =
+      selectedTaskTemplateId && templatesTab === "tasks"
+        ? taskTemplates.find((tpl) => tpl.id === selectedTaskTemplateId) || null
+        : null;
+    selectedProjectTemplate =
+      selectedProjectTemplateId && templatesTab === "projects"
+        ? projectTemplates.find((tpl) => tpl.id === selectedProjectTemplateId) || null
+        : null;
 
-  const projectTemplateTasks = (projectTemplateTasksError
-    ? []
-    : projectTemplateTasksRaw || []) as ProjectTemplateTaskRow[];
-  const taskTemplateAssignees = (taskTemplateAssigneesError
-    ? []
-    : taskTemplateAssigneesRaw || []) as TaskTemplateAssigneeRow[];
-  const taskTemplateSubtaskAssignees = (taskTemplateSubtaskAssigneesError
-    ? []
-    : taskTemplateSubtaskAssigneesRaw || []) as TaskTemplateSubtaskAssigneeRow[];
+    if (selectedTaskTemplate?.id) {
+      templateCustomFieldEntityFilters.push(["task_template", selectedTaskTemplate.id]);
+    }
+    if (selectedProjectTemplate?.id) {
+      templateCustomFieldEntityFilters.push(["project_template", selectedProjectTemplate.id]);
+    }
+
+    if (templateCustomFieldEntityFilters.length) {
+      const filterExpr = templateCustomFieldEntityFilters
+        .map(
+          ([entityType, entityId]) =>
+            `and(entity_type.eq.${entityType},entity_id.eq.${entityId})`
+        )
+        .join(",");
+      const { data: templateFieldsRaw } = await supabase
+        .from("custom_fields")
+        .select("id,entity_type,entity_id,key,label,field_kind,position")
+        .or(filterExpr)
+        .order("position", { ascending: true })
+        .order("label", { ascending: true });
+      templateCustomFields = (templateFieldsRaw || []) as CustomFieldRow[];
+      const fieldIds = templateCustomFields.map((field) => field.id);
+      if (fieldIds.length) {
+        const { data: templateOptionsRaw } = await supabase
+          .from("custom_field_options")
+          .select("id,field_id,value,position")
+          .in("field_id", fieldIds)
+          .order("position", { ascending: true })
+          .order("value", { ascending: true });
+        templateCustomFieldOptionsByFieldId = ((templateOptionsRaw || []) as CustomFieldOptionRow[]).reduce<
+          Record<string, CustomFieldOptionRow[]>
+        >((acc, option) => {
+          acc[option.field_id] ||= [];
+          acc[option.field_id].push(option);
+          return acc;
+        }, {});
+        const templateValueExpr = templateCustomFieldEntityFilters
+          .map(
+            ([entityType, entityId]) =>
+              `and(entity_type.eq.${entityType},entity_id.eq.${entityId})`
+          )
+          .join(",");
+        const { data: templateValuesRaw } = await supabase
+          .from("custom_field_values")
+          .select("field_id,text_value,option_value,entity_type,entity_id")
+          .or(templateValueExpr)
+          .in("field_id", fieldIds);
+        templateCustomFieldValueByFieldId = new Map<string, string>(
+          ((templateValuesRaw || []) as Array<{
+            field_id: string;
+            text_value: string | null;
+            option_value: string | null;
+          }>).map((row) => [row.field_id, row.option_value || row.text_value || ""])
+        );
+      }
+    }
+
+    const [
+      taskTemplateSubtasksResult,
+      projectTemplateTasksResult,
+      taskTemplateAssigneesResult,
+      taskTemplateSubtaskAssigneesResult,
+    ] = await Promise.all([
+      supabase
+        .from("task_template_subtasks")
+        .select("id,task_template_id,position,title,description,status,priority")
+        .order("task_template_id", { ascending: true })
+        .order("position", { ascending: true }),
+      supabase
+        .from("project_template_tasks")
+        .select("id,project_template_id,task_template_id,position")
+        .order("project_template_id", { ascending: true })
+        .order("position", { ascending: true }),
+      supabase
+        .from("task_template_assignees")
+        .select("task_template_id,user_id")
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("task_template_subtask_assignees")
+        .select("task_template_subtask_id,user_id")
+        .order("created_at", { ascending: true }),
+    ]);
+
+    taskTemplateSubtasksError = taskTemplateSubtasksResult.error;
+    projectTemplateTasksError = projectTemplateTasksResult.error;
+    taskTemplateAssigneesError = taskTemplateAssigneesResult.error;
+    taskTemplateSubtaskAssigneesError = taskTemplateSubtaskAssigneesResult.error;
+    taskTemplateSubtasks = (taskTemplateSubtasksResult.error
+      ? []
+      : taskTemplateSubtasksResult.data || []) as TaskTemplateSubtaskRow[];
+    projectTemplateTasks = (projectTemplateTasksResult.error
+      ? []
+      : projectTemplateTasksResult.data || []) as ProjectTemplateTaskRow[];
+    taskTemplateAssignees = (taskTemplateAssigneesResult.error
+      ? []
+      : taskTemplateAssigneesResult.data || []) as TaskTemplateAssigneeRow[];
+    taskTemplateSubtaskAssignees = (taskTemplateSubtaskAssigneesResult.error
+      ? []
+      : taskTemplateSubtaskAssigneesResult.data || []) as TaskTemplateSubtaskAssigneeRow[];
+  }
+
+  const selectedTaskTemplateCustomFields = selectedTaskTemplate
+    ? templateCustomFields.filter(
+        (field) =>
+          field.entity_type === "task_template" &&
+          field.entity_id === selectedTaskTemplate.id
+      )
+    : [];
+  const selectedProjectTemplateCustomFields = selectedProjectTemplate
+    ? templateCustomFields.filter(
+        (field) =>
+          field.entity_type === "project_template" &&
+          field.entity_id === selectedProjectTemplate.id
+      )
+    : [];
 
   const subtasksByTemplateId = taskTemplateSubtasks.reduce<Record<string, TaskTemplateSubtaskRow[]>>(
     (acc, row) => {
