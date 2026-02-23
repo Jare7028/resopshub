@@ -44,7 +44,6 @@ import {
   FilterMenuMulti,
   FilterMenuText,
 } from "../_components/TableHeaderFilters";
-import MultiSelect from "../_components/MultiSelect";
 
 type ClientRow = {
   id: string;
@@ -463,7 +462,7 @@ function ColumnEditPanel({
       >
         Edit
       </summary>
-      <div className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 text-left normal-case shadow-lg">
+      <div className="absolute right-0 z-[140] mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 text-left normal-case shadow-lg">
         <div className="mb-2 grid grid-cols-2 gap-2">
           <form onSubmit={(event) => runAction(event, onMoveColumn, { refresh: true })}>
             <input type="hidden" name="column_id" value={column.id} />
@@ -676,13 +675,10 @@ export default function InventoryTable({
   const createRecordFormId = "inventory-create-record-form";
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newFullName, setNewFullName] = useState("");
-  const [newClientId, setNewClientId] = useState("");
-  const [showClientColumn, setShowClientColumn] = useState(true);
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() => columns.map((c) => c.id));
   const [sortKey, setSortKey] = useState<EmployeeInfoSortKey>("full_name");
   const [sortDir, setSortDir] = useState<EmployeeInfoSortDir>("asc");
   const [fullNameFilter, setFullNameFilter] = useState("");
-  const [clientFilters, setClientFilters] = useState<string[]>([]);
   const [columnTextFilters, setColumnTextFilters] = useState<Record<string, string>>({});
   const [columnOptionFilters, setColumnOptionFilters] = useState<Record<string, string[]>>({});
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -764,11 +760,10 @@ export default function InventoryTable({
     if (hasLoadedVisibility) return;
     const knownColumnIds = new Set(columns.map((column) => column.id));
     const loaded = readEmployeeInfoVisibility(knownColumnIds, {
-      showClientColumn: true,
+      showClientColumn: false,
       visibleColumnIds: columns.map((column) => column.id),
     }, { userId: currentUserId });
 
-    setShowClientColumn(loaded.showClientColumn);
     setVisibleColumnIds(loaded.visibleColumnIds);
     setHasLoadedVisibility(true);
   }, [columns, currentUserId, hasLoadedVisibility]);
@@ -790,7 +785,6 @@ export default function InventoryTable({
     });
 
     setFullNameFilter(loaded.fullNameFilter);
-    setClientFilters(loaded.clientFilters);
     setColumnTextFilters(loaded.columnTextFilters);
     setColumnOptionFilters(loaded.columnOptionFilters);
     setHasLoadedFilters(true);
@@ -814,17 +808,17 @@ export default function InventoryTable({
   useEffect(() => {
     if (!hasLoadedVisibility) return;
     persistEmployeeInfoVisibility({
-      showClientColumn,
+      showClientColumn: false,
       visibleColumnIds,
       knownColumnIds: columns.map((column) => column.id),
     }, { userId: currentUserId });
-  }, [columns, currentUserId, hasLoadedVisibility, showClientColumn, visibleColumnIds]);
+  }, [columns, currentUserId, hasLoadedVisibility, visibleColumnIds]);
 
   useEffect(() => {
     if (!hasLoadedFilters) return;
     persistEmployeeInfoFilters({
       fullNameFilter,
-      clientFilters,
+      clientFilters: [],
       columnTextFilters,
       columnOptionFilters,
       knownColumnIds: columns.map((column) => column.id),
@@ -832,7 +826,6 @@ export default function InventoryTable({
       options: { userId: currentUserId },
     });
   }, [
-    clientFilters,
     clients,
     columnOptionFilters,
     columnTextFilters,
@@ -859,7 +852,6 @@ export default function InventoryTable({
         )
       );
 
-      setShowClientColumn(Boolean(detail.showClientColumn));
       setVisibleColumnIds(normalizedVisibleColumnIds);
     };
 
@@ -1075,7 +1067,6 @@ export default function InventoryTable({
       }
       setIsAddingRow(false);
       setNewFullName("");
-      setNewClientId("");
       router.refresh();
     });
   };
@@ -1211,7 +1202,6 @@ export default function InventoryTable({
 
   const clearAllFilters = () => {
     setFullNameFilter("");
-    setClientFilters([]);
     setColumnTextFilters({});
     setColumnOptionFilters({});
     setOpenMenu(null);
@@ -1220,15 +1210,13 @@ export default function InventoryTable({
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (fullNameFilter.trim()) count += 1;
-    if (clientFilters.length) count += 1;
     count += Object.values(columnTextFilters).filter((value) => String(value || "").trim()).length;
     count += Object.values(columnOptionFilters).filter((values) => values.length > 0).length;
     return count;
-  }, [clientFilters.length, columnOptionFilters, columnTextFilters, fullNameFilter]);
+  }, [columnOptionFilters, columnTextFilters, fullNameFilter]);
 
   const filteredAndSortedRecords = useMemo(() => {
     const normalizedFullNameFilter = fullNameFilter.trim().toLowerCase();
-    const selectedClientSet = new Set(clientFilters);
     const visibleColumnById = new Map(visibleColumns.map((column) => [column.id, column]));
     const columnTextFilterEntries = Object.entries(columnTextFilters).filter(([columnId, value]) => {
       return visibleColumnById.has(columnId) && Boolean(String(value || "").trim());
@@ -1243,13 +1231,6 @@ export default function InventoryTable({
         !String(record.full_name || "").toLowerCase().includes(normalizedFullNameFilter)
       ) {
         return false;
-      }
-
-      if (selectedClientSet.size > 0) {
-        const clientValue = record.client_id || NONE_FILTER_VALUE;
-        if (!selectedClientSet.has(clientValue)) {
-          return false;
-        }
       }
 
       for (const [columnId, values] of columnOptionFilterEntries) {
@@ -1312,7 +1293,6 @@ export default function InventoryTable({
 
     return next;
   }, [
-    clientFilters,
     clientNameById,
     columnOptionFilters,
     columnTextFilters,
@@ -1328,13 +1308,6 @@ export default function InventoryTable({
   ]);
 
   const hasAnyFilters = activeFilterCount > 0;
-  const clientFilterOptions = useMemo(
-    () => [
-      { value: NONE_FILTER_VALUE, label: "N/A" },
-      ...clients.map((client) => ({ value: client.id, label: client.name })),
-    ],
-    [clients]
-  );
 
   const preventMiddleClickAutoscroll = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button === 1) {
@@ -1366,18 +1339,10 @@ export default function InventoryTable({
           placeholder="Filter inventory item..."
           className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
         />
-        {showClientColumn ? (
-          <MultiSelect
-            options={clientFilterOptions}
-            selectedValues={clientFilters}
-            placeholder="All clients"
-            onChange={setClientFilters}
-          />
-        ) : null}
       </div>
 
       <div
-        className="overflow-x-auto"
+        className="relative overflow-x-auto overflow-y-visible"
         onMouseDown={preventMiddleClickAutoscroll}
         onAuxClick={preventMiddleClickAutoscroll}
       >
@@ -1421,7 +1386,7 @@ export default function InventoryTable({
                   {openMenu === "full_name" ? (
                     <div
                       ref={menuRef}
-                      className="absolute right-0 top-full z-30 mt-2 normal-case"
+                      className="absolute right-0 top-full z-[150] mt-2 normal-case"
                     >
                       <FilterMenuText
                         title="Inventory Item"
@@ -1434,45 +1399,6 @@ export default function InventoryTable({
                   ) : null}
                 </div>
               </th>
-              {showClientColumn ? (
-                <th className="sticky top-0 z-30 bg-slate-50 px-4 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      className={headerClass("client")}
-                      onClick={() => applySort("client")}
-                    >
-                      Client
-                      {sortIndicator("client")}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Filter client"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpenMenu((current) => (current === "client" ? null : "client"));
-                      }}
-                    >
-                      <FilterIcon active={clientFilters.length > 0} />
-                    </button>
-                    {openMenu === "client" ? (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-full z-30 mt-2 normal-case"
-                      >
-                        <FilterMenuMulti
-                          title="Client"
-                          options={clientFilterOptions}
-                          selectedValues={clientFilters}
-                          onChange={setClientFilters}
-                          onClear={() => setClientFilters([])}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-              ) : null}
               {visibleColumns.map((column) => {
                 const columnSortKey = `column:${column.id}` as EmployeeInfoSortKey;
                 const columnMenuKey = `column:${column.id}`;
@@ -1523,7 +1449,7 @@ export default function InventoryTable({
                       {openMenu === columnMenuKey ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-30 mt-2 normal-case"
+                          className="absolute right-0 top-full z-[150] mt-2 normal-case"
                         >
                           {isDropdownFilter ? (
                             <FilterMenuMulti
@@ -1587,32 +1513,12 @@ export default function InventoryTable({
                       onClick={() => {
                         setIsAddingRow(false);
                         setNewFullName("");
-                        setNewClientId("");
                       }}
                     >
                       Cancel
                     </button>
                   </div>
                 </td>
-                {showClientColumn ? (
-                  <td className="px-4 py-3">
-                    <select
-                      form={createRecordFormId}
-                      name="client_id"
-                      value={newClientId}
-                      aria-label="New inventory client"
-                      className="w-full min-w-[12rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
-                      onChange={(event) => setNewClientId(event.currentTarget.value)}
-                    >
-                      <option value="">Client (N/A)</option>
-                      {clients.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                ) : null}
                 {visibleColumns.map((column) => (
                   <td key={`new-record-${column.id}`} className="px-4 py-3 text-xs text-slate-400">
                     {column.column_kind === "formula" ? "auto" : "-"}
@@ -1649,31 +1555,6 @@ export default function InventoryTable({
                         />
                       </form>
                     </td>
-                    {showClientColumn ? (
-                      <td className={`px-4 py-3 ${getCellToneClass(isEmptyCellValue(record.client_id))}`}>
-                        <form>
-                          <input type="hidden" name="record_id" value={record.id} />
-                          <input type="hidden" name="base_field" value="client_id" />
-                          <select
-                            name="value"
-                            defaultValue={record.client_id || ""}
-                            aria-label="Client"
-                            className={getCellFieldClassName({
-                              isEmpty: isEmptyCellValue(record.client_id),
-                              minWidthClass: "w-full min-w-[12rem]",
-                            })}
-                            onChange={handleSelectChange}
-                          >
-                            <option value="">N/A</option>
-                            {clients.map((client) => (
-                              <option key={client.id} value={client.id}>
-                                {client.name}
-                              </option>
-                            ))}
-                          </select>
-                        </form>
-                      </td>
-                    ) : null}
                     {visibleColumns.map((column) => {
                       const highlightEmptyState = shouldHighlightEmptyStateForColumn(column);
                       if (column.column_kind === "formula") {
@@ -1903,7 +1784,7 @@ export default function InventoryTable({
               <tr>
                 <td
                   className="px-4 py-6 text-slate-500"
-                  colSpan={1 + (showClientColumn ? 1 : 0) + visibleColumns.length}
+                  colSpan={1 + visibleColumns.length}
                 >
                   {records.length
                     ? "No matching inventory records for current filters."

@@ -1303,6 +1303,7 @@ export default async function EmployeeInfoPage(props: {
       return { ok: false, error: error.message };
     }
 
+    revalidatePath("/inventory");
     return { ok: true };
   }
 

@@ -96,7 +96,7 @@ export default function AddColumnPopover({
       >
         +
       </summary>
-      <div className="absolute right-0 z-10 mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
+      <div className="absolute right-0 z-[140] mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
         <p className="text-xs text-slate-500">
           Formula columns support Excel-style functions (for example <code>SUM</code>,{" "}
           <code>ROUND</code>, <code>IF</code>), plus letters (A=Inventory Item, B=Client, C onward
