@@ -626,7 +626,6 @@ export default async function EmployeeInfoPage(props: {
     }
 
     const fullName = String(formData.get("full_name") || "").trim();
-    const submittedClientId = String(formData.get("client_id") || "").trim();
     if (!fullName) {
       return { ok: false, error: "Inventory item is required" };
     }
@@ -639,7 +638,7 @@ export default async function EmployeeInfoPage(props: {
     const actorUserId = currentUser?.id || auth.user.id;
     const { error } = await supabase.from("inventory_records").insert({
       full_name: fullName,
-      client_id: submittedClientId || null,
+      client_id: null,
       created_by_user_id: actorUserId,
     });
     if (error) {
