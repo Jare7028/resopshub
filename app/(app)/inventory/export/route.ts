@@ -334,7 +334,6 @@ export async function GET(request: Request) {
     .select("id,role")
     .eq("email", authEmail)
     .maybeSingle();
-  const currentAppUserId = profile?.id || authUserId;
   const isAdmin = profile?.role === "admin";
   let canAccessEmployeeInfo = isAdmin;
 
@@ -347,32 +346,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const viewerClientMembershipResult = await supabase
-    .from("client_users")
-    .select("client_id")
-    .eq("user_id", currentAppUserId);
-  if (
-    viewerClientMembershipResult.error &&
-    !isSupabaseMissingTableError(viewerClientMembershipResult.error)
-  ) {
-    return NextResponse.json({ error: viewerClientMembershipResult.error.message }, { status: 400 });
-  }
-  const viewerAssignedClientIds = Array.from(
-    new Set(
-      (viewerClientMembershipResult.data || [])
-        .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
-        .filter(Boolean)
-    )
-  );
-
   const { data: clientsRaw } = await supabase.from("clients").select("id,name");
-  let recordsQuery = supabase
+  const recordsQuery = supabase
     .from("inventory_records")
     .select("id,full_name,client_id,created_at")
     .order("created_at", { ascending: false });
-  if (!isAdmin && viewerAssignedClientIds.length) {
-    recordsQuery = recordsQuery.in("client_id", viewerAssignedClientIds);
-  }
   const { data: recordsRaw, error: recordsError } = await recordsQuery;
   let { data: columnsRaw, error: columnsError } = await supabase
     .from("inventory_columns")
@@ -403,10 +381,7 @@ export async function GET(request: Request) {
   }
 
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
-  const records =
-    !isAdmin && viewerAssignedClientIds.length === 0
-      ? ([] as EmployeeInfoRecordRow[])
-      : ((recordsRaw || []) as EmployeeInfoRecordRow[]);
+  const records = (recordsRaw || []) as EmployeeInfoRecordRow[];
   const clients = (clientsRaw || []) as Array<{ id: string; name: string }>;
 
   const recordIds = records.map((row) => row.id).filter(Boolean);

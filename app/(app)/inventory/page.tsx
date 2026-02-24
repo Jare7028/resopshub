@@ -472,29 +472,6 @@ export default async function EmployeeInfoPage(props: {
     redirect("/dashboard?error=You%20do%20not%20have%20access%20to%20Inventory");
   }
 
-  const viewerClientMembershipResult = await supabase
-    .from("client_users")
-    .select("client_id")
-    .eq("user_id", currentAppUserId);
-  if (viewerClientMembershipResult.error && !isSupabaseMissingTableError(viewerClientMembershipResult.error)) {
-    redirect(buildEmployeeInfoUrl({ error: viewerClientMembershipResult.error.message }));
-  }
-  const viewerAssignedClientIds = Array.from(
-    new Set(
-      (viewerClientMembershipResult.data || [])
-        .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
-        .filter(Boolean)
-    )
-  );
-
-  let recordsQuery = supabase
-    .from("inventory_records")
-    .select("id,full_name,client_id,created_at")
-    .order("created_at", { ascending: false });
-  if (!isAdmin && viewerAssignedClientIds.length) {
-    recordsQuery = recordsQuery.in("client_id", viewerAssignedClientIds);
-  }
-
   const [
     { data: clientsRaw, error: clientsError },
     employeeNameOptionsResult,
@@ -506,7 +483,10 @@ export default async function EmployeeInfoPage(props: {
       .from("employee_info_records")
       .select("full_name")
       .order("full_name", { ascending: true }),
-    recordsQuery,
+    supabase
+      .from("inventory_records")
+      .select("id,full_name,client_id,created_at")
+      .order("created_at", { ascending: false }),
     supabase
       .from("inventory_columns")
       .select(
@@ -562,10 +542,7 @@ export default async function EmployeeInfoPage(props: {
     );
   }
 
-  const records =
-    !isAdmin && viewerAssignedClientIds.length === 0
-      ? ([] as EmployeeInfoRecordRow[])
-      : ((recordsRaw || []) as EmployeeInfoRecordRow[]);
+  const records = (recordsRaw || []) as EmployeeInfoRecordRow[];
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
   const formulaSuggestions = buildFormulaSuggestions(columns);
   const hasFormulaColumns = columns.some((column) => column.column_kind === "formula");
@@ -649,7 +626,7 @@ export default async function EmployeeInfoPage(props: {
     }
 
     const fullName = String(formData.get("full_name") || "").trim();
-    const clientId = String(formData.get("client_id") || "").trim();
+    const submittedClientId = String(formData.get("client_id") || "").trim();
     if (!fullName) {
       return { ok: false, error: "Inventory item is required" };
     }
@@ -660,40 +637,9 @@ export default async function EmployeeInfoPage(props: {
       .eq("email", auth.user.email || "")
       .maybeSingle();
     const actorUserId = currentUser?.id || auth.user.id;
-    const actorIsAdmin = currentUser?.role === "admin";
-    if (!actorIsAdmin) {
-      const assignedClientsResult = await supabase
-        .from("client_users")
-        .select("client_id")
-        .eq("user_id", actorUserId);
-      if (assignedClientsResult.error && !isSupabaseMissingTableError(assignedClientsResult.error)) {
-        return { ok: false, error: assignedClientsResult.error.message };
-      }
-      const actorAssignedClientIds = Array.from(
-        new Set(
-          (assignedClientsResult.data || [])
-            .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
-            .filter(Boolean)
-        )
-      );
-      if (actorAssignedClientIds.length === 0) {
-        return {
-          ok: false,
-          error:
-            "You are not assigned to any clients, so you cannot create inventory records until a client assignment is added.",
-        };
-      }
-      if (!clientId || !actorAssignedClientIds.includes(clientId)) {
-        return {
-          ok: false,
-          error: "You can only create inventory records for your assigned clients.",
-        };
-      }
-    }
-
     const { error } = await supabase.from("inventory_records").insert({
       full_name: fullName,
-      client_id: clientId || null,
+      client_id: submittedClientId || null,
       created_by_user_id: actorUserId,
     });
     if (error) {
@@ -722,38 +668,6 @@ export default async function EmployeeInfoPage(props: {
 
     if (!recordId) return { ok: false, error: "Missing record id" };
 
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", auth.user.email || "")
-      .maybeSingle();
-    const actorUserId = currentUser?.id || auth.user.id;
-    const actorIsAdmin = currentUser?.role === "admin";
-    let actorAssignedClientIds = [] as string[];
-    if (!actorIsAdmin) {
-      const assignedClientsResult = await supabase
-        .from("client_users")
-        .select("client_id")
-        .eq("user_id", actorUserId);
-      if (assignedClientsResult.error && !isSupabaseMissingTableError(assignedClientsResult.error)) {
-        return { ok: false, error: assignedClientsResult.error.message };
-      }
-      actorAssignedClientIds = Array.from(
-        new Set(
-          (assignedClientsResult.data || [])
-            .map((row) => String((row as { client_id: string | null }).client_id || "").trim())
-            .filter(Boolean)
-        )
-      );
-      if (actorAssignedClientIds.length === 0) {
-        return {
-          ok: false,
-          error:
-            "You are not assigned to any clients, so you cannot edit inventory records until a client assignment is added.",
-        };
-      }
-    }
-
     const { data: recordRow, error: recordError } = await supabase
       .from("inventory_records")
       .select("id,client_id")
@@ -761,13 +675,6 @@ export default async function EmployeeInfoPage(props: {
       .maybeSingle();
     if (recordError) return { ok: false, error: recordError.message };
     if (!recordRow) return { ok: false, error: "Employee record not found" };
-
-    if (!actorIsAdmin && !actorAssignedClientIds.includes(String(recordRow.client_id || ""))) {
-      return {
-        ok: false,
-        error: "You can only edit inventory records for your assigned clients.",
-      };
-    }
 
     if (baseField === "full_name") {
       if (!value) return { ok: false, error: "Inventory item is required" };
@@ -781,12 +688,6 @@ export default async function EmployeeInfoPage(props: {
     }
 
     if (baseField === "client_id") {
-      if (!actorIsAdmin && (!value || !actorAssignedClientIds.includes(value))) {
-        return {
-          ok: false,
-          error: "You can only move inventory records to your assigned clients.",
-        };
-      }
       const { error } = await supabase
         .from("inventory_records")
         .update({ client_id: value || null, updated_at: new Date().toISOString() })
@@ -1346,6 +1247,8 @@ export default async function EmployeeInfoPage(props: {
     return { ok: true };
   }
 
+  const inventoryTableKey = `${records.length}:${columns.length}`;
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -1412,6 +1315,7 @@ export default async function EmployeeInfoPage(props: {
           </div>
         </div>
         <InventoryTable
+          key={inventoryTableKey}
           records={visibleRecords}
           clients={clients}
           employeeNameOptions={employeeNameOptions}

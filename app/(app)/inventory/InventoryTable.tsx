@@ -675,6 +675,7 @@ export default function InventoryTable({
   const createRecordFormId = "inventory-create-record-form";
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [newFullName, setNewFullName] = useState("");
+  const [newClientId, setNewClientId] = useState("");
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() => columns.map((c) => c.id));
   const [sortKey, setSortKey] = useState<EmployeeInfoSortKey>("full_name");
   const [sortDir, setSortDir] = useState<EmployeeInfoSortDir>("asc");
@@ -688,6 +689,7 @@ export default function InventoryTable({
   const currencySwitchIntentAtRef = useRef(0);
   const lastPointerDownTargetRef = useRef<Element | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openMenuRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const tableRootRef = useRef<HTMLDivElement | null>(null);
@@ -902,6 +904,10 @@ export default function InventoryTable({
         clearTimeout(refreshTimeoutRef.current);
         refreshTimeoutRef.current = null;
       }
+      if (refreshFallbackTimeoutRef.current) {
+        clearTimeout(refreshFallbackTimeoutRef.current);
+        refreshFallbackTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -993,6 +999,17 @@ export default function InventoryTable({
     refreshTimeoutRef.current = setTimeout(attemptRefresh, 180);
   }, [router]);
 
+  const refreshTableNowAndSoon = useCallback(() => {
+    router.refresh();
+    if (refreshFallbackTimeoutRef.current) {
+      clearTimeout(refreshFallbackTimeoutRef.current);
+    }
+    refreshFallbackTimeoutRef.current = setTimeout(() => {
+      router.refresh();
+      refreshFallbackTimeoutRef.current = null;
+    }, 250);
+  }, [router]);
+
   const saveControlChange = (control: HTMLInputElement | HTMLSelectElement) => {
     const shouldHighlight = getHighlightPolicyForControl(control);
     syncEditableCellHighlight(control, shouldHighlight);
@@ -1067,7 +1084,8 @@ export default function InventoryTable({
       }
       setIsAddingRow(false);
       setNewFullName("");
-      router.refresh();
+      setNewClientId("");
+      refreshTableNowAndSoon();
     });
   };
 
@@ -1499,6 +1517,21 @@ export default function InventoryTable({
                       autoFocus
                       required
                     />
+                    <select
+                      form={createRecordFormId}
+                      name="client_id"
+                      value={newClientId}
+                      onChange={(event) => setNewClientId(event.currentTarget.value)}
+                      aria-label="Inventory client"
+                      className="h-9 min-w-[11rem] rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700"
+                    >
+                      <option value="">No client (optional)</option>
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="submit"
                       form={createRecordFormId}
@@ -1513,6 +1546,7 @@ export default function InventoryTable({
                       onClick={() => {
                         setIsAddingRow(false);
                         setNewFullName("");
+                        setNewClientId("");
                       }}
                     >
                       Cancel

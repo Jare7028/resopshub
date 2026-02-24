@@ -45,6 +45,7 @@ export default function AddColumnPopover({
   const [formulaCurrencyCode, setFormulaCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
   const [formulaValue, setFormulaValue] = useState("");
   const [isFormulaEditorOpen, setIsFormulaEditorOpen] = useState(false);
+  const refreshFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (columnKind !== "formula" && isFormulaEditorOpen) {
@@ -67,6 +68,17 @@ export default function AddColumnPopover({
     }
   };
 
+  const refreshInventoryTable = () => {
+    router.refresh();
+    if (refreshFallbackTimeoutRef.current) {
+      clearTimeout(refreshFallbackTimeoutRef.current);
+    }
+    refreshFallbackTimeoutRef.current = setTimeout(() => {
+      router.refresh();
+      refreshFallbackTimeoutRef.current = null;
+    }, 250);
+  };
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -86,9 +98,17 @@ export default function AddColumnPopover({
       form.reset();
       resetState();
       closePopover();
-      router.refresh();
+      refreshInventoryTable();
     });
   };
+
+  useEffect(() => {
+    return () => {
+      if (refreshFallbackTimeoutRef.current) {
+        clearTimeout(refreshFallbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;

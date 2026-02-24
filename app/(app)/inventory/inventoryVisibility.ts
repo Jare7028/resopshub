@@ -106,9 +106,11 @@ export function readEmployeeInfoVisibility(
     const storedKnownColumnIds = Array.isArray(parsed.known_column_ids)
       ? new Set(normalizeIdList(parsed.known_column_ids))
       : null;
-    const newlyDiscoveredColumnIds = storedKnownColumnIds
-      ? Array.from(knownColumnIds).filter((columnId) => !storedKnownColumnIds.has(columnId))
-      : [];
+    const newlyDiscoveredColumnIds = Array.from(knownColumnIds).filter((columnId) =>
+      storedKnownColumnIds
+        ? !storedKnownColumnIds.has(columnId)
+        : !storedVisibleColumnIds.includes(columnId)
+    );
     const visibleColumnIds = uniqueIds([...storedVisibleColumnIds, ...newlyDiscoveredColumnIds]);
 
     return {
