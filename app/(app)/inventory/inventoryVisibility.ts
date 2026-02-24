@@ -134,13 +134,27 @@ export function persistEmployeeInfoVisibility(
   const knownColumnIds = uniqueIds(
     (state.knownColumnIds || []).map((value) => String(value || "").trim()).filter(Boolean)
   );
+  const scopedKey = getScopedStorageKey(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY, options);
+  let nextVisibleColumnIds = visibleColumnIds;
 
   try {
+    const existingRaw =
+      window.localStorage.getItem(scopedKey) ||
+      window.localStorage.getItem(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY);
+    if (existingRaw) {
+      const existingParsed = JSON.parse(existingRaw) as PersistedEmployeeInfoVisibilityState;
+      const existingKnownColumnIds = new Set(normalizeIdList(existingParsed.known_column_ids));
+      const newlyDiscoveredColumnIds = knownColumnIds.filter(
+        (columnId) => !existingKnownColumnIds.has(columnId)
+      );
+      nextVisibleColumnIds = uniqueIds([...visibleColumnIds, ...newlyDiscoveredColumnIds]);
+    }
+
     window.localStorage.setItem(
-      getScopedStorageKey(EMPLOYEE_INFO_VISIBILITY_STORAGE_KEY, options),
+      scopedKey,
       JSON.stringify({
         show_client_column: state.showClientColumn,
-        visible_column_ids: visibleColumnIds,
+        visible_column_ids: nextVisibleColumnIds,
         known_column_ids: knownColumnIds,
       })
     );
@@ -152,7 +166,7 @@ export function persistEmployeeInfoVisibility(
     new CustomEvent<EmployeeInfoVisibilityState>(EMPLOYEE_INFO_VISIBILITY_EVENT, {
       detail: {
         showClientColumn: state.showClientColumn,
-        visibleColumnIds,
+        visibleColumnIds: nextVisibleColumnIds,
       },
     })
   );
