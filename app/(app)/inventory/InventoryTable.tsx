@@ -77,6 +77,11 @@ type EmployeeInfoActionResult = { ok: boolean; error?: string };
 type EmployeeInfoSortDir = "asc" | "desc";
 type EmployeeInfoSortKey = "full_name" | "client" | `column:${string}`;
 type InventoryDropdownSource = "custom" | "employee_names" | "clients";
+type RowContextMenuState = {
+  recordId: string;
+  x: number;
+  y: number;
+};
 
 const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
   USD: "USD ($)",
@@ -659,6 +664,7 @@ export default function InventoryTable({
   isAdmin,
   formulaSuggestions,
   onCreateRecord,
+  onDeleteRecord,
   onUpdateCell,
   onUpdateColumn,
   onDeleteColumn,
@@ -676,6 +682,7 @@ export default function InventoryTable({
   isAdmin: boolean;
   formulaSuggestions: FormulaSuggestion[];
   onCreateRecord: (formData: FormData) => Promise<EmployeeInfoActionResult>;
+  onDeleteRecord: (formData: FormData) => Promise<EmployeeInfoActionResult>;
   onUpdateCell: (formData: FormData) => Promise<EmployeeInfoActionResult>;
   onUpdateColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
   onDeleteColumn: (formData: FormData) => Promise<EmployeeInfoActionResult>;
@@ -693,6 +700,7 @@ export default function InventoryTable({
   const [columnTextFilters, setColumnTextFilters] = useState<Record<string, string>>({});
   const [columnOptionFilters, setColumnOptionFilters] = useState<Record<string, string[]>>({});
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<RowContextMenuState | null>(null);
   const [hasLoadedVisibility, setHasLoadedVisibility] = useState(false);
   const [hasLoadedFilters, setHasLoadedFilters] = useState(false);
   const knownColumnIdsRef = useRef(new Set(columns.map((column) => column.id)));
@@ -701,6 +709,7 @@ export default function InventoryTable({
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openMenuRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const rowContextMenuRef = useRef<HTMLDivElement | null>(null);
   const tableRootRef = useRef<HTMLDivElement | null>(null);
 
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
@@ -942,6 +951,40 @@ export default function InventoryTable({
   }, [openMenu]);
 
   useEffect(() => {
+    if (!rowContextMenu) return;
+
+    const onPointerDown = (event: MouseEvent | PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (rowContextMenuRef.current && rowContextMenuRef.current.contains(target)) {
+        return;
+      }
+      setRowContextMenu(null);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setRowContextMenu(null);
+      }
+    };
+
+    const closeMenu = () => {
+      setRowContextMenu(null);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+    };
+  }, [rowContextMenu]);
+
+  useEffect(() => {
     const knownColumnIdSet = new Set(columns.map((column) => column.id));
     const visibleColumnIdSetLocal = new Set(visibleColumns.map((column) => column.id));
 
@@ -1087,6 +1130,24 @@ export default function InventoryTable({
       }
       setIsAddingRow(false);
       setNewFullName("");
+      refreshTableNowAndSoon();
+    });
+  };
+
+  const handleDeleteRecord = (recordId: string) => {
+    if (!recordId) return;
+    const confirmed = window.confirm("Delete this row?");
+    if (!confirmed) return;
+
+    const formData = new FormData();
+    formData.set("record_id", recordId);
+    startTransition(async () => {
+      const result = await onDeleteRecord(formData);
+      if (!result?.ok) {
+        if (result?.error) window.alert(result.error);
+        return;
+      }
+      setRowContextMenu(null);
       refreshTableNowAndSoon();
     });
   };
@@ -1337,6 +1398,24 @@ export default function InventoryTable({
 
   return (
     <div ref={tableRootRef} className="space-y-3">
+      {rowContextMenu ? (
+        <div
+          ref={rowContextMenuRef}
+          className="fixed z-[220] min-w-[10rem] rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+          style={{ left: rowContextMenu.x, top: rowContextMenu.y }}
+          role="menu"
+          aria-label="Row actions"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full rounded px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50"
+            onClick={() => handleDeleteRecord(rowContextMenu.recordId)}
+          >
+            Delete row
+          </button>
+        </div>
+      ) : null}
       <div className="mobile-filter-panel space-y-2 md:hidden">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1553,7 +1632,18 @@ export default function InventoryTable({
                 const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
                 const rowHasLeaveDate = recordIdsWithLeaveDate.has(record.id);
                 return (
-                  <tr key={record.id} className={rowHasLeaveDate ? "bg-rose-50/35" : ""}>
+                  <tr
+                    key={record.id}
+                    className={rowHasLeaveDate ? "bg-rose-50/35" : ""}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setRowContextMenu({
+                        recordId: record.id,
+                        x: event.clientX,
+                        y: event.clientY,
+                      });
+                    }}
+                  >
                     <td
                       className={`sticky left-0 z-10 border-r border-slate-200 px-4 py-3 ${
                         rowHasLeaveDate ? "bg-rose-50/35" : "bg-white"

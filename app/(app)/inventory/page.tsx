@@ -649,6 +649,28 @@ export default async function EmployeeInfoPage(props: {
     return { ok: true };
   }
 
+  async function deleteRecord(formData: FormData): Promise<EmployeeInfoActionResult> {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) {
+      redirect("/login");
+    }
+
+    const recordId = String(formData.get("record_id") || "").trim();
+    if (!recordId) {
+      return { ok: false, error: "Record id is required" };
+    }
+
+    const { error } = await supabase.from("inventory_records").delete().eq("id", recordId);
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    revalidatePath("/inventory");
+    return { ok: true };
+  }
+
   async function updateCell(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
@@ -1327,6 +1349,7 @@ export default async function EmployeeInfoPage(props: {
           isAdmin={canManageColumns}
           formulaSuggestions={formulaSuggestions}
           onCreateRecord={createRecord}
+          onDeleteRecord={deleteRecord}
           onUpdateCell={updateCell}
           onUpdateColumn={updateColumn}
           onDeleteColumn={deleteColumn}
