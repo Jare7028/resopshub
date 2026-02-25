@@ -467,10 +467,6 @@ export default async function AppLayout({
                   <path d="M3 18h18" />
                 </svg>
               </label>
-              <div className="order-2 hidden min-w-0 flex-1 sm:block md:order-1 md:min-w-[12rem] md:flex-none">
-                <p className="text-xs uppercase tracking-wide text-slate-500 sm:text-sm sm:normal-case sm:tracking-normal">Signed in as</p>
-                <p className="truncate text-sm font-semibold text-slate-900">{email}</p>
-              </div>
               <div className="order-2 ml-auto flex items-center gap-2 md:order-3 md:gap-3">
                 <NotificationBell userId={user.id} />
                 <form action={signOut}>
@@ -497,7 +493,7 @@ export default async function AppLayout({
                   </button>
                 </form>
               </div>
-              <div className="order-3 w-full md:order-2 md:flex-1">
+              <div className="order-3 w-full md:order-2 md:min-w-0 md:flex-1">
                 <GlobalSearchBar />
               </div>
             </div>
