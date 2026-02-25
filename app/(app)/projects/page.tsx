@@ -273,6 +273,15 @@ export default async function ProjectsPage(props: {
   const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const includeWatching = (searchParams?.watch ?? "0").trim() === "1";
+  const hasExplicitFilterParams =
+    typeof searchParams?.client !== "undefined" ||
+    typeof searchParams?.status !== "undefined" ||
+    typeof searchParams?.assignee !== "undefined" ||
+    typeof searchParams?.hide !== "undefined" ||
+    typeof searchParams?.watch !== "undefined" ||
+    typeof searchParams?.sort !== "undefined" ||
+    typeof searchParams?.dir !== "undefined" ||
+    typeof searchParams?.view !== "undefined";
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
     .toLowerCase();
@@ -1381,6 +1390,8 @@ export default async function ProjectsPage(props: {
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="projects"
           columnPreferenceUserId={currentUserId}
+          filterPersistenceUserId={currentUserId || authData.user?.id || null}
+          hasExplicitFilterParams={hasExplicitFilterParams}
         />
       </section>
     </div>

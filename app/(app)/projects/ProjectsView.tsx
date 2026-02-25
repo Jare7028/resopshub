@@ -17,6 +17,7 @@ import { formatTaskStatusLabel } from "@/lib/taskStatus";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import MultiSelect from "../_components/MultiSelect";
 import {
+  isViewMode,
   readDefaultViewMode,
   writeDefaultViewMode,
   type ViewPreferenceScope,
@@ -107,6 +108,9 @@ type ProjectsViewProps = {
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
   columnPreferenceUserId?: string | null;
+  filterPersistenceUserId?: string | null;
+  filterPersistenceScope?: string;
+  hasExplicitFilterParams?: boolean;
 };
 
 type HeaderMenuKey = "client" | "status" | "assignees";
@@ -119,6 +123,18 @@ type ProjectTableColumnId =
   | "start"
   | "end";
 const PROJECT_REQUIRED_COLUMN_IDS = new Set<ProjectTableColumnId>(["project"]);
+const PROJECT_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.project-filters.v1";
+
+type PersistedProjectFilterState = {
+  client: string[];
+  status: string[];
+  assignee: string[];
+  hideCompleted: boolean;
+  includeWatching: boolean;
+  sortKey: ProjectSortKey;
+  sortDir: ProjectSortDir;
+  view: "table" | "gantt" | "board";
+};
 
 const statusColors: Record<string, string> = {
   planned: "bg-slate-400",
@@ -184,6 +200,50 @@ function normalizeVisibleProjectColumns(
   return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
 }
 
+function normalizeStorageList(value: unknown) {
+  if (!Array.isArray(value)) return [] as string[];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function filterAllowedValues(values: string[], allowedValues: Set<string>) {
+  return values.filter((value) => allowedValues.has(value));
+}
+
+function normalizeProjectSortKey(value: string | null | undefined, fallback: ProjectSortKey) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "name" ||
+    normalized === "client" ||
+    normalized === "status" ||
+    normalized === "assignees" ||
+    normalized === "start" ||
+    normalized === "end" ||
+    normalized === "open_tasks" ||
+    normalized === "created"
+  ) {
+    return normalized as ProjectSortKey;
+  }
+  return fallback;
+}
+
+function normalizeProjectSortDir(value: string | null | undefined, fallback: ProjectSortDir) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "asc" || normalized === "desc") {
+    return normalized;
+  }
+  return fallback;
+}
+
 export default function ProjectsView({
   projects,
   users,
@@ -207,6 +267,9 @@ export default function ProjectsView({
   hasExplicitView = false,
   viewPreferenceScope = "projects",
   columnPreferenceUserId = null,
+  filterPersistenceUserId = null,
+  filterPersistenceScope,
+  hasExplicitFilterParams = false,
 }: ProjectsViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -221,6 +284,7 @@ export default function ProjectsView({
   >({});
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
+  const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const projectTableColumns = useMemo<TableColumnOption[]>(
     () => [
@@ -253,6 +317,15 @@ export default function ProjectsView({
     (columnId: ProjectTableColumnId) => visibleProjectColumnSet.has(columnId),
     [visibleProjectColumnSet]
   );
+  const projectFilterPersistenceKey = useMemo(() => {
+    const userId = String(filterPersistenceUserId || "").trim();
+    if (!userId) return null;
+    const rawScope = String(filterPersistenceScope || basePath || "/projects")
+      .trim()
+      .toLowerCase();
+    const scope = rawScope || "/projects";
+    return `${PROJECT_FILTER_PERSISTENCE_KEY_PREFIX}:${userId}:${scope}`;
+  }, [basePath, filterPersistenceScope, filterPersistenceUserId]);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
@@ -415,25 +488,146 @@ export default function ProjectsView({
     [clients]
   );
 
-  const buildQuery = (
-    nextFilters: typeof filters,
-    nextSortKey: ProjectSortKey,
-    nextSortDir: ProjectSortDir,
-    nextView: typeof view,
-    nextHideCompleted: boolean,
-    nextIncludeWatching: boolean
-  ) => {
-    const params = new URLSearchParams();
-    setCsvParam(params, "client", nextFilters.client);
-    setCsvParam(params, "status", nextFilters.status);
-    setCsvParam(params, "assignee", nextFilters.assignee);
-    params.set("hide", nextHideCompleted ? "1" : "0");
-    if (nextIncludeWatching) params.set("watch", "1");
-    params.set("sort", nextSortKey);
-    params.set("dir", nextSortDir);
-    if (nextView !== "table") params.set("view", nextView);
-    return params.toString();
-  };
+  const buildQuery = useCallback(
+    (
+      nextFilters: typeof filters,
+      nextSortKey: ProjectSortKey,
+      nextSortDir: ProjectSortDir,
+      nextView: typeof view,
+      nextHideCompleted: boolean,
+      nextIncludeWatching: boolean
+    ) => {
+      const params = new URLSearchParams();
+      setCsvParam(params, "client", nextFilters.client);
+      setCsvParam(params, "status", nextFilters.status);
+      setCsvParam(params, "assignee", nextFilters.assignee);
+      params.set("hide", nextHideCompleted ? "1" : "0");
+      if (nextIncludeWatching) params.set("watch", "1");
+      params.set("sort", nextSortKey);
+      params.set("dir", nextSortDir);
+      if (nextView !== "table") params.set("view", nextView);
+      return params.toString();
+    },
+    []
+  );
+
+  useEffect(() => {
+    setHasLoadedPersistedFilters(!projectFilterPersistenceKey);
+  }, [projectFilterPersistenceKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!projectFilterPersistenceKey || hasLoadedPersistedFilters) return;
+
+    if (hasExplicitFilterParams) {
+      setHasLoadedPersistedFilters(true);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(projectFilterPersistenceKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<PersistedProjectFilterState>;
+        const clientSet = new Set(clients.map((value) => String(value.id).trim()));
+        const statusSet = new Set(statusOptions.map((value) => String(value).trim()));
+        const assigneeSet = new Set(users.map((value) => String(value.id).trim()));
+        assigneeSet.add("unassigned");
+
+        const nextFilters = {
+          client: filterAllowedValues(normalizeStorageList(parsed.client), clientSet),
+          status: filterAllowedValues(normalizeStorageList(parsed.status), statusSet),
+          assignee: filterAllowedValues(normalizeStorageList(parsed.assignee), assigneeSet),
+        };
+        const nextHideCompleted =
+          typeof parsed.hideCompleted === "boolean" ? parsed.hideCompleted : hideCompleted;
+        const nextIncludeWatching =
+          typeof parsed.includeWatching === "boolean" ? parsed.includeWatching : includeWatching;
+        const nextSortKey = normalizeProjectSortKey(parsed.sortKey, sortKey);
+        const nextSortDir = normalizeProjectSortDir(parsed.sortDir, sortDir);
+        const parsedView = String(parsed.view || "").trim();
+        const nextView = isViewMode(parsedView) ? parsedView : view;
+
+        const currentQuery = buildQuery(
+          filters,
+          sortKey,
+          sortDir,
+          view,
+          hideCompleted,
+          includeWatching
+        );
+        const restoredQuery = buildQuery(
+          nextFilters,
+          nextSortKey,
+          nextSortDir,
+          nextView,
+          nextHideCompleted,
+          nextIncludeWatching
+        );
+
+        if (restoredQuery !== currentQuery) {
+          setFilters(nextFilters);
+          setView(nextView);
+          startTransition(() => {
+            router.replace(restoredQuery ? `${basePath}?${restoredQuery}` : basePath, {
+              scroll: false,
+            });
+          });
+        }
+      }
+    } catch {
+      // Ignore localStorage and JSON parse failures.
+    }
+
+    setHasLoadedPersistedFilters(true);
+  }, [
+    basePath,
+    buildQuery,
+    clients,
+    filters,
+    hasExplicitFilterParams,
+    hasLoadedPersistedFilters,
+    hideCompleted,
+    includeWatching,
+    projectFilterPersistenceKey,
+    router,
+    sortDir,
+    sortKey,
+    startTransition,
+    statusOptions,
+    users,
+    view,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!projectFilterPersistenceKey || !hasLoadedPersistedFilters) return;
+
+    const payload: PersistedProjectFilterState = {
+      client: filters.client,
+      status: filters.status,
+      assignee: filters.assignee,
+      hideCompleted,
+      includeWatching,
+      sortKey,
+      sortDir,
+      view,
+    };
+
+    try {
+      window.localStorage.setItem(projectFilterPersistenceKey, JSON.stringify(payload));
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  }, [
+    filters,
+    hasLoadedPersistedFilters,
+    hideCompleted,
+    includeWatching,
+    projectFilterPersistenceKey,
+    sortDir,
+    sortKey,
+    view,
+  ]);
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);

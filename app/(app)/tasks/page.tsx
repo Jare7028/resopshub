@@ -269,48 +269,60 @@ export default async function TasksPage(props: {
   const sortSource =
     typeof searchParams?.sort !== "undefined"
       ? searchParams?.sort
-      : undefined;
+      : taskTablePreferences?.sort_key;
   const dirSource =
     typeof searchParams?.dir !== "undefined"
       ? searchParams?.dir
-      : undefined;
+      : taskTablePreferences?.sort_dir;
   const sortKey = normalizeTaskSortKey(sortSource as string | undefined);
   const sortDir = normalizeTaskSortDir(dirSource as string | undefined);
 
   const selectedStatusesRaw =
     typeof searchParams?.status !== "undefined"
       ? parseCsvParam(searchParams?.status)
-      : [];
+      : normalizePreferenceValues(taskTablePreferences?.status);
   const selectedPrioritiesRaw =
     typeof searchParams?.priority !== "undefined"
       ? parseCsvParam(searchParams?.priority)
-      : [];
+      : normalizePreferenceValues(taskTablePreferences?.priority);
   const selectedAssigneesRaw =
     typeof searchParams?.assignee !== "undefined"
       ? parseCsvParam(searchParams?.assignee)
-      : [];
+      : normalizePreferenceValues(taskTablePreferences?.assignee);
   const selectedClientIdsRaw =
     typeof searchParams?.client !== "undefined"
       ? parseCsvParam(searchParams?.client)
-      : [];
+      : normalizePreferenceValues(taskTablePreferences?.client);
   const selectedProjectIdsRaw =
     typeof searchParams?.project !== "undefined"
       ? parseCsvParam(searchParams?.project)
-      : [];
+      : normalizePreferenceValues(taskTablePreferences?.project);
   const dueSource =
     typeof searchParams?.due !== "undefined"
       ? searchParams?.due
-      : "all";
+      : taskTablePreferences?.due || "all";
   let selectedDue = String(dueSource || "all").trim();
   const hideCompleted =
     typeof searchParams?.hide !== "undefined"
       ? (searchParams?.hide ?? "1").trim() !== "0"
-      : true;
+      : Boolean(taskTablePreferences?.hide_completed ?? true);
   const includeWatching =
     typeof searchParams?.watch !== "undefined"
       ? (searchParams?.watch ?? "0").trim() === "1"
-      : false;
+      : Boolean(taskTablePreferences?.include_watching ?? false);
   const activeTab = normalizeTasksTabKey(searchParams?.tab);
+  const hasExplicitFilterParams =
+    typeof searchParams?.status !== "undefined" ||
+    typeof searchParams?.priority !== "undefined" ||
+    typeof searchParams?.assignee !== "undefined" ||
+    typeof searchParams?.due !== "undefined" ||
+    typeof searchParams?.client !== "undefined" ||
+    typeof searchParams?.project !== "undefined" ||
+    typeof searchParams?.hide !== "undefined" ||
+    typeof searchParams?.watch !== "undefined" ||
+    typeof searchParams?.sort !== "undefined" ||
+    typeof searchParams?.dir !== "undefined" ||
+    typeof searchParams?.view !== "undefined";
 
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
@@ -1808,6 +1820,9 @@ export default async function TasksPage(props: {
           initialView={selectedView}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
+          filterPersistenceUserId={currentAppUserId || authUserId}
+          filterPersistenceScope="/tasks"
+          hasExplicitFilterParams={hasExplicitFilterParams}
           columnPreferenceUserId={currentAppUserId || authUserId}
         />
       </section>

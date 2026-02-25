@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import ConfirmDelete from "../_components/ConfirmDelete";
 import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
 import {
+  isViewMode,
   readDefaultViewMode,
   writeDefaultViewMode,
   type ViewPreferenceScope,
@@ -46,6 +47,16 @@ type ClientTableColumnId =
   | "start"
   | "delete";
 const CLIENT_REQUIRED_COLUMN_IDS = new Set<ClientTableColumnId>(["name"]);
+const CLIENT_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.client-filters.v1";
+
+type PersistedClientFilterState = {
+  q: string;
+  status: string[];
+  industry: string[];
+  sortKey: ClientSortKey;
+  sortDir: ClientSortDir;
+  view: "table" | "gantt" | "board";
+};
 
 function normalizeVisibleClientColumns(
   values: string[],
@@ -67,6 +78,46 @@ function normalizeVisibleClientColumns(
     }
   });
   return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
+}
+
+function normalizeStorageList(value: unknown) {
+  if (!Array.isArray(value)) return [] as string[];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function filterAllowedValues(values: string[], allowedValues: Set<string>) {
+  return values.filter((value) => allowedValues.has(value));
+}
+
+function normalizeClientSortKey(value: string | null | undefined, fallback: ClientSortKey) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "name" ||
+    normalized === "status" ||
+    normalized === "industry" ||
+    normalized === "start"
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeClientSortDir(value: string | null | undefined, fallback: ClientSortDir) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "asc" || normalized === "desc") {
+    return normalized;
+  }
+  return fallback;
 }
 
 function toDate(value?: string | null) {
@@ -110,6 +161,9 @@ export default function ClientsTable({
   hasExplicitView = false,
   viewPreferenceScope = "clients",
   columnPreferenceUserId = null,
+  filterPersistenceUserId = null,
+  filterPersistenceScope,
+  hasExplicitFilterParams = false,
   onDelete,
 }: {
   clients: ClientRow[];
@@ -122,6 +176,9 @@ export default function ClientsTable({
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
   columnPreferenceUserId?: string | null;
+  filterPersistenceUserId?: string | null;
+  filterPersistenceScope?: string;
+  hasExplicitFilterParams?: boolean;
   onDelete: (formData: FormData) => void;
 }) {
   const router = useRouter();
@@ -136,6 +193,7 @@ export default function ClientsTable({
   const [filters, setFilters] = useState(initialFilters);
   const [mobileSearchInput, setMobileSearchInput] = useState(initialFilters.q);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
+  const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const filtersRef = useRef(filters);
   const searchDebounceTimerRef = useRef<number | null>(null);
@@ -168,6 +226,15 @@ export default function ClientsTable({
   );
   const isClientColumnVisible = (columnId: ClientTableColumnId) =>
     visibleClientColumnSet.has(columnId);
+  const clientFilterPersistenceKey = useMemo(() => {
+    const userId = String(filterPersistenceUserId || "").trim();
+    if (!userId) return null;
+    const rawScope = String(filterPersistenceScope || "/clients")
+      .trim()
+      .toLowerCase();
+    const scope = rawScope || "/clients";
+    return `${CLIENT_FILTER_PERSISTENCE_KEY_PREFIX}:${userId}:${scope}`;
+  }, [filterPersistenceScope, filterPersistenceUserId]);
   const tableColSpan = clientTableColumnIds.reduce((count, columnId) => {
     return isClientColumnVisible(columnId) ? count + 1 : count;
   }, 0);
@@ -257,16 +324,118 @@ export default function ClientsTable({
       .map((value) => ({ value, label: value }));
   }, [clients]);
 
-  const buildQuery = (next: typeof filters) => {
-    const params = new URLSearchParams();
-    if (next.q.trim()) params.set("q", next.q.trim());
-    setCsvParam(params, "status", next.status);
-    setCsvParam(params, "industry", next.industry);
-    params.set("sort", sortKey);
-    params.set("dir", sortDir);
-    if (view !== "table") params.set("view", view);
-    return params.toString();
-  };
+  const buildQuery = useCallback(
+    (next: typeof filters) => {
+      const params = new URLSearchParams();
+      if (next.q.trim()) params.set("q", next.q.trim());
+      setCsvParam(params, "status", next.status);
+      setCsvParam(params, "industry", next.industry);
+      params.set("sort", sortKey);
+      params.set("dir", sortDir);
+      if (view !== "table") params.set("view", view);
+      return params.toString();
+    },
+    [sortDir, sortKey, view]
+  );
+
+  useEffect(() => {
+    setHasLoadedPersistedFilters(!clientFilterPersistenceKey);
+  }, [clientFilterPersistenceKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!clientFilterPersistenceKey || hasLoadedPersistedFilters) return;
+
+    if (hasExplicitFilterParams) {
+      setHasLoadedPersistedFilters(true);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(clientFilterPersistenceKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<PersistedClientFilterState>;
+        const statusSet = new Set(statusOptions.map((value) => String(value).trim()));
+        const industrySet = new Set(industryOptions.map((value) => String(value.value).trim()));
+
+        const nextFilters = {
+          q: String(parsed.q || "").trim(),
+          status: filterAllowedValues(normalizeStorageList(parsed.status), statusSet),
+          industry: filterAllowedValues(normalizeStorageList(parsed.industry), industrySet),
+        };
+        const nextSortKey = normalizeClientSortKey(parsed.sortKey, sortKey);
+        const nextSortDir = normalizeClientSortDir(parsed.sortDir, sortDir);
+        const parsedView = String(parsed.view || "").trim();
+        const nextView = isViewMode(parsedView) ? parsedView : view;
+
+        const currentQuery = buildQuery(filters);
+        const params = new URLSearchParams();
+        if (nextFilters.q.trim()) params.set("q", nextFilters.q.trim());
+        setCsvParam(params, "status", nextFilters.status);
+        setCsvParam(params, "industry", nextFilters.industry);
+        params.set("sort", nextSortKey);
+        params.set("dir", nextSortDir);
+        if (nextView !== "table") params.set("view", nextView);
+        const restoredQuery = params.toString();
+
+        if (restoredQuery !== currentQuery) {
+          setFilters(nextFilters);
+          setMobileSearchInput(nextFilters.q);
+          setView(nextView);
+          startTransition(() => {
+            router.replace(restoredQuery ? `/clients?${restoredQuery}` : "/clients", {
+              scroll: false,
+            });
+          });
+        }
+      }
+    } catch {
+      // Ignore localStorage and JSON parse failures.
+    }
+
+    setHasLoadedPersistedFilters(true);
+  }, [
+    buildQuery,
+    clientFilterPersistenceKey,
+    filters,
+    hasExplicitFilterParams,
+    hasLoadedPersistedFilters,
+    industryOptions,
+    router,
+    sortDir,
+    sortKey,
+    startTransition,
+    statusOptions,
+    view,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!clientFilterPersistenceKey || !hasLoadedPersistedFilters) return;
+
+    const payload: PersistedClientFilterState = {
+      q: filters.q.trim(),
+      status: filters.status,
+      industry: filters.industry,
+      sortKey,
+      sortDir,
+      view,
+    };
+    try {
+      window.localStorage.setItem(clientFilterPersistenceKey, JSON.stringify(payload));
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  }, [
+    clientFilterPersistenceKey,
+    filters.industry,
+    filters.q,
+    filters.status,
+    hasLoadedPersistedFilters,
+    sortDir,
+    sortKey,
+    view,
+  ]);
 
   const buildSortUrl = (nextSortKey: ClientSortKey) => {
     const params = new URLSearchParams();

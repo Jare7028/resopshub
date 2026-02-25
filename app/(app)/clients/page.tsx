@@ -78,6 +78,14 @@ export default async function ClientsPage(props: {
       ? searchParams.view
       : "table";
   const hasExplicitView = typeof searchParams?.view !== "undefined";
+  const hasExplicitFilterParams =
+    typeof searchParams?.q !== "undefined" ||
+    typeof searchParams?.status !== "undefined" ||
+    typeof searchParams?.industry !== "undefined" ||
+    typeof searchParams?.sort !== "undefined" ||
+    typeof searchParams?.dir !== "undefined" ||
+    typeof searchParams?.view !== "undefined" ||
+    typeof searchParams?.page !== "undefined";
   const pageParam = Number.parseInt(String(searchParams?.page || "1"), 10);
   const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
   const rangeFrom = (currentPage - 1) * CLIENTS_PAGE_SIZE;
@@ -376,6 +384,8 @@ export default async function ClientsPage(props: {
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="clients"
           columnPreferenceUserId={currentUserId}
+          filterPersistenceUserId={currentUserId || authData.user?.id || null}
+          hasExplicitFilterParams={hasExplicitFilterParams}
           onDelete={deleteClient}
         />
       </section>
