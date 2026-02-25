@@ -164,6 +164,7 @@ export default function ClientsTable({
   filterPersistenceUserId = null,
   filterPersistenceScope,
   hasExplicitFilterParams = false,
+  newClientUrl,
   onDelete,
 }: {
   clients: ClientRow[];
@@ -179,6 +180,7 @@ export default function ClientsTable({
   filterPersistenceUserId?: string | null;
   filterPersistenceScope?: string;
   hasExplicitFilterParams?: boolean;
+  newClientUrl?: string;
   onDelete: (formData: FormData) => void;
 }) {
   const router = useRouter();
@@ -675,6 +677,14 @@ export default function ClientsTable({
                 )
               }
             />
+          ) : null}
+          {newClientUrl ? (
+            <Link
+              href={newClientUrl}
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            >
+              New client
+            </Link>
           ) : null}
         </div>
         <div className="grid w-full grid-cols-2 gap-2 text-sm md:flex md:w-auto md:items-center md:gap-2">

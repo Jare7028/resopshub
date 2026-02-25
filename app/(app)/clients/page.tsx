@@ -336,21 +336,6 @@ export default async function ClientsPage(props: {
 
   return (
     <div className="space-y-8">
-      <section className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Clients</h1>
-          <p className="text-sm text-slate-600">
-            Manage client accounts, contacts, projects, tasks, and billing in one place.
-          </p>
-        </div>
-        <Link
-          href="/clients/new"
-          className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white "
-        >
-          New client
-        </Link>
-      </section>
-
       {searchParams?.error || clientsError ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           {searchParams?.error || clientsError}
@@ -363,12 +348,6 @@ export default async function ClientsPage(props: {
       ) : null}
 
       <section className="w-full max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">All clients</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Showing up to {CLIENTS_PAGE_SIZE} clients per page.
-          </p>
-        </div>
         <ClientsTable
           clients={clients}
           activeEmployeeCountByClientId={activeEmployeeCountByClientId}
@@ -386,6 +365,7 @@ export default async function ClientsPage(props: {
           columnPreferenceUserId={currentUserId}
           filterPersistenceUserId={currentUserId || authData.user?.id || null}
           hasExplicitFilterParams={hasExplicitFilterParams}
+          newClientUrl="/clients/new"
           onDelete={deleteClient}
         />
       </section>
