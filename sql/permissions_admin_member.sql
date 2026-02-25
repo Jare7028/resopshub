@@ -637,6 +637,7 @@ values
   ('tasks', 'Tasks', '/tasks', 40),
   ('employee_info', 'Employee Info', '/employee-info', 50),
   ('inventory', 'Inventory', '/inventory', 55),
+  ('schedules', 'Schedules', '/schedules', 57),
   ('forms', 'Forms', '/forms', 60),
   ('chat', 'Chat', '/chat', 70),
   ('social', 'Social', '/social', 75),
