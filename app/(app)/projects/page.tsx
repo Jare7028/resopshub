@@ -299,6 +299,7 @@ export default async function ProjectsPage(props: {
         .order("value", { ascending: true }),
     ]);
   const currentUserId = currentUser?.id;
+  const isAdmin = currentUser?.role === "admin";
   const projectStatusOptions = buildStatusOptions(
     "project",
     (statusOptionsRaw || []) as StatusOptionRow[],
@@ -380,7 +381,7 @@ export default async function ProjectsPage(props: {
   let assignedProjectIds: string[] = [];
   let watchedProjectIds: string[] = [];
 
-  if (currentUserId) {
+  if (currentUserId && !isAdmin) {
     const [{ data: assignedRows }, { data: watcherRows }] =
       await Promise.all([
         supabase.from("project_users").select("project_id").eq("user_id", currentUserId),
@@ -405,7 +406,9 @@ export default async function ProjectsPage(props: {
     .select("id,name,status,start_date,end_date,created_at,client_id,clients(name)")
     .order("created_at", { ascending: false });
 
-  if (currentUserId) {
+  if (!currentUserId) {
+    request = request.eq("id", "00000000-0000-0000-0000-000000000000");
+  } else if (!isAdmin) {
     const visibilityOrFilters: string[] = [`created_by_user_id.eq.${currentUserId}`];
     if (assignedProjectIds.length) {
       visibilityOrFilters.push(`id.in.(${assignedProjectIds.join(",")})`);
@@ -414,8 +417,6 @@ export default async function ProjectsPage(props: {
       visibilityOrFilters.push(`id.in.(${watchedProjectIds.join(",")})`);
     }
     request = request.or(visibilityOrFilters.join(","));
-  } else {
-    request = request.eq("id", "00000000-0000-0000-0000-000000000000");
   }
   if (selectedClientIds.length) request = request.in("client_id", selectedClientIds);
   if (selectedStatuses.length) request = request.in("status", selectedStatuses);
