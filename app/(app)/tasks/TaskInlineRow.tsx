@@ -71,7 +71,7 @@ type TaskInlineRowProps = {
   onTitleHoverMove?: (taskId: string, anchor: { left: number; bottom: number }) => void;
   onTitleHoverEnd?: () => void;
   showNextSubtaskDueDateColumn?: boolean;
-  nextSubtaskDueDateLabel?: string | null;
+  nextSubtaskDueDateIso?: string | null;
 };
 
 export default function TaskInlineRow({
@@ -94,10 +94,11 @@ export default function TaskInlineRow({
   onTitleHoverMove,
   onTitleHoverEnd,
   showNextSubtaskDueDateColumn = false,
-  nextSubtaskDueDateLabel = null,
+  nextSubtaskDueDateIso = null,
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
+  const nextSubtaskDueUrgency = getDueUrgency(nextSubtaskDueDateIso, null);
   const normalizedStatus = normalizeTaskStatusOrDefault(statusValue ?? task.status);
   const isSubtaskRow = rowVariant === "subtask";
   const [, startTransition] = useTransition();
@@ -275,15 +276,6 @@ export default function TaskInlineRow({
           0
         )}
       </td>
-      {showNextSubtaskDueDateColumn ? (
-        <td
-          className={`px-6 py-3 whitespace-nowrap ${
-            isSubtaskRow ? "text-slate-400" : "text-slate-600"
-          }`}
-        >
-          {nextSubtaskDueDateLabel || "-"}
-        </td>
-      ) : null}
       <td className="px-6 py-3 text-slate-600">
         <form>
           <input type="hidden" name="task_id" value={task.id} />
@@ -453,6 +445,28 @@ export default function TaskInlineRow({
           />
         </form>
       </td>
+      {showNextSubtaskDueDateColumn ? (
+        <td className="px-6 py-3 text-slate-600">
+          {nextSubtaskDueDateIso ? (
+            <input
+              type="date"
+              aria-label="Next subtask due date"
+              value={nextSubtaskDueDateIso}
+              readOnly
+              tabIndex={-1}
+              className={`pointer-events-none w-full rounded-md border px-2 py-1 text-sm ${dueInputClasses(
+                nextSubtaskDueUrgency
+              )}`}
+            />
+          ) : (
+            <div
+              className={`w-full rounded-md border px-2 py-1 text-sm ${dueInputClasses("none")}`}
+            >
+              -
+            </div>
+          )}
+        </td>
+      ) : null}
       <td className="px-6 py-3 text-slate-600">
         <form>
           <input type="hidden" name="task_id" value={task.id} />

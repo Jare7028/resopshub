@@ -1231,11 +1231,6 @@ export default function TasksView({
                   </a>
                 </th>
                 <th className="px-6 py-3 text-right text-slate-700">Open subtasks</th>
-                {showNextSubtaskDueDateColumn ? (
-                  <th className="px-6 py-3 text-slate-700 whitespace-nowrap">
-                    Next Subtask Due Date
-                  </th>
-                ) : null}
                 <th className="px-6 py-3">
                   <div className="relative flex items-center justify-between gap-2">
                     <a href={buildSortUrl("client")} className={headerClass("client")}>
@@ -1440,6 +1435,11 @@ export default function TasksView({
                     {sortIndicator("start")}
                   </a>
                 </th>
+                {showNextSubtaskDueDateColumn ? (
+                  <th className="px-6 py-3 text-slate-700 whitespace-nowrap">
+                    Next Subtask Due
+                  </th>
+                ) : null}
                 <th className="px-6 py-3">
                   <div className="relative flex items-center justify-between gap-2">
                     <a href={buildSortUrl("due")} className={headerClass("due")}>
@@ -1492,9 +1492,6 @@ export default function TasksView({
                       })
                     : openSubtasks;
                   const nextSubtaskDueDateIso = nextSubtaskDueDateByTaskId[task.id] || null;
-                  const nextSubtaskDueDateLabel = nextSubtaskDueDateIso
-                    ? toDate(nextSubtaskDueDateIso)?.toLocaleDateString("en-US") || "-"
-                    : "-";
                   return (
                     <Fragment key={task.id}>
                       <TaskInlineRow
@@ -1525,7 +1522,7 @@ export default function TasksView({
                           enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
                         }
                         showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
-                        nextSubtaskDueDateLabel={nextSubtaskDueDateLabel}
+                        nextSubtaskDueDateIso={nextSubtaskDueDateIso}
                       />
                       {isExpanded
                         ? visibleOpenSubtasks.map((subtask) => (
@@ -1556,7 +1553,7 @@ export default function TasksView({
                                 enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
                               }
                               showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
-                              nextSubtaskDueDateLabel="-"
+                              nextSubtaskDueDateIso={null}
                             />
                           ))
                         : null}
