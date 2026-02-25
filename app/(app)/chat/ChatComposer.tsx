@@ -31,6 +31,11 @@ type AttachedImage = {
   url: string;
 };
 
+type InsertDraftRequest = {
+  id: string;
+  text: string;
+};
+
 const typeLabel: Record<LinkEntityType, string> = {
   task: "Task",
   project: "Project",
@@ -52,8 +57,9 @@ export default function ChatComposer(props: {
     }>;
   }) => Promise<void>;
   isSending?: boolean;
+  insertDraftRequest?: InsertDraftRequest | null;
 }) {
-  const { conversationId, onSend, isSending = false } = props;
+  const { conversationId, onSend, isSending = false, insertDraftRequest = null } = props;
   const [body, setBody] = useState("");
   const [isSlashOpen, setIsSlashOpen] = useState(false);
   const [entityType, setEntityType] = useState<LinkEntityType>("task");
@@ -68,6 +74,7 @@ export default function ChatComposer(props: {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastInsertedRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isSlashOpen) return;
@@ -118,6 +125,35 @@ export default function ChatComposer(props: {
       controller.abort();
     };
   }, [entityType, isSlashOpen, query]);
+
+  useEffect(() => {
+    if (!insertDraftRequest?.id) {
+      return;
+    }
+    if (lastInsertedRequestIdRef.current === insertDraftRequest.id) {
+      return;
+    }
+    lastInsertedRequestIdRef.current = insertDraftRequest.id;
+    const snippet = String(insertDraftRequest.text || "").trim();
+    if (!snippet) {
+      return;
+    }
+
+    setBody((current) => {
+      const normalizedCurrent = current.replace(/\s+$/, "");
+      const nextBody = normalizedCurrent
+        ? `${normalizedCurrent}\n${snippet}\n`
+        : `${snippet}\n`;
+      requestAnimationFrame(() => {
+        const textarea = bodyTextareaRef.current;
+        if (!textarea) return;
+        const caret = nextBody.length;
+        textarea.focus();
+        textarea.setSelectionRange(caret, caret);
+      });
+      return nextBody;
+    });
+  }, [insertDraftRequest]);
 
   const selectedOption = entityOptions.find((option) => option.id === entityId) || null;
 

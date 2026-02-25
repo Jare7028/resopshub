@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
 import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
 import ChatComposer from "./ChatComposer";
 
@@ -84,6 +85,11 @@ type LatestPreview = {
   deleted_at: string | null;
 };
 
+type ComposerDraftInsertRequest = {
+  id: string;
+  text: string;
+};
+
 const typeLabel: Record<LinkEntityType, string> = {
   task: "Task",
   project: "Project",
@@ -91,15 +97,6 @@ const typeLabel: Record<LinkEntityType, string> = {
   note: "Note",
   client: "Client",
 };
-
-const reactionOptions = [
-  "\u{1F44D}",
-  "\u{2764}\u{FE0F}",
-  "\u{1F602}",
-  "\u{1F389}",
-  "\u{1F440}",
-  "\u{1F525}",
-] as const;
 
 function toMs(value: string | null | undefined) {
   const parsed = Date.parse(String(value || ""));
@@ -181,6 +178,18 @@ function renderPreviewText(message: LatestPreview | null) {
   return "Attachment or link";
 }
 
+function toReplyQuotePreview(message: MessageRow, senderName: string) {
+  const compactBody = String(message.body || "").replace(/\s+/g, " ").trim();
+  const fallback = message.attachments.length
+    ? "sent an attachment"
+    : message.links.length
+      ? "shared a link"
+      : "sent a message";
+  const preview = compactBody || fallback;
+  const clipped = preview.length > 120 ? `${preview.slice(0, 117)}...` : preview;
+  return `> ${senderName}: ${clipped}`;
+}
+
 export default function ChatPageClient(props: {
   currentUserId: string;
   users: UserRow[];
@@ -227,9 +236,10 @@ export default function ChatPageClient(props: {
 
   const [searchChats, setSearchChats] = useState("");
   const [addMode, setAddMode] = useState<"direct" | "group">("direct");
-  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
+  const [composerInsertRequest, setComposerInsertRequest] =
+    useState<ComposerDraftInsertRequest | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
 
@@ -493,7 +503,7 @@ export default function ChatPageClient(props: {
       setSelectedConversationId(conversationId);
       setEditingMessageId(null);
       setEditingDraft("");
-      setReactionPickerMessageId(null);
+      setComposerInsertRequest(null);
       syncUrl(conversationId);
 
       try {
@@ -605,10 +615,27 @@ export default function ChatPageClient(props: {
     });
   };
 
+  const applyReaction = async (message: MessageRow, emoji: string) => {
+    try {
+      await toggleReaction(message, emoji);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update reaction");
+    }
+  };
+
+  const startReplyToMessage = (message: MessageRow, senderName: string) => {
+    if (message.deleted_at) {
+      return;
+    }
+    setComposerInsertRequest({
+      id: `${message.id}-${Date.now()}`,
+      text: toReplyQuotePreview(message, senderName),
+    });
+  };
+
   const startEditingMessage = (message: MessageRow) => {
     setEditingMessageId(message.id);
     setEditingDraft(message.body);
-    setReactionPickerMessageId(null);
   };
 
   const cancelEditMessage = () => {
@@ -1115,7 +1142,9 @@ export default function ChatPageClient(props: {
                     return (
                       <div
                         key={message.id}
-                        className={`flex items-end gap-2 ${isMine ? "justify-end" : "justify-start"}`}
+                        className={`group/message relative -mx-1 flex w-full items-end gap-2 rounded-xl px-1 py-1 transition-colors ${
+                          isMine ? "justify-end" : "justify-start"
+                        } ${isEditing ? "bg-slate-100/70" : "hover:bg-slate-100/70"}`}
                       >
                         {!isMine ? (
                           <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
@@ -1133,7 +1162,47 @@ export default function ChatPageClient(props: {
                             )}
                           </span>
                         ) : null}
-                        <article className="group max-w-[min(760px,92%)]">
+                        <article className="relative max-w-[min(760px,92%)]">
+                          {!isEditing && !isDeleted ? (
+                            <div
+                              className={`absolute -top-3 z-20 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm transition-opacity duration-150 ${
+                                isMine ? "right-2" : "left-2"
+                              } opacity-100 md:pointer-events-none md:opacity-0 md:group-hover/message:pointer-events-auto md:group-hover/message:opacity-100 md:group-focus-within/message:pointer-events-auto md:group-focus-within/message:opacity-100`}
+                            >
+                              <EmojiPickerButton
+                                onSelect={(emoji) => {
+                                  void applyReaction(message, emoji);
+                                }}
+                                panelAlign={isMine ? "right" : "left"}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => startReplyToMessage(message, senderName)}
+                                className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                              >
+                                Reply
+                              </button>
+                              {isMine ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingMessage(message)}
+                                    className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void deleteMessage(message)}
+                                    className="inline-flex h-7 items-center rounded-md border border-red-200 bg-white px-2 text-[11px] font-medium text-red-700 hover:bg-red-50"
+                                  >
+                                    Delete
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
                           <div
                             className={`rounded-2xl border px-3 py-2 shadow-sm ${
                               isMine
@@ -1261,14 +1330,8 @@ export default function ChatPageClient(props: {
                                           ? "border-blue-300 bg-blue-50 text-blue-700"
                                           : "border-slate-200 bg-white text-slate-600"
                                       }`}
-                                      onClick={async () => {
-                                        try {
-                                          await toggleReaction(message, item.emoji);
-                                        } catch (err) {
-                                          setError(
-                                            err instanceof Error ? err.message : "Unable to update reaction"
-                                          );
-                                        }
+                                      onClick={() => {
+                                        void applyReaction(message, item.emoji);
                                       }}
                                     >
                                       <span>{item.emoji}</span>
@@ -1276,66 +1339,6 @@ export default function ChatPageClient(props: {
                                     </button>
                                   ))
                                 : null}
-
-                              {!isDeleted ? (
-                                <div className="relative">
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-100"
-                                    onClick={() =>
-                                      setReactionPickerMessageId((current) =>
-                                        current === message.id ? null : message.id
-                                      )
-                                    }
-                                  >
-                                    +
-                                  </button>
-                                  {reactionPickerMessageId === message.id ? (
-                                    <div className="absolute bottom-7 right-0 z-10 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                                      {reactionOptions.map((emoji) => (
-                                        <button
-                                          key={`${message.id}-${emoji}`}
-                                          type="button"
-                                          className="rounded px-1 py-0.5 text-base hover:bg-slate-100"
-                                          onClick={async () => {
-                                            try {
-                                              await toggleReaction(message, emoji);
-                                              setReactionPickerMessageId(null);
-                                            } catch (err) {
-                                              setError(
-                                                err instanceof Error
-                                                  ? err.message
-                                                  : "Unable to update reaction"
-                                              );
-                                            }
-                                          }}
-                                        >
-                                          {emoji}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ) : null}
-
-                              {isMine && !isDeleted ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => startEditingMessage(message)}
-                                    className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-100"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void deleteMessage(message)}
-                                    className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-xs text-red-700 hover:bg-red-50"
-                                  >
-                                    Delete
-                                  </button>
-                                </>
-                              ) : null}
                             </div>
                           ) : null}
 
@@ -1376,6 +1379,7 @@ export default function ChatPageClient(props: {
                 <ChatComposer
                   conversationId={selectedConversationId}
                   isSending={isSending || composerDisabled}
+                  insertDraftRequest={composerInsertRequest}
                   onSend={async ({ body, links, attachments }) => {
                     setError("");
                     setSuccess("");
@@ -1419,6 +1423,7 @@ export default function ChatPageClient(props: {
                         ...prev,
                         [selectedConversationId]: 0,
                       }));
+                      setComposerInsertRequest(null);
                       await markConversationRead(selectedConversationId, message.created_at);
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "Unable to send message");
