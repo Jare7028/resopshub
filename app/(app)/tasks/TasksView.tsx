@@ -33,6 +33,7 @@ import {
   FilterMenuSingle,
 } from "../_components/TableHeaderFilters";
 import MultiSelect from "../_components/MultiSelect";
+import { getNextSubtaskDueDate } from "@/lib/taskNextSubtaskDueDate";
 
 type UserOption = {
   id: string;
@@ -270,6 +271,7 @@ export default function TasksView({
   const taskNotesHoverRequestIdRef = useRef(0);
   const taskNotesHoverCacheRef = useRef<Record<string, TaskNotesHoverPayload>>({});
   const enableTaskNotesHover = basePath === "/tasks" && view === "table";
+  const showNextSubtaskDueDateColumn = basePath === "/tasks" && view === "table";
 
   const taskFilterPersistenceKey = useMemo(() => {
     const userId = String(filterPersistenceUserId || "").trim();
@@ -950,6 +952,25 @@ export default function TasksView({
     return map;
   }, [optimisticStatusByTaskId, statusByTaskId]);
 
+  const nextSubtaskDueDateByTaskId = useMemo(() => {
+    if (!showNextSubtaskDueDateColumn) {
+      return {} as Record<string, string | null>;
+    }
+    const nextDueByTaskId: Record<string, string | null> = {};
+    visibleTasks.forEach((task) => {
+      nextDueByTaskId[task.id] = getNextSubtaskDueDate({
+        subtasks: openSubtasksByParentId[task.id] || [],
+        effectiveStatusByTaskId,
+      });
+    });
+    return nextDueByTaskId;
+  }, [
+    effectiveStatusByTaskId,
+    openSubtasksByParentId,
+    showNextSubtaskDueDateColumn,
+    visibleTasks,
+  ]);
+
   const boardTasksByStatus = useMemo(() => {
     const buckets = new Map<string, TaskRow[]>();
     statusOptions.forEach((status) => buckets.set(status, []));
@@ -1025,6 +1046,7 @@ export default function TasksView({
     }
     return usersById[userIds[0]] || "Assigned";
   };
+  const tableColSpan = showNextSubtaskDueDateColumn ? 10 : 9;
 
   return (
     <>
@@ -1209,6 +1231,11 @@ export default function TasksView({
                   </a>
                 </th>
                 <th className="px-6 py-3 text-right text-slate-700">Open subtasks</th>
+                {showNextSubtaskDueDateColumn ? (
+                  <th className="px-6 py-3 text-slate-700 whitespace-nowrap">
+                    Next Subtask Due Date
+                  </th>
+                ) : null}
                 <th className="px-6 py-3">
                   <div className="relative flex items-center justify-between gap-2">
                     <a href={buildSortUrl("client")} className={headerClass("client")}>
@@ -1464,6 +1491,10 @@ export default function TasksView({
                         return subtaskStatus !== "completed" && subtaskStatus !== "cancelled";
                       })
                     : openSubtasks;
+                  const nextSubtaskDueDateIso = nextSubtaskDueDateByTaskId[task.id] || null;
+                  const nextSubtaskDueDateLabel = nextSubtaskDueDateIso
+                    ? toDate(nextSubtaskDueDateIso)?.toLocaleDateString("en-US") || "-"
+                    : "-";
                   return (
                     <Fragment key={task.id}>
                       <TaskInlineRow
@@ -1493,6 +1524,8 @@ export default function TasksView({
                         onTitleHoverEnd={
                           enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
                         }
+                        showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
+                        nextSubtaskDueDateLabel={nextSubtaskDueDateLabel}
                       />
                       {isExpanded
                         ? visibleOpenSubtasks.map((subtask) => (
@@ -1522,6 +1555,8 @@ export default function TasksView({
                               onTitleHoverEnd={
                                 enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
                               }
+                              showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
+                              nextSubtaskDueDateLabel="-"
                             />
                           ))
                         : null}
@@ -1530,7 +1565,7 @@ export default function TasksView({
                 })
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={9}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={tableColSpan}>
                     No tasks found.
                   </td>
                 </tr>

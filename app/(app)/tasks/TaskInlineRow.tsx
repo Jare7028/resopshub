@@ -70,6 +70,8 @@ type TaskInlineRowProps = {
   onTitleHoverStart?: (taskId: string, anchor: { left: number; bottom: number }) => void;
   onTitleHoverMove?: (taskId: string, anchor: { left: number; bottom: number }) => void;
   onTitleHoverEnd?: () => void;
+  showNextSubtaskDueDateColumn?: boolean;
+  nextSubtaskDueDateLabel?: string | null;
 };
 
 export default function TaskInlineRow({
@@ -91,6 +93,8 @@ export default function TaskInlineRow({
   onTitleHoverStart,
   onTitleHoverMove,
   onTitleHoverEnd,
+  showNextSubtaskDueDateColumn = false,
+  nextSubtaskDueDateLabel = null,
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
@@ -271,6 +275,15 @@ export default function TaskInlineRow({
           0
         )}
       </td>
+      {showNextSubtaskDueDateColumn ? (
+        <td
+          className={`px-6 py-3 whitespace-nowrap ${
+            isSubtaskRow ? "text-slate-400" : "text-slate-600"
+          }`}
+        >
+          {nextSubtaskDueDateLabel || "-"}
+        </td>
+      ) : null}
       <td className="px-6 py-3 text-slate-600">
         <form>
           <input type="hidden" name="task_id" value={task.id} />
