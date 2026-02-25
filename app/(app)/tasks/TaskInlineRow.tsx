@@ -51,6 +51,18 @@ type TaskRow = {
   clients?: { name: string | null } | { name: string | null }[] | null;
 };
 
+type TaskTableColumnId =
+  | "task"
+  | "open_subtasks"
+  | "client"
+  | "project"
+  | "status"
+  | "priority"
+  | "assignees"
+  | "start"
+  | "next_subtask_due"
+  | "due";
+
 type TaskInlineRowProps = {
   task: TaskRow;
   openSubtaskCount?: number;
@@ -70,6 +82,7 @@ type TaskInlineRowProps = {
   onTitleHoverStart?: (taskId: string, anchor: { left: number; bottom: number }) => void;
   onTitleHoverMove?: (taskId: string, anchor: { left: number; bottom: number }) => void;
   onTitleHoverEnd?: () => void;
+  visibleColumnIds: ReadonlySet<TaskTableColumnId>;
   showNextSubtaskDueDateColumn?: boolean;
   nextSubtaskDueDateIso?: string | null;
 };
@@ -93,6 +106,7 @@ export default function TaskInlineRow({
   onTitleHoverStart,
   onTitleHoverMove,
   onTitleHoverEnd,
+  visibleColumnIds,
   showNextSubtaskDueDateColumn = false,
   nextSubtaskDueDateIso = null,
 }: TaskInlineRowProps) {
@@ -221,15 +235,33 @@ export default function TaskInlineRow({
     if (!onTitleHoverEnd) return;
     onTitleHoverEnd();
   };
+  const isColumnVisible = (columnId: TaskTableColumnId) => {
+    if (columnId === "next_subtask_due") {
+      return showNextSubtaskDueDateColumn && visibleColumnIds.has(columnId);
+    }
+    return visibleColumnIds.has(columnId);
+  };
 
   return (
     <tr className={isSubtaskRow ? "border-t border-slate-100 bg-slate-50/60" : "border-t border-slate-200"}>
-      <td className="px-6 py-3 font-medium text-slate-900">
-        {isSubtaskRow ? (
-          <div className="flex items-center gap-2 pl-6 text-slate-700">
-            <span aria-hidden="true" className="text-slate-400">
-              {"->"}
-            </span>
+      {isColumnVisible("task") ? (
+        <td className="px-6 py-3 font-medium text-slate-900">
+          {isSubtaskRow ? (
+            <div className="flex items-center gap-2 pl-6 text-slate-700">
+              <span aria-hidden="true" className="text-slate-400">
+                {"->"}
+              </span>
+              <Link
+                href={`/tasks/${task.id}`}
+                className="hover:underline"
+                onMouseEnter={handleTitleHoverStart}
+                onMouseMove={handleTitleHoverMove}
+                onMouseLeave={handleTitleHoverEnd}
+              >
+                {task.title}
+              </Link>
+            </div>
+          ) : (
             <Link
               href={`/tasks/${task.id}`}
               className="hover:underline"
@@ -239,213 +271,217 @@ export default function TaskInlineRow({
             >
               {task.title}
             </Link>
-          </div>
-        ) : (
-          <Link
-            href={`/tasks/${task.id}`}
-            className="hover:underline"
-            onMouseEnter={handleTitleHoverStart}
-            onMouseMove={handleTitleHoverMove}
-            onMouseLeave={handleTitleHoverEnd}
-          >
-            {task.title}
-          </Link>
-        )}
-      </td>
-      <td
-        className={`px-6 py-3 text-right tabular-nums ${
-          isSubtaskRow ? "text-slate-400" : "text-slate-600"
-        }`}
-      >
-        {!isSubtaskRow && openSubtaskCount > 0 ? (
-          <button
-            type="button"
-            onClick={() => onToggleSubtasks(task.id)}
-            className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900"
-            aria-expanded={isSubtasksExpanded}
-            aria-label={`${isSubtasksExpanded ? "Hide" : "Show"} subtasks for ${task.title}`}
-          >
-            <span>{openSubtaskCount}</span>
-            <span aria-hidden="true" className="text-[10px]">
-              {isSubtasksExpanded ? "v" : ">"}
-            </span>
-          </button>
-        ) : isSubtaskRow ? (
-          "-"
-        ) : (
-          0
-        )}
-      </td>
-      <td className="px-6 py-3 text-slate-600">
-        <form>
-          <input type="hidden" name="task_id" value={task.id} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <select
-            name="client_id"
-            aria-label="Client"
-            defaultValue={task.client_id || ""}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-            onChange={handleChange}
-          >
-            <option value="">N/A</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-        </form>
-      </td>
-      <td className="px-6 py-3 text-slate-600">
-        <form>
-          <input type="hidden" name="task_id" value={task.id} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <select
-            name="project_id"
-            aria-label="Project"
-            defaultValue={task.project_id || ""}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-            onChange={handleChange}
-          >
-            <option value="">N/A</option>
-            {projects.map((project) => {
-              const projectClientName = getRelationName(project.clients, "");
-              return (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                  {projectClientName ? ` - ${projectClientName}` : ""}
-                </option>
-              );
-            })}
-          </select>
-        </form>
-      </td>
-      <td className="px-6 py-3 text-slate-600">
-        <form>
-          <input type="hidden" name="task_id" value={task.id} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <select
-            name="status"
-            aria-label="Status"
-            value={normalizedStatus}
-            className={`w-full rounded-md border px-2 py-1 text-sm ${statusSelectClasses(
-              normalizedStatus
-            )}`}
-            onChange={handleChange}
-          >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {formatTaskStatusLabel(status)}
-              </option>
-            ))}
-          </select>
-        </form>
-      </td>
-      <td className="px-6 py-3 text-slate-600">
-        <form>
-          <input type="hidden" name="task_id" value={task.id} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <select
-            name="priority"
-            aria-label="Priority"
-            defaultValue={task.priority ?? "medium"}
-            className={`w-full rounded-md border px-2 py-1 text-sm ${prioritySelectClasses(
-              task.priority
-            )}`}
-            onChange={handleChange}
-          >
-            {priorityOptions.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
-        </form>
-      </td>
-      <td className="px-6 py-3 text-slate-600">
-        <form id={assigneeFormId}>
-          <input type="hidden" name="task_id" value={task.id} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input type="hidden" name="assignee_user_ids" value="" />
-          <div className="relative w-full min-w-[12rem]" ref={assigneeRef}>
+          )}
+        </td>
+      ) : null}
+      {isColumnVisible("open_subtasks") ? (
+        <td
+          className={`px-6 py-3 text-right tabular-nums ${
+            isSubtaskRow ? "text-slate-400" : "text-slate-600"
+          }`}
+        >
+          {!isSubtaskRow && openSubtaskCount > 0 ? (
             <button
               type="button"
-              ref={assigneeButtonRef}
-              className="relative w-full rounded-md border border-slate-300 bg-white px-3 py-2 pr-8 text-left text-sm text-slate-700"
-              onClick={() => setAssigneeOpen((open) => !open)}
-              aria-haspopup="listbox"
-              aria-expanded={assigneeOpen}
+              onClick={() => onToggleSubtasks(task.id)}
+              className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900"
+              aria-expanded={isSubtasksExpanded}
+              aria-label={`${isSubtasksExpanded ? "Hide" : "Show"} subtasks for ${task.title}`}
             >
-              <span className="block truncate">{assigneeLabel}</span>
-              <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-400">
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-4 w-4"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+              <span>{openSubtaskCount}</span>
+              <span aria-hidden="true" className="text-[10px]">
+                {isSubtasksExpanded ? "v" : ">"}
               </span>
             </button>
-            {assigneeOpen && assigneeMounted && assigneeMenuStyle
-              ? createPortal(
-                  <div
-                    ref={assigneeMenuRef}
-                    className="z-50 max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
-                    style={{
-                      position: "fixed",
-                      top: assigneeMenuStyle.top,
-                      left: assigneeMenuStyle.left,
-                      width: assigneeMenuStyle.width,
-                    }}
+          ) : isSubtaskRow ? (
+            "-"
+          ) : (
+            0
+          )}
+        </td>
+      ) : null}
+      {isColumnVisible("client") ? (
+        <td className="px-6 py-3 text-slate-600">
+          <form>
+            <input type="hidden" name="task_id" value={task.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <select
+              name="client_id"
+              aria-label="Client"
+              defaultValue={task.client_id || ""}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+              onChange={handleChange}
+            >
+              <option value="">N/A</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+          </form>
+        </td>
+      ) : null}
+      {isColumnVisible("project") ? (
+        <td className="px-6 py-3 text-slate-600">
+          <form>
+            <input type="hidden" name="task_id" value={task.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <select
+              name="project_id"
+              aria-label="Project"
+              defaultValue={task.project_id || ""}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+              onChange={handleChange}
+            >
+              <option value="">N/A</option>
+              {projects.map((project) => {
+                const projectClientName = getRelationName(project.clients, "");
+                return (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                    {projectClientName ? ` - ${projectClientName}` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </form>
+        </td>
+      ) : null}
+      {isColumnVisible("status") ? (
+        <td className="px-6 py-3 text-slate-600">
+          <form>
+            <input type="hidden" name="task_id" value={task.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <select
+              name="status"
+              aria-label="Status"
+              value={normalizedStatus}
+              className={`w-full rounded-md border px-2 py-1 text-sm ${statusSelectClasses(
+                normalizedStatus
+              )}`}
+              onChange={handleChange}
+            >
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {formatTaskStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+          </form>
+        </td>
+      ) : null}
+      {isColumnVisible("priority") ? (
+        <td className="px-6 py-3 text-slate-600">
+          <form>
+            <input type="hidden" name="task_id" value={task.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <select
+              name="priority"
+              aria-label="Priority"
+              defaultValue={task.priority ?? "medium"}
+              className={`w-full rounded-md border px-2 py-1 text-sm ${prioritySelectClasses(
+                task.priority
+              )}`}
+              onChange={handleChange}
+            >
+              {priorityOptions.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priority}
+                </option>
+              ))}
+            </select>
+          </form>
+        </td>
+      ) : null}
+      {isColumnVisible("assignees") ? (
+        <td className="px-6 py-3 text-slate-600">
+          <form id={assigneeFormId}>
+            <input type="hidden" name="task_id" value={task.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <input type="hidden" name="assignee_user_ids" value="" />
+            <div className="relative w-full min-w-[12rem]" ref={assigneeRef}>
+              <button
+                type="button"
+                ref={assigneeButtonRef}
+                className="relative w-full rounded-md border border-slate-300 bg-white px-3 py-2 pr-8 text-left text-sm text-slate-700"
+                onClick={() => setAssigneeOpen((open) => !open)}
+                aria-haspopup="listbox"
+                aria-expanded={assigneeOpen}
+              >
+                <span className="block truncate">{assigneeLabel}</span>
+                <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-400">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
                   >
-                    {users?.length ? (
-                      users.map((user) => (
-                        <label
-                          key={user.id}
-                          className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
-                        >
-                          <input
-                            type="checkbox"
-                            form={assigneeFormId}
-                            name="assignee_user_ids"
-                            value={user.id}
-                            defaultChecked={assigneeUserIds.includes(user.id)}
-                            onChange={handleChange}
-                          />
-                          <span>{user.full_name || user.email}</span>
-                        </label>
-                      ))
-                    ) : (
-                      <p className="px-2 py-1 text-sm text-slate-500">No users</p>
-                    )}
-                  </div>,
-                  document.body
-                )
-              : null}
-          </div>
-        </form>
-      </td>
-      <td className="px-6 py-3 text-slate-600">
-        <form>
-          <input type="hidden" name="task_id" value={task.id} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input
-            type="date"
-            name="start_date"
-            aria-label="Start date"
-            defaultValue={task.start_date || ""}
-            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-            onChange={handleChange}
-          />
-        </form>
-      </td>
-      {showNextSubtaskDueDateColumn ? (
+                    <path
+                      fillRule="evenodd"
+                      d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </span>
+              </button>
+              {assigneeOpen && assigneeMounted && assigneeMenuStyle
+                ? createPortal(
+                    <div
+                      ref={assigneeMenuRef}
+                      className="z-50 max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+                      style={{
+                        position: "fixed",
+                        top: assigneeMenuStyle.top,
+                        left: assigneeMenuStyle.left,
+                        width: assigneeMenuStyle.width,
+                      }}
+                    >
+                      {users?.length ? (
+                        users.map((user) => (
+                          <label
+                            key={user.id}
+                            className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              form={assigneeFormId}
+                              name="assignee_user_ids"
+                              value={user.id}
+                              defaultChecked={assigneeUserIds.includes(user.id)}
+                              onChange={handleChange}
+                            />
+                            <span>{user.full_name || user.email}</span>
+                          </label>
+                        ))
+                      ) : (
+                        <p className="px-2 py-1 text-sm text-slate-500">No users</p>
+                      )}
+                    </div>,
+                    document.body
+                  )
+                : null}
+            </div>
+          </form>
+        </td>
+      ) : null}
+      {isColumnVisible("start") ? (
+        <td className="px-6 py-3 text-slate-600">
+          <form>
+            <input type="hidden" name="task_id" value={task.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <input
+              type="date"
+              name="start_date"
+              aria-label="Start date"
+              defaultValue={task.start_date || ""}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+              onChange={handleChange}
+            />
+          </form>
+        </td>
+      ) : null}
+      {isColumnVisible("next_subtask_due") ? (
         <td className="px-6 py-3 text-slate-600">
           {nextSubtaskDueDateIso ? (
             <input
@@ -467,22 +503,24 @@ export default function TaskInlineRow({
           )}
         </td>
       ) : null}
-      <td className="px-6 py-3 text-slate-600">
-        <form>
-          <input type="hidden" name="task_id" value={task.id} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input
-            type="date"
-            name="due_date"
-            aria-label="Due date"
-            defaultValue={task.due_date || ""}
-            className={`w-full rounded-md border px-2 py-1 text-sm ${dueInputClasses(
-              dueUrgency
-            )}`}
-            onChange={handleChange}
-          />
-        </form>
-      </td>
+      {isColumnVisible("due") ? (
+        <td className="px-6 py-3 text-slate-600">
+          <form>
+            <input type="hidden" name="task_id" value={task.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <input
+              type="date"
+              name="due_date"
+              aria-label="Due date"
+              defaultValue={task.due_date || ""}
+              className={`w-full rounded-md border px-2 py-1 text-sm ${dueInputClasses(
+                dueUrgency
+              )}`}
+              onChange={handleChange}
+            />
+          </form>
+        </td>
+      ) : null}
     </tr>
   );
 }

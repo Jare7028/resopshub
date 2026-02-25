@@ -12,10 +12,17 @@ import {
   type ViewPreferenceScope,
 } from "@/lib/viewPreferences";
 import {
+  persistTableColumnVisibility,
+  readTableColumnVisibility,
+} from "@/lib/tableColumnPreferences";
+import {
   FilterIcon,
   FilterMenuMulti,
   FilterMenuText,
 } from "../_components/TableHeaderFilters";
+import TableColumnConfigButton, {
+  type TableColumnOption,
+} from "../_components/TableColumnConfigButton";
 
 type ClientRow = {
   id: string;
@@ -30,6 +37,37 @@ type ClientRow = {
 type HeaderMenuKey = "name" | "status" | "industry";
 type ClientSortKey = "name" | "status" | "industry" | "start";
 type ClientSortDir = "asc" | "desc";
+type ClientTableColumnId =
+  | "name"
+  | "active_employees"
+  | "status"
+  | "industry"
+  | "account_owner"
+  | "start"
+  | "delete";
+const CLIENT_REQUIRED_COLUMN_IDS = new Set<ClientTableColumnId>(["name"]);
+
+function normalizeVisibleClientColumns(
+  values: string[],
+  knownColumnIds: ClientTableColumnId[]
+) {
+  const knownColumnIdSet = new Set<ClientTableColumnId>(knownColumnIds);
+  const normalized = Array.from(
+    new Set(
+      values.filter((value): value is ClientTableColumnId =>
+        knownColumnIdSet.has(value as ClientTableColumnId)
+      )
+    )
+  );
+  const withRequiredColumns = normalized.slice();
+  CLIENT_REQUIRED_COLUMN_IDS.forEach((requiredColumnId) => {
+    if (!knownColumnIdSet.has(requiredColumnId)) return;
+    if (!withRequiredColumns.includes(requiredColumnId)) {
+      withRequiredColumns.unshift(requiredColumnId);
+    }
+  });
+  return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
+}
 
 function toDate(value?: string | null) {
   if (!value) return null;
@@ -71,6 +109,7 @@ export default function ClientsTable({
   initialView = "table",
   hasExplicitView = false,
   viewPreferenceScope = "clients",
+  columnPreferenceUserId = null,
   onDelete,
 }: {
   clients: ClientRow[];
@@ -82,6 +121,7 @@ export default function ClientsTable({
   initialView?: "table" | "board" | "gantt";
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
+  columnPreferenceUserId?: string | null;
   onDelete: (formData: FormData) => void;
 }) {
   const router = useRouter();
@@ -99,12 +139,71 @@ export default function ClientsTable({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const filtersRef = useRef(filters);
   const searchDebounceTimerRef = useRef<number | null>(null);
+  const clientTableColumns = useMemo<TableColumnOption[]>(
+    () => [
+      { id: "name", label: "Client", required: true },
+      { id: "active_employees", label: "Active employees" },
+      { id: "status", label: "Status" },
+      { id: "industry", label: "Industry" },
+      { id: "account_owner", label: "Account owner" },
+      { id: "start", label: "Start date" },
+      { id: "delete", label: "Delete action" },
+    ],
+    []
+  );
+  const clientTableColumnIds = useMemo(
+    () => clientTableColumns.map((column) => column.id as ClientTableColumnId),
+    [clientTableColumns]
+  );
+  const clientKnownColumnIdSet = useMemo(
+    () => new Set<ClientTableColumnId>(clientTableColumnIds),
+    [clientTableColumnIds]
+  );
+  const [visibleClientColumns, setVisibleClientColumns] = useState<ClientTableColumnId[]>(
+    clientTableColumnIds
+  );
+  const visibleClientColumnSet = useMemo(
+    () => new Set<ClientTableColumnId>(visibleClientColumns),
+    [visibleClientColumns]
+  );
+  const isClientColumnVisible = (columnId: ClientTableColumnId) =>
+    visibleClientColumnSet.has(columnId);
+  const tableColSpan = clientTableColumnIds.reduce((count, columnId) => {
+    return isClientColumnVisible(columnId) ? count + 1 : count;
+  }, 0);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
     setFilters(initialFilters);
     setMobileSearchInput(initialFilters.q);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    setVisibleClientColumns((current) =>
+      normalizeVisibleClientColumns(current, clientTableColumnIds)
+    );
+  }, [clientTableColumnIds]);
+
+  useEffect(() => {
+    const loadedVisibleColumns = readTableColumnVisibility({
+      scope: "clients",
+      knownColumnIds: clientKnownColumnIdSet,
+      fallbackVisibleColumnIds: clientTableColumnIds,
+      options: { userId: columnPreferenceUserId },
+    });
+    setVisibleClientColumns(
+      normalizeVisibleClientColumns(loadedVisibleColumns, clientTableColumnIds)
+    );
+  }, [clientKnownColumnIdSet, clientTableColumnIds, columnPreferenceUserId]);
+
+  useEffect(() => {
+    persistTableColumnVisibility({
+      scope: "clients",
+      visibleColumnIds: visibleClientColumns,
+      knownColumnIds: clientTableColumnIds,
+      options: { userId: columnPreferenceUserId },
+    });
+  }, [clientTableColumnIds, columnPreferenceUserId, visibleClientColumns]);
 
   useEffect(() => {
     filtersRef.current = filters;
@@ -395,51 +494,66 @@ export default function ClientsTable({
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
-      <div className="grid grid-cols-2 gap-2 border-b border-slate-200 px-4 py-4 text-sm md:flex md:items-center md:justify-end md:gap-2 md:px-6">
-        <button
-          type="button"
-          onClick={() => applyView("table")}
-          className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
-            view === "table"
-              ? "bg-slate-900 text-white"
-              : "border border-slate-300 text-slate-700"
-          }`}
-        >
-          Table
-        </button>
-        <button
-          type="button"
-          onClick={() => applyView("gantt")}
-          className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
-            view === "gantt"
-              ? "bg-slate-900 text-white"
-              : "border border-slate-300 text-slate-700"
-          }`}
-        >
-          Gantt
-        </button>
-        <button
-          type="button"
-          onClick={() => applyView("board")}
-          className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
-            view === "board"
-              ? "bg-slate-900 text-white"
-              : "border border-slate-300 text-slate-700"
-          }`}
-        >
-          Board
-        </button>
-        <button
-          type="button"
-          onClick={saveDefaultView}
-          className={`min-h-11 w-full rounded-md border px-3 py-1.5 text-xs font-semibold md:w-auto ${
-            defaultView === view
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
-          }`}
-        >
-          {defaultView === view ? "Default view" : "Set as default"}
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 md:px-6">
+        <div className="flex flex-wrap items-center gap-3">
+          {view === "table" ? (
+            <TableColumnConfigButton
+              columns={clientTableColumns}
+              visibleColumnIds={visibleClientColumns}
+              onVisibleColumnIdsChange={(nextVisibleColumnIds) =>
+                setVisibleClientColumns(
+                  normalizeVisibleClientColumns(nextVisibleColumnIds, clientTableColumnIds)
+                )
+              }
+            />
+          ) : null}
+        </div>
+        <div className="grid w-full grid-cols-2 gap-2 text-sm md:flex md:w-auto md:items-center md:gap-2">
+          <button
+            type="button"
+            onClick={() => applyView("table")}
+            className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
+              view === "table"
+                ? "bg-slate-900 text-white"
+                : "border border-slate-300 text-slate-700"
+            }`}
+          >
+            Table
+          </button>
+          <button
+            type="button"
+            onClick={() => applyView("gantt")}
+            className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
+              view === "gantt"
+                ? "bg-slate-900 text-white"
+                : "border border-slate-300 text-slate-700"
+            }`}
+          >
+            Gantt
+          </button>
+          <button
+            type="button"
+            onClick={() => applyView("board")}
+            className={`min-h-11 w-full rounded-md px-3 py-1.5 font-semibold md:w-auto ${
+              view === "board"
+                ? "bg-slate-900 text-white"
+                : "border border-slate-300 text-slate-700"
+            }`}
+          >
+            Board
+          </button>
+          <button
+            type="button"
+            onClick={saveDefaultView}
+            className={`min-h-11 w-full rounded-md border px-3 py-1.5 text-xs font-semibold md:w-auto ${
+              defaultView === view
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            }`}
+          >
+            {defaultView === view ? "Default view" : "Set as default"}
+          </button>
+        </div>
       </div>
 
       {view === "table" ? (
@@ -480,171 +594,199 @@ export default function ClientsTable({
           <table className="min-w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-6 py-3">
-              <div className="relative flex items-center justify-between gap-2">
-                <a href={buildSortUrl("name")} className={headerClass("name")}>
-                  Client {sortIndicator("name")}
+            {isClientColumnVisible("name") ? (
+              <th className="px-6 py-3">
+                <div className="relative flex items-center justify-between gap-2">
+                  <a href={buildSortUrl("name")} className={headerClass("name")}>
+                    Client {sortIndicator("name")}
+                  </a>
+                  <button
+                    type="button"
+                    aria-label="Filter client name"
+                    onClick={() =>
+                      setOpenMenu((current) => (current === "name" ? null : "name"))
+                    }
+                  >
+                    <FilterIcon active={Boolean(filters.q.trim())} />
+                  </button>
+                  {openMenu === "name" ? (
+                    <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                      <FilterMenuText
+                        title="Client"
+                        value={filters.q}
+                        placeholder="Search by name..."
+                        onApply={(next) => {
+                          applyFilters({ ...filters, q: next });
+                          setOpenMenu(null);
+                        }}
+                        onClear={() => {
+                          applyFilters({ ...filters, q: "" });
+                          setOpenMenu(null);
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </th>
+            ) : null}
+            {isClientColumnVisible("active_employees") ? (
+              <th className="px-6 py-3">
+                <span className="text-slate-700">Active employees</span>
+              </th>
+            ) : null}
+            {isClientColumnVisible("status") ? (
+              <th className="px-6 py-3">
+                <div className="relative flex items-center justify-between gap-2">
+                  <a href={buildSortUrl("status")} className={headerClass("status")}>
+                    Status {sortIndicator("status")}
+                  </a>
+                  <button
+                    type="button"
+                    aria-label="Filter status"
+                    onClick={() =>
+                      setOpenMenu((current) => (current === "status" ? null : "status"))
+                    }
+                  >
+                    <FilterIcon active={filters.status.length > 0} />
+                  </button>
+                  {openMenu === "status" ? (
+                    <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                      <FilterMenuMulti
+                        title="Status"
+                        options={statusOptions.map((status) => ({
+                          value: status,
+                          label: status.replaceAll("_", " "),
+                        }))}
+                        selectedValues={filters.status}
+                        onChange={(next) => applyFilters({ ...filters, status: next })}
+                        onClear={() => applyFilters({ ...filters, status: [] })}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </th>
+            ) : null}
+            {isClientColumnVisible("industry") ? (
+              <th className="px-6 py-3">
+                <div className="relative flex items-center justify-between gap-2">
+                  <a href={buildSortUrl("industry")} className={headerClass("industry")}>
+                    Industry {sortIndicator("industry")}
+                  </a>
+                  <button
+                    type="button"
+                    aria-label="Filter industry"
+                    onClick={() =>
+                      setOpenMenu((current) =>
+                        current === "industry" ? null : "industry"
+                      )
+                    }
+                  >
+                    <FilterIcon active={filters.industry.length > 0} />
+                  </button>
+                  {openMenu === "industry" ? (
+                    <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                      <FilterMenuMulti
+                        title="Industry"
+                        options={industryOptions}
+                        selectedValues={filters.industry}
+                        onChange={(next) => applyFilters({ ...filters, industry: next })}
+                        onClear={() => applyFilters({ ...filters, industry: [] })}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </th>
+            ) : null}
+            {isClientColumnVisible("account_owner") ? (
+              <th className="px-6 py-3">
+                <span className="text-slate-700">Account owner</span>
+              </th>
+            ) : null}
+            {isClientColumnVisible("start") ? (
+              <th className="px-6 py-3">
+                <a href={buildSortUrl("start")} className={headerClass("start")}>
+                  Start date {sortIndicator("start")}
                 </a>
-                <button
-                  type="button"
-                  aria-label="Filter client name"
-                  onClick={() =>
-                    setOpenMenu((current) => (current === "name" ? null : "name"))
-                  }
-                >
-                  <FilterIcon active={Boolean(filters.q.trim())} />
-                </button>
-                {openMenu === "name" ? (
-                  <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
-                    <FilterMenuText
-                      title="Client"
-                      value={filters.q}
-                      placeholder="Search by name..."
-                      onApply={(next) => {
-                        applyFilters({ ...filters, q: next });
-                        setOpenMenu(null);
-                      }}
-                      onClear={() => {
-                        applyFilters({ ...filters, q: "" });
-                        setOpenMenu(null);
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </th>
-            <th className="px-6 py-3">
-              <span className="text-slate-700">Active employees</span>
-            </th>
-            <th className="px-6 py-3">
-              <div className="relative flex items-center justify-between gap-2">
-                <a href={buildSortUrl("status")} className={headerClass("status")}>
-                  Status {sortIndicator("status")}
-                </a>
-                <button
-                  type="button"
-                  aria-label="Filter status"
-                  onClick={() =>
-                    setOpenMenu((current) => (current === "status" ? null : "status"))
-                  }
-                >
-                  <FilterIcon active={filters.status.length > 0} />
-                </button>
-                {openMenu === "status" ? (
-                  <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
-                    <FilterMenuMulti
-                      title="Status"
-                      options={statusOptions.map((status) => ({
-                        value: status,
-                        label: status.replaceAll("_", " "),
-                      }))}
-                      selectedValues={filters.status}
-                      onChange={(next) => applyFilters({ ...filters, status: next })}
-                      onClear={() => applyFilters({ ...filters, status: [] })}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </th>
-            <th className="px-6 py-3">
-              <div className="relative flex items-center justify-between gap-2">
-                <a href={buildSortUrl("industry")} className={headerClass("industry")}>
-                  Industry {sortIndicator("industry")}
-                </a>
-                <button
-                  type="button"
-                  aria-label="Filter industry"
-                  onClick={() =>
-                    setOpenMenu((current) =>
-                      current === "industry" ? null : "industry"
-                    )
-                  }
-                >
-                  <FilterIcon active={filters.industry.length > 0} />
-                </button>
-                {openMenu === "industry" ? (
-                  <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
-                    <FilterMenuMulti
-                      title="Industry"
-                      options={industryOptions}
-                      selectedValues={filters.industry}
-                      onChange={(next) => applyFilters({ ...filters, industry: next })}
-                      onClear={() => applyFilters({ ...filters, industry: [] })}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </th>
-            <th className="px-6 py-3">
-              <span className="text-slate-700">Account owner</span>
-            </th>
-            <th className="px-6 py-3">
-              <a href={buildSortUrl("start")} className={headerClass("start")}>
-                Start date {sortIndicator("start")}
-              </a>
-            </th>
-            <th className="px-6 py-3 text-slate-700">delete</th>
+              </th>
+            ) : null}
+            {isClientColumnVisible("delete") ? (
+              <th className="px-6 py-3 text-slate-700">delete</th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
           {clients.length ? (
             clients.map((client) => (
               <tr key={client.id} className="border-t border-slate-200">
-                <td className="px-6 py-3 font-medium text-slate-900">
-                  <Link href={`/clients/${client.id}`} className="hover:underline">
-                    {client.name}
-                  </Link>
-                </td>
-                <td className="px-6 py-3 text-slate-700">
-                  {activeEmployeeCountByClientId[client.id] ?? 0}
-                </td>
-                <td className="px-6 py-3 text-slate-600">
-                  {client.status?.replaceAll("_", " ") || "-"}
-                </td>
-                <td className="px-6 py-3 text-slate-600">{client.industry || "-"}</td>
-                <td className="px-6 py-3 text-slate-600">
-                  {client.account_owner || "-"}
-                </td>
-                <td className="px-6 py-3 text-slate-600">
-                  {client.start_date
-                    ? new Date(client.start_date).toLocaleDateString("en-US")
-                    : "-"}
-                </td>
-                <td className="px-6 py-3">
-                  <form action={onDelete}>
-                    <input type="hidden" name="client_id" value={client.id} />
-                    <ConfirmDelete
-                      name={client.name}
-                      itemType="Client"
-                      triggerLabel={
-                        <span className="inline-flex items-center">
-                          <svg
-                            aria-hidden="true"
-                            viewBox="0 0 24 24"
-                            className="h-3 w-3"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M3 6h18" />
-                            <path d="M8 6V4h8v2" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                            <path d="M10 11v6" />
-                            <path d="M14 11v6" />
-                          </svg>
-                          <span className="sr-only">Delete</span>
-                        </span>
-                      }
-                    />
-                  </form>
-                </td>
+                {isClientColumnVisible("name") ? (
+                  <td className="px-6 py-3 font-medium text-slate-900">
+                    <Link href={`/clients/${client.id}`} className="hover:underline">
+                      {client.name}
+                    </Link>
+                  </td>
+                ) : null}
+                {isClientColumnVisible("active_employees") ? (
+                  <td className="px-6 py-3 text-slate-700">
+                    {activeEmployeeCountByClientId[client.id] ?? 0}
+                  </td>
+                ) : null}
+                {isClientColumnVisible("status") ? (
+                  <td className="px-6 py-3 text-slate-600">
+                    {client.status?.replaceAll("_", " ") || "-"}
+                  </td>
+                ) : null}
+                {isClientColumnVisible("industry") ? (
+                  <td className="px-6 py-3 text-slate-600">{client.industry || "-"}</td>
+                ) : null}
+                {isClientColumnVisible("account_owner") ? (
+                  <td className="px-6 py-3 text-slate-600">
+                    {client.account_owner || "-"}
+                  </td>
+                ) : null}
+                {isClientColumnVisible("start") ? (
+                  <td className="px-6 py-3 text-slate-600">
+                    {client.start_date
+                      ? new Date(client.start_date).toLocaleDateString("en-US")
+                      : "-"}
+                  </td>
+                ) : null}
+                {isClientColumnVisible("delete") ? (
+                  <td className="px-6 py-3">
+                    <form action={onDelete}>
+                      <input type="hidden" name="client_id" value={client.id} />
+                      <ConfirmDelete
+                        name={client.name}
+                        itemType="Client"
+                        triggerLabel={
+                          <span className="inline-flex items-center">
+                            <svg
+                              aria-hidden="true"
+                              viewBox="0 0 24 24"
+                              className="h-3 w-3"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M8 6V4h8v2" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                            </svg>
+                            <span className="sr-only">Delete</span>
+                          </span>
+                        }
+                      />
+                    </form>
+                  </td>
+                ) : null}
               </tr>
             ))
           ) : (
             <tr>
-              <td className="px-6 py-6 text-slate-500" colSpan={7}>
+              <td className="px-6 py-6 text-slate-500" colSpan={tableColSpan}>
                 No clients found.
               </td>
             </tr>

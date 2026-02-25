@@ -1380,6 +1380,7 @@ export default async function ProjectsPage(props: {
           onTaskUpdate={updateTaskInlineAction}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="projects"
+          columnPreferenceUserId={currentUserId}
         />
       </section>
     </div>

@@ -60,6 +60,12 @@ export default async function ClientsPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authEmail = String(authData.user?.email || "").trim();
+  const { data: currentUser } = authEmail
+    ? await supabase.from("users").select("id").eq("email", authEmail).maybeSingle()
+    : { data: null as { id: string } | null };
+  const currentUserId = currentUser?.id || null;
   const query = (searchParams?.q || "").trim();
   const selectedStatuses = parseCsvParam(searchParams?.status).filter((value) =>
     statusOptions.includes(value as (typeof statusOptions)[number])
@@ -369,6 +375,7 @@ export default async function ClientsPage(props: {
           initialView={initialView}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="clients"
+          columnPreferenceUserId={currentUserId}
           onDelete={deleteClient}
         />
       </section>

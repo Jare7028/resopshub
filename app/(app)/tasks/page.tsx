@@ -1808,6 +1808,7 @@ export default async function TasksPage(props: {
           initialView={selectedView}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
+          columnPreferenceUserId={currentAppUserId || authUserId}
         />
       </section>
     </div>

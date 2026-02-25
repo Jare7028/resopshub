@@ -21,7 +21,14 @@ import {
   writeDefaultViewMode,
   type ViewPreferenceScope,
 } from "@/lib/viewPreferences";
+import {
+  persistTableColumnVisibility,
+  readTableColumnVisibility,
+} from "@/lib/tableColumnPreferences";
 import { FilterIcon, FilterMenuMulti } from "../_components/TableHeaderFilters";
+import TableColumnConfigButton, {
+  type TableColumnOption,
+} from "../_components/TableColumnConfigButton";
 
 type UserOption = {
   id: string;
@@ -99,9 +106,19 @@ type ProjectsViewProps = {
   basePath?: string;
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
+  columnPreferenceUserId?: string | null;
 };
 
 type HeaderMenuKey = "client" | "status" | "assignees";
+type ProjectTableColumnId =
+  | "project"
+  | "open_tasks"
+  | "client"
+  | "status"
+  | "assignees"
+  | "start"
+  | "end";
+const PROJECT_REQUIRED_COLUMN_IDS = new Set<ProjectTableColumnId>(["project"]);
 
 const statusColors: Record<string, string> = {
   planned: "bg-slate-400",
@@ -145,6 +162,28 @@ function formatTick(date: Date) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function normalizeVisibleProjectColumns(
+  values: string[],
+  knownColumnIds: ProjectTableColumnId[]
+) {
+  const knownColumnIdSet = new Set<ProjectTableColumnId>(knownColumnIds);
+  const normalized = Array.from(
+    new Set(
+      values.filter((value): value is ProjectTableColumnId =>
+        knownColumnIdSet.has(value as ProjectTableColumnId)
+      )
+    )
+  );
+  const withRequiredColumns = normalized.slice();
+  PROJECT_REQUIRED_COLUMN_IDS.forEach((requiredColumnId) => {
+    if (!knownColumnIdSet.has(requiredColumnId)) return;
+    if (!withRequiredColumns.includes(requiredColumnId)) {
+      withRequiredColumns.unshift(requiredColumnId);
+    }
+  });
+  return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
+}
+
 export default function ProjectsView({
   projects,
   users,
@@ -167,6 +206,7 @@ export default function ProjectsView({
   basePath = "/projects",
   hasExplicitView = false,
   viewPreferenceScope = "projects",
+  columnPreferenceUserId = null,
 }: ProjectsViewProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -182,11 +222,69 @@ export default function ProjectsView({
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const projectTableColumns = useMemo<TableColumnOption[]>(
+    () => [
+      { id: "project", label: "Project", required: true },
+      { id: "open_tasks", label: "Open tasks" },
+      { id: "client", label: "Client" },
+      { id: "status", label: "Status" },
+      { id: "assignees", label: "Assignees" },
+      { id: "start", label: "Start" },
+      { id: "end", label: "End" },
+    ],
+    []
+  );
+  const projectTableColumnIds = useMemo(
+    () => projectTableColumns.map((column) => column.id as ProjectTableColumnId),
+    [projectTableColumns]
+  );
+  const projectKnownColumnIdSet = useMemo(
+    () => new Set<ProjectTableColumnId>(projectTableColumnIds),
+    [projectTableColumnIds]
+  );
+  const [visibleProjectColumns, setVisibleProjectColumns] = useState<ProjectTableColumnId[]>(
+    projectTableColumnIds
+  );
+  const visibleProjectColumnSet = useMemo(
+    () => new Set<ProjectTableColumnId>(visibleProjectColumns),
+    [visibleProjectColumns]
+  );
+  const isProjectColumnVisible = useCallback(
+    (columnId: ProjectTableColumnId) => visibleProjectColumnSet.has(columnId),
+    [visibleProjectColumnSet]
+  );
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    setVisibleProjectColumns((current) =>
+      normalizeVisibleProjectColumns(current, projectTableColumnIds)
+    );
+  }, [projectTableColumnIds]);
+
+  useEffect(() => {
+    const loadedVisibleColumns = readTableColumnVisibility({
+      scope: "projects",
+      knownColumnIds: projectKnownColumnIdSet,
+      fallbackVisibleColumnIds: projectTableColumnIds,
+      options: { userId: columnPreferenceUserId },
+    });
+    setVisibleProjectColumns(
+      normalizeVisibleProjectColumns(loadedVisibleColumns, projectTableColumnIds)
+    );
+  }, [columnPreferenceUserId, projectKnownColumnIdSet, projectTableColumnIds]);
+
+  useEffect(() => {
+    persistTableColumnVisibility({
+      scope: "projects",
+      visibleColumnIds: visibleProjectColumns,
+      knownColumnIds: projectTableColumnIds,
+      options: { userId: columnPreferenceUserId },
+    });
+  }, [columnPreferenceUserId, projectTableColumnIds, visibleProjectColumns]);
 
   useEffect(() => {
     const validIds = new Set(projects.map((project) => project.id));
@@ -607,11 +705,25 @@ export default function ProjectsView({
     }
     return usersById[userIds[0]] || "Assigned";
   };
+  const tableColSpan = projectTableColumnIds.reduce((count, columnId) => {
+    return isProjectColumnVisible(columnId) ? count + 1 : count;
+  }, 0);
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 md:px-6">
         <div className="flex flex-wrap items-center gap-3">
+          {view === "table" ? (
+            <TableColumnConfigButton
+              columns={projectTableColumns}
+              visibleColumnIds={visibleProjectColumns}
+              onVisibleColumnIdsChange={(nextVisibleColumnIds) =>
+                setVisibleProjectColumns(
+                  normalizeVisibleProjectColumns(nextVisibleColumnIds, projectTableColumnIds)
+                )
+              }
+            />
+          ) : null}
           <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
           <a
             href={toggleUrl}
@@ -752,135 +864,149 @@ export default function ProjectsView({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-6 py-3">
-                  <a href={buildSortUrl("name")} className={headerClass("name")}>
-                    Project
-                    {sortIndicator("name")}
-                  </a>
-                </th>
-                <th className="px-6 py-3 text-right">
-                  <a
-                    href={buildSortUrl("open_tasks")}
-                    className={`${headerClass("open_tasks")} justify-end`}
-                  >
-                    Open tasks
-                    {sortIndicator("open_tasks")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a href={buildSortUrl("client")} className={headerClass("client")}>
-                      Client
-                      {sortIndicator("client")}
+                {isProjectColumnVisible("project") ? (
+                  <th className="px-6 py-3">
+                    <a href={buildSortUrl("name")} className={headerClass("name")}>
+                      Project
+                      {sortIndicator("name")}
                     </a>
-                    <button
-                      type="button"
-                      aria-label="Filter client"
-                      onClick={() =>
-                        setOpenMenu((current) =>
-                          current === "client" ? null : "client"
-                        )
-                      }
+                  </th>
+                ) : null}
+                {isProjectColumnVisible("open_tasks") ? (
+                  <th className="px-6 py-3 text-right">
+                    <a
+                      href={buildSortUrl("open_tasks")}
+                      className={`${headerClass("open_tasks")} justify-end`}
                     >
-                      <FilterIcon active={filters.client.length > 0} />
-                    </button>
-                    {openMenu === "client" ? (
-                      <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
-                        <FilterMenuMulti
-                          title="Client"
-                          options={clients.map((client) => ({
-                            value: client.id,
-                            label: client.name,
-                          }))}
-                          selectedValues={filters.client}
-                          onChange={(next) => applyFilters({ ...filters, client: next })}
-                          onClear={() => applyFilters({ ...filters, client: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a href={buildSortUrl("status")} className={headerClass("status")}>
-                      Status
-                      {sortIndicator("status")}
+                      Open tasks
+                      {sortIndicator("open_tasks")}
                     </a>
-                    <button
-                      type="button"
-                      aria-label="Filter status"
-                      onClick={() =>
-                        setOpenMenu((current) =>
-                          current === "status" ? null : "status"
-                        )
-                      }
-                    >
-                      <FilterIcon active={filters.status.length > 0} />
-                    </button>
-                    {openMenu === "status" ? (
-                      <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
-                        <FilterMenuMulti
-                          title="Status"
-                          options={statusOptions.map((status) => ({
-                            value: status,
-                            label: formatProjectStatusLabel(status),
-                          }))}
-                          selectedValues={filters.status}
-                          onChange={(next) => applyFilters({ ...filters, status: next })}
-                          onClear={() => applyFilters({ ...filters, status: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a href={buildSortUrl("assignees")} className={headerClass("assignees")}>
-                      Assignees
-                      {sortIndicator("assignees")}
+                  </th>
+                ) : null}
+                {isProjectColumnVisible("client") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a href={buildSortUrl("client")} className={headerClass("client")}>
+                        Client
+                        {sortIndicator("client")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter client"
+                        onClick={() =>
+                          setOpenMenu((current) =>
+                            current === "client" ? null : "client"
+                          )
+                        }
+                      >
+                        <FilterIcon active={filters.client.length > 0} />
+                      </button>
+                      {openMenu === "client" ? (
+                        <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                          <FilterMenuMulti
+                            title="Client"
+                            options={clients.map((client) => ({
+                              value: client.id,
+                              label: client.name,
+                            }))}
+                            selectedValues={filters.client}
+                            onChange={(next) => applyFilters({ ...filters, client: next })}
+                            onClear={() => applyFilters({ ...filters, client: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isProjectColumnVisible("status") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a href={buildSortUrl("status")} className={headerClass("status")}>
+                        Status
+                        {sortIndicator("status")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter status"
+                        onClick={() =>
+                          setOpenMenu((current) =>
+                            current === "status" ? null : "status"
+                          )
+                        }
+                      >
+                        <FilterIcon active={filters.status.length > 0} />
+                      </button>
+                      {openMenu === "status" ? (
+                        <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                          <FilterMenuMulti
+                            title="Status"
+                            options={statusOptions.map((status) => ({
+                              value: status,
+                              label: formatProjectStatusLabel(status),
+                            }))}
+                            selectedValues={filters.status}
+                            onChange={(next) => applyFilters({ ...filters, status: next })}
+                            onClear={() => applyFilters({ ...filters, status: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isProjectColumnVisible("assignees") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a href={buildSortUrl("assignees")} className={headerClass("assignees")}>
+                        Assignees
+                        {sortIndicator("assignees")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter assignees"
+                        onClick={() =>
+                          setOpenMenu((current) =>
+                            current === "assignees" ? null : "assignees"
+                          )
+                        }
+                      >
+                        <FilterIcon active={filters.assignee.length > 0} />
+                      </button>
+                      {openMenu === "assignees" ? (
+                        <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                          <FilterMenuMulti
+                            title="Assignees"
+                            options={[
+                              { value: "unassigned", label: "Unassigned" },
+                              ...users.map((user) => ({
+                                value: user.id,
+                                label: user.full_name || user.email || "Unnamed user",
+                              })),
+                            ]}
+                            selectedValues={filters.assignee}
+                            onChange={(next) => applyFilters({ ...filters, assignee: next })}
+                            onClear={() => applyFilters({ ...filters, assignee: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isProjectColumnVisible("start") ? (
+                  <th className="px-6 py-3">
+                    <a href={buildSortUrl("start")} className={headerClass("start")}>
+                      Start
+                      {sortIndicator("start")}
                     </a>
-                    <button
-                      type="button"
-                      aria-label="Filter assignees"
-                      onClick={() =>
-                        setOpenMenu((current) =>
-                          current === "assignees" ? null : "assignees"
-                        )
-                      }
-                    >
-                      <FilterIcon active={filters.assignee.length > 0} />
-                    </button>
-                    {openMenu === "assignees" ? (
-                      <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
-                        <FilterMenuMulti
-                          title="Assignees"
-                          options={[
-                            { value: "unassigned", label: "Unassigned" },
-                            ...users.map((user) => ({
-                              value: user.id,
-                              label: user.full_name || user.email || "Unnamed user",
-                            })),
-                          ]}
-                          selectedValues={filters.assignee}
-                          onChange={(next) => applyFilters({ ...filters, assignee: next })}
-                          onClear={() => applyFilters({ ...filters, assignee: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <a href={buildSortUrl("start")} className={headerClass("start")}>
-                    Start
-                    {sortIndicator("start")}
-                  </a>
-                </th>
-                <th className="px-6 py-3">
-                  <a href={buildSortUrl("end")} className={headerClass("end")}>
-                    End
-                    {sortIndicator("end")}
-                  </a>
-                </th>
+                  </th>
+                ) : null}
+                {isProjectColumnVisible("end") ? (
+                  <th className="px-6 py-3">
+                    <a href={buildSortUrl("end")} className={headerClass("end")}>
+                      End
+                      {sortIndicator("end")}
+                    </a>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -891,207 +1017,235 @@ export default function ProjectsView({
                   return (
                     <Fragment key={project.id}>
                       <tr className="border-t border-slate-200">
-                        <td className="px-6 py-3 font-medium text-slate-900">
-                          <Link href={`/projects/${project.id}`} className="hover:underline">
-                            {project.name}
-                          </Link>
-                        </td>
-                        <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
-                          {(openTaskCountByProjectId[project.id] ?? 0) > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleProjectTasks(project.id)}
-                              className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900"
-                              aria-expanded={expandedProjectIds.has(project.id)}
-                              aria-label={`${
-                                expandedProjectIds.has(project.id) ? "Hide" : "Show"
-                              } open tasks for ${project.name}`}
-                            >
-                              <span>{openTaskCountByProjectId[project.id] ?? 0}</span>
-                              <span aria-hidden="true" className="text-[10px]">
-                                {expandedProjectIds.has(project.id) ? "v" : ">"}
-                              </span>
-                            </button>
-                          ) : (
-                            0
-                          )}
-                        </td>
-                        <td className="px-6 py-3 text-slate-600">
-                          <form>
-                            <input type="hidden" name="project_id" value={project.id} />
-                            <select
-                              name="client_id"
-                              aria-label="Client"
-                              defaultValue={project.client_id || ""}
-                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                              onChange={handleInlineChange}
-                            >
-                              <option value="">No client</option>
-                              {clients.map((client) => (
-                                <option key={client.id} value={client.id}>
-                                  {client.name}
-                                </option>
-                              ))}
-                            </select>
-                          </form>
-                        </td>
-                        <td className="px-6 py-3 text-slate-600">
-                          <form>
-                            <input type="hidden" name="project_id" value={project.id} />
-                            <select
-                              name="status"
-                              aria-label="Status"
-                              defaultValue={project.status ?? "planned"}
-                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                              onChange={handleInlineChange}
-                            >
-                              {statusOptions.map((status) => (
-                                <option key={status} value={status}>
-                                  {formatProjectStatusLabel(status)}
-                                </option>
-                              ))}
-                            </select>
-                          </form>
-                        </td>
-                        <td className="px-6 py-3 text-slate-600">
-                          <form id={`project-${project.id}-assignees`}>
-                            <input type="hidden" name="project_id" value={project.id} />
-                            <AssigneeMultiSelect
-                              users={users}
-                              name="assignee_user_ids"
-                              defaultSelected={assigneeIds}
-                              className="w-full"
-                              form={`project-${project.id}-assignees`}
-                              onSelectionChange={(selectedIds) =>
-                                handleAssigneesChange(project.id, selectedIds)
-                              }
-                            />
-                          </form>
-                        </td>
-                        <td className="px-6 py-3 text-slate-600">
-                          <form>
-                            <input type="hidden" name="project_id" value={project.id} />
-                            <input
-                              type="date"
-                              name="start_date"
-                              aria-label="Start date"
-                              defaultValue={project.start_date || ""}
-                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                              onChange={handleInlineChange}
-                            />
-                          </form>
-                        </td>
-                        <td className="px-6 py-3 text-slate-600">
-                          <form>
-                            <input type="hidden" name="project_id" value={project.id} />
-                            <input
-                              type="date"
-                              name="end_date"
-                              aria-label="End date"
-                              defaultValue={project.end_date || ""}
-                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                              onChange={handleInlineChange}
-                            />
-                          </form>
-                        </td>
+                        {isProjectColumnVisible("project") ? (
+                          <td className="px-6 py-3 font-medium text-slate-900">
+                            <Link href={`/projects/${project.id}`} className="hover:underline">
+                              {project.name}
+                            </Link>
+                          </td>
+                        ) : null}
+                        {isProjectColumnVisible("open_tasks") ? (
+                          <td className="px-6 py-3 text-right text-slate-600 tabular-nums">
+                            {(openTaskCountByProjectId[project.id] ?? 0) > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleProjectTasks(project.id)}
+                                className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900"
+                                aria-expanded={expandedProjectIds.has(project.id)}
+                                aria-label={`${
+                                  expandedProjectIds.has(project.id) ? "Hide" : "Show"
+                                } open tasks for ${project.name}`}
+                              >
+                                <span>{openTaskCountByProjectId[project.id] ?? 0}</span>
+                                <span aria-hidden="true" className="text-[10px]">
+                                  {expandedProjectIds.has(project.id) ? "v" : ">"}
+                                </span>
+                              </button>
+                            ) : (
+                              0
+                            )}
+                          </td>
+                        ) : null}
+                        {isProjectColumnVisible("client") ? (
+                          <td className="px-6 py-3 text-slate-600">
+                            <form>
+                              <input type="hidden" name="project_id" value={project.id} />
+                              <select
+                                name="client_id"
+                                aria-label="Client"
+                                defaultValue={project.client_id || ""}
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                onChange={handleInlineChange}
+                              >
+                                <option value="">No client</option>
+                                {clients.map((client) => (
+                                  <option key={client.id} value={client.id}>
+                                    {client.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </form>
+                          </td>
+                        ) : null}
+                        {isProjectColumnVisible("status") ? (
+                          <td className="px-6 py-3 text-slate-600">
+                            <form>
+                              <input type="hidden" name="project_id" value={project.id} />
+                              <select
+                                name="status"
+                                aria-label="Status"
+                                defaultValue={project.status ?? "planned"}
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                onChange={handleInlineChange}
+                              >
+                                {statusOptions.map((status) => (
+                                  <option key={status} value={status}>
+                                    {formatProjectStatusLabel(status)}
+                                  </option>
+                                ))}
+                              </select>
+                            </form>
+                          </td>
+                        ) : null}
+                        {isProjectColumnVisible("assignees") ? (
+                          <td className="px-6 py-3 text-slate-600">
+                            <form id={`project-${project.id}-assignees`}>
+                              <input type="hidden" name="project_id" value={project.id} />
+                              <AssigneeMultiSelect
+                                users={users}
+                                name="assignee_user_ids"
+                                defaultSelected={assigneeIds}
+                                className="w-full"
+                                form={`project-${project.id}-assignees`}
+                                onSelectionChange={(selectedIds) =>
+                                  handleAssigneesChange(project.id, selectedIds)
+                                }
+                              />
+                            </form>
+                          </td>
+                        ) : null}
+                        {isProjectColumnVisible("start") ? (
+                          <td className="px-6 py-3 text-slate-600">
+                            <form>
+                              <input type="hidden" name="project_id" value={project.id} />
+                              <input
+                                type="date"
+                                name="start_date"
+                                aria-label="Start date"
+                                defaultValue={project.start_date || ""}
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                onChange={handleInlineChange}
+                              />
+                            </form>
+                          </td>
+                        ) : null}
+                        {isProjectColumnVisible("end") ? (
+                          <td className="px-6 py-3 text-slate-600">
+                            <form>
+                              <input type="hidden" name="project_id" value={project.id} />
+                              <input
+                                type="date"
+                                name="end_date"
+                                aria-label="End date"
+                                defaultValue={project.end_date || ""}
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                onChange={handleInlineChange}
+                              />
+                            </form>
+                          </td>
+                        ) : null}
                       </tr>
                       {expandedProjectIds.has(project.id)
                         ? (openTasksByProjectId[project.id] || []).map((task) => (
                             <tr key={task.id} className="border-t border-slate-100 bg-slate-50/60">
-                              <td className="px-6 py-2 text-slate-700">
-                                <div className="flex items-center gap-2 pl-6">
-                                  <span aria-hidden="true" className="text-slate-400">
-                                    {"->"}
-                                  </span>
-                                  <Link href={`/tasks/${task.id}`} className="hover:underline">
-                                    {task.title}
-                                  </Link>
-                                </div>
-                              </td>
-                              <td className="px-6 py-2 text-right text-slate-400">-</td>
-                              <td className="px-6 py-2 text-slate-600">
-                                <form>
-                                  <input type="hidden" name="task_id" value={task.id} />
-                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
-                                  <select
-                                    name="client_id"
-                                    aria-label="Task client"
-                                    defaultValue={task.client_id || ""}
-                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                                    onChange={handleTaskInlineChange}
-                                  >
-                                    <option value="">No client</option>
-                                    {clients.map((client) => (
-                                      <option key={client.id} value={client.id}>
-                                        {client.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </form>
-                              </td>
-                              <td className="px-6 py-2 text-slate-600">
-                                <form>
-                                  <input type="hidden" name="task_id" value={task.id} />
-                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
-                                  <select
-                                    name="status"
-                                    aria-label="Task status"
-                                    defaultValue={task.status || "to_do"}
-                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                                    onChange={handleTaskInlineChange}
-                                  >
-                                    {taskStatusOptions.map((status) => (
-                                      <option key={status} value={status}>
-                                        {formatTaskStatusLabel(status)}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </form>
-                              </td>
-                              <td className="px-6 py-2 text-slate-600">
-                                <form id={`project-task-${task.id}-assignees`}>
-                                  <input type="hidden" name="task_id" value={task.id} />
-                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
-                                  <AssigneeMultiSelect
-                                    users={users}
-                                    name="assignee_user_ids"
-                                    defaultSelected={task.assignee_user_ids}
-                                    className="w-full"
-                                    form={`project-task-${task.id}-assignees`}
-                                    onSelectionChange={(selectedIds) =>
-                                      handleTaskAssigneesChange(task.id, selectedIds)
-                                    }
-                                  />
-                                </form>
-                              </td>
-                              <td className="px-6 py-2 text-slate-600">
-                                <form>
-                                  <input type="hidden" name="task_id" value={task.id} />
-                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
-                                  <input
-                                    type="date"
-                                    name="start_date"
-                                    aria-label="Task start date"
-                                    defaultValue={task.start_date || ""}
-                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                                    onChange={handleTaskInlineChange}
-                                  />
-                                </form>
-                              </td>
-                              <td className="px-6 py-2 text-slate-600">
-                                <form>
-                                  <input type="hidden" name="task_id" value={task.id} />
-                                  <input type="hidden" name="return_to" value={inlineReturnTo} />
-                                  <input
-                                    type="date"
-                                    name="due_date"
-                                    aria-label="Task due date"
-                                    defaultValue={task.due_date || ""}
-                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                                    onChange={handleTaskInlineChange}
-                                  />
-                                </form>
-                              </td>
+                              {isProjectColumnVisible("project") ? (
+                                <td className="px-6 py-2 text-slate-700">
+                                  <div className="flex items-center gap-2 pl-6">
+                                    <span aria-hidden="true" className="text-slate-400">
+                                      {"->"}
+                                    </span>
+                                    <Link href={`/tasks/${task.id}`} className="hover:underline">
+                                      {task.title}
+                                    </Link>
+                                  </div>
+                                </td>
+                              ) : null}
+                              {isProjectColumnVisible("open_tasks") ? (
+                                <td className="px-6 py-2 text-right text-slate-400">-</td>
+                              ) : null}
+                              {isProjectColumnVisible("client") ? (
+                                <td className="px-6 py-2 text-slate-600">
+                                  <form>
+                                    <input type="hidden" name="task_id" value={task.id} />
+                                    <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                    <select
+                                      name="client_id"
+                                      aria-label="Task client"
+                                      defaultValue={task.client_id || ""}
+                                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                      onChange={handleTaskInlineChange}
+                                    >
+                                      <option value="">No client</option>
+                                      {clients.map((client) => (
+                                        <option key={client.id} value={client.id}>
+                                          {client.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </form>
+                                </td>
+                              ) : null}
+                              {isProjectColumnVisible("status") ? (
+                                <td className="px-6 py-2 text-slate-600">
+                                  <form>
+                                    <input type="hidden" name="task_id" value={task.id} />
+                                    <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                    <select
+                                      name="status"
+                                      aria-label="Task status"
+                                      defaultValue={task.status || "to_do"}
+                                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                      onChange={handleTaskInlineChange}
+                                    >
+                                      {taskStatusOptions.map((status) => (
+                                        <option key={status} value={status}>
+                                          {formatTaskStatusLabel(status)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </form>
+                                </td>
+                              ) : null}
+                              {isProjectColumnVisible("assignees") ? (
+                                <td className="px-6 py-2 text-slate-600">
+                                  <form id={`project-task-${task.id}-assignees`}>
+                                    <input type="hidden" name="task_id" value={task.id} />
+                                    <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                    <AssigneeMultiSelect
+                                      users={users}
+                                      name="assignee_user_ids"
+                                      defaultSelected={task.assignee_user_ids}
+                                      className="w-full"
+                                      form={`project-task-${task.id}-assignees`}
+                                      onSelectionChange={(selectedIds) =>
+                                        handleTaskAssigneesChange(task.id, selectedIds)
+                                      }
+                                    />
+                                  </form>
+                                </td>
+                              ) : null}
+                              {isProjectColumnVisible("start") ? (
+                                <td className="px-6 py-2 text-slate-600">
+                                  <form>
+                                    <input type="hidden" name="task_id" value={task.id} />
+                                    <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                    <input
+                                      type="date"
+                                      name="start_date"
+                                      aria-label="Task start date"
+                                      defaultValue={task.start_date || ""}
+                                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                      onChange={handleTaskInlineChange}
+                                    />
+                                  </form>
+                                </td>
+                              ) : null}
+                              {isProjectColumnVisible("end") ? (
+                                <td className="px-6 py-2 text-slate-600">
+                                  <form>
+                                    <input type="hidden" name="task_id" value={task.id} />
+                                    <input type="hidden" name="return_to" value={inlineReturnTo} />
+                                    <input
+                                      type="date"
+                                      name="due_date"
+                                      aria-label="Task due date"
+                                      defaultValue={task.due_date || ""}
+                                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                      onChange={handleTaskInlineChange}
+                                    />
+                                  </form>
+                                </td>
+                              ) : null}
                             </tr>
                           ))
                         : null}
@@ -1100,7 +1254,7 @@ export default function ProjectsView({
                 })
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-slate-500" colSpan={7}>
+                  <td className="px-6 py-6 text-slate-500" colSpan={tableColSpan}>
                     No projects found.
                   </td>
                 </tr>

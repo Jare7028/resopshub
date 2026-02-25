@@ -28,12 +28,19 @@ import {
   type ViewPreferenceScope,
 } from "@/lib/viewPreferences";
 import {
+  persistTableColumnVisibility,
+  readTableColumnVisibility,
+} from "@/lib/tableColumnPreferences";
+import {
   FilterIcon,
   FilterMenuMulti,
   FilterMenuSingle,
 } from "../_components/TableHeaderFilters";
 import MultiSelect from "../_components/MultiSelect";
 import { getNextSubtaskDueDate } from "@/lib/taskNextSubtaskDueDate";
+import TableColumnConfigButton, {
+  type TableColumnOption,
+} from "../_components/TableColumnConfigButton";
 
 type UserOption = {
   id: string;
@@ -122,6 +129,7 @@ type TasksViewProps = {
   filterPersistenceUserId?: string | null;
   filterPersistenceScope?: string;
   hasExplicitFilterParams?: boolean;
+  columnPreferenceUserId?: string | null;
 };
 
 const statusColors: Record<string, string> = {
@@ -135,6 +143,19 @@ const statusColors: Record<string, string> = {
 
 type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
 const TASK_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.task-filters.v1";
+type TaskTableColumnId =
+  | "task"
+  | "open_subtasks"
+  | "client"
+  | "project"
+  | "status"
+  | "priority"
+  | "assignees"
+  | "start"
+  | "next_subtask_due"
+  | "due";
+
+const TASK_REQUIRED_COLUMN_IDS = new Set<TaskTableColumnId>(["task"]);
 
 type PersistedTaskFilterState = {
   status: string[];
@@ -189,6 +210,30 @@ function filterAllowedValues(values: string[], allowedValues: Set<string>) {
   return values.filter((value) => allowedValues.has(value));
 }
 
+function normalizeVisibleTaskColumns(
+  values: string[],
+  knownColumnIds: TaskTableColumnId[]
+) {
+  const knownColumnIdSet = new Set<TaskTableColumnId>(knownColumnIds);
+  const normalized = Array.from(
+    new Set(
+      values.filter((value): value is TaskTableColumnId =>
+        knownColumnIdSet.has(value as TaskTableColumnId)
+      )
+    )
+  );
+
+  const withRequiredColumns = normalized.slice();
+  TASK_REQUIRED_COLUMN_IDS.forEach((requiredColumnId) => {
+    if (!knownColumnIdSet.has(requiredColumnId)) return;
+    if (!withRequiredColumns.includes(requiredColumnId)) {
+      withRequiredColumns.unshift(requiredColumnId);
+    }
+  });
+
+  return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
+}
+
 function toDate(value?: string | null) {
   if (!value) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -241,6 +286,7 @@ export default function TasksView({
   filterPersistenceUserId = null,
   filterPersistenceScope,
   hasExplicitFilterParams = false,
+  columnPreferenceUserId = null,
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
@@ -271,7 +317,49 @@ export default function TasksView({
   const taskNotesHoverRequestIdRef = useRef(0);
   const taskNotesHoverCacheRef = useRef<Record<string, TaskNotesHoverPayload>>({});
   const enableTaskNotesHover = basePath === "/tasks" && view === "table";
-  const showNextSubtaskDueDateColumn = basePath === "/tasks" && view === "table";
+  const supportsNextSubtaskDueDateColumn = basePath === "/tasks";
+  const showNextSubtaskDueDateColumn = supportsNextSubtaskDueDateColumn && view === "table";
+  const taskTableColumns = useMemo<TableColumnOption[]>(
+    () => [
+      { id: "task", label: "Task", required: true },
+      { id: "open_subtasks", label: "Open subtasks" },
+      { id: "client", label: "Client" },
+      { id: "project", label: "Project" },
+      { id: "status", label: "Status" },
+      { id: "priority", label: "Priority" },
+      { id: "assignees", label: "Assignees" },
+      { id: "start", label: "Start" },
+      ...(supportsNextSubtaskDueDateColumn
+        ? [{ id: "next_subtask_due", label: "Next subtask due" }]
+        : []),
+      { id: "due", label: "Due" },
+    ],
+    [supportsNextSubtaskDueDateColumn]
+  );
+  const taskTableColumnIds = useMemo(
+    () => taskTableColumns.map((column) => column.id as TaskTableColumnId),
+    [taskTableColumns]
+  );
+  const taskKnownColumnIdSet = useMemo(
+    () => new Set<TaskTableColumnId>(taskTableColumnIds),
+    [taskTableColumnIds]
+  );
+  const [visibleTaskColumns, setVisibleTaskColumns] = useState<TaskTableColumnId[]>(
+    taskTableColumnIds
+  );
+  const visibleTaskColumnSet = useMemo(
+    () => new Set<TaskTableColumnId>(visibleTaskColumns),
+    [visibleTaskColumns]
+  );
+  const isTaskColumnVisible = useCallback(
+    (columnId: TaskTableColumnId) => {
+      if (columnId === "next_subtask_due" && !showNextSubtaskDueDateColumn) {
+        return false;
+      }
+      return visibleTaskColumnSet.has(columnId);
+    },
+    [showNextSubtaskDueDateColumn, visibleTaskColumnSet]
+  );
 
   const taskFilterPersistenceKey = useMemo(() => {
     const userId = String(filterPersistenceUserId || "").trim();
@@ -309,6 +397,33 @@ export default function TasksView({
       }, {}),
     [projects]
   );
+
+  useEffect(() => {
+    setVisibleTaskColumns((current) =>
+      normalizeVisibleTaskColumns(current, taskTableColumnIds)
+    );
+  }, [taskTableColumnIds]);
+
+  useEffect(() => {
+    const loadedVisibleColumns = readTableColumnVisibility({
+      scope: "tasks",
+      knownColumnIds: taskKnownColumnIdSet,
+      fallbackVisibleColumnIds: taskTableColumnIds,
+      options: { userId: columnPreferenceUserId },
+    });
+    setVisibleTaskColumns(
+      normalizeVisibleTaskColumns(loadedVisibleColumns, taskTableColumnIds)
+    );
+  }, [columnPreferenceUserId, taskKnownColumnIdSet, taskTableColumnIds]);
+
+  useEffect(() => {
+    persistTableColumnVisibility({
+      scope: "tasks",
+      visibleColumnIds: visibleTaskColumns,
+      knownColumnIds: taskTableColumnIds,
+      options: { userId: columnPreferenceUserId },
+    });
+  }, [columnPreferenceUserId, taskTableColumnIds, visibleTaskColumns]);
 
   useEffect(() => {
     const validIds = new Set(tasks.map((task) => task.id));
@@ -1046,12 +1161,25 @@ export default function TasksView({
     }
     return usersById[userIds[0]] || "Assigned";
   };
-  const tableColSpan = showNextSubtaskDueDateColumn ? 10 : 9;
+  const tableColSpan = taskTableColumnIds.reduce((count, columnId) => {
+    return isTaskColumnVisible(columnId) ? count + 1 : count;
+  }, 0);
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 md:px-6">
         <div className="flex flex-wrap items-center gap-3">
+          {view === "table" ? (
+            <TableColumnConfigButton
+              columns={taskTableColumns}
+              visibleColumnIds={visibleTaskColumns}
+              onVisibleColumnIdsChange={(nextVisibleColumnIds) =>
+                setVisibleTaskColumns(
+                  normalizeVisibleTaskColumns(nextVisibleColumnIds, taskTableColumnIds)
+                )
+              }
+            />
+          ) : null}
           <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
           <a
             href={toggleUrl}
@@ -1224,258 +1352,276 @@ export default function TasksView({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-6 py-3">
-                  <a href={buildSortUrl("title")} className={headerClass("title")}>
-                    Task
-                    {sortIndicator("title")}
-                  </a>
-                </th>
-                <th className="px-6 py-3 text-right text-slate-700">Open subtasks</th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a href={buildSortUrl("client")} className={headerClass("client")}>
-                      Client
-                      {sortIndicator("client")}
+                {isTaskColumnVisible("task") ? (
+                  <th className="px-6 py-3">
+                    <a href={buildSortUrl("title")} className={headerClass("title")}>
+                      Task
+                      {sortIndicator("title")}
                     </a>
-                    <button
-                      type="button"
-                      aria-label="Filter client"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpenMenu((current) => (current === "client" ? null : "client"));
-                      }}
-                    >
-                      <FilterIcon active={filters.client.length > 0} />
-                    </button>
-                    {openMenu === "client" ? (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-full z-30 mt-2"
+                  </th>
+                ) : null}
+                {isTaskColumnVisible("open_subtasks") ? (
+                  <th className="px-6 py-3 text-right text-slate-700">Open subtasks</th>
+                ) : null}
+                {isTaskColumnVisible("client") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a href={buildSortUrl("client")} className={headerClass("client")}>
+                        Client
+                        {sortIndicator("client")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter client"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setOpenMenu((current) => (current === "client" ? null : "client"));
+                        }}
                       >
-                        <FilterMenuMulti
-                          title="Client"
-                          options={clients.map((client) => ({
-                            value: client.id,
-                            label: client.name,
-                          }))}
-                          selectedValues={filters.client}
-                          onChange={(next) => applyFilters({ ...filters, client: next })}
-                          onClear={() => applyFilters({ ...filters, client: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a href={buildSortUrl("project")} className={headerClass("project")}>
-                      Project
-                      {sortIndicator("project")}
+                        <FilterIcon active={filters.client.length > 0} />
+                      </button>
+                      {openMenu === "client" ? (
+                        <div
+                          ref={menuRef}
+                          className="absolute right-0 top-full z-30 mt-2"
+                        >
+                          <FilterMenuMulti
+                            title="Client"
+                            options={clients.map((client) => ({
+                              value: client.id,
+                              label: client.name,
+                            }))}
+                            selectedValues={filters.client}
+                            onChange={(next) => applyFilters({ ...filters, client: next })}
+                            onClear={() => applyFilters({ ...filters, client: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isTaskColumnVisible("project") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a href={buildSortUrl("project")} className={headerClass("project")}>
+                        Project
+                        {sortIndicator("project")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter project"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setOpenMenu((current) => (current === "project" ? null : "project"));
+                        }}
+                      >
+                        <FilterIcon active={filters.project.length > 0} />
+                      </button>
+                      {openMenu === "project" ? (
+                        <div
+                          ref={menuRef}
+                          className="absolute right-0 top-full z-30 mt-2"
+                        >
+                          <FilterMenuMulti
+                            title="Project"
+                            options={projects.map((project) => {
+                              const clientName = Array.isArray(project.clients)
+                                ? project.clients[0]?.name
+                                : project.clients?.name;
+                              const label = clientName
+                                ? `${project.name} - ${clientName}`
+                                : project.name;
+                              return { value: project.id, label };
+                            })}
+                            selectedValues={filters.project}
+                            onChange={(next) => applyFilters({ ...filters, project: next })}
+                            onClear={() => applyFilters({ ...filters, project: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isTaskColumnVisible("status") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a href={buildSortUrl("status")} className={headerClass("status")}>
+                        Status
+                        {sortIndicator("status")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter status"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setOpenMenu((current) => (current === "status" ? null : "status"));
+                        }}
+                      >
+                        <FilterIcon active={filters.status.length > 0} />
+                      </button>
+                      {openMenu === "status" ? (
+                        <div
+                          ref={menuRef}
+                          className="absolute right-0 top-full z-30 mt-2"
+                        >
+                          <FilterMenuMulti
+                            title="Status"
+                            options={statusOptions.map((status) => ({
+                              value: status,
+                              label: formatTaskStatusLabel(status),
+                            }))}
+                            selectedValues={filters.status}
+                            onChange={(next) => applyFilters({ ...filters, status: next })}
+                            onClear={() => applyFilters({ ...filters, status: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isTaskColumnVisible("priority") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a
+                        href={buildSortUrl("priority")}
+                        className={headerClass("priority")}
+                      >
+                        Priority
+                        {sortIndicator("priority")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter priority"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setOpenMenu((current) =>
+                            current === "priority" ? null : "priority"
+                          );
+                        }}
+                      >
+                        <FilterIcon active={filters.priority.length > 0} />
+                      </button>
+                      {openMenu === "priority" ? (
+                        <div
+                          ref={menuRef}
+                          className="absolute right-0 top-full z-30 mt-2"
+                        >
+                          <FilterMenuMulti
+                            title="Priority"
+                            options={priorityOptions.map((priority) => ({
+                              value: priority,
+                              label: priority,
+                            }))}
+                            selectedValues={filters.priority}
+                            onChange={(next) => applyFilters({ ...filters, priority: next })}
+                            onClear={() => applyFilters({ ...filters, priority: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isTaskColumnVisible("assignees") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a
+                        href={buildSortUrl("assignees")}
+                        className={headerClass("assignees")}
+                      >
+                        Assignees
+                        {sortIndicator("assignees")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter assignees"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setOpenMenu((current) =>
+                            current === "assignees" ? null : "assignees"
+                          );
+                        }}
+                      >
+                        <FilterIcon active={filters.assignee.length > 0} />
+                      </button>
+                      {openMenu === "assignees" ? (
+                        <div
+                          ref={menuRef}
+                          className="absolute right-0 top-full z-30 mt-2"
+                        >
+                          <FilterMenuMulti
+                            title="Assignees"
+                            options={[
+                              { value: "unassigned", label: "Unassigned" },
+                              ...users.map((user) => ({
+                                value: user.id,
+                                label: user.full_name || user.email || "Unnamed user",
+                              })),
+                            ]}
+                            selectedValues={filters.assignee}
+                            onChange={(next) => applyFilters({ ...filters, assignee: next })}
+                            onClear={() => applyFilters({ ...filters, assignee: [] })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
+                {isTaskColumnVisible("start") ? (
+                  <th className="px-6 py-3">
+                    <a href={buildSortUrl("start")} className={headerClass("start")}>
+                      Start
+                      {sortIndicator("start")}
                     </a>
-                    <button
-                      type="button"
-                      aria-label="Filter project"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpenMenu((current) => (current === "project" ? null : "project"));
-                      }}
-                    >
-                      <FilterIcon active={filters.project.length > 0} />
-                    </button>
-                    {openMenu === "project" ? (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-full z-30 mt-2"
-                      >
-                        <FilterMenuMulti
-                          title="Project"
-                          options={projects.map((project) => {
-                            const clientName = Array.isArray(project.clients)
-                              ? project.clients[0]?.name
-                              : project.clients?.name;
-                            const label = clientName
-                              ? `${project.name} - ${clientName}`
-                              : project.name;
-                            return { value: project.id, label };
-                          })}
-                          selectedValues={filters.project}
-                          onChange={(next) => applyFilters({ ...filters, project: next })}
-                          onClear={() => applyFilters({ ...filters, project: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a href={buildSortUrl("status")} className={headerClass("status")}>
-                      Status
-                      {sortIndicator("status")}
-                    </a>
-                    <button
-                      type="button"
-                      aria-label="Filter status"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpenMenu((current) => (current === "status" ? null : "status"));
-                      }}
-                    >
-                      <FilterIcon active={filters.status.length > 0} />
-                    </button>
-                    {openMenu === "status" ? (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-full z-30 mt-2"
-                      >
-                        <FilterMenuMulti
-                          title="Status"
-                          options={statusOptions.map((status) => ({
-                            value: status,
-                            label: formatTaskStatusLabel(status),
-                          }))}
-                          selectedValues={filters.status}
-                          onChange={(next) => applyFilters({ ...filters, status: next })}
-                          onClear={() => applyFilters({ ...filters, status: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a
-                      href={buildSortUrl("priority")}
-                      className={headerClass("priority")}
-                    >
-                      Priority
-                      {sortIndicator("priority")}
-                    </a>
-                    <button
-                      type="button"
-                      aria-label="Filter priority"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpenMenu((current) =>
-                          current === "priority" ? null : "priority"
-                        );
-                      }}
-                    >
-                      <FilterIcon active={filters.priority.length > 0} />
-                    </button>
-                    {openMenu === "priority" ? (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-full z-30 mt-2"
-                      >
-                        <FilterMenuMulti
-                          title="Priority"
-                          options={priorityOptions.map((priority) => ({
-                            value: priority,
-                            label: priority,
-                          }))}
-                          selectedValues={filters.priority}
-                          onChange={(next) => applyFilters({ ...filters, priority: next })}
-                          onClear={() => applyFilters({ ...filters, priority: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a
-                      href={buildSortUrl("assignees")}
-                      className={headerClass("assignees")}
-                    >
-                      Assignees
-                      {sortIndicator("assignees")}
-                    </a>
-                    <button
-                      type="button"
-                      aria-label="Filter assignees"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpenMenu((current) =>
-                          current === "assignees" ? null : "assignees"
-                        );
-                      }}
-                    >
-                      <FilterIcon active={filters.assignee.length > 0} />
-                    </button>
-                    {openMenu === "assignees" ? (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-full z-30 mt-2"
-                      >
-                        <FilterMenuMulti
-                          title="Assignees"
-                          options={[
-                            { value: "unassigned", label: "Unassigned" },
-                            ...users.map((user) => ({
-                              value: user.id,
-                              label: user.full_name || user.email || "Unnamed user",
-                            })),
-                          ]}
-                          selectedValues={filters.assignee}
-                          onChange={(next) => applyFilters({ ...filters, assignee: next })}
-                          onClear={() => applyFilters({ ...filters, assignee: [] })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
-                <th className="px-6 py-3">
-                  <a href={buildSortUrl("start")} className={headerClass("start")}>
-                    Start
-                    {sortIndicator("start")}
-                  </a>
-                </th>
-                {showNextSubtaskDueDateColumn ? (
+                  </th>
+                ) : null}
+                {isTaskColumnVisible("next_subtask_due") ? (
                   <th className="px-6 py-3 text-slate-700 whitespace-nowrap">
                     Next Subtask Due
                   </th>
                 ) : null}
-                <th className="px-6 py-3">
-                  <div className="relative flex items-center justify-between gap-2">
-                    <a href={buildSortUrl("due")} className={headerClass("due")}>
-                      Due
-                      {sortIndicator("due")}
-                    </a>
-                    <button
-                      type="button"
-                      aria-label="Filter due"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpenMenu((current) => (current === "due" ? null : "due"));
-                      }}
-                    >
-                      <FilterIcon active={filters.due !== "all"} />
-                    </button>
-                    {openMenu === "due" ? (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-full z-30 mt-2"
+                {isTaskColumnVisible("due") ? (
+                  <th className="px-6 py-3">
+                    <div className="relative flex items-center justify-between gap-2">
+                      <a href={buildSortUrl("due")} className={headerClass("due")}>
+                        Due
+                        {sortIndicator("due")}
+                      </a>
+                      <button
+                        type="button"
+                        aria-label="Filter due"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setOpenMenu((current) => (current === "due" ? null : "due"));
+                        }}
                       >
-                        <FilterMenuSingle
-                          title="Due"
-                          options={dueOptions.map((opt) => ({
-                            value: opt.value,
-                            label: opt.label,
-                          }))}
-                          value={filters.due}
-                          onChange={(next) => applyFilters({ ...filters, due: next })}
-                          onClear={() => applyFilters({ ...filters, due: "all" })}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </th>
+                        <FilterIcon active={filters.due !== "all"} />
+                      </button>
+                      {openMenu === "due" ? (
+                        <div
+                          ref={menuRef}
+                          className="absolute right-0 top-full z-30 mt-2"
+                        >
+                          <FilterMenuSingle
+                            title="Due"
+                            options={dueOptions.map((opt) => ({
+                              value: opt.value,
+                              label: opt.label,
+                            }))}
+                            value={filters.due}
+                            onChange={(next) => applyFilters({ ...filters, due: next })}
+                            onClear={() => applyFilters({ ...filters, due: "all" })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -1521,6 +1667,7 @@ export default function TasksView({
                         onTitleHoverEnd={
                           enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
                         }
+                        visibleColumnIds={visibleTaskColumnSet}
                         showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
                         nextSubtaskDueDateIso={nextSubtaskDueDateIso}
                       />
@@ -1552,6 +1699,7 @@ export default function TasksView({
                               onTitleHoverEnd={
                                 enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
                               }
+                              visibleColumnIds={visibleTaskColumnSet}
                               showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
                               nextSubtaskDueDateIso={null}
                             />
