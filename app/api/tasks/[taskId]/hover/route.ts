@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { buildTaskNotesPreview } from "@/lib/taskNotesPreview";
 
 type RouteContext = {
   params: Promise<{ taskId: string }>;
@@ -18,11 +19,24 @@ export async function GET(_req: Request, context: RouteContext) {
     return NextResponse.json({ error: "Missing task id" }, { status: 400 });
   }
 
-  const { data: task, error } = await supabase
+  const baseSelect = "id,title,status,due_date,due_time,assignee_user_id";
+  let { data: task, error } = await supabase
     .from("tasks")
-    .select("id,title,status,due_date,due_time,assignee_user_id")
+    .select(`${baseSelect},content_text,content`)
     .eq("id", taskId)
     .maybeSingle();
+
+  if (error && String(error.message || "").toLowerCase().includes("content_text")) {
+    const fallbackResponse = await supabase
+      .from("tasks")
+      .select(`${baseSelect},content`)
+      .eq("id", taskId)
+      .maybeSingle();
+    task = fallbackResponse.data
+      ? { ...fallbackResponse.data, content_text: null }
+      : null;
+    error = fallbackResponse.error;
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
@@ -40,6 +54,10 @@ export async function GET(_req: Request, context: RouteContext) {
       .maybeSingle();
     assignee = userRow?.full_name || userRow?.email || null;
   }
+  const notesPreview = buildTaskNotesPreview({
+    contentText: task.content_text,
+    content: task.content,
+  });
 
   return NextResponse.json({
     taskId: task.id,
@@ -48,6 +66,7 @@ export async function GET(_req: Request, context: RouteContext) {
     dueDate: task.due_date,
     dueTime: task.due_time,
     assignee,
+    notesPreview,
   });
 }
 

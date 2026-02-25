@@ -149,6 +149,30 @@ type PersistedTaskFilterState = {
   view: "table" | "gantt" | "board";
 };
 
+type TaskHoverAnchor = {
+  left: number;
+  bottom: number;
+};
+
+type TaskNotesHoverState = {
+  open: boolean;
+  taskId: string | null;
+  x: number;
+  y: number;
+  loading: boolean;
+  error: string;
+  notesPreview: string | null;
+};
+
+type TaskNotesHoverPayload = {
+  notesPreview: string | null;
+};
+
+const TASK_NOTES_HOVER_OPEN_DELAY_MS = 120;
+const TASK_NOTES_HOVER_CLOSE_DELAY_MS = 120;
+const TASK_NOTES_HOVER_WIDTH = 320;
+const TASK_NOTES_HOVER_HEIGHT = 220;
+
 function normalizeStorageList(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
   return Array.from(
@@ -232,6 +256,20 @@ export default function TasksView({
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
   const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
+  const [taskNotesHover, setTaskNotesHover] = useState<TaskNotesHoverState>({
+    open: false,
+    taskId: null,
+    x: 0,
+    y: 0,
+    loading: false,
+    error: "",
+    notesPreview: null,
+  });
+  const taskNotesHoverOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskNotesHoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskNotesHoverRequestIdRef = useRef(0);
+  const taskNotesHoverCacheRef = useRef<Record<string, TaskNotesHoverPayload>>({});
+  const enableTaskNotesHover = basePath === "/tasks" && view === "table";
 
   const taskFilterPersistenceKey = useMemo(() => {
     const userId = String(filterPersistenceUserId || "").trim();
@@ -361,6 +399,196 @@ export default function TasksView({
       window.removeEventListener("drop", onDragFinish);
     };
   }, [resetDragState]);
+
+  const clearTaskNotesHoverOpen = useCallback(() => {
+    if (taskNotesHoverOpenTimerRef.current) {
+      clearTimeout(taskNotesHoverOpenTimerRef.current);
+      taskNotesHoverOpenTimerRef.current = null;
+    }
+  }, []);
+
+  const clearTaskNotesHoverClose = useCallback(() => {
+    if (taskNotesHoverCloseTimerRef.current) {
+      clearTimeout(taskNotesHoverCloseTimerRef.current);
+      taskNotesHoverCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const closeTaskNotesHover = useCallback(() => {
+    setTaskNotesHover((prev) =>
+      prev.open || prev.taskId || prev.loading || prev.error || prev.notesPreview
+        ? {
+            open: false,
+            taskId: null,
+            x: 0,
+            y: 0,
+            loading: false,
+            error: "",
+            notesPreview: null,
+          }
+        : prev
+    );
+  }, []);
+
+  const scheduleTaskNotesHoverClose = useCallback(() => {
+    clearTaskNotesHoverClose();
+    taskNotesHoverCloseTimerRef.current = setTimeout(() => {
+      closeTaskNotesHover();
+    }, TASK_NOTES_HOVER_CLOSE_DELAY_MS);
+  }, [clearTaskNotesHoverClose, closeTaskNotesHover]);
+
+  const updateTaskNotesHoverPosition = useCallback((anchor: TaskHoverAnchor) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const nextX = Math.max(
+      12,
+      Math.min(window.innerWidth - TASK_NOTES_HOVER_WIDTH - 12, Math.round(anchor.left))
+    );
+    const nextY = Math.max(
+      12,
+      Math.min(window.innerHeight - TASK_NOTES_HOVER_HEIGHT - 12, Math.round(anchor.bottom + 8))
+    );
+    setTaskNotesHover((prev) => ({ ...prev, x: nextX, y: nextY }));
+  }, []);
+
+  const fetchTaskNotesHoverData = useCallback((taskId: string) => {
+    const cached = taskNotesHoverCacheRef.current[taskId];
+    if (cached) {
+      setTaskNotesHover((prev) => ({
+        ...prev,
+        open: true,
+        loading: false,
+        error: "",
+        notesPreview: cached.notesPreview,
+      }));
+      return;
+    }
+
+    const requestId = taskNotesHoverRequestIdRef.current + 1;
+    taskNotesHoverRequestIdRef.current = requestId;
+    setTaskNotesHover((prev) => ({
+      ...prev,
+      open: true,
+      loading: true,
+      error: "",
+      notesPreview: null,
+    }));
+
+    void fetch(`/api/tasks/${taskId}/hover`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => ({}))) as {
+          notesPreview?: unknown;
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(
+            typeof payload.error === "string" && payload.error.trim()
+              ? payload.error
+              : "Unable to load notes"
+          );
+        }
+        if (taskNotesHoverRequestIdRef.current !== requestId) {
+          return;
+        }
+        const notesPreview =
+          typeof payload.notesPreview === "string"
+            ? payload.notesPreview.trim() || null
+            : null;
+        const nextPayload: TaskNotesHoverPayload = { notesPreview };
+        taskNotesHoverCacheRef.current[taskId] = nextPayload;
+        setTaskNotesHover((prev) => ({
+          ...prev,
+          open: true,
+          loading: false,
+          error: "",
+          notesPreview: nextPayload.notesPreview,
+        }));
+      })
+      .catch((error: unknown) => {
+        if (taskNotesHoverRequestIdRef.current !== requestId) {
+          return;
+        }
+        setTaskNotesHover((prev) => ({
+          ...prev,
+          open: true,
+          loading: false,
+          error: error instanceof Error ? error.message : "Unable to load notes",
+          notesPreview: null,
+        }));
+      });
+  }, []);
+
+  const handleTaskTitleHoverStart = useCallback(
+    (taskId: string, anchor: TaskHoverAnchor) => {
+      if (!enableTaskNotesHover) {
+        return;
+      }
+      clearTaskNotesHoverClose();
+      clearTaskNotesHoverOpen();
+      taskNotesHoverOpenTimerRef.current = setTimeout(() => {
+        updateTaskNotesHoverPosition(anchor);
+        setTaskNotesHover((prev) => ({ ...prev, open: true, taskId }));
+        fetchTaskNotesHoverData(taskId);
+      }, TASK_NOTES_HOVER_OPEN_DELAY_MS);
+    },
+    [
+      clearTaskNotesHoverClose,
+      clearTaskNotesHoverOpen,
+      enableTaskNotesHover,
+      fetchTaskNotesHoverData,
+      updateTaskNotesHoverPosition,
+    ]
+  );
+
+  const handleTaskTitleHoverMove = useCallback(
+    (taskId: string, anchor: TaskHoverAnchor) => {
+      if (!enableTaskNotesHover) {
+        return;
+      }
+      if (taskNotesHover.open && taskNotesHover.taskId === taskId) {
+        clearTaskNotesHoverClose();
+        updateTaskNotesHoverPosition(anchor);
+      }
+    },
+    [
+      clearTaskNotesHoverClose,
+      enableTaskNotesHover,
+      taskNotesHover.open,
+      taskNotesHover.taskId,
+      updateTaskNotesHoverPosition,
+    ]
+  );
+
+  const handleTaskTitleHoverEnd = useCallback(() => {
+    clearTaskNotesHoverOpen();
+    if (!enableTaskNotesHover) {
+      return;
+    }
+    scheduleTaskNotesHoverClose();
+  }, [clearTaskNotesHoverOpen, enableTaskNotesHover, scheduleTaskNotesHoverClose]);
+
+  useEffect(() => {
+    if (enableTaskNotesHover) {
+      return;
+    }
+    clearTaskNotesHoverOpen();
+    clearTaskNotesHoverClose();
+    closeTaskNotesHover();
+  }, [
+    clearTaskNotesHoverClose,
+    clearTaskNotesHoverOpen,
+    closeTaskNotesHover,
+    enableTaskNotesHover,
+  ]);
+
+  useEffect(
+    () => () => {
+      clearTaskNotesHoverOpen();
+      clearTaskNotesHoverClose();
+    },
+    [clearTaskNotesHoverClose, clearTaskNotesHoverOpen]
+  );
 
   const setDragPreviewFromCard = useCallback(
     (event: { dataTransfer: DataTransfer; currentTarget: EventTarget & HTMLElement }) => {
@@ -637,6 +865,16 @@ export default function TasksView({
       return status !== "completed" && status !== "cancelled";
     });
   }, [optimisticStatusByTaskId, shouldHideCompletedStatuses, tasks]);
+
+  useEffect(() => {
+    if (!taskNotesHover.taskId) {
+      return;
+    }
+    const visibleTaskIdSet = new Set(visibleTasks.map((task) => task.id));
+    if (!visibleTaskIdSet.has(taskNotesHover.taskId)) {
+      closeTaskNotesHover();
+    }
+  }, [closeTaskNotesHover, taskNotesHover.taskId, visibleTasks]);
 
   const ganttData = useMemo(() => {
     const normalized = visibleTasks.map((task) => {
@@ -1246,6 +1484,15 @@ export default function TasksView({
                           normalizeTaskStatusOrDefault(task.status)
                         }
                         returnTo={inlineReturnTo}
+                        onTitleHoverStart={
+                          enableTaskNotesHover ? handleTaskTitleHoverStart : undefined
+                        }
+                        onTitleHoverMove={
+                          enableTaskNotesHover ? handleTaskTitleHoverMove : undefined
+                        }
+                        onTitleHoverEnd={
+                          enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
+                        }
                       />
                       {isExpanded
                         ? visibleOpenSubtasks.map((subtask) => (
@@ -1266,6 +1513,15 @@ export default function TasksView({
                               }
                               returnTo={inlineReturnTo}
                               rowVariant="subtask"
+                              onTitleHoverStart={
+                                enableTaskNotesHover ? handleTaskTitleHoverStart : undefined
+                              }
+                              onTitleHoverMove={
+                                enableTaskNotesHover ? handleTaskTitleHoverMove : undefined
+                              }
+                              onTitleHoverEnd={
+                                enableTaskNotesHover ? handleTaskTitleHoverEnd : undefined
+                              }
                             />
                           ))
                         : null}
@@ -1361,6 +1617,30 @@ export default function TasksView({
             </p>
           )}
         </div>
+        {enableTaskNotesHover && taskNotesHover.open && taskNotesHover.taskId ? (
+          <div
+            className="fixed z-[70] w-[320px] rounded-md border border-slate-200 bg-white p-3 shadow-xl"
+            style={{ left: taskNotesHover.x, top: taskNotesHover.y }}
+            onMouseEnter={clearTaskNotesHoverClose}
+            onMouseLeave={handleTaskTitleHoverEnd}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Task notes
+            </p>
+            {taskNotesHover.loading ? (
+              <p className="mt-2 text-sm text-slate-500">Loading notes...</p>
+            ) : taskNotesHover.error ? (
+              <p className="mt-2 text-sm text-red-600">{taskNotesHover.error}</p>
+            ) : taskNotesHover.notesPreview ? (
+              <p className="mt-2 text-sm leading-6 text-slate-700 whitespace-pre-wrap break-words">
+                {taskNotesHover.notesPreview}
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">No available notes</p>
+            )}
+          </div>
+        ) : null}
         </>
       ) : view === "gantt" ? (
         <div className="overflow-x-auto">

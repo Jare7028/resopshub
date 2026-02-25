@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent, useEffect, useRef, useState, useTransition } from "react";
+import {
+  type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { createPortal } from "react-dom";
 import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import {
@@ -60,6 +67,9 @@ type TaskInlineRowProps = {
   statusValue?: string;
   returnTo: string;
   rowVariant?: "task" | "subtask";
+  onTitleHoverStart?: (taskId: string, anchor: { left: number; bottom: number }) => void;
+  onTitleHoverMove?: (taskId: string, anchor: { left: number; bottom: number }) => void;
+  onTitleHoverEnd?: () => void;
 };
 
 export default function TaskInlineRow({
@@ -78,6 +88,9 @@ export default function TaskInlineRow({
   statusValue,
   returnTo,
   rowVariant = "task",
+  onTitleHoverStart,
+  onTitleHoverMove,
+  onTitleHoverEnd,
 }: TaskInlineRowProps) {
   const assigneeFormId = `task-${task.id}-assignees`;
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
@@ -181,6 +194,29 @@ export default function TaskInlineRow({
     return assignee?.full_name || assignee?.email || "Assigned";
   })();
 
+  const toHoverAnchor = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      left: rect.left,
+      bottom: rect.bottom,
+    };
+  };
+
+  const handleTitleHoverStart = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!onTitleHoverStart) return;
+    onTitleHoverStart(task.id, toHoverAnchor(event));
+  };
+
+  const handleTitleHoverMove = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!onTitleHoverMove) return;
+    onTitleHoverMove(task.id, toHoverAnchor(event));
+  };
+
+  const handleTitleHoverEnd = () => {
+    if (!onTitleHoverEnd) return;
+    onTitleHoverEnd();
+  };
+
   return (
     <tr className={isSubtaskRow ? "border-t border-slate-100 bg-slate-50/60" : "border-t border-slate-200"}>
       <td className="px-6 py-3 font-medium text-slate-900">
@@ -189,12 +225,24 @@ export default function TaskInlineRow({
             <span aria-hidden="true" className="text-slate-400">
               {"->"}
             </span>
-            <Link href={`/tasks/${task.id}`} className="hover:underline">
+            <Link
+              href={`/tasks/${task.id}`}
+              className="hover:underline"
+              onMouseEnter={handleTitleHoverStart}
+              onMouseMove={handleTitleHoverMove}
+              onMouseLeave={handleTitleHoverEnd}
+            >
               {task.title}
             </Link>
           </div>
         ) : (
-          <Link href={`/tasks/${task.id}`} className="hover:underline">
+          <Link
+            href={`/tasks/${task.id}`}
+            className="hover:underline"
+            onMouseEnter={handleTitleHoverStart}
+            onMouseMove={handleTitleHoverMove}
+            onMouseLeave={handleTitleHoverEnd}
+          >
             {task.title}
           </Link>
         )}
