@@ -104,6 +104,8 @@ type ProjectsViewProps = {
   sortKey: ProjectSortKey;
   sortDir: ProjectSortDir;
   onTaskUpdate: (formData: FormData) => Promise<unknown> | void;
+  addProjectUrl?: string;
+  showHeaderTitle?: boolean;
   basePath?: string;
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
@@ -263,6 +265,8 @@ export default function ProjectsView({
   sortKey,
   sortDir,
   onTaskUpdate,
+  addProjectUrl,
+  showHeaderTitle = false,
   basePath = "/projects",
   hasExplicitView = false,
   viewPreferenceScope = "projects",
@@ -918,7 +922,17 @@ export default function ProjectsView({
               }
             />
           ) : null}
-          <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
+          {showHeaderTitle ? (
+            <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
+          ) : null}
+          {addProjectUrl ? (
+            <Link
+              href={addProjectUrl}
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            >
+              Add project
+            </Link>
+          ) : null}
           <a
             href={toggleUrl}
             onClick={(event) => {

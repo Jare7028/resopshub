@@ -17,7 +17,7 @@ import ProjectsView, {
   type ProjectSortDir,
   type ProjectSortKey,
 } from "./ProjectsView";
-import ProjectsTabs, {
+import {
   normalizeProjectsTabKey,
   type ProjectsTabKey,
 } from "./_components/ProjectsTabs";
@@ -1158,13 +1158,6 @@ export default async function ProjectsPage(props: {
 
   return (
     <div className="space-y-8">
-      <section className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Projects</h1>
-        <p className="text-sm text-slate-600">
-          Review projects across clients and teams.
-        </p>
-      </section>
-
       {(searchParams?.error || searchParams?.success) && (
         <div className="space-y-2">
           {searchParams?.error ? (
@@ -1179,8 +1172,6 @@ export default async function ProjectsPage(props: {
           ) : null}
         </div>
       )}
-
-      <ProjectsTabs active={activeTab} urls={projectsTabUrls} />
 
       {activeTab === "add" ? (
         <RouteModalOverlay
@@ -1385,6 +1376,7 @@ export default async function ProjectsPage(props: {
           watchToggleUrl={watchToggleUrl}
           sortKey={selectedSortKey}
           sortDir={selectedSortDir}
+          addProjectUrl={projectsTabUrls.add}
           onUpdate={updateProjectInline}
           onTaskUpdate={updateTaskInlineAction}
           hasExplicitView={hasExplicitView}

@@ -353,11 +353,18 @@ export default async function TasksPage(props: {
         )
         .order("name", { ascending: true })
     : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null });
+  const assignedProjectsPromise = !isAdminUser
+    ? supabase
+        .from("project_users")
+        .select("project_id")
+        .in("user_id", assignmentUserIds)
+    : Promise.resolve({ data: [] as Array<{ project_id: string | null }>, error: null });
 
   const [
     { data: users },
     { data: clients },
     { data: projects },
+    assignedProjectsResponse,
     taskTemplatesFromTasksResponse,
     taskTemplatesFromTableResponse,
   ] = await withPerfTiming("tasks.page.lookups", () =>
@@ -368,10 +375,22 @@ export default async function TasksPage(props: {
         .from("projects")
         .select("id,name,client_id,clients(name)")
         .order("name", { ascending: true }),
+      assignedProjectsPromise,
       taskTemplatesFromTasksPromise,
       taskTemplatesFromTablePromise,
     ])
   );
+  if (assignedProjectsResponse.error) {
+    console.error("[tasks.page.project_users.select]", assignedProjectsResponse.error.message);
+  }
+  const assignedProjectIds = new Set(
+    (assignedProjectsResponse.data || [])
+      .map((row) => row.project_id)
+      .filter((projectId): projectId is string => Boolean(projectId))
+  );
+  const addTaskProjects = isAdminUser
+    ? (projects || [])
+    : (projects || []).filter((project) => assignedProjectIds.has(project.id));
   const taskTemplatesFromTasksError = isTemplateStatusEnumError(
     taskTemplatesFromTasksResponse.error
   )
@@ -503,8 +522,11 @@ export default async function TasksPage(props: {
   const projectIdSet = new Set((projects || []).map((project) => project.id));
   const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
   const hasExplicitProjectFilter = typeof searchParams?.project !== "undefined";
+  const addTaskProjectIdSet = new Set(addTaskProjects.map((project) => project.id));
   const defaultAddProjectId =
-    hasExplicitProjectFilter && selectedProjectIds.length === 1
+    hasExplicitProjectFilter &&
+    selectedProjectIds.length === 1 &&
+    addTaskProjectIdSet.has(selectedProjectIds[0])
       ? selectedProjectIds[0]
       : "";
 
@@ -984,6 +1006,24 @@ export default async function TasksPage(props: {
     if (!authData.user?.id) {
       redirect("/login");
     }
+    const authEmail = String(authData.user.email || "").trim();
+    const { data: actionCurrentUserProfile } = await supabase
+      .from("users")
+      .select("id,role,status")
+      .eq("email", authEmail)
+      .maybeSingle();
+    const actionCurrentAppUserId = actionCurrentUserProfile?.id || null;
+    const actionCurrentUserRole = String(actionCurrentUserProfile?.role || "")
+      .trim()
+      .toLowerCase();
+    const actionCurrentUserStatus = String(actionCurrentUserProfile?.status || "active")
+      .trim()
+      .toLowerCase();
+    const isActionAdminUser =
+      actionCurrentUserRole === "admin" && actionCurrentUserStatus !== "disabled";
+    const projectAssignmentUserIds = Array.from(
+      new Set([authData.user.id, actionCurrentAppUserId].filter(Boolean))
+    ) as string[];
     const title = String(formData.get("title") || "").trim();
     const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
@@ -1005,6 +1045,45 @@ export default async function TasksPage(props: {
           error: "Title is required",
         })
       );
+    }
+
+    if (projectId && !isActionAdminUser) {
+      if (!projectAssignmentUserIds.length) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: "You can only create tasks in projects you're assigned to",
+          })
+        );
+      }
+
+      const { data: projectAssignmentRows, error: projectAssignmentError } = await supabase
+        .from("project_users")
+        .select("project_id")
+        .eq("project_id", projectId)
+        .in("user_id", projectAssignmentUserIds)
+        .limit(1);
+
+      if (projectAssignmentError) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: formatDbError(
+              "tasks.createTask.project_users.select",
+              projectAssignmentError
+            ),
+          })
+        );
+      }
+
+      if (!(projectAssignmentRows || []).length) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: "You can only create tasks in projects you're assigned to",
+          })
+        );
+      }
     }
 
     const scheduleResult = parseTaskScheduleFormData(formData, DEFAULT_RECURRENCE_TZ);
@@ -1700,7 +1779,7 @@ export default async function TasksPage(props: {
                               defaultValue={defaultAddProjectId}
                             >
                               <option value="">Project (N/A)</option>
-                              {projects?.map((project) => {
+                              {addTaskProjects?.map((project) => {
                                 const projectClientName = getRelationName(project.clients, "");
                                 return (
                                   <option key={project.id} value={project.id}>

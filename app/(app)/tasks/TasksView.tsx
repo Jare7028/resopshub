@@ -282,7 +282,7 @@ export default function TasksView({
   sortKey,
   sortDir,
   addTaskUrl,
-  showHeaderTitle = true,
+  showHeaderTitle = false,
   basePath = "/tasks",
   fixedParams = {},
   hasExplicitView = false,
