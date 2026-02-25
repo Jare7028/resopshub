@@ -636,6 +636,7 @@ values
   ('projects', 'Projects', '/projects', 30),
   ('tasks', 'Tasks', '/tasks', 40),
   ('employee_info', 'Employee Info', '/employee-info', 50),
+  ('inventory', 'Inventory', '/inventory', 55),
   ('forms', 'Forms', '/forms', 60),
   ('chat', 'Chat', '/chat', 70),
   ('social', 'Social', '/social', 75),
@@ -873,6 +874,26 @@ as $$
   select auth.uid() is not null and public.can_edit_page('employee_info');
 $$;
 
+create or replace function public.can_access_inventory()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_view_page('inventory');
+$$;
+
+create or replace function public.can_manage_inventory_columns()
+returns boolean
+language sql
+stable
+security definer
+set search_path = 'public'
+as $$
+  select auth.uid() is not null and public.can_edit_page('inventory');
+$$;
+
 create or replace function public.can_view_client_billing(client_uuid uuid)
 returns boolean
 language sql
@@ -921,6 +942,8 @@ grant execute on function public.can_access_employee_info() to anon, authenticat
 grant execute on function public.can_manage_employee_info_columns() to anon, authenticated;
 grant execute on function public.can_manage_employee_info_access() to anon, authenticated;
 grant execute on function public.can_manage_employee_info_fx() to anon, authenticated;
+grant execute on function public.can_access_inventory() to anon, authenticated;
+grant execute on function public.can_manage_inventory_columns() to anon, authenticated;
 grant execute on function public.can_view_client_billing(uuid) to anon, authenticated;
 grant execute on function public.can_edit_client_billing(uuid) to anon, authenticated;
 grant execute on function public.can_view_feature_suggestions() to anon, authenticated;

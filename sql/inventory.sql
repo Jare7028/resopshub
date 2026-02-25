@@ -1,6 +1,7 @@
 -- Inventory table with dynamic columns.
 -- Run after:
 --   sql/employee_info.sql
+--   sql/permissions_admin_member.sql
 
 create table if not exists public.inventory_records (
   id uuid primary key default gen_random_uuid(),
@@ -66,7 +67,7 @@ stable
 security definer
 set search_path = 'public'
 as $$
-  select auth.uid() is not null and public.can_access_employee_info();
+  select auth.uid() is not null and public.can_view_page('inventory');
 $$;
 
 grant execute on function public.can_access_inventory() to anon, authenticated;
@@ -78,7 +79,7 @@ stable
 security definer
 set search_path = 'public'
 as $$
-  select auth.uid() is not null and public.can_manage_employee_info_columns();
+  select auth.uid() is not null and public.can_edit_page('inventory');
 $$;
 
 grant execute on function public.can_manage_inventory_columns() to anon, authenticated;

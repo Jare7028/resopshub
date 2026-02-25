@@ -166,7 +166,7 @@ const baseNavLinks: NavLink[] = [
     href: "/inventory",
     label: "Inventory",
     icon: "employeeInfo",
-    pageKey: "employee_info",
+    pageKey: "inventory",
   },
   { href: "/forms", label: "Forms", icon: "forms", pageKey: "forms" },
   { href: "/chat", label: "Chat", icon: "chat", pageKey: "chat" },
