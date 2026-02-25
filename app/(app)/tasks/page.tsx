@@ -19,10 +19,7 @@ import {
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import TasksView from "./TasksView";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
-import TasksTabs, {
-  normalizeTasksTabKey,
-  type TasksTabKey,
-} from "./_components/TasksTabs";
+import { normalizeTasksTabKey, type TasksTabKey } from "./_components/TasksTabs";
 import RouteModalOverlay from "../_components/RouteModalOverlay";
 import TemplateAutoSelect from "./_components/TemplateAutoSelect";
 import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
@@ -1563,13 +1560,6 @@ export default async function TasksPage(props: {
 
   return (
     <div className="space-y-8">
-      <section className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Tasks</h1>
-        <p className="text-sm text-slate-600">
-          Review tasks across all clients and projects.
-        </p>
-      </section>
-
       {(searchParams?.error || searchParams?.success) && (
         <div className="space-y-2">
           {searchParams?.error ? (
@@ -1593,8 +1583,6 @@ export default async function TasksPage(props: {
           </p>
         </section>
       ) : null}
-
-      <TasksTabs active={activeTab} urls={tasksTabUrls} />
 
       {activeTab === "add" ? (
         <RouteModalOverlay
@@ -1817,6 +1805,7 @@ export default async function TasksPage(props: {
           watchToggleUrl={watchToggleUrl}
           sortKey={sortKey}
           sortDir={sortDir}
+          addTaskUrl={tasksTabUrls.add}
           initialView={selectedView}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"

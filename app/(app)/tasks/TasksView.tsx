@@ -122,6 +122,7 @@ type TasksViewProps = {
   showWatchToggle?: boolean;
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
+  addTaskUrl?: string;
   basePath?: string;
   fixedParams?: Record<string, string | null | undefined>;
   hasExplicitView?: boolean;
@@ -279,6 +280,7 @@ export default function TasksView({
   showWatchToggle = true,
   sortKey,
   sortDir,
+  addTaskUrl,
   basePath = "/tasks",
   fixedParams = {},
   hasExplicitView = false,
@@ -1181,6 +1183,14 @@ export default function TasksView({
             />
           ) : null}
           <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
+          {addTaskUrl ? (
+            <Link
+              href={addTaskUrl}
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            >
+              Add task
+            </Link>
+          ) : null}
           <a
             href={toggleUrl}
             onClick={(event) => {
