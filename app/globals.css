@@ -9,7 +9,7 @@
   --brand-text: #30266b;
   --brand-muted: #64748b;
   --brand-primary: #30266b;
-  --brand-primary-hover: #1e293b;
+  --brand-primary-hover: #30266b;
   --brand-header-bg: #ffffff;
   --brand-header-text: #0f172a;
 }
@@ -60,7 +60,7 @@
 
   .btn-primary {
     background: var(--brand-primary);
-    color: #30266b;
+    color: #ffffff;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -84,6 +84,27 @@
 
   .tab-active {
     background: var(--brand-primary);
+    color: #ffffff;
+  }
+
+  /* Standard button-like controls use brand color, except menu surfaces. */
+  :where(a, button):not(.context-menu-item):not(:where([data-menu-panel] *))[class*="bg-slate-900"][class*="text-white"] {
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: #ffffff;
+  }
+
+  :where(a, button):not(.context-menu-item):not(:where([data-menu-panel] *))[class*="border-slate-200"][class*="text-slate-700"],
+  :where(a, button):not(.context-menu-item):not(:where([data-menu-panel] *))[class*="border-slate-300"][class*="text-slate-700"] {
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: #ffffff;
+  }
+
+  :where(a, button):not(.context-menu-item):not(:where([data-menu-panel] *))[class*="border-slate-200"][class*="text-slate-700"]:hover,
+  :where(a, button):not(.context-menu-item):not(:where([data-menu-panel] *))[class*="border-slate-300"][class*="text-slate-700"]:hover {
+    background: var(--brand-primary-hover);
+    border-color: var(--brand-primary-hover);
     color: #ffffff;
   }
 

@@ -97,6 +97,7 @@ export default function TableColumnConfigButton({
         <div
           role="dialog"
           aria-label="Customize table columns"
+          data-menu-panel="true"
           className="absolute left-0 top-full z-40 mt-2 w-72 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
         >
           <p className="mb-2 text-[11px] text-slate-500">

@@ -57,7 +57,7 @@ export function FilterMenuMulti({
   };
 
   return (
-    <div className="w-72 rounded-md border border-slate-200 bg-white shadow-lg">
+    <div data-menu-panel="true" className="w-72 rounded-md border border-slate-200 bg-white shadow-lg">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           {title}
@@ -125,7 +125,7 @@ export function FilterMenuSingle({
   onClear: () => void;
 }) {
   return (
-    <div className="w-64 rounded-md border border-slate-200 bg-white shadow-lg">
+    <div data-menu-panel="true" className="w-64 rounded-md border border-slate-200 bg-white shadow-lg">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           {title}
@@ -175,7 +175,7 @@ export function FilterMenuText({
   const [draft, setDraft] = useState(value);
 
   return (
-    <div className="w-72 rounded-md border border-slate-200 bg-white shadow-lg">
+    <div data-menu-panel="true" className="w-72 rounded-md border border-slate-200 bg-white shadow-lg">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           {title}
@@ -236,7 +236,7 @@ export function FilterMenuDateRange({
   const [draftTo, setDraftTo] = useState(to);
 
   return (
-    <div className="w-80 rounded-md border border-slate-200 bg-white shadow-lg">
+    <div data-menu-panel="true" className="w-80 rounded-md border border-slate-200 bg-white shadow-lg">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           {title}
