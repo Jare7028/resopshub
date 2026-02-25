@@ -497,10 +497,10 @@ export default function ClientsTable({
   useEffect(() => {
     const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
     setDefaultView(savedDefaultView);
-    if (!hasExplicitView && savedDefaultView && savedDefaultView !== view) {
+    if (!hasExplicitView && savedDefaultView && savedDefaultView !== initialView) {
       applyView(savedDefaultView);
     }
-  }, [hasExplicitView, view, viewPreferenceScope]);
+  }, [hasExplicitView, initialView, viewPreferenceScope]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const saveDefaultView = () => {
