@@ -348,6 +348,17 @@
   color: #475569;
 }
 
+.note-editor a[href] {
+  color: #2563eb;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.note-editor a[href]:hover {
+  color: #1d4ed8;
+}
+
 .note-editor ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0;

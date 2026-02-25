@@ -865,6 +865,45 @@ function extractImageSourcesFromHtml(htmlValue: string) {
   }
 }
 
+function normalizePastedLink(value: string) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || /\s/.test(trimmed)) {
+    return null;
+  }
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^\/[^\s]+$/.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+}
+
+function extractSingleLinkFromHtml(htmlValue: string) {
+  const html = String(htmlValue || "").trim();
+  if (!html || typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const parser = new window.DOMParser();
+    const document = parser.parseFromString(html, "text/html");
+    const links = Array.from(document.querySelectorAll("a[href]"));
+    if (links.length !== 1) {
+      return null;
+    }
+    const link = links[0];
+    const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
+    const bodyText = normalizeText(document.body.textContent || "");
+    const linkText = normalizeText(link.textContent || "");
+    if (bodyText && linkText && bodyText !== linkText) {
+      return null;
+    }
+    return normalizePastedLink(String(link.getAttribute("href") || "").trim());
+  } catch {
+    return null;
+  }
+}
+
 function containsEphemeralImageSource(value: unknown): boolean {
   if (Array.isArray(value)) {
     return value.some((item) => containsEphemeralImageSource(item));
@@ -2127,10 +2166,6 @@ function normalizeTaskStatusLabel(value: string | null | undefined) {
 function extractTaskIdFromHref(href: string) {
   const match = href.match(/^\/tasks\/([a-z0-9-]+)/i);
   return match?.[1] || null;
-}
-
-function isPersonalPathLink(value: string) {
-  return /^\/personal\/[a-f0-9-]+(?:[?#][^\s]*)?$/i.test(value.trim());
 }
 
 function isOverlayNodeTypeName(name: string): name is OverlayNodeType {
@@ -3868,16 +3903,18 @@ export default function NoteEditorClient({
       return false;
     }
 
-    const pastedText = clipboard.getData("text/plain").trim();
-    if (pastedText && isPersonalPathLink(pastedText)) {
+    const pastedText = clipboard.getData("text/plain");
+    const pastedHtml = clipboard.getData("text/html");
+    const pastedLink = normalizePastedLink(pastedText) || extractSingleLinkFromHtml(pastedHtml);
+    if (pastedLink) {
       event.preventDefault();
       editorRef.current
         ?.chain()
         .focus()
         .insertContent({
           type: "text",
-          text: pastedText,
-          marks: [{ type: "link", attrs: { href: pastedText } }],
+          text: pastedLink,
+          marks: [{ type: "link", attrs: { href: pastedLink } }],
         })
         .run();
       return true;
@@ -6903,17 +6940,7 @@ export default function NoteEditorClient({
 
       <style jsx global>{`
         .note-editor a[href^="/tasks/"] {
-          border-bottom: 1px solid #6366f1;
-          background: rgba(99, 102, 241, 0.12);
-          border-radius: 4px;
-          padding: 0 2px;
-          color: #3730a3;
           font-weight: 600;
-          text-decoration: none;
-          cursor: pointer;
-        }
-        .note-editor a[href^="/tasks/"]:hover {
-          background: rgba(99, 102, 241, 0.2);
         }
       `}</style>
     </section>
