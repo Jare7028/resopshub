@@ -123,6 +123,7 @@ type TasksViewProps = {
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
   addTaskUrl?: string;
+  showHeaderTitle?: boolean;
   basePath?: string;
   fixedParams?: Record<string, string | null | undefined>;
   hasExplicitView?: boolean;
@@ -281,6 +282,7 @@ export default function TasksView({
   sortKey,
   sortDir,
   addTaskUrl,
+  showHeaderTitle = true,
   basePath = "/tasks",
   fixedParams = {},
   hasExplicitView = false,
@@ -1182,7 +1184,9 @@ export default function TasksView({
               }
             />
           ) : null}
-          <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
+          {showHeaderTitle ? (
+            <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
+          ) : null}
           {addTaskUrl ? (
             <Link
               href={addTaskUrl}

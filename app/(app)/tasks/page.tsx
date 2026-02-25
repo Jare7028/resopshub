@@ -1806,6 +1806,7 @@ export default async function TasksPage(props: {
           sortKey={sortKey}
           sortDir={sortDir}
           addTaskUrl={tasksTabUrls.add}
+          showHeaderTitle={false}
           initialView={selectedView}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
