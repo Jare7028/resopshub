@@ -17,6 +17,12 @@ type ShiftPayload = {
   notes: string | null;
 };
 
+function toEventElementTarget(target: EventTarget | null) {
+  if (target instanceof HTMLElement) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
 const dragDataType = "application/x-resopshub-schedule-shift";
 const dropCellBaseClasses = [
   "ring-2",
@@ -69,6 +75,7 @@ function ScheduleGridDndClient() {
   const draggingCardRef = useRef<HTMLElement | null>(null);
   const activeDropCellRef = useRef<HTMLElement | null>(null);
   const shiftHeldRef = useRef(false);
+  const pointerDragModeRef = useRef<"move" | "copy">("move");
   const dragModeRef = useRef<"move" | "copy">("move");
   const requestInFlightRef = useRef(false);
 
@@ -100,6 +107,7 @@ function ScheduleGridDndClient() {
       clearDragPreview();
       draggingPayloadRef.current = null;
       dragModeRef.current = "move";
+      pointerDragModeRef.current = "move";
       shiftHeldRef.current = false;
     };
 
@@ -128,7 +136,10 @@ function ScheduleGridDndClient() {
     };
 
     const resolveDragMode = (event?: DragEvent) => {
-      const shiftPressed = Boolean(event?.shiftKey) || shiftHeldRef.current;
+      const shiftPressed =
+        Boolean(event?.shiftKey) ||
+        shiftHeldRef.current ||
+        pointerDragModeRef.current === "copy";
       return shiftPressed ? "copy" : "move";
     };
 
@@ -160,7 +171,7 @@ function ScheduleGridDndClient() {
 
     const onDragStart = (event: DragEvent) => {
       if (requestInFlightRef.current || !event.dataTransfer) return;
-      const targetNode = event.target as HTMLElement | null;
+      const targetNode = toEventElementTarget(event.target);
       const card = targetNode?.closest<HTMLElement>('[data-schedule-shift-card="true"]');
       if (!card) return;
       const interactiveTarget = targetNode?.closest<HTMLElement>(
@@ -188,7 +199,7 @@ function ScheduleGridDndClient() {
     const onDragOver = (event: DragEvent) => {
       const payload = draggingPayloadRef.current;
       if (!payload) return;
-      const targetNode = event.target as HTMLElement | null;
+      const targetNode = toEventElementTarget(event.target);
       const cell = targetNode?.closest<HTMLElement>('[data-schedule-drop-cell="true"]');
       if (!cell) return;
       event.preventDefault();
@@ -204,7 +215,7 @@ function ScheduleGridDndClient() {
     const onDrop = async (event: DragEvent) => {
       const payload = draggingPayloadRef.current;
       if (!payload || requestInFlightRef.current) return;
-      const targetNode = event.target as HTMLElement | null;
+      const targetNode = toEventElementTarget(event.target);
       const cell = targetNode?.closest<HTMLElement>('[data-schedule-drop-cell="true"]');
       if (!cell) return;
       event.preventDefault();
@@ -273,6 +284,16 @@ function ScheduleGridDndClient() {
       resetDragState();
     };
 
+    const onPointerDownCapture = (event: PointerEvent) => {
+      const targetNode = toEventElementTarget(event.target);
+      const card = targetNode?.closest<HTMLElement>('[data-schedule-shift-card="true"]');
+      if (!card) return;
+      pointerDragModeRef.current = event.shiftKey ? "copy" : "move";
+      if (event.shiftKey) {
+        shiftHeldRef.current = true;
+      }
+    };
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Shift") {
         shiftHeldRef.current = true;
@@ -293,6 +314,7 @@ function ScheduleGridDndClient() {
     document.addEventListener("dragover", onDragOver, true);
     document.addEventListener("drop", onDrop, true);
     document.addEventListener("dragend", onDragEnd, true);
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("blur", onWindowBlur);
@@ -302,6 +324,7 @@ function ScheduleGridDndClient() {
       document.removeEventListener("dragover", onDragOver, true);
       document.removeEventListener("drop", onDrop, true);
       document.removeEventListener("dragend", onDragEnd, true);
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("blur", onWindowBlur);
