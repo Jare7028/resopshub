@@ -36,6 +36,8 @@ type ConversationMemberRow = {
   user_id: string;
   role: "owner" | "member";
   last_read_at: string | null;
+  is_pinned: boolean | null;
+  is_muted: boolean | null;
 };
 
 type DbMessageRow = {
@@ -110,7 +112,7 @@ export default async function ChatPage(props: {
 
   const { data: myMembershipsRaw, error: myMembershipsError } = await supabase
     .from("chat_conversation_members")
-    .select("conversation_id,user_id,role,last_read_at")
+    .select("*")
     .eq("user_id", currentUserId);
 
   const chatSetupMissing = isSupabaseMissingTableError(myMembershipsError);
@@ -171,7 +173,7 @@ export default async function ChatPage(props: {
   const allMembersPromise = myConversationIds.length
     ? supabase
         .from("chat_conversation_members")
-        .select("conversation_id,user_id,role,last_read_at")
+        .select("*")
         .in("conversation_id", myConversationIds)
     : Promise.resolve({ data: [] as ConversationMemberRow[] });
 

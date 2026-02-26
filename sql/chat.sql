@@ -14,9 +14,15 @@ create table if not exists public.chat_conversation_members (
   user_id uuid not null references public.users(id) on delete cascade,
   role text not null default 'member' check (role in ('owner', 'member')),
   last_read_at timestamptz not null default now(),
+  is_pinned boolean not null default false,
+  is_muted boolean not null default false,
   created_at timestamptz not null default now(),
   primary key (conversation_id, user_id)
 );
+
+alter table public.chat_conversation_members
+  add column if not exists is_pinned boolean not null default false,
+  add column if not exists is_muted boolean not null default false;
 
 create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
@@ -39,6 +45,9 @@ create table if not exists public.chat_message_links (
 
 create index if not exists chat_conversation_members_user_id_idx
   on public.chat_conversation_members (user_id, created_at desc);
+
+create index if not exists idx_chat_members_user_pinned_muted_created
+  on public.chat_conversation_members (user_id, is_pinned desc, is_muted asc, created_at desc);
 
 create index if not exists chat_messages_conversation_created_at_idx
   on public.chat_messages (conversation_id, created_at desc);

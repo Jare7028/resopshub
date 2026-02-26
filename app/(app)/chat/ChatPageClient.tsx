@@ -34,6 +34,8 @@ type ConversationMemberRow = {
   user_id: string;
   role: "owner" | "member";
   last_read_at: string | null;
+  is_pinned: boolean | null;
+  is_muted: boolean | null;
 };
 
 type MessageLinkRow = {
@@ -119,6 +121,14 @@ function mergeMessages(current: MessageRow[], incoming: MessageRow[]) {
     byId.set(message.id, message);
   });
   return sortMessagesAsc(Array.from(byId.values()));
+}
+
+function normalizeConversationMember(row: ConversationMemberRow): ConversationMemberRow {
+  return {
+    ...row,
+    is_pinned: Boolean(row.is_pinned),
+    is_muted: Boolean(row.is_muted),
+  };
 }
 
 function getUserDisplayName(user: UserRow | null | undefined) {
@@ -249,7 +259,9 @@ export default function ChatPageClient(props: {
   } = props;
 
   const [conversations, setConversations] = useState(initialConversations);
-  const [members, setMembers] = useState(initialMembers);
+  const [members, setMembers] = useState(() =>
+    initialMembers.map((row) => normalizeConversationMember(row))
+  );
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
     initialSelectedConversationId
   );
@@ -274,6 +286,9 @@ export default function ChatPageClient(props: {
   const [isCreatingDirect, setIsCreatingDirect] = useState(false);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isSavingConversationPrefsById, setIsSavingConversationPrefsById] = useState<
+    Record<string, boolean>
+  >({});
 
   const [searchChats, setSearchChats] = useState("");
   const [addMode, setAddMode] = useState<"direct" | "group">("direct");
@@ -306,10 +321,47 @@ export default function ChatPageClient(props: {
     [members]
   );
 
+  const myMembershipByConversationId = useMemo(() => {
+    return members.reduce<Record<string, ConversationMemberRow>>((acc, row) => {
+      if (row.user_id === currentUserId) {
+        acc[row.conversation_id] = row;
+      }
+      return acc;
+    }, {});
+  }, [currentUserId, members]);
+
   const conversationsByRecentActivity = useMemo(
     () => sortConversationsByRecentActivity(conversations, latestByConversationId),
     [conversations, latestByConversationId]
   );
+
+  const conversationsByPriority = useMemo(() => {
+    const pinnedUnmuted: ConversationRow[] = [];
+    const pinnedMuted: ConversationRow[] = [];
+    const regularUnmuted: ConversationRow[] = [];
+    const regularMuted: ConversationRow[] = [];
+
+    conversationsByRecentActivity.forEach((conversation) => {
+      const myMembership = myMembershipByConversationId[conversation.id];
+      const isPinned = Boolean(myMembership?.is_pinned);
+      const isMuted = Boolean(myMembership?.is_muted);
+      if (isPinned) {
+        if (isMuted) {
+          pinnedMuted.push(conversation);
+        } else {
+          pinnedUnmuted.push(conversation);
+        }
+        return;
+      }
+      if (isMuted) {
+        regularMuted.push(conversation);
+      } else {
+        regularUnmuted.push(conversation);
+      }
+    });
+
+    return [...pinnedUnmuted, ...pinnedMuted, ...regularUnmuted, ...regularMuted];
+  }, [conversationsByRecentActivity, myMembershipByConversationId]);
 
   const selectedMessages = useMemo(() => {
     if (!selectedConversationId) return [];
@@ -319,14 +371,14 @@ export default function ChatPageClient(props: {
   const selectedConversation = useMemo(() => {
     if (!selectedConversationId) return null;
     return (
-      conversationsByRecentActivity.find(
+      conversationsByPriority.find(
         (conversation) => conversation.id === selectedConversationId
       ) || null
     );
-  }, [conversationsByRecentActivity, selectedConversationId]);
+  }, [conversationsByPriority, selectedConversationId]);
 
   const searchableConversationTextById = useMemo(() => {
-    return conversationsByRecentActivity.reduce<Record<string, string>>((acc, conversation) => {
+    return conversationsByPriority.reduce<Record<string, string>>((acc, conversation) => {
       const title =
         conversation.type === "group"
           ? conversation.title || "Untitled group"
@@ -342,7 +394,7 @@ export default function ChatPageClient(props: {
       return acc;
     }, {});
   }, [
-    conversationsByRecentActivity,
+    conversationsByPriority,
     currentUserId,
     latestByConversationId,
     membersByConversationId,
@@ -351,11 +403,11 @@ export default function ChatPageClient(props: {
 
   const filteredConversations = useMemo(() => {
     const term = searchChats.trim().toLowerCase();
-    if (!term) return conversationsByRecentActivity;
-    return conversationsByRecentActivity.filter((conversation) =>
+    if (!term) return conversationsByPriority;
+    return conversationsByPriority.filter((conversation) =>
       (searchableConversationTextById[conversation.id] || "").includes(term)
     );
-  }, [conversationsByRecentActivity, searchChats, searchableConversationTextById]);
+  }, [conversationsByPriority, searchChats, searchableConversationTextById]);
 
   const selectedConversationMembers = useMemo(() => {
     if (!selectedConversationId) return [];
@@ -475,9 +527,10 @@ export default function ChatPageClient(props: {
 
   const upsertConversationMembers = useCallback(
     (conversationId: string, nextRows: ConversationMemberRow[]) => {
+      const normalizedRows = nextRows.map((row) => normalizeConversationMember(row));
       setMembers((prev) => {
         const withoutConversation = prev.filter((row) => row.conversation_id !== conversationId);
-        return [...withoutConversation, ...nextRows];
+        return [...withoutConversation, ...normalizedRows];
       });
     },
     []
@@ -664,6 +717,83 @@ export default function ChatPageClient(props: {
       [conversation.id]: 0,
     }));
   };
+
+  const updateConversationPreferences = useCallback(
+    async (
+      conversationId: string,
+      patch: {
+        is_pinned?: boolean;
+        is_muted?: boolean;
+      }
+    ) => {
+      const currentMembership = myMembershipByConversationId[conversationId];
+      if (!currentMembership) {
+        return;
+      }
+
+      const previousMembership = currentMembership;
+      const optimisticMembership = normalizeConversationMember({
+        ...currentMembership,
+        ...(typeof patch.is_pinned === "boolean" ? { is_pinned: patch.is_pinned } : {}),
+        ...(typeof patch.is_muted === "boolean" ? { is_muted: patch.is_muted } : {}),
+      });
+
+      setError("");
+      setMembers((prev) =>
+        prev.map((row) =>
+          row.conversation_id === conversationId && row.user_id === currentUserId
+            ? optimisticMembership
+            : row
+        )
+      );
+      setIsSavingConversationPrefsById((prev) => ({
+        ...prev,
+        [conversationId]: true,
+      }));
+
+      try {
+        const res = await fetch("/api/chat/conversations/preferences", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            ...(typeof patch.is_pinned === "boolean" ? { is_pinned: patch.is_pinned } : {}),
+            ...(typeof patch.is_muted === "boolean" ? { is_muted: patch.is_muted } : {}),
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          member?: ConversationMemberRow;
+        };
+        if (!res.ok || !json.member) {
+          throw new Error(json.error || "Unable to update preferences");
+        }
+        const normalizedMember = normalizeConversationMember(json.member);
+        setMembers((prev) =>
+          prev.map((row) =>
+            row.conversation_id === conversationId && row.user_id === currentUserId
+              ? normalizedMember
+              : row
+          )
+        );
+      } catch (err) {
+        setMembers((prev) =>
+          prev.map((row) =>
+            row.conversation_id === conversationId && row.user_id === currentUserId
+              ? previousMembership
+              : row
+          )
+        );
+        setError(err instanceof Error ? err.message : "Unable to update preferences");
+      } finally {
+        setIsSavingConversationPrefsById((prev) => ({
+          ...prev,
+          [conversationId]: false,
+        }));
+      }
+    },
+    [currentUserId, myMembershipByConversationId]
+  );
 
   const toggleReaction = async (message: MessageRow, emoji: string) => {
     if (message.deleted_at) {
@@ -1163,7 +1293,12 @@ export default function ChatPageClient(props: {
                   const latestSender = latest ? getUserDisplayName(userById[latest.sender_id]) : "";
                   const latestBody = renderPreviewText(latest);
                   const unreadCount = unreadByConversationId[conversation.id] || 0;
+                  const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
                   const title = getConversationTitle(conversation);
+                  const myMembership = myMembershipByConversationId[conversation.id];
+                  const isPinned = Boolean(myMembership?.is_pinned);
+                  const isMuted = Boolean(myMembership?.is_muted);
+                  const isSavingPreferences = Boolean(isSavingConversationPrefsById[conversation.id]);
                   const directOtherUser =
                     conversation.type === "direct"
                       ? (() => {
@@ -1180,52 +1315,123 @@ export default function ChatPageClient(props: {
                   const conversationAvatarInitials = getInitials(conversationAvatarLabel);
 
                   return (
-                    <button
+                    <div
                       key={conversation.id}
-                      type="button"
-                      onClick={() => void selectConversation(conversation.id)}
-                      className={`block w-full border-b border-slate-100 px-4 py-3 text-left transition-colors hover:bg-slate-50 ${
-                        isActive ? "bg-blue-50/70" : ""
+                      className={`group relative border-b border-slate-100 ${
+                        isActive ? "bg-blue-50/80" : "hover:bg-slate-50"
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex min-w-0 items-start gap-2">
-                          <span className="relative mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
-                            {conversationAvatarUrl ? (
-                              <Image
-                                src={conversationAvatarUrl}
-                                alt={`${conversationAvatarLabel} avatar`}
-                                fill
-                                unoptimized
-                                sizes="32px"
-                                className="object-cover"
-                              />
-                            ) : (
-                              conversationAvatarInitials
-                            )}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
-                            <p className="mt-1 line-clamp-1 text-xs text-slate-600">
-                              {latestSender ? `${latestSender}: ` : ""}
-                              {latestBody}
-                            </p>
+                      <button
+                        type="button"
+                        onClick={() => void selectConversation(conversation.id)}
+                        className={`block w-full py-3 pr-16 text-left transition-colors ${
+                          isActive
+                            ? "border-l-2 border-l-blue-500 pl-3"
+                            : "border-l-2 border-l-transparent pl-4"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 items-start gap-2">
+                            <span
+                              className={`relative mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border text-[11px] font-semibold ${
+                                isActive
+                                  ? "border-blue-200 bg-blue-100 text-blue-700"
+                                  : "border-slate-200 bg-white text-slate-700"
+                              }`}
+                            >
+                              {conversationAvatarUrl ? (
+                                <Image
+                                  src={conversationAvatarUrl}
+                                  alt={`${conversationAvatarLabel} avatar`}
+                                  fill
+                                  unoptimized
+                                  sizes="32px"
+                                  className="object-cover"
+                                />
+                              ) : (
+                                conversationAvatarInitials
+                              )}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p
+                                  className={`truncate text-sm font-semibold ${
+                                    isActive ? "text-blue-900" : "text-slate-900"
+                                  }`}
+                                >
+                                  {title}
+                                </p>
+                                {isPinned ? (
+                                  <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                    Pinned
+                                  </span>
+                                ) : null}
+                                {isMuted ? (
+                                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                    Muted
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p
+                                className={`mt-1 line-clamp-1 text-xs ${
+                                  isActive ? "text-blue-900/75" : "text-slate-600"
+                                }`}
+                              >
+                                {latestSender ? `${latestSender}: ` : ""}
+                                {latestBody}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex min-w-[56px] flex-col items-end gap-1">
+                            <span
+                              className={`text-[10px] font-medium ${
+                                isActive ? "text-blue-800/80" : "text-slate-500"
+                              }`}
+                            >
+                              {formatConversationTime(latest?.created_at || conversation.created_at)}
+                            </span>
+                            {unreadCount > 0 ? (
+                              <span
+                                className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
+                                  isMuted
+                                    ? "bg-slate-300 text-slate-700"
+                                    : "bg-blue-600 text-white"
+                                }`}
+                              >
+                                {unreadLabel}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
-                        <div className="flex min-w-[56px] flex-col items-end gap-1">
-                          <span className="text-[11px] text-slate-500">
-                            {formatConversationTime(latest?.created_at || conversation.created_at)}
-                          </span>
-                          {unreadCount > 0 ? (
-                            <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">
-                              {unreadCount}
-                            </span>
-                          ) : (
-                            <span className="h-5" />
-                          )}
-                        </div>
+                      </button>
+
+                      <div className="absolute right-2 top-2 z-10 flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                        <button
+                          type="button"
+                          disabled={isSavingPreferences}
+                          onClick={() => {
+                            void updateConversationPreferences(conversation.id, {
+                              is_pinned: !isPinned,
+                            });
+                          }}
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isPinned ? "Unpin" : "Pin"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSavingPreferences}
+                          onClick={() => {
+                            void updateConversationPreferences(conversation.id, {
+                              is_muted: !isMuted,
+                            });
+                          }}
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isMuted ? "Unmute" : "Mute"}
+                        </button>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               ) : (

@@ -57,6 +57,8 @@ type ConversationMemberRow = {
   user_id: string;
   role: "owner" | "member";
   last_read_at: string | null;
+  is_pinned: boolean | null;
+  is_muted: boolean | null;
 };
 
 async function buildMessagePayloads(
@@ -257,7 +259,7 @@ export async function GET(req: Request) {
       messagesQuery,
       supabase
         .from("chat_conversation_members")
-        .select("conversation_id,user_id,role,last_read_at")
+        .select("*")
         .eq("conversation_id", conversationId),
     ]);
 
