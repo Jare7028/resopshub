@@ -948,11 +948,6 @@ export default async function ClientSchedulePage({
           >
             {billableGapMinutes >= 0 ? "Over by" : "Gap"} {formatHours(Math.abs(billableGapMinutes))}h
           </span>
-          {weeklyOverrideHours !== null ? (
-            <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
-              Week override active
-            </span>
-          ) : null}
         </div>
       </section>
 
