@@ -1237,7 +1237,7 @@ export default async function ClientSchedulePage({
                             return (
                               <div
                                 key={shift.id}
-                                className={`rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
+                                className={`select-none rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
                                   canDragShiftCards
                                     ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
                                     : ""
@@ -1363,24 +1363,32 @@ export default async function ClientSchedulePage({
                                     <summary
                                       className={`list-none rounded-md p-0.5 transition-[transform,box-shadow,opacity] duration-150 ${
                                         canDragShiftCards
-                                          ? "cursor-grab hover:-translate-y-0.5 hover:bg-sky-50/40 hover:shadow-sm"
+                                          ? "cursor-pointer hover:bg-sky-50/40 hover:shadow-sm"
                                           : "cursor-pointer hover:bg-sky-50/40"
                                       }`}
-                                      draggable={canDragShiftCards}
-                                      data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
-                                      data-schedule-shift-id={shift.id}
-                                      data-schedule-week-id={shift.week_id}
-                                      data-schedule-roster-entry-id={shift.roster_entry_id || ""}
-                                      data-schedule-is-open={shift.is_open ? "true" : "false"}
-                                      data-schedule-local-date={shift.local_date}
-                                      data-schedule-start-local-time={shift.start_local_time}
-                                      data-schedule-end-local-time={shift.end_local_time}
-                                      data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
-                                      data-schedule-break-minutes={String(shift.break_minutes || 0)}
-                                      data-schedule-job-code-id={shift.job_code_id || ""}
-                                      data-schedule-notes={shift.notes || ""}
                                     >
-                                      {shiftSummary}
+                                      <div
+                                        className={`select-none rounded-md p-0.5 transition-[transform,box-shadow,opacity] duration-150 ${
+                                          canDragShiftCards
+                                            ? "cursor-grab hover:-translate-y-0.5"
+                                            : ""
+                                        }`}
+                                        draggable={canDragShiftCards}
+                                        data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
+                                        data-schedule-shift-id={shift.id}
+                                        data-schedule-week-id={shift.week_id}
+                                        data-schedule-roster-entry-id={shift.roster_entry_id || ""}
+                                        data-schedule-is-open={shift.is_open ? "true" : "false"}
+                                        data-schedule-local-date={shift.local_date}
+                                        data-schedule-start-local-time={shift.start_local_time}
+                                        data-schedule-end-local-time={shift.end_local_time}
+                                        data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
+                                        data-schedule-break-minutes={String(shift.break_minutes || 0)}
+                                        data-schedule-job-code-id={shift.job_code_id || ""}
+                                        data-schedule-notes={shift.notes || ""}
+                                      >
+                                        {shiftSummary}
+                                      </div>
                                     </summary>
                                     <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-2">
                                       <form action={upsertShiftAction} className="grid gap-1.5">
@@ -1420,7 +1428,7 @@ export default async function ClientSchedulePage({
                               return (
                                 <div
                                   key={shift.id}
-                                  className={`rounded-md p-0.5 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
+                                  className={`select-none rounded-md p-0.5 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
                                     canDragShiftCards
                                       ? "cursor-grab hover:-translate-y-0.5 hover:shadow-sm"
                                       : ""
