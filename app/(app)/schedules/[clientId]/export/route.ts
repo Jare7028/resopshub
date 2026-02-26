@@ -37,7 +37,6 @@ type RosterRow = {
 type JobCodeRow = {
   id: string;
   code: string;
-  label: string;
 };
 
 function csvEscape(value: unknown) {
@@ -123,7 +122,7 @@ export async function GET(
       .from("schedule_roster_entries")
       .select("id,display_name,email,role_label")
       .eq("client_id", clientId),
-    supabase.from("schedule_job_codes").select("id,code,label"),
+    supabase.from("schedule_job_codes").select("id,code"),
   ]);
 
   const shifts = (shiftsData || []) as ShiftRow[];
@@ -147,7 +146,6 @@ export async function GET(
     "break_minutes",
     "payable_minutes",
     "job_code",
-    "job_label",
     "notes",
     "updated_at",
   ];
@@ -170,7 +168,6 @@ export async function GET(
       String(shift.break_minutes || 0),
       String(workedMinutes(shift)),
       code?.code || "",
-      code?.label || "",
       shift.notes || "",
       shift.updated_at,
     ];

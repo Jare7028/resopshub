@@ -41,7 +41,6 @@ type ShiftRow = {
 type JobCodeRow = {
   id: string;
   code: string;
-  label: string;
   color_hex: string;
   is_active: boolean;
 };
@@ -452,7 +451,6 @@ export default async function ClientSchedulePage({
     const { error } = await supabase.rpc("schedule_upsert_job_code", {
       p_job_code_id: uuidRegex.test(jobCodeIdRaw) ? jobCodeIdRaw : null,
       p_code: String(formData.get("code") || "").trim(),
-      p_label: String(formData.get("label") || "").trim(),
       p_color_hex: String(formData.get("color_hex") || "").trim(),
       p_sort_order: Number.isFinite(sortOrder) ? sortOrder : 0,
       p_is_active: String(formData.get("is_active") || "").trim() === "on",
@@ -535,9 +533,9 @@ export default async function ClientSchedulePage({
         : Promise.resolve({ data: [] as ShiftRow[], error: null }),
       supabase
         .from("schedule_job_codes")
-        .select("id,code,label,color_hex,is_active")
+        .select("id,code,color_hex,is_active")
         .order("sort_order", { ascending: true })
-        .order("label", { ascending: true }),
+        .order("code", { ascending: true }),
       supabase.from("schedule_templates").select("id,name").eq("client_id", clientId),
       canEdit
         ? supabase
@@ -702,148 +700,186 @@ export default async function ClientSchedulePage({
               </form>
             </div>
           </details>
-          {canEdit ? (
-            <>
-              {week ? (
-                <details className="relative">
-                  <summary className="cursor-pointer list-none rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-                    Create shift
-                  </summary>
-                  <div className="absolute right-0 z-20 mt-2 w-[28rem] rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-                    <form action={upsertShiftAction} className="grid gap-2 md:grid-cols-2">
-                      <input type="hidden" name="week_id" value={week.id} />
-                      {renderContextFields()}
-                      <label className="text-xs text-slate-600">
-                        Employee
-                        <select name="roster_entry_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                          <option value="">Select employee</option>
-                          {roster.map((row) => (
-                            <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="text-xs text-slate-600">
-                        Date
-                        <input type="date" name="local_date" defaultValue={selectedDay} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                      </label>
-                      <label className="text-xs text-slate-600">
-                        Start
-                        <input type="time" name="start_local_time" defaultValue="09:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                      </label>
-                      <label className="text-xs text-slate-600">
-                        End
-                        <input type="time" name="end_local_time" defaultValue="17:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                      </label>
-                      <label className="text-xs text-slate-600">
-                        Break minutes
-                        <input type="number" name="break_minutes" min={0} defaultValue={30} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                      </label>
-                      <label className="text-xs text-slate-600">
-                        Job code
-                        <select name="job_code_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                          <option value="">None</option>
-                          {jobCodes.filter((code) => code.is_active).map((code) => (
-                            <option key={code.id} value={code.id}>{code.code} - {code.label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="text-xs text-slate-600 md:col-span-2">
-                        Notes
-                        <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                      </label>
-                      <div className="flex items-center gap-4 text-xs text-slate-700 md:col-span-2">
-                        <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" />Open shift</label>
-                        <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
-                      </div>
-                      <div className="md:col-span-2">
-                        <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Save shift</button>
-                      </div>
-                    </form>
-                  </div>
-                </details>
-              ) : null}
-              <details className="relative">
-                <summary className="cursor-pointer list-none rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-                  Add user
-                </summary>
-                <div className="absolute right-0 z-20 mt-2 w-80 space-y-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-                  <form action={addRosterUserAction} className="space-y-2">
-                    {renderContextFields()}
-                    <label className="block text-xs text-slate-600">
-                      User
-                      <select name="user_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                        <option value="">Select user</option>
-                        {users.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.full_name || user.email || user.id}
-                            {user.email ? ` (${user.email})` : ""}
-                            {user.status ? ` - ${user.status}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block text-xs text-slate-600">
-                      Role
-                      <select name="role_token" defaultValue="agent" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                        <option value="manager">Manager</option>
-                        <option value="team_leader">Team Leader</option>
-                        <option value="agent">Agent</option>
-                      </select>
-                    </label>
-                    <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add user</button>
-                  </form>
-                  <form action={syncRosterAction}>
-                    {renderContextFields()}
-                    <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Sync from Employee Info</button>
-                  </form>
-                </div>
-              </details>
-            </>
-          ) : null}
-          {canManageJobCodes ? (
+          {canEdit || canManageJobCodes || week ? (
             <details className="relative">
               <summary className="cursor-pointer list-none rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-                Job codes
+                Schedule actions
               </summary>
-              <div className="absolute right-0 z-20 mt-2 w-96 space-y-3 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-                <form action={upsertJobCodeAction} className="grid gap-2 md:grid-cols-2">
-                  {renderContextFields()}
-                  <label className="text-xs text-slate-600">Code
-                    <input name="code" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                  </label>
-                  <label className="text-xs text-slate-600">Label
-                    <input name="label" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                  </label>
-                  <label className="text-xs text-slate-600">Color
-                    <input name="color_hex" defaultValue="#2563EB" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                  </label>
-                  <label className="text-xs text-slate-600">Sort
-                    <input type="number" name="sort_order" defaultValue={0} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                  </label>
-                  <label className="inline-flex items-center gap-2 self-end text-xs text-slate-700">
-                    <input type="checkbox" name="is_active" defaultChecked />
-                    Active
-                  </label>
-                  <div className="md:col-span-2">
-                    <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add job code</button>
-                  </div>
-                </form>
-                <div className="max-h-56 space-y-1 overflow-auto pr-1">
-                  {jobCodes.map((code) => (
-                    <div key={code.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: code.color_hex }} />
-                        <span className="font-semibold text-slate-900">{code.code}</span>
-                        <span className="text-slate-600">{code.label}</span>
-                        {!code.is_active ? <span className="text-amber-700">(inactive)</span> : null}
-                      </div>
-                      <form action={deleteJobCodeAction}>
-                        <input type="hidden" name="job_code_id" value={code.id} />
+              <div className="absolute right-0 z-20 mt-2 w-[42rem] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                <div className="max-h-[70vh] space-y-3 overflow-auto pr-1">
+                  {week ? (
+                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Export</h3>
+                      <Link href={`/schedules/${clientId}/export?week=${encodeURIComponent(weekStart)}`} className="inline-flex rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Export CSV</Link>
+                    </section>
+                  ) : null}
+
+                  {canEdit && week ? (
+                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Create Shift</h3>
+                      <form action={upsertShiftAction} className="grid gap-2 md:grid-cols-2">
+                        <input type="hidden" name="week_id" value={week.id} />
                         {renderContextFields()}
-                        <button type="submit" className="text-red-700 hover:underline">Remove</button>
+                        <label className="text-xs text-slate-600">
+                          Employee
+                          <select name="roster_entry_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                            <option value="">Select employee</option>
+                            {roster.map((row) => (
+                              <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-xs text-slate-600">
+                          Date
+                          <input type="date" name="local_date" defaultValue={selectedDay} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                        </label>
+                        <label className="text-xs text-slate-600">
+                          Start
+                          <input type="time" name="start_local_time" defaultValue="09:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                        </label>
+                        <label className="text-xs text-slate-600">
+                          End
+                          <input type="time" name="end_local_time" defaultValue="17:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                        </label>
+                        <label className="text-xs text-slate-600">
+                          Break minutes
+                          <input type="number" name="break_minutes" min={0} defaultValue={30} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                        </label>
+                        <label className="text-xs text-slate-600">
+                          Job code
+                          <select name="job_code_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                            <option value="">None</option>
+                            {jobCodes.filter((code) => code.is_active).map((code) => (
+                              <option key={code.id} value={code.id}>{code.code}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-xs text-slate-600 md:col-span-2">
+                          Notes
+                          <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                        </label>
+                        <div className="flex items-center gap-4 text-xs text-slate-700 md:col-span-2">
+                          <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" />Open shift</label>
+                          <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
+                        </div>
+                        <div className="md:col-span-2">
+                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Save shift</button>
+                        </div>
                       </form>
-                    </div>
-                  ))}
+                    </section>
+                  ) : null}
+
+                  {canEdit ? (
+                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Roster</h3>
+                      <form action={addRosterUserAction} className="space-y-2">
+                        {renderContextFields()}
+                        <label className="block text-xs text-slate-600">
+                          User
+                          <select name="user_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                            <option value="">Select user</option>
+                            {users.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.full_name || user.email || user.id}
+                                {user.email ? ` (${user.email})` : ""}
+                                {user.status ? ` - ${user.status}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block text-xs text-slate-600">
+                          Role
+                          <select name="role_token" defaultValue="agent" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                            <option value="manager">Manager</option>
+                            <option value="team_leader">Team Leader</option>
+                            <option value="agent">Agent</option>
+                          </select>
+                        </label>
+                        <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add user</button>
+                      </form>
+                      <form action={syncRosterAction}>
+                        {renderContextFields()}
+                        <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Sync from Employee Info</button>
+                      </form>
+                    </section>
+                  ) : null}
+
+                  {canEdit && week ? (
+                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Copy & Templates</h3>
+                      <form action={copyPreviousWeekAction}>
+                        <input type="hidden" name="week_id" value={week.id} />
+                        {renderContextFields()}
+                        <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Copy from previous week</button>
+                      </form>
+                      {canManageTemplates ? (
+                        <>
+                          <form action={createTemplateAction} className="flex flex-wrap items-center gap-2">
+                            <input type="hidden" name="week_id" value={week.id} />
+                            {renderContextFields()}
+                            <input name="template_name" placeholder="Template name" className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                            <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Create template</button>
+                          </form>
+                          <form action={applyTemplateAction} className="grid gap-2 md:grid-cols-[1fr,1fr,auto]">
+                            <input type="hidden" name="week_id" value={week.id} />
+                            {renderContextFields()}
+                            <select name="template_id" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                              <option value="">Select template</option>
+                              {templates.map((template) => (
+                                <option key={template.id} value={template.id}>{template.name}</option>
+                              ))}
+                            </select>
+                            <select name="mapping_mode" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" defaultValue="role_slot">
+                              <option value="role_slot">By role-slot</option>
+                              <option value="by_employee">By employee</option>
+                            </select>
+                            <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Apply template</button>
+                          </form>
+                        </>
+                      ) : null}
+                    </section>
+                  ) : null}
+
+                  {canManageJobCodes ? (
+                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Job Codes</h3>
+                      <form action={upsertJobCodeAction} className="grid gap-2 md:grid-cols-2">
+                        {renderContextFields()}
+                        <label className="text-xs text-slate-600">Code
+                          <input name="code" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                        </label>
+                        <label className="text-xs text-slate-600">Color
+                          <input name="color_hex" defaultValue="#2563EB" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                        </label>
+                        <label className="text-xs text-slate-600">Sort
+                          <input type="number" name="sort_order" defaultValue={0} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                        </label>
+                        <label className="inline-flex items-center gap-2 self-end text-xs text-slate-700">
+                          <input type="checkbox" name="is_active" defaultChecked />
+                          Active
+                        </label>
+                        <div className="md:col-span-2">
+                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add job code</button>
+                        </div>
+                      </form>
+                      <div className="max-h-56 space-y-1 overflow-auto pr-1">
+                        {jobCodes.map((code) => (
+                          <div key={code.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: code.color_hex }} />
+                              <span className="font-semibold text-slate-900">{code.code}</span>
+                              {!code.is_active ? <span className="text-amber-700">(inactive)</span> : null}
+                            </div>
+                            <form action={deleteJobCodeAction}>
+                              <input type="hidden" name="job_code_id" value={code.id} />
+                              {renderContextFields()}
+                              <button type="submit" className="text-red-700 hover:underline">Remove</button>
+                            </form>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
                 </div>
               </div>
             </details>
@@ -992,7 +1028,7 @@ export default async function ClientSchedulePage({
                                     <option value="">None</option>
                                     {jobCodes.filter((code) => code.is_active).map((code) => (
                                       <option key={code.id} value={code.id}>
-                                        {code.code} - {code.label}
+                                        {code.code}
                                       </option>
                                     ))}
                                   </select>
@@ -1019,7 +1055,7 @@ export default async function ClientSchedulePage({
                           <div className="relative z-10 space-y-2">
                             {dayShifts.map((shift) => {
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
-                              const jobCodeText = jobCode ? `${jobCode.code} - ${jobCode.label}` : "None";
+                              const jobCodeText = jobCode ? jobCode.code : "None";
                               const shiftSummary = (
                                 <>
                                   <div className="font-medium text-slate-900">
@@ -1063,7 +1099,7 @@ export default async function ClientSchedulePage({
                                         <select name="job_code_id" defaultValue={shift.job_code_id || ""} className="rounded border border-slate-300 px-2 py-1">
                                           <option value="">None</option>
                                           {jobCodes.map((code) => (
-                                            <option key={code.id} value={code.id}>{code.code} - {code.label}</option>
+                                            <option key={code.id} value={code.id}>{code.code}</option>
                                           ))}
                                         </select>
                                         <input type="text" name="notes" defaultValue={shift.notes || ""} className="rounded border border-slate-300 px-2 py-1" placeholder="Notes" />
@@ -1105,53 +1141,6 @@ export default async function ClientSchedulePage({
             </table>
           </div>
       </section>
-
-      {canEdit && week ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Copy & Templates</h2>
-          <div className="flex flex-wrap gap-3">
-            <form action={copyPreviousWeekAction}>
-              <input type="hidden" name="week_id" value={week.id} />
-              {renderContextFields()}
-              <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">Copy from previous week</button>
-            </form>
-            {canManageTemplates ? (
-              <>
-                <form action={createTemplateAction} className="flex items-center gap-2">
-                  <input type="hidden" name="week_id" value={week.id} />
-                  {renderContextFields()}
-                  <input name="template_name" placeholder="Template name" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                  <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">Create template</button>
-                </form>
-                <form action={applyTemplateAction} className="flex items-center gap-2">
-                  <input type="hidden" name="week_id" value={week.id} />
-                  {renderContextFields()}
-                  <select name="template_id" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                    <option value="">Select template</option>
-                    {templates.map((template) => (
-                      <option key={template.id} value={template.id}>{template.name}</option>
-                    ))}
-                  </select>
-                  <select name="mapping_mode" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" defaultValue="role_slot">
-                    <option value="role_slot">By role-slot</option>
-                    <option value="by_employee">By employee</option>
-                  </select>
-                  <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">Apply template</button>
-                </form>
-              </>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      {week ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Export</h2>
-            <Link href={`/schedules/${clientId}/export?week=${encodeURIComponent(weekStart)}`} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Export CSV</Link>
-          </div>
-        </section>
-      ) : null}
 
       {canViewAudit && week ? (
         <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
