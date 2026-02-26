@@ -874,171 +874,6 @@ export default async function ClientSchedulePage({
         {resolvedSearch?.success ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{resolvedSearch.success}</p> : null}
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-3 md:p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="relative inline-flex items-center rounded-full border border-slate-300 bg-slate-50 text-slate-700 shadow-sm">
-              <Link
-                href={buildSchedulePath({ clientId, weekStart: prevWeek, rangeView, day: prevSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-l-full text-xl text-slate-500 hover:bg-slate-100"
-                aria-label="Previous week"
-              >
-                &#8249;
-              </Link>
-              <details className="relative">
-                <summary className="group inline-flex h-10 cursor-pointer list-none items-center gap-2 border-x border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                  {weekRangeLabel}
-                  <span className="text-[10px] text-slate-500 transition-transform group-open:rotate-180">^</span>
-                </summary>
-                <div className="absolute left-1/2 z-20 mt-2 w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-                  <form method="get" className="space-y-2">
-                    <input type="hidden" name="range" value={rangeView} />
-                    <input type="hidden" name="day" value={selectedDay} />
-                    <input type="hidden" name="q" value={searchQueryRaw} />
-                    <input type="hidden" name="role" value={roleFilterRaw} />
-                    <input type="hidden" name="job" value={jobFilter} />
-                    <label className="block text-xs text-slate-600">
-                      Week date
-                      <input type="date" name="week" defaultValue={weekStart} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                    </label>
-                    <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Go to week</button>
-                  </form>
-                </div>
-              </details>
-              <Link
-                href={buildSchedulePath({ clientId, weekStart: nextWeek, rangeView, day: nextSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-r-full text-xl text-slate-500 hover:bg-slate-100"
-                aria-label="Next week"
-              >
-                &#8250;
-              </Link>
-            </div>
-
-            <details className="relative z-[70]">
-              <summary className="group cursor-pointer list-none rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <span className="inline-flex items-center gap-2">
-                  {rangeView === "week" ? "Week" : rangeView === "day" ? "Day" : "Month"}
-                  <span className="text-[10px] text-slate-400 transition-transform group-open:rotate-180">^</span>
-                </span>
-              </summary>
-              <div className="absolute left-0 z-[80] mt-2 w-32 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                <div className="space-y-1">
-                  <Link
-                    href={buildSchedulePath({ clientId, weekStart, rangeView: "day", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
-                    className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "day" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
-                  >
-                    Day
-                  </Link>
-                  <Link
-                    href={buildSchedulePath({ clientId, weekStart, rangeView: "week", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
-                    className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "week" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
-                  >
-                    Week
-                  </Link>
-                  <Link
-                    href={buildSchedulePath({ clientId, weekStart, rangeView: "month", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
-                    className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "month" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
-                  >
-                    Month
-                  </Link>
-                </div>
-              </div>
-            </details>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Week status</span>
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isWeekPublished ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${isWeekPublished ? "bg-emerald-500" : "bg-slate-400"}`} />
-              {week?.status || "Draft"}
-            </span>
-            {!week && canEdit ? (
-              <form action={createOrLoadWeekAction}>
-                {renderContextFields()}
-                <button type="submit" className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Create draft week</button>
-              </form>
-            ) : null}
-            {canEdit || canManageJobCodes || week ? (
-              <details className="relative z-[70]">
-                <summary className="group cursor-pointer list-none rounded-full border border-sky-300 bg-sky-50 px-4 py-1.5 text-sm font-semibold text-sky-700 hover:bg-sky-100">
-                  <span className="inline-flex items-center gap-1.5">
-                    Actions
-                    <span className="text-[10px] text-sky-500 transition-transform group-open:rotate-180">^</span>
-                  </span>
-                </summary>
-                <div className="absolute right-0 z-[80] mt-2 w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                  <div className="max-h-[70vh] overflow-auto pr-1">
-                    <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Week actions</p>
-
-                    {canPublish && week ? (
-                      <form action={publishWeekAction} className="mb-1">
-                        <input type="hidden" name="week_id" value={week.id} />
-                        {renderContextFields()}
-                        <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50">Publish week</button>
-                      </form>
-                    ) : null}
-
-                    {canUnpublish && week ? (
-                      <form action={unpublishWeekAction} className="mb-1">
-                        <input type="hidden" name="week_id" value={week.id} />
-                        {renderContextFields()}
-                        <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-amber-700 hover:bg-amber-50">Unpublish week</button>
-                      </form>
-                    ) : null}
-
-                    {canEdit && week ? (
-                      <form action={copyPreviousWeekAction} className="mb-1">
-                        <input type="hidden" name="week_id" value={week.id} />
-                        {renderContextFields()}
-                        <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Copy previous week</button>
-                      </form>
-                    ) : null}
-
-                    {canEdit ? (
-                      <form action={syncRosterAction} className="mb-1">
-                        {renderContextFields()}
-                        <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Sync roster from employee info</button>
-                      </form>
-                    ) : null}
-
-                    {week ? (
-                      <Link href={`/schedules/${clientId}/export?week=${encodeURIComponent(weekStart)}`} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Export week CSV</Link>
-                    ) : null}
-
-                    {canViewAudit && week ? (
-                      <Link href={scheduleActionPath("view_audit")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">View audit log</Link>
-                    ) : null}
-
-                    {canEdit && week ? (
-                      <Link href={scheduleActionPath("create_shift")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</Link>
-                    ) : null}
-
-                    {canEdit ? (
-                      <Link href={scheduleActionPath("add_user")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Add user</Link>
-                    ) : null}
-
-                    {canEdit && week && canManageTemplates ? (
-                      <>
-                        <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Templates</p>
-                        <Link href={scheduleActionPath("save_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Save week as template</Link>
-                        <Link href={scheduleActionPath("load_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Load week template</Link>
-                      </>
-                    ) : null}
-
-                    {canManageJobCodes ? (
-                      <>
-                        <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Job codes</p>
-                        <Link href={scheduleActionPath("manage_job_codes")} className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Manage job codes</Link>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-              </details>
-            ) : null}
-          </div>
-        </div>
-      </section>
-
       {actionPanel === "create_shift" && canEdit && week ? (
         <RouteModalOverlay
           closeHref={scheduleBasePath}
@@ -1279,35 +1114,200 @@ export default async function ClientSchedulePage({
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <form method="get" className="flex flex-wrap items-center gap-2 text-xs">
-            <input type="hidden" name="week" value={weekStart} />
-            <input type="hidden" name="range" value={rangeView} />
-            <input type="hidden" name="day" value={selectedDay} />
-            <label className="text-slate-600">
-              Search
-              <input name="q" defaultValue={searchQueryRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1" placeholder="name/email/role" />
-            </label>
-            <label className="text-slate-600">
-              Role
-              <select name="role" defaultValue={roleFilterRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
-                <option value="">All</option>
-                <option value="manager">Manager</option>
-                <option value="team_leader">Team Leader</option>
-                <option value="agent">Agent</option>
-              </select>
-            </label>
-            <label className="text-slate-600">
-              Job
-              <select name="job" defaultValue={jobFilter} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
-                <option value="">All</option>
-                {jobCodes.map((code) => (
-                  <option key={code.id} value={code.id}>{code.code}</option>
-                ))}
-              </select>
-            </label>
-            <button type="submit" className="rounded-md border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">Apply</button>
-          </form>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="relative inline-flex items-center rounded-full border border-slate-300 bg-slate-50 text-slate-700 shadow-sm">
+                <Link
+                  href={buildSchedulePath({ clientId, weekStart: prevWeek, rangeView, day: prevSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-l-full text-xl text-slate-500 hover:bg-slate-100"
+                  aria-label="Previous week"
+                >
+                  &#8249;
+                </Link>
+                <details className="relative">
+                  <summary className="group inline-flex h-10 cursor-pointer list-none items-center gap-2 border-x border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                    {weekRangeLabel}
+                    <span className="text-[10px] text-slate-500 transition-transform group-open:rotate-180">^</span>
+                  </summary>
+                  <div className="absolute left-1/2 z-20 mt-2 w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                    <form method="get" className="space-y-2">
+                      <input type="hidden" name="range" value={rangeView} />
+                      <input type="hidden" name="day" value={selectedDay} />
+                      <input type="hidden" name="q" value={searchQueryRaw} />
+                      <input type="hidden" name="role" value={roleFilterRaw} />
+                      <input type="hidden" name="job" value={jobFilter} />
+                      <label className="block text-xs text-slate-600">
+                        Week date
+                        <input type="date" name="week" defaultValue={weekStart} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                      </label>
+                      <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Go to week</button>
+                    </form>
+                  </div>
+                </details>
+                <Link
+                  href={buildSchedulePath({ clientId, weekStart: nextWeek, rangeView, day: nextSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-r-full text-xl text-slate-500 hover:bg-slate-100"
+                  aria-label="Next week"
+                >
+                  &#8250;
+                </Link>
+              </div>
+
+              <details className="relative z-[70]">
+                <summary className="group cursor-pointer list-none rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  <span className="inline-flex items-center gap-2">
+                    {rangeView === "week" ? "Week" : rangeView === "day" ? "Day" : "Month"}
+                    <span className="text-[10px] text-slate-400 transition-transform group-open:rotate-180">^</span>
+                  </span>
+                </summary>
+                <div className="absolute left-0 z-[80] mt-2 w-32 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                  <div className="space-y-1">
+                    <Link
+                      href={buildSchedulePath({ clientId, weekStart, rangeView: "day", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                      className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "day" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      Day
+                    </Link>
+                    <Link
+                      href={buildSchedulePath({ clientId, weekStart, rangeView: "week", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                      className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "week" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      Week
+                    </Link>
+                    <Link
+                      href={buildSchedulePath({ clientId, weekStart, rangeView: "month", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                      className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "month" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      Month
+                    </Link>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Week status</span>
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isWeekPublished ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${isWeekPublished ? "bg-emerald-500" : "bg-slate-400"}`} />
+                {week?.status || "Draft"}
+              </span>
+              {!week && canEdit ? (
+                <form action={createOrLoadWeekAction}>
+                  {renderContextFields()}
+                  <button type="submit" className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Create draft week</button>
+                </form>
+              ) : null}
+              {canEdit || canManageJobCodes || week ? (
+                <details className="relative z-[70]">
+                  <summary className="group cursor-pointer list-none rounded-full border border-sky-300 bg-sky-50 px-4 py-1.5 text-sm font-semibold text-sky-700 hover:bg-sky-100">
+                    <span className="inline-flex items-center gap-1.5">
+                      Actions
+                      <span className="text-[10px] text-sky-500 transition-transform group-open:rotate-180">^</span>
+                    </span>
+                  </summary>
+                  <div className="absolute right-0 z-[80] mt-2 w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <div className="max-h-[70vh] overflow-auto pr-1">
+                      <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Week actions</p>
+
+                      {canPublish && week ? (
+                        <form action={publishWeekAction} className="mb-1">
+                          <input type="hidden" name="week_id" value={week.id} />
+                          {renderContextFields()}
+                          <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50">Publish week</button>
+                        </form>
+                      ) : null}
+
+                      {canUnpublish && week ? (
+                        <form action={unpublishWeekAction} className="mb-1">
+                          <input type="hidden" name="week_id" value={week.id} />
+                          {renderContextFields()}
+                          <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-amber-700 hover:bg-amber-50">Unpublish week</button>
+                        </form>
+                      ) : null}
+
+                      {canEdit && week ? (
+                        <form action={copyPreviousWeekAction} className="mb-1">
+                          <input type="hidden" name="week_id" value={week.id} />
+                          {renderContextFields()}
+                          <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Copy previous week</button>
+                        </form>
+                      ) : null}
+
+                      {canEdit ? (
+                        <form action={syncRosterAction} className="mb-1">
+                          {renderContextFields()}
+                          <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Sync roster from employee info</button>
+                        </form>
+                      ) : null}
+
+                      {week ? (
+                        <Link href={`/schedules/${clientId}/export?week=${encodeURIComponent(weekStart)}`} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Export week CSV</Link>
+                      ) : null}
+
+                      {canViewAudit && week ? (
+                        <Link href={scheduleActionPath("view_audit")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">View audit log</Link>
+                      ) : null}
+
+                      {canEdit && week ? (
+                        <Link href={scheduleActionPath("create_shift")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</Link>
+                      ) : null}
+
+                      {canEdit ? (
+                        <Link href={scheduleActionPath("add_user")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Add user</Link>
+                      ) : null}
+
+                      {canEdit && week && canManageTemplates ? (
+                        <>
+                          <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Templates</p>
+                          <Link href={scheduleActionPath("save_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Save week as template</Link>
+                          <Link href={scheduleActionPath("load_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Load week template</Link>
+                        </>
+                      ) : null}
+
+                      {canManageJobCodes ? (
+                        <>
+                          <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Job codes</p>
+                          <Link href={scheduleActionPath("manage_job_codes")} className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Manage job codes</Link>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <form method="get" className="flex flex-wrap items-center gap-2 text-xs">
+              <input type="hidden" name="week" value={weekStart} />
+              <input type="hidden" name="range" value={rangeView} />
+              <input type="hidden" name="day" value={selectedDay} />
+              <label className="text-slate-600">
+                Search
+                <input name="q" defaultValue={searchQueryRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1" placeholder="name/email/role" />
+              </label>
+              <label className="text-slate-600">
+                Role
+                <select name="role" defaultValue={roleFilterRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
+                  <option value="">All</option>
+                  <option value="manager">Manager</option>
+                  <option value="team_leader">Team Leader</option>
+                  <option value="agent">Agent</option>
+                </select>
+              </label>
+              <label className="text-slate-600">
+                Job
+                <select name="job" defaultValue={jobFilter} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
+                  <option value="">All</option>
+                  {jobCodes.map((code) => (
+                    <option key={code.id} value={code.id}>{code.code}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="rounded-md border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">Apply</button>
+            </form>
+          </div>
         </div>
         <div className="relative max-h-[70vh] overflow-auto">
             <table className="min-w-full border-separate border-spacing-0 text-sm">
