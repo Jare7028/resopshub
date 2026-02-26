@@ -1198,7 +1198,7 @@ export default async function ClientSchedulePage({
             <table className="min-w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <th className="sticky left-0 top-0 z-40 min-w-[20rem] border border-slate-200 bg-slate-50 px-3 py-2 text-left">Employee</th>
+                  <th className="sticky left-0 top-0 z-40 w-[16rem] min-w-[16rem] max-w-[16rem] border border-slate-200 bg-slate-50 px-3 py-2 text-left">Employee</th>
                   {visibleDays.map((day) => (
                     <th key={day} className="sticky top-0 z-30 border border-slate-200 bg-slate-50 px-3 py-2 text-left">
                       <div>{formatDateLabel(day)}</div>
@@ -1209,7 +1209,7 @@ export default async function ClientSchedulePage({
               </thead>
               <tbody>
                 <tr>
-                  <td className="sticky left-0 z-20 min-w-[20rem] border border-slate-200 bg-white px-3 py-2 align-top">
+                  <td className="sticky left-0 z-20 w-[16rem] min-w-[16rem] max-w-[16rem] border border-slate-200 bg-white px-3 py-2 align-top">
                     <p className="font-medium text-slate-900">Open Shifts</p>
                     <p className="text-xs text-slate-500">Unassigned shifts</p>
                   </td>
@@ -1290,9 +1290,10 @@ export default async function ClientSchedulePage({
                 </tr>
                 {filteredRoster.length ? filteredRoster.map((row) => {
                   const periodJobTallies = rosterJobTotalsById[row.id] || [];
+                  const periodTotalMinutes = periodJobTallies.reduce((sum, tally) => sum + tally.minutes, 0);
                   return (
                   <tr key={row.id}>
-                    <td className="sticky left-0 z-20 min-w-[20rem] border border-slate-200 bg-white px-3 py-2 align-top">
+                    <td className="sticky left-0 z-20 w-[16rem] min-w-[16rem] max-w-[16rem] border border-slate-200 bg-white px-3 py-2 align-top">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-medium text-slate-900">{row.display_name}</p>
@@ -1305,9 +1306,12 @@ export default async function ClientSchedulePage({
                             </form>
                           ) : null}
                         </div>
-                        <div className="ml-auto min-w-[9rem]">
+                        <div className="ml-auto min-w-[8.5rem]">
                           <div className="min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
+                            <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
+                              <span className="text-[10px] font-semibold text-slate-700">{formatHours(periodTotalMinutes)}h</span>
+                            </div>
                             {periodJobTallies.length ? (
                               <ul className="mt-1 space-y-1">
                                 {periodJobTallies.map((tally) => (
