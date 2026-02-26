@@ -653,6 +653,13 @@ export default async function DashboardPage(props: {
         .filter(Boolean)
     )
   );
+  const scopedClientIdsFromLoadedTasks = Array.from(
+    new Set(
+      (tasks || [])
+        .map((row) => String(row.client_id || "").trim())
+        .filter(Boolean)
+    )
+  );
 
   let scopedClientIds: string[] = [];
   if (!hasClientScopeFilter && !hasProjectScopeFilter && !hasTaskMetaScopeFilter) {
@@ -661,6 +668,9 @@ export default async function DashboardPage(props: {
     scopedClientIds = filteredClientIds;
   } else if (!hasClientScopeFilter && hasProjectScopeFilter && !hasTaskMetaScopeFilter) {
     scopedClientIds = projectScopedClientIds;
+  } else if (!rangeStart) {
+    // Reuse the already-loaded task result set when range is "all" to avoid an extra scan.
+    scopedClientIds = scopedClientIdsFromLoadedTasks;
   } else {
     let scopedTasksQuery = supabase
       .from("tasks")

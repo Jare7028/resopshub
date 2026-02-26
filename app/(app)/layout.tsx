@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
@@ -42,6 +43,17 @@ type UserProfileRow = {
   role: string;
   status: string;
 };
+
+type LayoutUser = {
+  id: string;
+  email: string | null;
+  user_metadata?: Record<string, unknown> | null;
+};
+
+const MIDDLEWARE_USER_ID_HEADER = "x-resopshub-user-id";
+const MIDDLEWARE_USER_EMAIL_HEADER = "x-resopshub-user-email";
+const UUID_V4ISH_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function SidebarIcon({ name }: { name: NavIconName }) {
   const iconClassName = "h-4 w-4 shrink-0";
@@ -212,10 +224,24 @@ export default async function AppLayout({
   children: React.ReactNode;
 }>) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await withPerfTiming("layout.auth", () =>
-    supabase.auth.getUser()
-  );
-  const user = authData.user;
+  const headerList = await headers();
+  const forwardedUserId = String(headerList.get(MIDDLEWARE_USER_ID_HEADER) || "").trim();
+  const forwardedUserEmail = String(headerList.get(MIDDLEWARE_USER_EMAIL_HEADER) || "").trim();
+
+  let user: LayoutUser | null = UUID_V4ISH_REGEX.test(forwardedUserId)
+    ? {
+        id: forwardedUserId,
+        email: forwardedUserEmail || null,
+        user_metadata: null,
+      }
+    : null;
+
+  if (!user) {
+    const { data: authData } = await withPerfTiming("layout.auth", () =>
+      supabase.auth.getUser()
+    );
+    user = (authData.user as LayoutUser | null) || null;
+  }
 
   if (!user) {
     redirect("/login");

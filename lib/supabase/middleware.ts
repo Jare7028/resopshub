@@ -14,11 +14,32 @@ import { isMutationMethod, pagePermissionKeyForPathname } from "@/lib/pagePermis
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+const MIDDLEWARE_USER_ID_HEADER = "x-resopshub-user-id";
+const MIDDLEWARE_USER_EMAIL_HEADER = "x-resopshub-user-email";
 
 export async function updateSession(request: NextRequest) {
+  const requestHeaders = new Headers(request.headers);
+  // Never trust client-supplied internal headers.
+  requestHeaders.delete(MIDDLEWARE_USER_ID_HEADER);
+  requestHeaders.delete(MIDDLEWARE_USER_EMAIL_HEADER);
+
+  let latestCookiesToSet: Parameters<SetAllCookies>[0] = [];
   let response = NextResponse.next({
-    request,
+    request: {
+      headers: requestHeaders,
+    },
   });
+
+  const rebuildResponse = () => {
+    response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+    for (const { name, value, options } of latestCookiesToSet) {
+      response.cookies.set(name, value, options);
+    }
+  };
   const isPrefetchRequest =
     request.headers.get("purpose") === "prefetch" ||
     request.headers.get("next-router-prefetch") === "1";
@@ -44,13 +65,12 @@ export async function updateSession(request: NextRequest) {
         return request.cookies.getAll().map(({ name, value }) => ({ name, value }));
       },
       setAll(cookiesToSet: Parameters<SetAllCookies>[0]) {
+        latestCookiesToSet = cookiesToSet;
         for (const { name, value } of cookiesToSet) {
           request.cookies.set(name, value);
         }
 
-        response = NextResponse.next({
-          request,
-        });
+        rebuildResponse();
 
         for (const { name, value, options } of cookiesToSet) {
           response.cookies.set(name, value, options);
@@ -62,6 +82,16 @@ export async function updateSession(request: NextRequest) {
 
   const { data: authData } = await supabase.auth.getUser();
   const user = authData.user;
+
+  if (user) {
+    requestHeaders.set(MIDDLEWARE_USER_ID_HEADER, user.id);
+    if (user.email) {
+      requestHeaders.set(MIDDLEWARE_USER_EMAIL_HEADER, user.email);
+    } else {
+      requestHeaders.delete(MIDDLEWARE_USER_EMAIL_HEADER);
+    }
+    rebuildResponse();
+  }
 
   if (!user) {
     return response;
