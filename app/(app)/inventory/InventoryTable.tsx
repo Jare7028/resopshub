@@ -555,7 +555,13 @@ function ColumnEditPanel({
         </div>
         <form
           ref={updateFormRef}
-          onSubmit={(event) => runAction(event, onUpdateColumn, { closeDetails: true, refresh: true })}
+          onSubmit={(event) =>
+            runAction(event, onUpdateColumn, {
+              closeDetails: true,
+              refresh: true,
+              hardReload: true,
+            })
+          }
           className="grid gap-2"
         >
           <input type="hidden" name="column_id" value={column.id} />

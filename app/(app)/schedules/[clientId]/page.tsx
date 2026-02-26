@@ -180,6 +180,98 @@ function formatHours(minutes: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
 }
 
+function normalizeHexColor(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const hex = raw.startsWith("#") ? raw.slice(1) : raw;
+  if (!/^[\da-f]{3}([\da-f]{3})?$/i.test(hex)) return null;
+  if (hex.length === 3) {
+    return `#${hex
+      .split("")
+      .map((char) => `${char}${char}`)
+      .join("")
+      .toUpperCase()}`;
+  }
+  return `#${hex.toUpperCase()}`;
+}
+
+function hexToRgb(hex: string) {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return null;
+  const value = normalized.slice(1);
+  return {
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16),
+  };
+}
+
+function mixRgb(
+  left: { r: number; g: number; b: number },
+  right: { r: number; g: number; b: number },
+  weight: number
+) {
+  const w = Math.max(0, Math.min(1, weight));
+  return {
+    r: Math.round(left.r * (1 - w) + right.r * w),
+    g: Math.round(left.g * (1 - w) + right.g * w),
+    b: Math.round(left.b * (1 - w) + right.b * w),
+  };
+}
+
+function toRelativeLuminance({ r, g, b }: { r: number; g: number; b: number }) {
+  const channel = (value: number) => {
+    const normalized = value / 255;
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : Math.pow((normalized + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
+  const toHex = (value: number) =>
+    Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0").toUpperCase();
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function getShiftBubblePalette(colorHex: string | null | undefined) {
+  const fallback = {
+    className:
+      "rounded-xl border-2 border-sky-950 bg-sky-800 px-2.5 py-1.5 text-[12px] font-semibold leading-tight text-white",
+    subtitleClassName: "mt-1 text-[11px] font-medium text-sky-100",
+    style: undefined as { backgroundColor: string; borderColor: string; color: string } | undefined,
+    subtitleStyle: undefined as { color: string } | undefined,
+  };
+
+  const backgroundColor = normalizeHexColor(colorHex);
+  if (!backgroundColor) return fallback;
+  const rgb = hexToRgb(backgroundColor);
+  if (!rgb) return fallback;
+
+  const isDark = toRelativeLuminance(rgb) < 0.42;
+  const textColor = isDark ? "#FFFFFF" : "#0F172A";
+  const borderColor = rgbToHex(
+    isDark
+      ? mixRgb(rgb, { r: 2, g: 6, b: 23 }, 0.35)
+      : mixRgb(rgb, { r: 15, g: 23, b: 42 }, 0.22)
+  );
+  const subtitleColor = isDark ? "rgba(255,255,255,0.88)" : "rgba(15,23,42,0.76)";
+
+  return {
+    className: "rounded-xl border-2 px-2.5 py-1.5 text-[12px] font-semibold leading-tight",
+    subtitleClassName: "mt-1 text-[11px] font-medium",
+    style: {
+      backgroundColor,
+      borderColor,
+      color: textColor,
+    },
+    subtitleStyle: {
+      color: subtitleColor,
+    },
+  };
+}
+
 function formatWeekRangeLabel(weekStartDate: Date) {
   const weekEndDate = addDays(weekStartDate, 6);
   const sameMonth =
@@ -646,6 +738,18 @@ export default async function ClientSchedulePage({
   const templates = (templatesData || []) as TemplateRow[];
   const users = (usersData || []) as Array<{ id: string; full_name: string | null; email: string | null; status: string | null }>;
   const audits = (auditData || []) as AuditRow[];
+  const longestEmployeeNameChars = Math.max(
+    "Open Shifts".length,
+    ...roster.map((row) => String(row.display_name || "").trim().length)
+  );
+  const employeeColumnWidthRem = Math.max(
+    20,
+    Math.ceil(11 + longestEmployeeNameChars * 0.56)
+  );
+  const employeeColumnStyle = {
+    width: `${employeeColumnWidthRem}rem`,
+    minWidth: `${employeeColumnWidthRem}rem`,
+  };
 
   const jobCodeById = new Map(jobCodes.map((row) => [row.id, row]));
   const visibleDaySet = new Set(visibleDays);
@@ -1198,7 +1302,12 @@ export default async function ClientSchedulePage({
             <table className="min-w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <th className="sticky left-0 top-0 z-40 w-[16rem] min-w-[16rem] max-w-[16rem] border border-slate-200 bg-slate-50 px-3 py-2 text-left">Employee</th>
+                  <th
+                    className="sticky left-0 top-0 z-40 border border-slate-200 bg-slate-50 px-3 py-2 text-left"
+                    style={employeeColumnStyle}
+                  >
+                    Employee
+                  </th>
                   {visibleDays.map((day) => (
                     <th key={day} className="sticky top-0 z-30 border border-slate-200 bg-slate-50 px-3 py-2 text-left">
                       <div>{formatDateLabel(day)}</div>
@@ -1209,7 +1318,10 @@ export default async function ClientSchedulePage({
               </thead>
               <tbody>
                 <tr>
-                  <td className="sticky left-0 z-20 w-[16rem] min-w-[16rem] max-w-[16rem] border border-slate-200 bg-white px-3 py-2 align-top">
+                  <td
+                    className="sticky left-0 z-20 border border-slate-200 bg-white px-3 py-2 align-top"
+                    style={employeeColumnStyle}
+                  >
                     <p className="font-medium text-slate-900">Open Shifts</p>
                     <p className="text-xs text-slate-500">Unassigned shifts</p>
                   </td>
@@ -1293,10 +1405,13 @@ export default async function ClientSchedulePage({
                   const periodTotalMinutes = periodJobTallies.reduce((sum, tally) => sum + tally.minutes, 0);
                   return (
                   <tr key={row.id}>
-                    <td className="sticky left-0 z-20 w-[16rem] min-w-[16rem] max-w-[16rem] border border-slate-200 bg-white px-3 py-2 align-top">
+                    <td
+                      className="sticky left-0 z-20 border border-slate-200 bg-white px-3 py-2 align-top"
+                      style={employeeColumnStyle}
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-medium text-slate-900">{row.display_name}</p>
+                          <p className="font-medium text-slate-900 whitespace-nowrap">{row.display_name}</p>
                           <p className="text-xs text-slate-500">{row.role_label}</p>
                           {canEdit ? (
                             <form action={removeRosterUserAction}>
@@ -1356,12 +1471,13 @@ export default async function ClientSchedulePage({
                             {dayShifts.map((shift) => {
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                               const jobCodeText = jobCode ? jobCode.code : "No Job Code";
+                              const shiftPalette = getShiftBubblePalette(jobCode?.color_hex || null);
                               const shiftSummary = (
-                                <div className="rounded-xl border-2 border-sky-950 bg-sky-800 px-2.5 py-1.5 text-[12px] font-semibold leading-tight text-white">
+                                <div className={shiftPalette.className} style={shiftPalette.style}>
                                   <div>
                                     {formatTimeCompact(shift.start_local_time)} - {formatTimeCompact(shift.end_local_time)} ({shift.break_minutes}m)
                                   </div>
-                                  <div className="mt-1 text-[11px] font-medium text-sky-100">&quot;{jobCodeText}&quot;</div>
+                                  <div className={shiftPalette.subtitleClassName} style={shiftPalette.subtitleStyle}>&quot;{jobCodeText}&quot;</div>
                                 </div>
                               );
 
