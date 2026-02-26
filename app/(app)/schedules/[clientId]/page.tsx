@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
+import ScheduleGridDndClient from "./ScheduleGridDndClient";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type RangeView = "week" | "day" | "month";
@@ -687,6 +688,7 @@ export default async function ClientSchedulePage({
   const hasActiveFilters = Boolean(searchQuery || roleFilter || jobFilter);
   const weekRangeLabel = formatWeekRangeLabel(weekDate);
   const isWeekPublished = week?.status === "published";
+  const canDragShiftCards = canEdit && Boolean(week);
   const scheduleBasePath = buildSchedulePath({
     clientId,
     weekStart,
@@ -1181,7 +1183,14 @@ export default async function ClientSchedulePage({
                   {visibleDays.map((day) => {
                     const dayOpenShifts = openShiftsByDay[day] || [];
                     return (
-                      <td key={day} className="relative border border-slate-200 p-2 align-top">
+                      <td
+                        key={day}
+                        className="relative border border-slate-200 p-2 align-top"
+                        data-schedule-drop-cell={canDragShiftCards ? "true" : undefined}
+                        data-schedule-drop-day={canDragShiftCards ? day : undefined}
+                        data-schedule-drop-is-open={canDragShiftCards ? "true" : undefined}
+                        data-schedule-drop-roster-entry-id=""
+                      >
                         {canEdit && week ? (
                           <Link
                             href={scheduleActionPath("create_shift", { createDate: day, createOpen: true })}
@@ -1193,7 +1202,27 @@ export default async function ClientSchedulePage({
                           {dayOpenShifts.length ? dayOpenShifts.map((shift) => {
                             const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                             return (
-                              <div key={shift.id} className="rounded-md border border-slate-200 p-2 text-xs">
+                              <div
+                                key={shift.id}
+                                className={`rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
+                                  canDragShiftCards
+                                    ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
+                                    : ""
+                                }`}
+                                draggable={canDragShiftCards}
+                                data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
+                                data-schedule-shift-id={shift.id}
+                                data-schedule-week-id={shift.week_id}
+                                data-schedule-roster-entry-id={shift.roster_entry_id || ""}
+                                data-schedule-is-open={shift.is_open ? "true" : "false"}
+                                data-schedule-local-date={shift.local_date}
+                                data-schedule-start-local-time={shift.start_local_time}
+                                data-schedule-end-local-time={shift.end_local_time}
+                                data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
+                                data-schedule-break-minutes={String(shift.break_minutes || 0)}
+                                data-schedule-job-code-id={shift.job_code_id || ""}
+                                data-schedule-notes={shift.notes || ""}
+                              >
                                 <div className="font-medium text-slate-900">
                                   {formatTimeLabel(shift.start_local_time)} - {formatTimeLabel(shift.end_local_time)}
                                 </div>
@@ -1241,8 +1270,34 @@ export default async function ClientSchedulePage({
                     </td>
                     {visibleDays.map((day) => {
                       const dayShifts = shiftsByRosterDay[`${row.id}:${day}`] || [];
+                      const tallyByJobCode = dayShifts.reduce<
+                        Map<string, { key: string; label: string; minutes: number; colorHex: string | null }>
+                      >((acc, shift) => {
+                        const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
+                        const key = shift.job_code_id || "__no_job_code__";
+                        const current = acc.get(key) || {
+                          key,
+                          label: jobCode?.code || "No Job Code",
+                          minutes: 0,
+                          colorHex: jobCode?.color_hex || null,
+                        };
+                        current.minutes += shiftWorkedMinutes(shift);
+                        acc.set(key, current);
+                        return acc;
+                      }, new Map());
+                      const dayShiftTallies = Array.from(tallyByJobCode.values()).sort((a, b) => {
+                        if (b.minutes !== a.minutes) return b.minutes - a.minutes;
+                        return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+                      });
                       return (
-                        <td key={day} className="relative border border-slate-200 p-2 align-top">
+                        <td
+                          key={day}
+                          className="relative border border-slate-200 p-2 align-top"
+                          data-schedule-drop-cell={canDragShiftCards ? "true" : undefined}
+                          data-schedule-drop-day={canDragShiftCards ? day : undefined}
+                          data-schedule-drop-is-open={canDragShiftCards ? "false" : undefined}
+                          data-schedule-drop-roster-entry-id={canDragShiftCards ? row.id : undefined}
+                        >
                           {canEdit && week ? (
                             <Link
                               href={scheduleActionPath("create_shift", { createDate: day, createRosterEntryId: row.id })}
@@ -1251,6 +1306,22 @@ export default async function ClientSchedulePage({
                             />
                           ) : null}
                           <div className="relative z-10 space-y-2">
+                            {dayShiftTallies.length ? (
+                              <div className="flex flex-wrap gap-1">
+                                {dayShiftTallies.map((tally) => (
+                                  <span
+                                    key={tally.key}
+                                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600"
+                                  >
+                                    <span
+                                      className={`inline-flex h-1.5 w-1.5 rounded-full ${tally.colorHex ? "" : "bg-slate-400"}`}
+                                      style={tally.colorHex ? { backgroundColor: tally.colorHex } : undefined}
+                                    />
+                                    {tally.label}: {formatHours(tally.minutes)}h
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
                             {dayShifts.map((shift) => {
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                               const jobCodeText = jobCode ? jobCode.code : "No Job Code";
@@ -1266,7 +1337,28 @@ export default async function ClientSchedulePage({
                               if (canEdit && week) {
                                 return (
                                   <details key={shift.id} className="text-xs">
-                                    <summary className="list-none cursor-pointer rounded-md p-0.5 hover:bg-sky-50/40">{shiftSummary}</summary>
+                                    <summary
+                                      className={`list-none rounded-md p-0.5 transition-[transform,box-shadow,opacity] duration-150 ${
+                                        canDragShiftCards
+                                          ? "cursor-grab hover:-translate-y-0.5 hover:bg-sky-50/40 hover:shadow-sm"
+                                          : "cursor-pointer hover:bg-sky-50/40"
+                                      }`}
+                                      draggable={canDragShiftCards}
+                                      data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
+                                      data-schedule-shift-id={shift.id}
+                                      data-schedule-week-id={shift.week_id}
+                                      data-schedule-roster-entry-id={shift.roster_entry_id || ""}
+                                      data-schedule-is-open={shift.is_open ? "true" : "false"}
+                                      data-schedule-local-date={shift.local_date}
+                                      data-schedule-start-local-time={shift.start_local_time}
+                                      data-schedule-end-local-time={shift.end_local_time}
+                                      data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
+                                      data-schedule-break-minutes={String(shift.break_minutes || 0)}
+                                      data-schedule-job-code-id={shift.job_code_id || ""}
+                                      data-schedule-notes={shift.notes || ""}
+                                    >
+                                      {shiftSummary}
+                                    </summary>
                                     <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-2">
                                       <form action={upsertShiftAction} className="grid gap-1.5">
                                         <input type="hidden" name="week_id" value={week.id} />
@@ -1303,7 +1395,29 @@ export default async function ClientSchedulePage({
                               }
 
                               return (
-                                <div key={shift.id} className="text-xs">{shiftSummary}</div>
+                                <div
+                                  key={shift.id}
+                                  className={`rounded-md p-0.5 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
+                                    canDragShiftCards
+                                      ? "cursor-grab hover:-translate-y-0.5 hover:shadow-sm"
+                                      : ""
+                                  }`}
+                                  draggable={canDragShiftCards}
+                                  data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
+                                  data-schedule-shift-id={shift.id}
+                                  data-schedule-week-id={shift.week_id}
+                                  data-schedule-roster-entry-id={shift.roster_entry_id || ""}
+                                  data-schedule-is-open={shift.is_open ? "true" : "false"}
+                                  data-schedule-local-date={shift.local_date}
+                                  data-schedule-start-local-time={shift.start_local_time}
+                                  data-schedule-end-local-time={shift.end_local_time}
+                                  data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
+                                  data-schedule-break-minutes={String(shift.break_minutes || 0)}
+                                  data-schedule-job-code-id={shift.job_code_id || ""}
+                                  data-schedule-notes={shift.notes || ""}
+                                >
+                                  {shiftSummary}
+                                </div>
                               );
                             })}
                           </div>
@@ -1322,6 +1436,8 @@ export default async function ClientSchedulePage({
             </table>
           </div>
       </section>
+
+      {canDragShiftCards ? <ScheduleGridDndClient /> : null}
 
     </div>
   );
