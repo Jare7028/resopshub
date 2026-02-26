@@ -1186,7 +1186,7 @@ export default async function ClientSchedulePage({
               </details>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Week status</span>
               <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isWeekPublished ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${isWeekPublished ? "bg-emerald-500" : "bg-slate-400"}`} />
@@ -1275,38 +1275,35 @@ export default async function ClientSchedulePage({
                   </div>
                 </details>
               ) : null}
+              <form method="get" className="flex flex-wrap items-center gap-2 text-xs">
+                <input type="hidden" name="week" value={weekStart} />
+                <input type="hidden" name="range" value={rangeView} />
+                <input type="hidden" name="day" value={selectedDay} />
+                <label className="text-slate-600">
+                  Search
+                  <input name="q" defaultValue={searchQueryRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1" placeholder="name/email/role" />
+                </label>
+                <label className="text-slate-600">
+                  Role
+                  <select name="role" defaultValue={roleFilterRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
+                    <option value="">All</option>
+                    <option value="manager">Manager</option>
+                    <option value="team_leader">Team Leader</option>
+                    <option value="agent">Agent</option>
+                  </select>
+                </label>
+                <label className="text-slate-600">
+                  Job
+                  <select name="job" defaultValue={jobFilter} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
+                    <option value="">All</option>
+                    {jobCodes.map((code) => (
+                      <option key={code.id} value={code.id}>{code.code}</option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit" className="rounded-md border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">Apply</button>
+              </form>
             </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <form method="get" className="flex flex-wrap items-center gap-2 text-xs">
-              <input type="hidden" name="week" value={weekStart} />
-              <input type="hidden" name="range" value={rangeView} />
-              <input type="hidden" name="day" value={selectedDay} />
-              <label className="text-slate-600">
-                Search
-                <input name="q" defaultValue={searchQueryRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1" placeholder="name/email/role" />
-              </label>
-              <label className="text-slate-600">
-                Role
-                <select name="role" defaultValue={roleFilterRaw} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
-                  <option value="">All</option>
-                  <option value="manager">Manager</option>
-                  <option value="team_leader">Team Leader</option>
-                  <option value="agent">Agent</option>
-                </select>
-              </label>
-              <label className="text-slate-600">
-                Job
-                <select name="job" defaultValue={jobFilter} className="ml-1 rounded-md border border-slate-300 px-2 py-1">
-                  <option value="">All</option>
-                  {jobCodes.map((code) => (
-                    <option key={code.id} value={code.id}>{code.code}</option>
-                  ))}
-                </select>
-              </label>
-              <button type="submit" className="rounded-md border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">Apply</button>
-            </form>
           </div>
         </div>
         <div className="relative max-h-[70vh] overflow-auto">
