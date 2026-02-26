@@ -1130,9 +1130,9 @@ export default async function ClientSchedulePage({
             <table className="min-w-full border-collapse text-sm">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <th className="border border-slate-200 px-3 py-2 text-left">Employee</th>
+                  <th className="sticky left-0 top-0 z-40 min-w-[15rem] border border-slate-200 bg-slate-50 px-3 py-2 text-left">Employee</th>
                   {visibleDays.map((day) => (
-                    <th key={day} className="border border-slate-200 px-3 py-2 text-left">
+                    <th key={day} className="sticky top-0 z-30 border border-slate-200 bg-slate-50 px-3 py-2 text-left">
                       <div>{formatDateLabel(day)}</div>
                       <div className="normal-case text-[11px] text-slate-500">{formatHours(dayTotals[day] || 0)}h workable</div>
                     </th>
@@ -1141,7 +1141,7 @@ export default async function ClientSchedulePage({
               </thead>
               <tbody>
                 <tr>
-                  <td className="border border-slate-200 px-3 py-2 align-top">
+                  <td className="sticky left-0 z-20 min-w-[15rem] border border-slate-200 bg-white px-3 py-2 align-top">
                     <p className="font-medium text-slate-900">Open Shifts</p>
                     <p className="text-xs text-slate-500">Unassigned shifts</p>
                   </td>
@@ -1195,7 +1195,7 @@ export default async function ClientSchedulePage({
                 </tr>
                 {filteredRoster.length ? filteredRoster.map((row) => (
                   <tr key={row.id}>
-                    <td className="border border-slate-200 px-3 py-2 align-top">
+                    <td className="sticky left-0 z-20 min-w-[15rem] border border-slate-200 bg-white px-3 py-2 align-top">
                       <p className="font-medium text-slate-900">{row.display_name}</p>
                       <p className="text-xs text-slate-500">{row.role_label}</p>
                       {canEdit ? (
