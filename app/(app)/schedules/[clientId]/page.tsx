@@ -1318,17 +1318,17 @@ export default async function ClientSchedulePage({
                     <td className="sticky left-0 z-20 min-w-[20rem] border border-slate-200 bg-white px-3 py-2 align-top">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="font-medium text-slate-900">{row.display_name}</p>
-                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                          <p className="font-medium text-slate-900">{row.display_name}</p>
+                          <div className="mt-1 space-y-1">
+                            <div className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                               Work {formatHours(periodTotals.workingMinutes)}h
-                            </span>
-                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            </div>
+                            <div className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
                               Break {formatHours(periodTotals.breakMinutes)}h
-                            </span>
-                            <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                            </div>
+                            <div className="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                               Total {formatHours(periodTotals.totalMinutes)}h
-                            </span>
+                            </div>
                           </div>
                           <p className="text-xs text-slate-500">{row.role_label}</p>
                           {canEdit ? (
