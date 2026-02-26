@@ -17,6 +17,15 @@ type ShiftPayload = {
   notes: string | null;
 };
 
+type PendingCopyDrag = {
+  payload: ShiftPayload;
+  card: HTMLElement;
+  startX: number;
+  startY: number;
+  offsetX: number;
+  offsetY: number;
+};
+
 function toEventElementTarget(target: EventTarget | null) {
   if (target instanceof HTMLElement) return target;
   if (target instanceof Node) return target.parentElement;
@@ -76,6 +85,8 @@ function ScheduleGridDndClient() {
   const activeDropCellRef = useRef<HTMLElement | null>(null);
   const shiftHeldRef = useRef(false);
   const pointerDragModeRef = useRef<"move" | "copy">("move");
+  const pendingCopyDragRef = useRef<PendingCopyDrag | null>(null);
+  const manualCopyDraggingRef = useRef(false);
   const dragModeRef = useRef<"move" | "copy">("move");
   const requestInFlightRef = useRef(false);
 
@@ -106,6 +117,8 @@ function ScheduleGridDndClient() {
       clearCardDraggingStyles();
       clearDragPreview();
       draggingPayloadRef.current = null;
+      pendingCopyDragRef.current = null;
+      manualCopyDraggingRef.current = false;
       dragModeRef.current = "move";
       pointerDragModeRef.current = "move";
       shiftHeldRef.current = false;
@@ -143,14 +156,11 @@ function ScheduleGridDndClient() {
       return shiftPressed ? "copy" : "move";
     };
 
-    const setDragPreviewFromCard = (
-      event: DragEvent,
-      sourceCard: HTMLElement
-    ) => {
-      if (!event.dataTransfer || typeof document === "undefined") return;
+    const createDragPreviewFromCard = (sourceCard: HTMLElement) => {
+      if (typeof document === "undefined") return null;
       clearDragPreview();
       const sourceRect = sourceCard.getBoundingClientRect();
-      if (!sourceRect.width || !sourceRect.height) return;
+      if (!sourceRect.width || !sourceRect.height) return null;
       const preview = sourceCard.cloneNode(true) as HTMLElement;
       preview.style.position = "fixed";
       preview.style.top = "-10000px";
@@ -166,6 +176,20 @@ function ScheduleGridDndClient() {
       preview.style.zIndex = "2147483647";
       document.body.appendChild(preview);
       previewRef.current = preview;
+      return preview;
+    };
+
+    const movePreviewToPointer = (clientX: number, clientY: number, offsetX: number, offsetY: number) => {
+      const preview = previewRef.current;
+      if (!preview) return;
+      preview.style.left = `${Math.round(clientX - offsetX)}px`;
+      preview.style.top = `${Math.round(clientY - offsetY)}px`;
+    };
+
+    const setDragPreviewFromCard = (event: DragEvent, sourceCard: HTMLElement) => {
+      if (!event.dataTransfer) return;
+      const preview = createDragPreviewFromCard(sourceCard);
+      if (!preview) return;
       event.dataTransfer.setDragImage(preview, 24, 20);
     };
 
@@ -212,23 +236,17 @@ function ScheduleGridDndClient() {
       setDropCell(cell, mode);
     };
 
-    const onDrop = async (event: DragEvent) => {
-      const payload = draggingPayloadRef.current;
-      if (!payload || requestInFlightRef.current) return;
-      const targetNode = toEventElementTarget(event.target);
-      const cell = targetNode?.closest<HTMLElement>('[data-schedule-drop-cell="true"]');
-      if (!cell) return;
-      event.preventDefault();
-
+    const applyDropToCell = async (
+      payload: ShiftPayload,
+      cell: HTMLElement,
+      mode: "move" | "copy"
+    ) => {
       const targetLocalDate = String(cell.dataset.scheduleDropDay || "").trim();
       const targetRosterEntryIdRaw = String(cell.dataset.scheduleDropRosterEntryId || "").trim();
       const targetIsOpen = String(cell.dataset.scheduleDropIsOpen || "").trim() === "true";
       const targetRosterEntryId = targetIsOpen ? null : targetRosterEntryIdRaw || null;
-      const mode = resolveDragMode(event);
-      dragModeRef.current = mode;
 
       if (!targetLocalDate) {
-        resetDragState();
         return;
       }
 
@@ -238,7 +256,6 @@ function ScheduleGridDndClient() {
         payload.isOpen === targetIsOpen &&
         (targetIsOpen || payload.rosterEntryId === targetRosterEntryId);
       if (noChangeMove) {
-        resetDragState();
         return;
       }
 
@@ -276,6 +293,23 @@ function ScheduleGridDndClient() {
       } finally {
         requestInFlightRef.current = false;
         setIsApplying(false);
+      }
+    };
+
+    const onDrop = async (event: DragEvent) => {
+      const payload = draggingPayloadRef.current;
+      if (!payload || requestInFlightRef.current) return;
+      const targetNode = toEventElementTarget(event.target);
+      const cell = targetNode?.closest<HTMLElement>('[data-schedule-drop-cell="true"]');
+      if (!cell) return;
+      event.preventDefault();
+
+      const mode = resolveDragMode(event);
+      dragModeRef.current = mode;
+
+      try {
+        await applyDropToCell(payload, cell, mode);
+      } finally {
         resetDragState();
       }
     };
@@ -285,20 +319,98 @@ function ScheduleGridDndClient() {
     };
 
     const onPointerDownCapture = (event: PointerEvent) => {
+      if (event.button !== 0 || requestInFlightRef.current) return;
       const targetNode = toEventElementTarget(event.target);
       const card = targetNode?.closest<HTMLElement>('[data-schedule-shift-card="true"]');
       if (!card) return;
+      const interactiveTarget = targetNode?.closest<HTMLElement>(
+        "button,a,input,select,textarea,label,[data-schedule-no-drag='true']"
+      );
+      if (interactiveTarget && interactiveTarget !== card) return;
+      const payload = parseShiftPayload(card);
+      if (!payload) return;
+
       pointerDragModeRef.current = event.shiftKey ? "copy" : "move";
       if (event.shiftKey) {
         shiftHeldRef.current = true;
+        const cardRect = card.getBoundingClientRect();
+        pendingCopyDragRef.current = {
+          payload,
+          card,
+          startX: event.clientX,
+          startY: event.clientY,
+          offsetX: Math.max(0, Math.min(cardRect.width - 1, event.clientX - cardRect.left)),
+          offsetY: Math.max(0, Math.min(cardRect.height - 1, event.clientY - cardRect.top)),
+        };
+        event.preventDefault();
+      } else {
+        pendingCopyDragRef.current = null;
+        manualCopyDraggingRef.current = false;
       }
+    };
+
+    const onPointerMoveCapture = (event: PointerEvent) => {
+      const pending = pendingCopyDragRef.current;
+      if (!pending || requestInFlightRef.current) return;
+      const movedDistance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY);
+      if (!manualCopyDraggingRef.current && movedDistance < 4) return;
+
+      if (!manualCopyDraggingRef.current) {
+        manualCopyDraggingRef.current = true;
+        draggingPayloadRef.current = pending.payload;
+        draggingCardRef.current = pending.card;
+        dragModeRef.current = "copy";
+        createDragPreviewFromCard(pending.card);
+        pending.card.classList.add("opacity-45", "scale-[0.98]", "shadow-none", "cursor-grabbing");
+      }
+
+      event.preventDefault();
+      movePreviewToPointer(event.clientX, event.clientY, pending.offsetX, pending.offsetY);
+      const elementAtPoint = document.elementFromPoint(event.clientX, event.clientY);
+      const dropTargetNode = toEventElementTarget(elementAtPoint);
+      const dropCell = dropTargetNode?.closest<HTMLElement>('[data-schedule-drop-cell="true"]');
+      if (dropCell) {
+        setDropCell(dropCell, "copy");
+      } else {
+        clearDropCellStyles();
+      }
+    };
+
+    const onPointerUpCapture = (event: PointerEvent) => {
+      const pending = pendingCopyDragRef.current;
+      if (!pending) return;
+      const shouldDrop = manualCopyDraggingRef.current;
+      const payload = pending.payload;
+      pendingCopyDragRef.current = null;
+
+      if (!shouldDrop || requestInFlightRef.current) {
+        resetDragState();
+        return;
+      }
+
+      event.preventDefault();
+      const elementAtPoint = document.elementFromPoint(event.clientX, event.clientY);
+      const dropTargetNode = toEventElementTarget(elementAtPoint);
+      const dropCell = dropTargetNode?.closest<HTMLElement>('[data-schedule-drop-cell="true"]');
+      if (!dropCell) {
+        resetDragState();
+        return;
+      }
+
+      void (async () => {
+        try {
+          await applyDropToCell(payload, dropCell, "copy");
+        } finally {
+          resetDragState();
+        }
+      })();
     };
 
     const onSelectStartCapture = (event: Event) => {
       const targetNode = toEventElementTarget(event.target);
       const card = targetNode?.closest<HTMLElement>('[data-schedule-shift-card="true"]');
       if (!card) return;
-      if (shiftHeldRef.current || pointerDragModeRef.current === "copy") {
+      if (manualCopyDraggingRef.current || pendingCopyDragRef.current) {
         event.preventDefault();
       }
     };
@@ -324,6 +436,8 @@ function ScheduleGridDndClient() {
     document.addEventListener("drop", onDrop, true);
     document.addEventListener("dragend", onDragEnd, true);
     document.addEventListener("pointerdown", onPointerDownCapture, true);
+    document.addEventListener("pointermove", onPointerMoveCapture, true);
+    document.addEventListener("pointerup", onPointerUpCapture, true);
     document.addEventListener("selectstart", onSelectStartCapture, true);
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
@@ -335,6 +449,8 @@ function ScheduleGridDndClient() {
       document.removeEventListener("drop", onDrop, true);
       document.removeEventListener("dragend", onDragEnd, true);
       document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      document.removeEventListener("pointermove", onPointerMoveCapture, true);
+      document.removeEventListener("pointerup", onPointerUpCapture, true);
       document.removeEventListener("selectstart", onSelectStartCapture, true);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
