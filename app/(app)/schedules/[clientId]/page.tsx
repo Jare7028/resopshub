@@ -2,9 +2,11 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import RouteModalOverlay from "../../_components/RouteModalOverlay";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type RangeView = "week" | "day" | "month";
+type ActionPanel = "" | "create_shift" | "add_user" | "save_template" | "load_template" | "manage_job_codes";
 
 type WeekRow = {
   id: string;
@@ -62,6 +64,16 @@ function normalizeRangeView(value: string | null | undefined): RangeView {
   if (v === "day") return "day";
   if (v === "month") return "month";
   return "week";
+}
+
+function normalizeActionPanel(value: string | null | undefined): ActionPanel {
+  const v = String(value || "").trim().toLowerCase();
+  if (v === "create_shift") return "create_shift";
+  if (v === "add_user") return "add_user";
+  if (v === "save_template") return "save_template";
+  if (v === "load_template") return "load_template";
+  if (v === "manage_job_codes") return "manage_job_codes";
+  return "";
 }
 
 function parseDateOnly(value: string | null | undefined) {
@@ -156,6 +168,7 @@ function buildSchedulePath(args: {
   clientId: string;
   weekStart: string;
   rangeView?: RangeView;
+  action?: ActionPanel;
   day?: string;
   q?: string;
   roleFilter?: string;
@@ -166,6 +179,7 @@ function buildSchedulePath(args: {
   const sp = new URLSearchParams();
   sp.set("week", args.weekStart);
   sp.set("range", args.rangeView || "week");
+  if (args.action) sp.set("action", args.action);
   if (args.day) sp.set("day", args.day);
   if (args.q) sp.set("q", args.q);
   if (args.roleFilter) sp.set("role", args.roleFilter);
@@ -206,6 +220,7 @@ export default async function ClientSchedulePage({
   searchParams?: Promise<{
     week?: string;
     range?: string;
+    action?: string;
     day?: string;
     q?: string;
     role?: string;
@@ -222,6 +237,7 @@ export default async function ClientSchedulePage({
   const weekDate = startOfMonday(parseDateOnly(resolvedSearch?.week) || new Date());
   const weekStart = toDateOnly(weekDate);
   const rangeView = normalizeRangeView(resolvedSearch?.range);
+  const actionPanel = normalizeActionPanel(resolvedSearch?.action);
   const selectedDayDate = parseDateOnly(resolvedSearch?.day) || weekDate;
   const selectedDay = toDateOnly(selectedDayDate);
   const searchQueryRaw = String(resolvedSearch?.q || "").trim();
@@ -622,6 +638,26 @@ export default async function ClientSchedulePage({
   const prevSelectedDay = toDateOnly(addDays(selectedDayDate, -7));
   const nextSelectedDay = toDateOnly(addDays(selectedDayDate, 7));
   const hasActiveFilters = Boolean(searchQuery || roleFilter || jobFilter);
+  const scheduleBasePath = buildSchedulePath({
+    clientId,
+    weekStart,
+    rangeView,
+    day: selectedDay,
+    q: searchQueryRaw,
+    roleFilter: roleFilterRaw,
+    jobFilter,
+  });
+  const scheduleActionPath = (action: Exclude<ActionPanel, "">) =>
+    buildSchedulePath({
+      clientId,
+      weekStart,
+      rangeView,
+      action,
+      day: selectedDay,
+      q: searchQueryRaw,
+      roleFilter: roleFilterRaw,
+      jobFilter,
+    });
   const renderContextFields = () => (
     <>
       <input type="hidden" name="ctx_week" value={weekStart} />
@@ -742,171 +778,25 @@ export default async function ClientSchedulePage({
                   ) : null}
 
                   {canEdit && week ? (
-                    <details className="mb-1 rounded-lg">
-                      <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</summary>
-                      <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                        <form action={upsertShiftAction} className="grid gap-2">
-                          <input type="hidden" name="week_id" value={week.id} />
-                          {renderContextFields()}
-                          <label className="text-xs text-slate-600">
-                            Employee
-                            <select name="roster_entry_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                              <option value="">Select employee</option>
-                              {roster.map((row) => (
-                                <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="text-xs text-slate-600">
-                            Date
-                            <input type="date" name="local_date" defaultValue={selectedDay} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                          </label>
-                          <label className="text-xs text-slate-600">
-                            Start
-                            <input type="time" name="start_local_time" defaultValue="09:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                          </label>
-                          <label className="text-xs text-slate-600">
-                            End
-                            <input type="time" name="end_local_time" defaultValue="17:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                          </label>
-                          <label className="text-xs text-slate-600">
-                            Break minutes
-                            <input type="number" name="break_minutes" min={0} defaultValue={30} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                          </label>
-                          <label className="text-xs text-slate-600">
-                            Job code
-                            <select name="job_code_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                              <option value="">None</option>
-                              {jobCodes.filter((code) => code.is_active).map((code) => (
-                                <option key={code.id} value={code.id}>{code.code}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="text-xs text-slate-600">
-                            Notes
-                            <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                          </label>
-                          <div className="flex items-center gap-4 text-xs text-slate-700">
-                            <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" />Open shift</label>
-                            <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
-                          </div>
-                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Save shift</button>
-                        </form>
-                      </div>
-                    </details>
+                    <Link href={scheduleActionPath("create_shift")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</Link>
                   ) : null}
 
                   {canEdit ? (
-                    <details className="mb-1 rounded-lg">
-                      <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Add user</summary>
-                      <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                        <form action={addRosterUserAction} className="space-y-2">
-                          {renderContextFields()}
-                          <label className="block text-xs text-slate-600">
-                            User
-                            <select name="user_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                              <option value="">Select user</option>
-                              {users.map((user) => (
-                                <option key={user.id} value={user.id}>
-                                  {user.full_name || user.email || user.id}
-                                  {user.email ? ` (${user.email})` : ""}
-                                  {user.status ? ` - ${user.status}` : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="block text-xs text-slate-600">
-                            Role
-                            <select name="role_token" defaultValue="agent" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                              <option value="manager">Manager</option>
-                              <option value="team_leader">Team Leader</option>
-                              <option value="agent">Agent</option>
-                            </select>
-                          </label>
-                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add user</button>
-                        </form>
-                      </div>
-                    </details>
+                    <Link href={scheduleActionPath("add_user")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Add user</Link>
                   ) : null}
 
                   {canEdit && week && canManageTemplates ? (
                     <>
                       <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Templates</p>
-                      <details className="mb-1 rounded-lg">
-                        <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Save week as template</summary>
-                        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                          <form action={createTemplateAction} className="space-y-2">
-                            <input type="hidden" name="week_id" value={week.id} />
-                            {renderContextFields()}
-                            <input name="template_name" placeholder="Template name" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                            <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Save template</button>
-                          </form>
-                        </div>
-                      </details>
-                      <details className="mb-1 rounded-lg">
-                        <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Load week template</summary>
-                        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                          <form action={applyTemplateAction} className="space-y-2">
-                            <input type="hidden" name="week_id" value={week.id} />
-                            {renderContextFields()}
-                            <select name="template_id" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                              <option value="">Select template</option>
-                              {templates.map((template) => (
-                                <option key={template.id} value={template.id}>{template.name}</option>
-                              ))}
-                            </select>
-                            <select name="mapping_mode" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" defaultValue="role_slot">
-                              <option value="role_slot">By role-slot</option>
-                              <option value="by_employee">By employee</option>
-                            </select>
-                            <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Load template</button>
-                          </form>
-                        </div>
-                      </details>
+                      <Link href={scheduleActionPath("save_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Save week as template</Link>
+                      <Link href={scheduleActionPath("load_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Load week template</Link>
                     </>
                   ) : null}
 
                   {canManageJobCodes ? (
                     <>
                       <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Job codes</p>
-                      <details className="rounded-lg">
-                        <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Manage job codes</summary>
-                        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                          <form action={upsertJobCodeAction} className="grid gap-2">
-                            {renderContextFields()}
-                            <label className="text-xs text-slate-600">Code
-                              <input name="code" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                            </label>
-                            <label className="text-xs text-slate-600">Color
-                              <input name="color_hex" defaultValue="#2563EB" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                            </label>
-                            <label className="text-xs text-slate-600">Sort
-                              <input type="number" name="sort_order" defaultValue={0} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                            </label>
-                            <label className="inline-flex items-center gap-2 self-end text-xs text-slate-700">
-                              <input type="checkbox" name="is_active" defaultChecked />
-                              Active
-                            </label>
-                            <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add job code</button>
-                          </form>
-                          <div className="max-h-56 space-y-1 overflow-auto pr-1">
-                            {jobCodes.map((code) => (
-                              <div key={code.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-xs">
-                                <div className="flex items-center gap-2">
-                                  <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: code.color_hex }} />
-                                  <span className="font-semibold text-slate-900">{code.code}</span>
-                                  {!code.is_active ? <span className="text-amber-700">(inactive)</span> : null}
-                                </div>
-                                <form action={deleteJobCodeAction}>
-                                  <input type="hidden" name="job_code_id" value={code.id} />
-                                  {renderContextFields()}
-                                  <button type="submit" className="text-red-700 hover:underline">Remove</button>
-                                </form>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </details>
+                      <Link href={scheduleActionPath("manage_job_codes")} className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Manage job codes</Link>
                     </>
                   ) : null}
                 </div>
@@ -947,6 +837,211 @@ export default async function ClientSchedulePage({
           </details>
         </div>
       </section>
+
+      {actionPanel === "create_shift" && canEdit && week ? (
+        <RouteModalOverlay closeHref={scheduleBasePath} overlayLabel="Close create shift dialog">
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pt-8">
+            <section className="w-full max-w-xl rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Create shift</h2>
+                <a href={scheduleBasePath} className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">Close</a>
+              </div>
+              <div className="px-4 pb-5 pt-4 md:px-6 md:pb-6">
+                <form action={upsertShiftAction} className="grid gap-2 md:grid-cols-2">
+                  <input type="hidden" name="week_id" value={week.id} />
+                  {renderContextFields()}
+                  <label className="text-xs text-slate-600">
+                    Employee
+                    <select name="roster_entry_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                      <option value="">Select employee</option>
+                      {roster.map((row) => (
+                        <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    Date
+                    <input type="date" name="local_date" defaultValue={selectedDay} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    Start
+                    <input type="time" name="start_local_time" defaultValue="09:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    End
+                    <input type="time" name="end_local_time" defaultValue="17:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    Break minutes
+                    <input type="number" name="break_minutes" min={0} defaultValue={30} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    Job code
+                    <select name="job_code_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                      <option value="">None</option>
+                      {jobCodes.filter((code) => code.is_active).map((code) => (
+                        <option key={code.id} value={code.id}>{code.code}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs text-slate-600 md:col-span-2">
+                    Notes
+                    <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                  </label>
+                  <div className="flex items-center gap-4 text-xs text-slate-700 md:col-span-2">
+                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" />Open shift</label>
+                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
+                  </div>
+                  <div className="md:col-span-2">
+                    <button type="submit" className="w-full rounded-md border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">Save shift</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
+
+      {actionPanel === "add_user" && canEdit ? (
+        <RouteModalOverlay closeHref={scheduleBasePath} overlayLabel="Close add user dialog">
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pt-8">
+            <section className="w-full max-w-lg rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Add user</h2>
+                <a href={scheduleBasePath} className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">Close</a>
+              </div>
+              <div className="px-4 pb-5 pt-4 md:px-6 md:pb-6">
+                <form action={addRosterUserAction} className="space-y-3">
+                  {renderContextFields()}
+                  <label className="block text-xs text-slate-600">
+                    User
+                    <select name="user_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                      <option value="">Select user</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.full_name || user.email || user.id}
+                          {user.email ? ` (${user.email})` : ""}
+                          {user.status ? ` - ${user.status}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-slate-600">
+                    Role
+                    <select name="role_token" defaultValue="agent" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                      <option value="manager">Manager</option>
+                      <option value="team_leader">Team Leader</option>
+                      <option value="agent">Agent</option>
+                    </select>
+                  </label>
+                  <button type="submit" className="w-full rounded-md border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">Add user</button>
+                </form>
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
+
+      {actionPanel === "save_template" && canEdit && week && canManageTemplates ? (
+        <RouteModalOverlay closeHref={scheduleBasePath} overlayLabel="Close save template dialog">
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pt-8">
+            <section className="w-full max-w-lg rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Save week as template</h2>
+                <a href={scheduleBasePath} className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">Close</a>
+              </div>
+              <div className="px-4 pb-5 pt-4 md:px-6 md:pb-6">
+                <form action={createTemplateAction} className="space-y-3">
+                  <input type="hidden" name="week_id" value={week.id} />
+                  {renderContextFields()}
+                  <input name="template_name" placeholder="Template name" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                  <button type="submit" className="w-full rounded-md border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">Save template</button>
+                </form>
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
+
+      {actionPanel === "load_template" && canEdit && week && canManageTemplates ? (
+        <RouteModalOverlay closeHref={scheduleBasePath} overlayLabel="Close load template dialog">
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pt-8">
+            <section className="w-full max-w-lg rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Load week template</h2>
+                <a href={scheduleBasePath} className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">Close</a>
+              </div>
+              <div className="px-4 pb-5 pt-4 md:px-6 md:pb-6">
+                <form action={applyTemplateAction} className="space-y-3">
+                  <input type="hidden" name="week_id" value={week.id} />
+                  {renderContextFields()}
+                  <select name="template_id" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                    <option value="">Select template</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>{template.name}</option>
+                    ))}
+                  </select>
+                  <select name="mapping_mode" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" defaultValue="role_slot">
+                    <option value="role_slot">By role-slot</option>
+                    <option value="by_employee">By employee</option>
+                  </select>
+                  <button type="submit" className="w-full rounded-md border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">Load template</button>
+                </form>
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
+
+      {actionPanel === "manage_job_codes" && canManageJobCodes ? (
+        <RouteModalOverlay closeHref={scheduleBasePath} overlayLabel="Close job codes dialog">
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pt-8">
+            <section className="w-full max-w-xl rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Manage job codes</h2>
+                <a href={scheduleBasePath} className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">Close</a>
+              </div>
+              <div className="space-y-3 px-4 pb-5 pt-4 md:px-6 md:pb-6">
+                <form action={upsertJobCodeAction} className="grid gap-2 md:grid-cols-2">
+                  {renderContextFields()}
+                  <label className="text-xs text-slate-600">Code
+                    <input name="code" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                  </label>
+                  <label className="text-xs text-slate-600">Color
+                    <input name="color_hex" defaultValue="#2563EB" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                  </label>
+                  <label className="text-xs text-slate-600">Sort
+                    <input type="number" name="sort_order" defaultValue={0} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                  </label>
+                  <label className="inline-flex items-center gap-2 self-end text-xs text-slate-700">
+                    <input type="checkbox" name="is_active" defaultChecked />
+                    Active
+                  </label>
+                  <div className="md:col-span-2">
+                    <button type="submit" className="w-full rounded-md border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">Add job code</button>
+                  </div>
+                </form>
+                <div className="max-h-64 space-y-1 overflow-auto pr-1">
+                  {jobCodes.map((code) => (
+                    <div key={code.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: code.color_hex }} />
+                        <span className="font-semibold text-slate-900">{code.code}</span>
+                        {!code.is_active ? <span className="text-amber-700">(inactive)</span> : null}
+                      </div>
+                      <form action={deleteJobCodeAction}>
+                        <input type="hidden" name="job_code_id" value={code.id} />
+                        {renderContextFields()}
+                        <button type="submit" className="text-red-700 hover:underline">Remove</button>
+                      </form>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
