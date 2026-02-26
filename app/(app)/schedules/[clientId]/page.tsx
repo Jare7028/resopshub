@@ -185,6 +185,7 @@ function buildSchedulePath(args: {
   action?: ActionPanel;
   createDate?: string;
   createRosterEntryId?: string;
+  createOpen?: boolean;
   day?: string;
   q?: string;
   roleFilter?: string;
@@ -198,6 +199,7 @@ function buildSchedulePath(args: {
   if (args.action) sp.set("action", args.action);
   if (args.createDate) sp.set("create_date", args.createDate);
   if (args.createRosterEntryId) sp.set("create_roster_entry_id", args.createRosterEntryId);
+  if (args.createOpen) sp.set("create_open", "1");
   if (args.day) sp.set("day", args.day);
   if (args.q) sp.set("q", args.q);
   if (args.roleFilter) sp.set("role", args.roleFilter);
@@ -241,6 +243,7 @@ export default async function ClientSchedulePage({
     action?: string;
     create_date?: string;
     create_roster_entry_id?: string;
+    create_open?: string;
     day?: string;
     q?: string;
     role?: string;
@@ -263,6 +266,7 @@ export default async function ClientSchedulePage({
   const createShiftDate = toDateOnly(parseDateOnly(resolvedSearch?.create_date) || selectedDayDate);
   const createRosterEntryIdRaw = String(resolvedSearch?.create_roster_entry_id || "").trim();
   const createShiftRosterEntryId = uuidRegex.test(createRosterEntryIdRaw) ? createRosterEntryIdRaw : "";
+  const createShiftOpenDefault = String(resolvedSearch?.create_open || "").trim() === "1";
   const searchQueryRaw = String(resolvedSearch?.q || "").trim();
   const searchQuery = searchQueryRaw.toLowerCase();
   const roleFilterRaw = String(resolvedSearch?.role || "").trim();
@@ -673,7 +677,7 @@ export default async function ClientSchedulePage({
   });
   const scheduleActionPath = (
     action: Exclude<ActionPanel, "">,
-    prefill?: { createDate?: string; createRosterEntryId?: string },
+    prefill?: { createDate?: string; createRosterEntryId?: string; createOpen?: boolean },
   ) =>
     buildSchedulePath({
       clientId,
@@ -682,6 +686,7 @@ export default async function ClientSchedulePage({
       action,
       createDate: prefill?.createDate,
       createRosterEntryId: prefill?.createRosterEntryId,
+      createOpen: prefill?.createOpen,
       day: selectedDay,
       q: searchQueryRaw,
       roleFilter: roleFilterRaw,
@@ -918,7 +923,7 @@ export default async function ClientSchedulePage({
                     <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                   </label>
                   <div className="flex items-center gap-4 text-xs text-slate-700 md:col-span-2">
-                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" />Open shift</label>
+                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" defaultChecked={createShiftOpenDefault} />Open shift</label>
                     <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
                   </div>
                   <div className="md:col-span-2">
@@ -1126,8 +1131,15 @@ export default async function ClientSchedulePage({
                   {visibleDays.map((day) => {
                     const dayOpenShifts = openShiftsByDay[day] || [];
                     return (
-                      <td key={day} className="border border-slate-200 p-2 align-top">
-                        <div className="space-y-2">
+                      <td key={day} className="relative border border-slate-200 p-2 align-top">
+                        {canEdit && week ? (
+                          <Link
+                            href={scheduleActionPath("create_shift", { createDate: day, createOpen: true })}
+                            className="absolute inset-0 z-0 block rounded-sm hover:bg-sky-50/40"
+                            aria-label={`Create open shift on ${day}`}
+                          />
+                        ) : null}
+                        <div className="relative z-10 space-y-2">
                           {dayOpenShifts.length ? dayOpenShifts.map((shift) => {
                             const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                             return (
