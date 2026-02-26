@@ -460,6 +460,11 @@ export default async function FormDetailPage(props: {
     configure: buildDetailUrl("configure"),
     create_submission: buildDetailUrl("create_submission"),
   };
+  const exportSubmissionsCsvUrl = `/forms/${formId}/export?${new URLSearchParams({
+    scope: submissionScope,
+    sort: submissionSortKey,
+    dir: submissionSortDir,
+  }).toString()}`;
   const canConfigureForm = canManageForm;
 
   const filteredSubmissions = submissions.filter((submission) => {
@@ -1282,6 +1287,12 @@ export default async function FormDetailPage(props: {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Submissions</h2>
             <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Link
+                href={exportSubmissionsCsvUrl}
+                className="rounded-md border border-slate-300 px-2.5 py-1.5 font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+              >
+                Export CSV
+              </Link>
               {(["completed", "open", "all"] as const).map((scope) => (
                 <Link
                   key={scope}
