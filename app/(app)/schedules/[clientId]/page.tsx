@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { computeBillableMinutes } from "@/lib/schedules/billableHours";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import ScheduleGridDndClient from "./ScheduleGridDndClient";
 
@@ -53,6 +54,22 @@ type JobCodeRow = {
   code: string;
   color_hex: string;
   is_active: boolean;
+};
+
+type ScheduleClientSettingsRow = {
+  client_id: string;
+  default_weekly_billable_hours: number | string | null;
+  breaks_billable: boolean;
+};
+
+type ScheduleClientBillableJobCodeRow = {
+  job_code_id: string;
+};
+
+type ScheduleWeeklyBillableOverrideRow = {
+  client_id: string;
+  week_start_date: string;
+  weekly_billable_hours: number | string | null;
 };
 
 type TemplateRow = {
@@ -152,12 +169,6 @@ function formatTimeCompact(value: string) {
   return `${displayHours}:${String(minutes).padStart(2, "0")}${period}`;
 }
 
-function timeToMinutes(value: string) {
-  const match = String(value || "").match(/^(\d{2}):(\d{2})/);
-  if (!match) return 0;
-  return Number(match[1]) * 60 + Number(match[2]);
-}
-
 function roleRank(roleToken: string) {
   const token = String(roleToken || "")
     .trim()
@@ -168,16 +179,14 @@ function roleRank(roleToken: string) {
   return 3;
 }
 
-function shiftWorkedMinutes(shift: ShiftRow) {
-  const startMinutes = timeToMinutes(shift.start_local_time);
-  let endMinutes = timeToMinutes(shift.end_local_time);
-  if (shift.ends_next_day || endMinutes <= startMinutes) endMinutes += 1440;
-  return Math.max(0, endMinutes - startMinutes - Math.max(0, Number(shift.break_minutes || 0)));
-}
-
 function formatHours(minutes: number) {
   const value = Math.max(0, Number(minutes || 0)) / 60;
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function toNonNegativeNumber(value: number | string | null | undefined, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function normalizeHexColor(value: string | null | undefined) {
@@ -670,8 +679,17 @@ export default async function ClientSchedulePage({
     .maybeSingle();
   const week = (weekData || null) as WeekRow | null;
 
-  const [{ data: rosterData }, { data: shiftsData }, { data: jobCodesData }, { data: templatesData }, { data: usersData }, { data: auditData }] =
-    await Promise.all([
+  const [
+    { data: rosterData },
+    { data: shiftsData },
+    { data: jobCodesData },
+    { data: templatesData },
+    { data: usersData },
+    { data: auditData },
+    { data: settingsData },
+    { data: billableJobCodesData },
+    { data: weeklyOverrideData },
+  ] = await Promise.all([
       supabase
         .from("schedule_roster_entries")
         .select("id,user_id,display_name,email,role_token,role_label,active")
@@ -706,6 +724,21 @@ export default async function ClientSchedulePage({
             .order("created_at", { ascending: false })
             .limit(60)
         : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("schedule_client_settings")
+        .select("client_id,default_weekly_billable_hours,breaks_billable")
+        .eq("client_id", clientId)
+        .maybeSingle(),
+      supabase
+        .from("schedule_client_billable_job_codes")
+        .select("job_code_id")
+        .eq("client_id", clientId),
+      supabase
+        .from("schedule_client_weekly_billable_overrides")
+        .select("client_id,week_start_date,weekly_billable_hours")
+        .eq("client_id", clientId)
+        .eq("week_start_date", weekStart)
+        .maybeSingle(),
     ]);
 
   const roster = ((rosterData || []) as RosterRow[]).sort((a, b) => {
@@ -718,6 +751,9 @@ export default async function ClientSchedulePage({
   const templates = (templatesData || []) as TemplateRow[];
   const users = (usersData || []) as Array<{ id: string; full_name: string | null; email: string | null; status: string | null }>;
   const audits = (auditData || []) as AuditRow[];
+  const clientSettings = (settingsData || null) as ScheduleClientSettingsRow | null;
+  const clientBillableJobCodeRows = (billableJobCodesData || []) as ScheduleClientBillableJobCodeRow[];
+  const weeklyBillableOverride = (weeklyOverrideData || null) as ScheduleWeeklyBillableOverrideRow | null;
   const editingShift = editShiftId ? shifts.find((shift) => shift.id === editShiftId) || null : null;
   const shiftFormDefaults = {
     shiftId: editingShift?.id || "",
@@ -743,6 +779,25 @@ export default async function ClientSchedulePage({
     width: `${employeeColumnWidthRem}rem`,
     minWidth: `${employeeColumnWidthRem}rem`,
   };
+
+  const hasSettingsData = Boolean(clientSettings) || clientBillableJobCodeRows.length > 0;
+  const billableJobCodeIdSet = hasSettingsData
+    ? new Set(clientBillableJobCodeRows.map((row) => row.job_code_id))
+    : new Set(jobCodes.map((code) => code.id));
+  const breaksBillable = clientSettings?.breaks_billable ?? true;
+  const defaultWeeklyBillableHours = toNonNegativeNumber(clientSettings?.default_weekly_billable_hours, 0);
+  const weeklyOverrideHours = weeklyBillableOverride
+    ? toNonNegativeNumber(weeklyBillableOverride.weekly_billable_hours, 0)
+    : null;
+  const effectiveWeeklyBillableHours = weeklyOverrideHours ?? defaultWeeklyBillableHours;
+  const effectiveWeeklyBillableMinutes = Math.round(effectiveWeeklyBillableHours * 60);
+  const shiftBillableMinutes = (shift: ShiftRow) =>
+    computeBillableMinutes(shift, {
+      billableJobCodeIds: billableJobCodeIdSet,
+      breaksBillable,
+    });
+  const scheduledWeekBillableMinutes = shifts.reduce((sum, shift) => sum + shiftBillableMinutes(shift), 0);
+  const billableGapMinutes = scheduledWeekBillableMinutes - effectiveWeeklyBillableMinutes;
 
   const jobCodeById = new Map(jobCodes.map((row) => [row.id, row]));
   const visibleDaySet = new Set(visibleDays);
@@ -781,11 +836,13 @@ export default async function ClientSchedulePage({
   const dayTotals = visibleDays.reduce<Record<string, number>>((acc, day) => {
     acc[day] = filteredShifts
       .filter((shift) => shift.local_date === day)
-      .reduce((sum, shift) => sum + shiftWorkedMinutes(shift), 0);
+      .reduce((sum, shift) => sum + shiftBillableMinutes(shift), 0);
     return acc;
   }, {});
   const rosterJobTotalsMap = filteredShifts.reduce<Record<string, Map<string, JobHoursTally>>>((acc, shift) => {
     if (shift.is_open || !shift.roster_entry_id) return acc;
+    const billableMinutes = shiftBillableMinutes(shift);
+    if (billableMinutes <= 0) return acc;
     const rosterId = shift.roster_entry_id;
     const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
     const jobKey = shift.job_code_id || "__no_job_code__";
@@ -796,7 +853,7 @@ export default async function ClientSchedulePage({
       minutes: 0,
       colorHex: jobCode?.color_hex || null,
     };
-    current.minutes += shiftWorkedMinutes(shift);
+    current.minutes += billableMinutes;
     rowMap.set(jobKey, current);
     acc[rosterId] = rowMap;
     return acc;
@@ -1192,6 +1249,24 @@ export default async function ClientSchedulePage({
                 <span className={`h-1.5 w-1.5 rounded-full ${isWeekPublished ? "bg-emerald-500" : "bg-slate-400"}`} />
                 {week?.status || "Draft"}
               </span>
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                Target: {formatHours(effectiveWeeklyBillableMinutes)}h
+              </span>
+              <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                Scheduled: {formatHours(scheduledWeekBillableMinutes)}h
+              </span>
+              <span
+                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  billableGapMinutes >= 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                }`}
+              >
+                {billableGapMinutes >= 0 ? "Over by" : "Gap"} {formatHours(Math.abs(billableGapMinutes))}h
+              </span>
+              {weeklyOverrideHours !== null ? (
+                <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                  Week override active
+                </span>
+              ) : null}
               {!week && canEdit ? (
                 <form action={createOrLoadWeekAction}>
                   {renderContextFields()}
@@ -1319,7 +1394,7 @@ export default async function ClientSchedulePage({
                   {visibleDays.map((day) => (
                     <th key={day} className="sticky top-0 z-30 border border-slate-200 bg-slate-50 px-3 py-2 text-left">
                       <div>{formatDateLabel(day)}</div>
-                      <div className="normal-case text-[11px] text-slate-500">{formatHours(dayTotals[day] || 0)}h workable</div>
+                      <div className="normal-case text-[11px] text-slate-500">{formatHours(dayTotals[day] || 0)}h billable</div>
                     </th>
                   ))}
                 </tr>
@@ -1466,7 +1541,7 @@ export default async function ClientSchedulePage({
                         <div className="ml-auto min-w-[8.5rem]">
                           <div className="min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
                             <div className="flex items-center justify-between border-b border-slate-200 pb-1">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Billable totals</p>
                               <span className="text-[10px] font-semibold text-slate-700">{formatHours(periodTotalMinutes)}h</span>
                             </div>
                             {periodJobTallies.length ? (
@@ -1485,7 +1560,7 @@ export default async function ClientSchedulePage({
                                 ))}
                               </ul>
                             ) : (
-                              <p className="mt-1 text-[10px] text-slate-400">No job totals</p>
+                              <p className="mt-1 text-[10px] text-slate-400">No billable job totals</p>
                             )}
                           </div>
                         </div>

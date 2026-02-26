@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { computeBillableMinutes } from "@/lib/schedules/billableHours";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,22 +40,19 @@ type JobCodeRow = {
   code: string;
 };
 
+type ClientSettingsRow = {
+  client_id: string;
+  breaks_billable: boolean;
+};
+
+type BillableCodeRow = {
+  job_code_id: string;
+};
+
 function csvEscape(value: unknown) {
   const text = String(value ?? "");
   if (!/["\n,\r]/.test(text)) return text;
   return `"${text.replace(/"/g, "\"\"")}"`;
-}
-
-function workedMinutes(shift: ShiftRow) {
-  const parseMinutes = (text: string) => {
-    const match = String(text || "").match(/^(\d{2}):(\d{2})/);
-    if (!match) return 0;
-    return Number(match[1]) * 60 + Number(match[2]);
-  };
-  const start = parseMinutes(shift.start_local_time);
-  let end = parseMinutes(shift.end_local_time);
-  if (shift.ends_next_day || end <= start) end += 24 * 60;
-  return Math.max(0, end - start - Math.max(0, Number(shift.break_minutes || 0)));
 }
 
 function mondayForDateText(value: string | null | undefined) {
@@ -109,7 +107,13 @@ export async function GET(
   }
   const week = weekData as WeekRow;
 
-  const [{ data: shiftsData }, { data: rosterData }, { data: codesData }] = await Promise.all([
+  const [
+    { data: shiftsData },
+    { data: rosterData },
+    { data: codesData },
+    { data: settingsData },
+    { data: billableCodesData },
+  ] = await Promise.all([
     supabase
       .from("schedule_shifts")
       .select(
@@ -123,13 +127,29 @@ export async function GET(
       .select("id,display_name,email,role_label")
       .eq("client_id", clientId),
     supabase.from("schedule_job_codes").select("id,code"),
+    supabase
+      .from("schedule_client_settings")
+      .select("client_id,breaks_billable")
+      .eq("client_id", clientId)
+      .maybeSingle(),
+    supabase
+      .from("schedule_client_billable_job_codes")
+      .select("job_code_id")
+      .eq("client_id", clientId),
   ]);
 
   const shifts = (shiftsData || []) as ShiftRow[];
   const rosterRows = (rosterData || []) as RosterRow[];
   const codeRows = (codesData || []) as JobCodeRow[];
+  const settings = (settingsData || null) as ClientSettingsRow | null;
+  const billableCodeRows = (billableCodesData || []) as BillableCodeRow[];
   const rosterById = new Map(rosterRows.map((row) => [row.id, row]));
   const codeById = new Map(codeRows.map((row) => [row.id, row]));
+  const hasSettingsData = Boolean(settings) || billableCodeRows.length > 0;
+  const billableJobCodeIds = hasSettingsData
+    ? new Set(billableCodeRows.map((row) => row.job_code_id))
+    : new Set(codeRows.map((row) => row.id));
+  const breaksBillable = settings?.breaks_billable ?? true;
 
   const headers = [
     "client",
@@ -166,7 +186,12 @@ export async function GET(
       shift.end_local_time,
       shift.ends_next_day ? "yes" : "no",
       String(shift.break_minutes || 0),
-      String(workedMinutes(shift)),
+      String(
+        computeBillableMinutes(shift, {
+          billableJobCodeIds,
+          breaksBillable,
+        })
+      ),
       code?.code || "",
       shift.notes || "",
       shift.updated_at,
