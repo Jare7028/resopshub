@@ -1366,7 +1366,7 @@ export default async function ClientSchedulePage({
                     return (
                       <td
                         key={day}
-                        className="relative border border-slate-200 p-2 align-top"
+                        className="relative border border-slate-200 p-1.5 align-top"
                         data-schedule-drop-cell={canDragShiftCards ? "true" : undefined}
                         data-schedule-drop-day={canDragShiftCards ? day : undefined}
                         data-schedule-drop-is-open={canDragShiftCards ? "true" : undefined}
@@ -1379,7 +1379,7 @@ export default async function ClientSchedulePage({
                             aria-label={`Create open shift on ${day}`}
                           />
                         ) : null}
-                        <div className="relative z-10 space-y-2">
+                        <div className="relative z-10 space-y-1.5">
                           {dayOpenShifts.length ? dayOpenShifts.map((shift) => {
                             const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                             const editShiftPath = scheduleActionPath("create_shift", {
@@ -1406,7 +1406,7 @@ export default async function ClientSchedulePage({
                                 <Link
                                   key={shift.id}
                                   href={editShiftPath}
-                                  className={`block select-none rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
+                                  className={`block select-none rounded-lg border border-slate-200 bg-white p-1.5 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
                                     canDragShiftCards
                                       ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
                                       : "cursor-pointer"
@@ -1433,7 +1433,7 @@ export default async function ClientSchedulePage({
                             return (
                               <div
                                 key={shift.id}
-                                className={`select-none rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
+                                className={`select-none rounded-lg border border-slate-200 bg-white p-1.5 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
                                   canDragShiftCards
                                     ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
                                     : ""
@@ -1524,7 +1524,7 @@ export default async function ClientSchedulePage({
                       return (
                         <td
                           key={day}
-                          className="relative border border-slate-200 p-2 align-top"
+                          className="relative border border-slate-200 p-1.5 align-top"
                           data-schedule-drop-cell={canDragShiftCards ? "true" : undefined}
                           data-schedule-drop-day={canDragShiftCards ? day : undefined}
                           data-schedule-drop-is-open={canDragShiftCards ? "false" : undefined}
@@ -1537,7 +1537,7 @@ export default async function ClientSchedulePage({
                               aria-label={`Create shift for ${row.display_name} on ${day}`}
                             />
                           ) : null}
-                          <div className="relative z-10 space-y-2">
+                          <div className="relative z-10 space-y-1.5">
                             {dayShifts.map((shift) => {
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                               const jobCodeText = jobCode ? jobCode.code : "No Job Code";
@@ -1562,7 +1562,7 @@ export default async function ClientSchedulePage({
                                   <Link
                                     key={shift.id}
                                     href={editShiftPath}
-                                    className={`block select-none rounded-md p-0.5 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
+                                    className={`block select-none rounded-md p-0 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
                                       canDragShiftCards
                                         ? "cursor-grab hover:-translate-y-0.5 hover:shadow-sm"
                                         : "cursor-pointer"
@@ -1589,7 +1589,7 @@ export default async function ClientSchedulePage({
                               return (
                                 <div
                                   key={shift.id}
-                                  className={`select-none rounded-md p-0.5 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
+                                  className={`select-none rounded-md p-0 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
                                     canDragShiftCards
                                       ? "cursor-grab hover:-translate-y-0.5 hover:shadow-sm"
                                       : ""
