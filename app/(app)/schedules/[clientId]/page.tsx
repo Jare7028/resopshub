@@ -1159,7 +1159,7 @@ export default async function ClientSchedulePage({
             <button type="submit" className="rounded-md border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">Apply</button>
           </form>
         </div>
-        <div className="relative overflow-x-auto overflow-y-visible">
+        <div className="relative max-h-[70vh] overflow-auto">
             <table className="min-w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase text-slate-500">
