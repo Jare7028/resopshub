@@ -921,10 +921,37 @@ export default async function ClientSchedulePage({
             </details>
           ) : null}
         </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <Link href={buildSchedulePath({ clientId, weekStart, rangeView: "week", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })} className={`rounded-md border px-3 py-1.5 ${rangeView === "week" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-700 hover:bg-slate-100"}`}>Week</Link>
-          <Link href={buildSchedulePath({ clientId, weekStart, rangeView: "day", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })} className={`rounded-md border px-3 py-1.5 ${rangeView === "day" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-700 hover:bg-slate-100"}`}>Day</Link>
-          <Link href={buildSchedulePath({ clientId, weekStart, rangeView: "month", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })} className={`rounded-md border px-3 py-1.5 ${rangeView === "month" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-700 hover:bg-slate-100"}`}>Month</Link>
+        <div className="text-xs">
+          <details className="relative inline-block">
+            <summary className="group cursor-pointer list-none rounded-xl border border-sky-500 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700">
+              <span className="inline-flex items-center gap-2">
+                {rangeView === "week" ? "Week" : rangeView === "day" ? "Day" : "Month"}
+                <span className="text-[10px] text-slate-400 transition-transform group-open:rotate-180">^</span>
+              </span>
+            </summary>
+            <div className="absolute left-0 z-20 mt-2 w-32 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+              <div className="space-y-1">
+                <Link
+                  href={buildSchedulePath({ clientId, weekStart, rangeView: "day", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                  className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "day" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                >
+                  Day
+                </Link>
+                <Link
+                  href={buildSchedulePath({ clientId, weekStart, rangeView: "week", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                  className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "week" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                >
+                  Week
+                </Link>
+                <Link
+                  href={buildSchedulePath({ clientId, weekStart, rangeView: "month", day: selectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+                  className={`block rounded-lg px-3 py-2 text-sm ${rangeView === "month" ? "bg-slate-100 font-medium text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                >
+                  Month
+                </Link>
+              </div>
+            </div>
+          </details>
         </div>
       </section>
 
