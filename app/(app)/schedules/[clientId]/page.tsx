@@ -6,7 +6,14 @@ import RouteModalOverlay from "../../_components/RouteModalOverlay";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type RangeView = "week" | "day" | "month";
-type ActionPanel = "" | "create_shift" | "add_user" | "save_template" | "load_template" | "manage_job_codes";
+type ActionPanel =
+  | ""
+  | "create_shift"
+  | "add_user"
+  | "save_template"
+  | "load_template"
+  | "manage_job_codes"
+  | "view_audit";
 
 type WeekRow = {
   id: string;
@@ -73,6 +80,7 @@ function normalizeActionPanel(value: string | null | undefined): ActionPanel {
   if (v === "save_template") return "save_template";
   if (v === "load_template") return "load_template";
   if (v === "manage_job_codes") return "manage_job_codes";
+  if (v === "view_audit") return "view_audit";
   return "";
 }
 
@@ -610,7 +618,7 @@ export default async function ClientSchedulePage({
             .order("full_name", { ascending: true })
             .order("email", { ascending: true })
         : Promise.resolve({ data: [], error: null }),
-      week && canViewAudit
+      week && canViewAudit && actionPanel === "view_audit"
         ? supabase
             .from("schedule_audit_events")
             .select("id,action,actor_user_id,created_at")
@@ -859,6 +867,10 @@ export default async function ClientSchedulePage({
                       <Link href={`/schedules/${clientId}/export?week=${encodeURIComponent(weekStart)}`} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Export week CSV</Link>
                     ) : null}
 
+                    {canViewAudit && week ? (
+                      <Link href={scheduleActionPath("view_audit")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">View audit log</Link>
+                    ) : null}
+
                     {canEdit && week ? (
                       <Link href={scheduleActionPath("create_shift")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</Link>
                     ) : null}
@@ -1094,6 +1106,27 @@ export default async function ClientSchedulePage({
         </RouteModalOverlay>
       ) : null}
 
+      {actionPanel === "view_audit" && canViewAudit && week ? (
+        <RouteModalOverlay closeHref={scheduleBasePath} overlayLabel="Close audit log dialog">
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pt-8">
+            <section className="w-full max-w-3xl rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:rounded-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+                <h2 className="text-lg font-semibold text-slate-900">Audit log</h2>
+                <a href={scheduleBasePath} className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">Close</a>
+              </div>
+              <div className="space-y-2 px-4 pb-5 pt-4 md:px-6 md:pb-6">
+                {audits.length ? audits.map((row) => (
+                  <div key={row.id} className="rounded-md border border-slate-200 px-3 py-2 text-sm">
+                    <p className="font-medium text-slate-900">{row.action}</p>
+                    <p className="text-xs text-slate-600">{new Date(row.created_at).toLocaleString("en-US")}{row.actor_user_id ? ` - ${row.actor_user_id}` : ""}</p>
+                  </div>
+                )) : <p className="text-sm text-slate-600">No audit events yet for this week.</p>}
+              </div>
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
+
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Grid View</h2>
@@ -1290,17 +1323,6 @@ export default async function ClientSchedulePage({
           </div>
       </section>
 
-      {canViewAudit && week ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Audit Log</h2>
-          {audits.length ? audits.map((row) => (
-            <div key={row.id} className="rounded-md border border-slate-200 px-3 py-2 text-sm">
-              <p className="font-medium text-slate-900">{row.action}</p>
-              <p className="text-xs text-slate-600">{new Date(row.created_at).toLocaleString("en-US")}{row.actor_user_id ? ` - ${row.actor_user_id}` : ""}</p>
-            </div>
-          )) : <p className="text-sm text-slate-600">No audit events yet for this week.</p>}
-        </section>
-      ) : null}
     </div>
   );
 }
