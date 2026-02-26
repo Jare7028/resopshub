@@ -294,6 +294,7 @@ function buildSchedulePath(args: {
   createDate?: string;
   createRosterEntryId?: string;
   createOpen?: boolean;
+  editShiftId?: string;
   day?: string;
   q?: string;
   roleFilter?: string;
@@ -308,6 +309,7 @@ function buildSchedulePath(args: {
   if (args.createDate) sp.set("create_date", args.createDate);
   if (args.createRosterEntryId) sp.set("create_roster_entry_id", args.createRosterEntryId);
   if (args.createOpen) sp.set("create_open", "1");
+  if (args.editShiftId) sp.set("edit_shift_id", args.editShiftId);
   if (args.day) sp.set("day", args.day);
   if (args.q) sp.set("q", args.q);
   if (args.roleFilter) sp.set("role", args.roleFilter);
@@ -352,6 +354,7 @@ export default async function ClientSchedulePage({
     create_date?: string;
     create_roster_entry_id?: string;
     create_open?: string;
+    edit_shift_id?: string;
     day?: string;
     q?: string;
     role?: string;
@@ -375,6 +378,8 @@ export default async function ClientSchedulePage({
   const createRosterEntryIdRaw = String(resolvedSearch?.create_roster_entry_id || "").trim();
   const createShiftRosterEntryId = uuidRegex.test(createRosterEntryIdRaw) ? createRosterEntryIdRaw : "";
   const createShiftOpenDefault = String(resolvedSearch?.create_open || "").trim() === "1";
+  const editShiftIdRaw = String(resolvedSearch?.edit_shift_id || "").trim();
+  const editShiftId = uuidRegex.test(editShiftIdRaw) ? editShiftIdRaw : "";
   const searchQueryRaw = String(resolvedSearch?.q || "").trim();
   const searchQuery = searchQueryRaw.toLowerCase();
   const roleFilterRaw = String(resolvedSearch?.role || "").trim();
@@ -738,6 +743,19 @@ export default async function ClientSchedulePage({
   const templates = (templatesData || []) as TemplateRow[];
   const users = (usersData || []) as Array<{ id: string; full_name: string | null; email: string | null; status: string | null }>;
   const audits = (auditData || []) as AuditRow[];
+  const editingShift = editShiftId ? shifts.find((shift) => shift.id === editShiftId) || null : null;
+  const shiftFormDefaults = {
+    shiftId: editingShift?.id || "",
+    rosterEntryId: editingShift?.roster_entry_id || createShiftRosterEntryId,
+    localDate: editingShift?.local_date || createShiftDate,
+    startLocalTime: editingShift?.start_local_time?.slice(0, 5) || "09:00",
+    endLocalTime: editingShift?.end_local_time?.slice(0, 5) || "17:00",
+    breakMinutes: editingShift?.break_minutes ?? 30,
+    jobCodeId: editingShift?.job_code_id || "",
+    notes: editingShift?.notes || "",
+    isOpen: editingShift ? editingShift.is_open : createShiftOpenDefault,
+    endsNextDay: editingShift ? editingShift.ends_next_day : false,
+  };
   const longestEmployeeNameChars = Math.max(
     "Open Shifts".length,
     ...roster.map((row) => String(row.display_name || "").trim().length)
@@ -837,7 +855,12 @@ export default async function ClientSchedulePage({
   });
   const scheduleActionPath = (
     action: Exclude<ActionPanel, "">,
-    prefill?: { createDate?: string; createRosterEntryId?: string; createOpen?: boolean },
+    prefill?: {
+      createDate?: string;
+      createRosterEntryId?: string;
+      createOpen?: boolean;
+      editShiftId?: string;
+    },
   ) =>
     buildSchedulePath({
       clientId,
@@ -847,6 +870,7 @@ export default async function ClientSchedulePage({
       createDate: prefill?.createDate,
       createRosterEntryId: prefill?.createRosterEntryId,
       createOpen: prefill?.createOpen,
+      editShiftId: prefill?.editShiftId,
       day: selectedDay,
       q: searchQueryRaw,
       roleFilter: roleFilterRaw,
@@ -1041,20 +1065,24 @@ export default async function ClientSchedulePage({
       </section>
 
       {actionPanel === "create_shift" && canEdit && week ? (
-        <RouteModalOverlay closeHref={scheduleBasePath} overlayLabel="Close create shift dialog">
+        <RouteModalOverlay
+          closeHref={scheduleBasePath}
+          overlayLabel={editingShift ? "Close edit shift dialog" : "Close create shift dialog"}
+        >
           <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pt-8">
             <section className="w-full max-w-xl rounded-t-2xl border border-slate-200 bg-white shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:rounded-2xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
-                <h2 className="text-lg font-semibold text-slate-900">Create shift</h2>
+                <h2 className="text-lg font-semibold text-slate-900">{editingShift ? "Edit shift" : "Create shift"}</h2>
                 <a href={scheduleBasePath} className="inline-flex min-h-11 items-center rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">Close</a>
               </div>
               <div className="px-4 pb-5 pt-4 md:px-6 md:pb-6">
                 <form action={upsertShiftAction} className="grid gap-2 md:grid-cols-2">
                   <input type="hidden" name="week_id" value={week.id} />
+                  <input type="hidden" name="shift_id" value={shiftFormDefaults.shiftId} />
                   {renderContextFields()}
                   <label className="text-xs text-slate-600">
                     Employee
-                    <select name="roster_entry_id" defaultValue={createShiftRosterEntryId} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                    <select name="roster_entry_id" defaultValue={shiftFormDefaults.rosterEntryId} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
                       <option value="">Select employee</option>
                       {roster.map((row) => (
                         <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
@@ -1063,23 +1091,23 @@ export default async function ClientSchedulePage({
                   </label>
                   <label className="text-xs text-slate-600">
                     Date
-                    <input type="date" name="local_date" defaultValue={createShiftDate} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                    <input type="date" name="local_date" defaultValue={shiftFormDefaults.localDate} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
                   </label>
                   <label className="text-xs text-slate-600">
                     Start
-                    <input type="time" name="start_local_time" defaultValue="09:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                    <input type="time" name="start_local_time" defaultValue={shiftFormDefaults.startLocalTime} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
                   </label>
                   <label className="text-xs text-slate-600">
                     End
-                    <input type="time" name="end_local_time" defaultValue="17:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                    <input type="time" name="end_local_time" defaultValue={shiftFormDefaults.endLocalTime} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
                   </label>
                   <label className="text-xs text-slate-600">
                     Break minutes
-                    <input type="number" name="break_minutes" min={0} defaultValue={30} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                    <input type="number" name="break_minutes" min={0} defaultValue={shiftFormDefaults.breakMinutes} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                   </label>
                   <label className="text-xs text-slate-600">
                     Job code
-                    <select name="job_code_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                    <select name="job_code_id" defaultValue={shiftFormDefaults.jobCodeId} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
                       <option value="">None</option>
                       {jobCodes.filter((code) => code.is_active).map((code) => (
                         <option key={code.id} value={code.id}>{code.code}</option>
@@ -1088,16 +1116,25 @@ export default async function ClientSchedulePage({
                   </label>
                   <label className="text-xs text-slate-600 md:col-span-2">
                     Notes
-                    <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                    <input type="text" name="notes" defaultValue={shiftFormDefaults.notes} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                   </label>
                   <div className="flex items-center gap-4 text-xs text-slate-700 md:col-span-2">
-                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" defaultChecked={createShiftOpenDefault} />Open shift</label>
-                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
+                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" defaultChecked={shiftFormDefaults.isOpen} />Open shift</label>
+                    <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" defaultChecked={shiftFormDefaults.endsNextDay} />Ends next day</label>
                   </div>
                   <div className="md:col-span-2">
-                    <button type="submit" className="w-full rounded-md border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">Save shift</button>
+                    <button type="submit" className="w-full rounded-md border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+                      {editingShift ? "Save changes" : "Save shift"}
+                    </button>
                   </div>
                 </form>
+                {editingShift ? (
+                  <form action={deleteShiftAction} className="mt-3">
+                    <input type="hidden" name="shift_id" value={editingShift.id} />
+                    {renderContextFields()}
+                    <button type="submit" className="w-full rounded-md border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">Delete shift</button>
+                  </form>
+                ) : null}
               </div>
             </section>
           </div>
@@ -1345,6 +1382,54 @@ export default async function ClientSchedulePage({
                         <div className="relative z-10 space-y-2">
                           {dayOpenShifts.length ? dayOpenShifts.map((shift) => {
                             const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
+                            const editShiftPath = scheduleActionPath("create_shift", {
+                              editShiftId: shift.id,
+                              createDate: shift.local_date,
+                              createRosterEntryId: shift.roster_entry_id || undefined,
+                              createOpen: shift.is_open,
+                            });
+                            const shiftContent = (
+                              <>
+                                <div className="font-medium text-slate-900">
+                                  {formatTimeLabel(shift.start_local_time)} - {formatTimeLabel(shift.end_local_time)}
+                                </div>
+                                <div className="mt-0.5 text-slate-600">
+                                  Break {shift.break_minutes}m
+                                  {jobCode ? ` - ${jobCode.code}` : ""}
+                                </div>
+                                {shift.notes ? <div className="mt-0.5 text-slate-500">{shift.notes}</div> : null}
+                              </>
+                            );
+
+                            if (canEdit && week) {
+                              return (
+                                <Link
+                                  key={shift.id}
+                                  href={editShiftPath}
+                                  className={`block select-none rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
+                                    canDragShiftCards
+                                      ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
+                                      : "cursor-pointer"
+                                  }`}
+                                  draggable={canDragShiftCards}
+                                  data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
+                                  data-schedule-shift-id={shift.id}
+                                  data-schedule-week-id={shift.week_id}
+                                  data-schedule-roster-entry-id={shift.roster_entry_id || ""}
+                                  data-schedule-is-open={shift.is_open ? "true" : "false"}
+                                  data-schedule-local-date={shift.local_date}
+                                  data-schedule-start-local-time={shift.start_local_time}
+                                  data-schedule-end-local-time={shift.end_local_time}
+                                  data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
+                                  data-schedule-break-minutes={String(shift.break_minutes || 0)}
+                                  data-schedule-job-code-id={shift.job_code_id || ""}
+                                  data-schedule-notes={shift.notes || ""}
+                                >
+                                  {shiftContent}
+                                </Link>
+                              );
+                            }
+
                             return (
                               <div
                                 key={shift.id}
@@ -1367,27 +1452,13 @@ export default async function ClientSchedulePage({
                                 data-schedule-job-code-id={shift.job_code_id || ""}
                                 data-schedule-notes={shift.notes || ""}
                               >
-                                <div className="font-medium text-slate-900">
-                                  {formatTimeLabel(shift.start_local_time)} - {formatTimeLabel(shift.end_local_time)}
-                                </div>
-                                <div className="mt-0.5 text-slate-600">
-                                  Break {shift.break_minutes}m
-                                  {jobCode ? ` - ${jobCode.code}` : ""}
-                                </div>
-                                {shift.notes ? <div className="mt-0.5 text-slate-500">{shift.notes}</div> : null}
+                                {shiftContent}
                                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                                   {canClaim ? (
                                     <form action={claimOpenShiftAction}>
                                       <input type="hidden" name="shift_id" value={shift.id} />
                                       {renderContextFields()}
                                       <button type="submit" className="rounded border border-sky-300 px-2 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-50">Claim</button>
-                                    </form>
-                                  ) : null}
-                                  {canEdit ? (
-                                    <form action={deleteShiftAction}>
-                                      <input type="hidden" name="shift_id" value={shift.id} />
-                                      {renderContextFields()}
-                                      <button type="submit" className="rounded border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50">Delete</button>
                                     </form>
                                   ) : null}
                                 </div>
@@ -1471,6 +1542,12 @@ export default async function ClientSchedulePage({
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                               const jobCodeText = jobCode ? jobCode.code : "No Job Code";
                               const shiftPalette = getShiftBubblePalette(jobCode?.color_hex || null);
+                              const editShiftPath = scheduleActionPath("create_shift", {
+                                editShiftId: shift.id,
+                                createDate: shift.local_date,
+                                createRosterEntryId: shift.roster_entry_id || undefined,
+                                createOpen: shift.is_open,
+                              });
                               const shiftSummary = (
                                 <div className={shiftPalette.className} style={shiftPalette.style}>
                                   <div>
@@ -1482,69 +1559,30 @@ export default async function ClientSchedulePage({
 
                               if (canEdit && week) {
                                 return (
-                                  <details key={shift.id} className="text-xs">
-                                    <summary
-                                      className={`select-none list-none rounded-md p-0.5 transition-[transform,box-shadow,opacity] duration-150 ${
-                                        canDragShiftCards
-                                          ? "cursor-pointer hover:bg-sky-50/40 hover:shadow-sm"
-                                          : "cursor-pointer hover:bg-sky-50/40"
-                                      }`}
-                                    >
-                                      <div
-                                        className={`select-none rounded-md p-0.5 transition-[transform,box-shadow,opacity] duration-150 ${
-                                          canDragShiftCards
-                                            ? "cursor-grab hover:-translate-y-0.5"
-                                            : ""
-                                        }`}
-                                        draggable={canDragShiftCards}
-                                        data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
-                                        data-schedule-shift-id={shift.id}
-                                        data-schedule-week-id={shift.week_id}
-                                        data-schedule-roster-entry-id={shift.roster_entry_id || ""}
-                                        data-schedule-is-open={shift.is_open ? "true" : "false"}
-                                        data-schedule-local-date={shift.local_date}
-                                        data-schedule-start-local-time={shift.start_local_time}
-                                        data-schedule-end-local-time={shift.end_local_time}
-                                        data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
-                                        data-schedule-break-minutes={String(shift.break_minutes || 0)}
-                                        data-schedule-job-code-id={shift.job_code_id || ""}
-                                        data-schedule-notes={shift.notes || ""}
-                                      >
-                                        {shiftSummary}
-                                      </div>
-                                    </summary>
-                                    <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-2">
-                                      <form action={upsertShiftAction} className="grid gap-1.5">
-                                        <input type="hidden" name="week_id" value={week.id} />
-                                        <input type="hidden" name="shift_id" value={shift.id} />
-                                        <input type="hidden" name="roster_entry_id" value={shift.roster_entry_id || ""} />
-                                        {renderContextFields()}
-                                        <input type="date" name="local_date" defaultValue={shift.local_date} className="rounded border border-slate-300 px-2 py-1" required />
-                                        <div className="grid grid-cols-2 gap-1.5">
-                                          <input type="time" name="start_local_time" defaultValue={shift.start_local_time.slice(0, 5)} className="rounded border border-slate-300 px-2 py-1" required />
-                                          <input type="time" name="end_local_time" defaultValue={shift.end_local_time.slice(0, 5)} className="rounded border border-slate-300 px-2 py-1" required />
-                                        </div>
-                                        <input type="number" name="break_minutes" min={0} defaultValue={shift.break_minutes} className="rounded border border-slate-300 px-2 py-1" />
-                                        <select name="job_code_id" defaultValue={shift.job_code_id || ""} className="rounded border border-slate-300 px-2 py-1">
-                                          <option value="">None</option>
-                                          {jobCodes.map((code) => (
-                                            <option key={code.id} value={code.id}>{code.code}</option>
-                                          ))}
-                                        </select>
-                                        <input type="text" name="notes" defaultValue={shift.notes || ""} className="rounded border border-slate-300 px-2 py-1" placeholder="Notes" />
-                                        <label className="inline-flex items-center gap-1 text-[11px] text-slate-700">
-                                          <input type="checkbox" name="ends_next_day" value="on" defaultChecked={shift.ends_next_day} />
-                                          Ends next day
-                                        </label>
-                                        <button type="submit" className="rounded border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">Save</button>
-                                      </form>
-                                      <form action={deleteShiftAction} className="mt-1.5">
-                                        <input type="hidden" name="shift_id" value={shift.id} />
-                                        {renderContextFields()}
-                                        <button type="submit" className="w-full rounded border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50">Delete shift</button>
-                                      </form>
-                                    </div>
-                                  </details>
+                                  <Link
+                                    key={shift.id}
+                                    href={editShiftPath}
+                                    className={`block select-none rounded-md p-0.5 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
+                                      canDragShiftCards
+                                        ? "cursor-grab hover:-translate-y-0.5 hover:shadow-sm"
+                                        : "cursor-pointer"
+                                    }`}
+                                    draggable={canDragShiftCards}
+                                    data-schedule-shift-card={canDragShiftCards ? "true" : undefined}
+                                    data-schedule-shift-id={shift.id}
+                                    data-schedule-week-id={shift.week_id}
+                                    data-schedule-roster-entry-id={shift.roster_entry_id || ""}
+                                    data-schedule-is-open={shift.is_open ? "true" : "false"}
+                                    data-schedule-local-date={shift.local_date}
+                                    data-schedule-start-local-time={shift.start_local_time}
+                                    data-schedule-end-local-time={shift.end_local_time}
+                                    data-schedule-ends-next-day={shift.ends_next_day ? "true" : "false"}
+                                    data-schedule-break-minutes={String(shift.break_minutes || 0)}
+                                    data-schedule-job-code-id={shift.job_code_id || ""}
+                                    data-schedule-notes={shift.notes || ""}
+                                  >
+                                    {shiftSummary}
+                                  </Link>
                                 );
                               }
 
