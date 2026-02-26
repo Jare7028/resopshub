@@ -621,8 +621,6 @@ export default async function ClientSchedulePage({
   const nextWeek = toDateOnly(addDays(weekDate, 7));
   const prevSelectedDay = toDateOnly(addDays(selectedDayDate, -7));
   const nextSelectedDay = toDateOnly(addDays(selectedDayDate, 7));
-  const thisWeekStart = toDateOnly(startOfMonday(new Date()));
-  const thisDay = toDateOnly(new Date());
   const hasActiveFilters = Boolean(searchQuery || roleFilter || jobFilter);
   const renderContextFields = () => (
     <>
@@ -646,9 +644,43 @@ export default async function ClientSchedulePage({
             <h1 className="text-2xl font-semibold text-slate-900">{client.name} Schedule</h1>
             <p className="text-sm text-slate-600">Week of {formatDateLabel(weekStart)}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href={buildSchedulePath({ clientId, weekStart: prevWeek, rangeView, day: prevSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100">Previous week</Link>
-            <Link href={buildSchedulePath({ clientId, weekStart: nextWeek, rangeView, day: nextSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100">Next week</Link>
+          <div className="flex items-center gap-1.5">
+            <Link
+              href={buildSchedulePath({ clientId, weekStart: prevWeek, rangeView, day: prevSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100"
+              aria-label="Previous week"
+            >
+              &#8249;
+            </Link>
+            <details className="relative">
+              <summary className="group cursor-pointer list-none rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <span className="inline-flex items-center gap-2">
+                  {new Date(`${weekStart}T00:00:00.000Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  <span className="text-[10px] text-slate-400 transition-transform group-open:rotate-180">^</span>
+                </span>
+              </summary>
+              <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                <form method="get" className="space-y-2">
+                  <input type="hidden" name="range" value={rangeView} />
+                  <input type="hidden" name="day" value={selectedDay} />
+                  <input type="hidden" name="q" value={searchQueryRaw} />
+                  <input type="hidden" name="role" value={roleFilterRaw} />
+                  <input type="hidden" name="job" value={jobFilter} />
+                  <label className="block text-xs text-slate-600">
+                    Week date
+                    <input type="date" name="week" defaultValue={weekStart} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                  </label>
+                  <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Go to week</button>
+                </form>
+              </div>
+            </details>
+            <Link
+              href={buildSchedulePath({ clientId, weekStart: nextWeek, rangeView, day: nextSelectedDay, q: searchQueryRaw, roleFilter: roleFilterRaw, jobFilter })}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100"
+              aria-label="Next week"
+            >
+              &#8250;
+            </Link>
           </div>
         </div>
         {resolvedSearch?.error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{resolvedSearch.error}</p> : null}
@@ -682,41 +714,6 @@ export default async function ClientSchedulePage({
               <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Create draft week</button>
             </form>
           ) : null}
-          <Link
-            href={buildSchedulePath({
-              clientId,
-              weekStart: thisWeekStart,
-              rangeView,
-              day: thisDay,
-              q: searchQueryRaw,
-              roleFilter: roleFilterRaw,
-              jobFilter,
-            })}
-            className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
-              weekStart === thisWeekStart ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-700 hover:bg-slate-100"
-            }`}
-          >
-            This week
-          </Link>
-          <details className="relative">
-            <summary className="cursor-pointer list-none rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-              Week
-            </summary>
-            <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-              <form method="get" className="space-y-2">
-                <input type="hidden" name="range" value={rangeView} />
-                <input type="hidden" name="day" value={selectedDay} />
-                <input type="hidden" name="q" value={searchQueryRaw} />
-                <input type="hidden" name="role" value={roleFilterRaw} />
-                <input type="hidden" name="job" value={jobFilter} />
-                <label className="block text-xs text-slate-600">
-                  Week date
-                  <input type="date" name="week" defaultValue={weekStart} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                </label>
-                <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Go to week</button>
-              </form>
-            </div>
-          </details>
           {canEdit || canManageJobCodes || week ? (
             <details className="relative">
               <summary className="group cursor-pointer list-none rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium text-sky-600 hover:bg-sky-50">
