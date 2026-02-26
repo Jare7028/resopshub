@@ -74,12 +74,6 @@ type JobHoursTally = {
   colorHex: string | null;
 };
 
-type RosterPeriodTotals = {
-  workingMinutes: number;
-  breakMinutes: number;
-  totalMinutes: number;
-};
-
 function normalizeRangeView(value: string | null | undefined): RangeView {
   const v = String(value || "").trim().toLowerCase();
   if (v === "day") return "day";
@@ -719,18 +713,6 @@ export default async function ClientSchedulePage({
       }),
     ])
   ) as Record<string, JobHoursTally[]>;
-  const rosterPeriodTotalsById = filteredShifts.reduce<Record<string, RosterPeriodTotals>>((acc, shift) => {
-    if (shift.is_open || !shift.roster_entry_id) return acc;
-    const rosterId = shift.roster_entry_id;
-    const workedMinutes = shiftWorkedMinutes(shift);
-    const breakMinutes = Math.max(0, Number(shift.break_minutes || 0));
-    const current = acc[rosterId] || { workingMinutes: 0, breakMinutes: 0, totalMinutes: 0 };
-    current.workingMinutes += workedMinutes;
-    current.breakMinutes += breakMinutes;
-    current.totalMinutes += workedMinutes + breakMinutes;
-    acc[rosterId] = current;
-    return acc;
-  }, {});
 
   const prevWeek = toDateOnly(addDays(weekDate, -7));
   const nextWeek = toDateOnly(addDays(weekDate, 7));
@@ -1308,11 +1290,6 @@ export default async function ClientSchedulePage({
                 </tr>
                 {filteredRoster.length ? filteredRoster.map((row) => {
                   const periodJobTallies = rosterJobTotalsById[row.id] || [];
-                  const periodTotals = rosterPeriodTotalsById[row.id] || {
-                    workingMinutes: 0,
-                    breakMinutes: 0,
-                    totalMinutes: 0,
-                  };
                   return (
                   <tr key={row.id}>
                     <td className="sticky left-0 z-20 min-w-[20rem] border border-slate-200 bg-white px-3 py-2 align-top">
@@ -1328,24 +1305,7 @@ export default async function ClientSchedulePage({
                             </form>
                           ) : null}
                         </div>
-                        <div className="ml-auto grid grid-cols-[minmax(9.5rem,10.5rem)_minmax(9rem,11rem)] gap-2">
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Hours</p>
-                            <ul className="mt-1 space-y-1 text-[10px] font-semibold text-slate-700">
-                              <li className="flex items-center justify-between gap-2">
-                                <span className="text-emerald-700">Work</span>
-                                <span className="text-slate-600">{formatHours(periodTotals.workingMinutes)}h</span>
-                              </li>
-                              <li className="flex items-center justify-between gap-2">
-                                <span className="text-amber-700">Break</span>
-                                <span className="text-slate-600">{formatHours(periodTotals.breakMinutes)}h</span>
-                              </li>
-                              <li className="flex items-center justify-between gap-2">
-                                <span>Total</span>
-                                <span className="text-slate-700">{formatHours(periodTotals.totalMinutes)}h</span>
-                              </li>
-                            </ul>
-                          </div>
+                        <div className="ml-auto min-w-[9rem]">
                           <div className="min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
                             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
                             {periodJobTallies.length ? (
