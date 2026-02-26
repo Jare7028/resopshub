@@ -294,6 +294,15 @@ function ScheduleGridDndClient() {
       }
     };
 
+    const onSelectStartCapture = (event: Event) => {
+      const targetNode = toEventElementTarget(event.target);
+      const card = targetNode?.closest<HTMLElement>('[data-schedule-shift-card="true"]');
+      if (!card) return;
+      if (shiftHeldRef.current || pointerDragModeRef.current === "copy") {
+        event.preventDefault();
+      }
+    };
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Shift") {
         shiftHeldRef.current = true;
@@ -315,6 +324,7 @@ function ScheduleGridDndClient() {
     document.addEventListener("drop", onDrop, true);
     document.addEventListener("dragend", onDragEnd, true);
     document.addEventListener("pointerdown", onPointerDownCapture, true);
+    document.addEventListener("selectstart", onSelectStartCapture, true);
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("blur", onWindowBlur);
@@ -325,6 +335,7 @@ function ScheduleGridDndClient() {
       document.removeEventListener("drop", onDrop, true);
       document.removeEventListener("dragend", onDragEnd, true);
       document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      document.removeEventListener("selectstart", onSelectStartCapture, true);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("blur", onWindowBlur);

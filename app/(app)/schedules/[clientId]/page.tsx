@@ -1361,7 +1361,7 @@ export default async function ClientSchedulePage({
                                 return (
                                   <details key={shift.id} className="text-xs">
                                     <summary
-                                      className={`list-none rounded-md p-0.5 transition-[transform,box-shadow,opacity] duration-150 ${
+                                      className={`select-none list-none rounded-md p-0.5 transition-[transform,box-shadow,opacity] duration-150 ${
                                         canDragShiftCards
                                           ? "cursor-pointer hover:bg-sky-50/40 hover:shadow-sm"
                                           : "cursor-pointer hover:bg-sky-50/40"
