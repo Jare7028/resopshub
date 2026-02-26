@@ -68,6 +68,7 @@ function ScheduleGridDndClient() {
   const draggingPayloadRef = useRef<ShiftPayload | null>(null);
   const draggingCardRef = useRef<HTMLElement | null>(null);
   const activeDropCellRef = useRef<HTMLElement | null>(null);
+  const shiftHeldRef = useRef(false);
   const dragModeRef = useRef<"move" | "copy">("move");
   const requestInFlightRef = useRef(false);
 
@@ -99,6 +100,7 @@ function ScheduleGridDndClient() {
       clearDragPreview();
       draggingPayloadRef.current = null;
       dragModeRef.current = "move";
+      shiftHeldRef.current = false;
     };
 
     const scheduleToastClear = () => {
@@ -123,6 +125,11 @@ function ScheduleGridDndClient() {
         cell.classList.add(...dropCellMoveClasses);
         cell.classList.remove(...dropCellCopyClasses);
       }
+    };
+
+    const resolveDragMode = (event?: DragEvent) => {
+      const shiftPressed = Boolean(event?.shiftKey) || shiftHeldRef.current;
+      return shiftPressed ? "copy" : "move";
     };
 
     const setDragPreviewFromCard = (
@@ -167,7 +174,7 @@ function ScheduleGridDndClient() {
 
       draggingPayloadRef.current = payload;
       draggingCardRef.current = card;
-      dragModeRef.current = event.shiftKey ? "copy" : "move";
+      dragModeRef.current = resolveDragMode(event);
 
       event.dataTransfer.effectAllowed = "copyMove";
       event.dataTransfer.setData(dragDataType, JSON.stringify(payload));
@@ -186,7 +193,7 @@ function ScheduleGridDndClient() {
       if (!cell) return;
       event.preventDefault();
 
-      const mode = event.shiftKey ? "copy" : "move";
+      const mode = resolveDragMode(event);
       dragModeRef.current = mode;
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = mode === "copy" ? "copy" : "move";
@@ -206,7 +213,8 @@ function ScheduleGridDndClient() {
       const targetRosterEntryIdRaw = String(cell.dataset.scheduleDropRosterEntryId || "").trim();
       const targetIsOpen = String(cell.dataset.scheduleDropIsOpen || "").trim() === "true";
       const targetRosterEntryId = targetIsOpen ? null : targetRosterEntryIdRaw || null;
-      const mode = dragModeRef.current;
+      const mode = resolveDragMode(event);
+      dragModeRef.current = mode;
 
       if (!targetLocalDate) {
         resetDragState();
@@ -265,16 +273,38 @@ function ScheduleGridDndClient() {
       resetDragState();
     };
 
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Shift") {
+        shiftHeldRef.current = true;
+      }
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Shift") {
+        shiftHeldRef.current = false;
+      }
+    };
+
+    const onWindowBlur = () => {
+      shiftHeldRef.current = false;
+    };
+
     document.addEventListener("dragstart", onDragStart, true);
     document.addEventListener("dragover", onDragOver, true);
     document.addEventListener("drop", onDrop, true);
     document.addEventListener("dragend", onDragEnd, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onWindowBlur);
 
     return () => {
       document.removeEventListener("dragstart", onDragStart, true);
       document.removeEventListener("dragover", onDragOver, true);
       document.removeEventListener("drop", onDrop, true);
       document.removeEventListener("dragend", onDragEnd, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onWindowBlur);
       if (toastTimerRef.current) {
         window.clearTimeout(toastTimerRef.current);
       }
