@@ -58,6 +58,15 @@ function buildSchedulesPath(args: {
   return query ? `/schedules?${query}` : "/schedules";
 }
 
+function buildClientSettingsPath(clientId: string, status?: { error?: string; success?: string }) {
+  return buildSchedulesPath({
+    action: "edit_client_settings",
+    clientId,
+    error: status?.error,
+    success: status?.success,
+  });
+}
+
 function parseNonNegativeNumber(value: FormDataEntryValue | null, label: string) {
   const text = String(value || "").trim();
   if (!text) return { value: 0, error: null as string | null };
@@ -122,14 +131,6 @@ export default async function SchedulesPage({
   const selectedClientIdRaw = String(resolvedSearch?.client_id || "").trim();
   const selectedClientId = uuidRegex.test(selectedClientIdRaw) ? selectedClientIdRaw : "";
 
-  const toModalPath = (clientId: string, status?: { error?: string; success?: string }) =>
-    buildSchedulesPath({
-      action: "edit_client_settings",
-      clientId,
-      error: status?.error,
-      success: status?.success,
-    });
-
   async function saveClientSettingsAction(formData: FormData) {
     "use server";
 
@@ -143,7 +144,7 @@ export default async function SchedulesPage({
       "Default weekly billable hours"
     );
     if (defaultHours.error) {
-      redirect(toModalPath(clientId, { error: defaultHours.error }));
+      redirect(buildClientSettingsPath(clientId, { error: defaultHours.error }));
     }
 
     const selectedJobCodeIdsRaw = formData
@@ -152,7 +153,7 @@ export default async function SchedulesPage({
       .filter(Boolean);
     const hasInvalidJobCodeId = selectedJobCodeIdsRaw.some((value) => !uuidRegex.test(value));
     if (hasInvalidJobCodeId) {
-      redirect(toModalPath(clientId, { error: "Invalid billable job code selection" }));
+      redirect(buildClientSettingsPath(clientId, { error: "Invalid billable job code selection" }));
     }
 
     const billableJobCodeIds = Array.from(new Set(selectedJobCodeIdsRaw));
@@ -171,8 +172,8 @@ export default async function SchedulesPage({
 
     redirect(
       error
-        ? toModalPath(clientId, { error: error.message })
-        : toModalPath(clientId, { success: "Client settings saved" })
+        ? buildClientSettingsPath(clientId, { error: error.message })
+        : buildClientSettingsPath(clientId, { success: "Client settings saved" })
     );
   }
 
@@ -186,7 +187,7 @@ export default async function SchedulesPage({
 
     const weekStartDate = String(formData.get("week_start_date") || "").trim();
     if (!isDateOnly(weekStartDate)) {
-      redirect(toModalPath(clientId, { error: "Week start date must be a valid date" }));
+      redirect(buildClientSettingsPath(clientId, { error: "Week start date must be a valid date" }));
     }
 
     const weeklyHours = parseNonNegativeNumber(
@@ -194,7 +195,7 @@ export default async function SchedulesPage({
       "Weekly billable hours"
     );
     if (weeklyHours.error) {
-      redirect(toModalPath(clientId, { error: weeklyHours.error }));
+      redirect(buildClientSettingsPath(clientId, { error: weeklyHours.error }));
     }
 
     const supabase = createSupabaseServerClient();
@@ -209,8 +210,8 @@ export default async function SchedulesPage({
 
     redirect(
       error
-        ? toModalPath(clientId, { error: error.message })
-        : toModalPath(clientId, { success: "Weekly override saved" })
+        ? buildClientSettingsPath(clientId, { error: error.message })
+        : buildClientSettingsPath(clientId, { success: "Weekly override saved" })
     );
   }
 
@@ -224,7 +225,7 @@ export default async function SchedulesPage({
 
     const weekStartDate = String(formData.get("week_start_date") || "").trim();
     if (!isDateOnly(weekStartDate)) {
-      redirect(toModalPath(clientId, { error: "Invalid weekly override date" }));
+      redirect(buildClientSettingsPath(clientId, { error: "Invalid weekly override date" }));
     }
 
     const supabase = createSupabaseServerClient();
@@ -238,8 +239,8 @@ export default async function SchedulesPage({
 
     redirect(
       error
-        ? toModalPath(clientId, { error: error.message })
-        : toModalPath(clientId, { success: "Weekly override removed" })
+        ? buildClientSettingsPath(clientId, { error: error.message })
+        : buildClientSettingsPath(clientId, { success: "Weekly override removed" })
     );
   }
 
