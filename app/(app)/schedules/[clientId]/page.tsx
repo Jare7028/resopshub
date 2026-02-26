@@ -113,6 +113,17 @@ function formatTimeLabel(value: string) {
   return `${displayHours}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
+function formatTimeCompact(value: string) {
+  const match = String(value || "").match(/^(\d{2}):(\d{2})/);
+  if (!match) return value;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const period = hours >= 12 ? "pm" : "am";
+  const displayHours = hours % 12 === 0 ? 12 : hours % 12;
+  if (minutes === 0) return `${displayHours}${period}`;
+  return `${displayHours}:${String(minutes).padStart(2, "0")}${period}`;
+}
+
 function timeToMinutes(value: string) {
   const match = String(value || "").match(/^(\d{2}):(\d{2})/);
   if (!match) return 0;
@@ -708,183 +719,202 @@ export default async function ClientSchedulePage({
           </details>
           {canEdit || canManageJobCodes || week ? (
             <details className="relative">
-              <summary className="cursor-pointer list-none rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-                Schedule actions
+              <summary className="group cursor-pointer list-none rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium text-sky-600 hover:bg-sky-50">
+                <span className="inline-flex items-center gap-1.5">
+                  Actions
+                  <span className="text-[10px] text-slate-400 transition-transform group-open:rotate-180">^</span>
+                </span>
               </summary>
-              <div className="absolute right-0 z-20 mt-2 w-[42rem] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-                <div className="max-h-[70vh] space-y-3 overflow-auto pr-1">
-                  {week ? (
-                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
-                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Export</h3>
-                      <Link href={`/schedules/${clientId}/export?week=${encodeURIComponent(weekStart)}`} className="inline-flex rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Export CSV</Link>
-                    </section>
-                  ) : null}
+              <div className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                <div className="max-h-[70vh] overflow-auto pr-1">
+                  <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Week actions</p>
 
                   {canEdit && week ? (
-                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
-                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Create Shift</h3>
-                      <form action={upsertShiftAction} className="grid gap-2 md:grid-cols-2">
-                        <input type="hidden" name="week_id" value={week.id} />
-                        {renderContextFields()}
-                        <label className="text-xs text-slate-600">
-                          Employee
-                          <select name="roster_entry_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                            <option value="">Select employee</option>
-                            {roster.map((row) => (
-                              <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="text-xs text-slate-600">
-                          Date
-                          <input type="date" name="local_date" defaultValue={selectedDay} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                        </label>
-                        <label className="text-xs text-slate-600">
-                          Start
-                          <input type="time" name="start_local_time" defaultValue="09:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                        </label>
-                        <label className="text-xs text-slate-600">
-                          End
-                          <input type="time" name="end_local_time" defaultValue="17:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                        </label>
-                        <label className="text-xs text-slate-600">
-                          Break minutes
-                          <input type="number" name="break_minutes" min={0} defaultValue={30} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                        </label>
-                        <label className="text-xs text-slate-600">
-                          Job code
-                          <select name="job_code_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                            <option value="">None</option>
-                            {jobCodes.filter((code) => code.is_active).map((code) => (
-                              <option key={code.id} value={code.id}>{code.code}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="text-xs text-slate-600 md:col-span-2">
-                          Notes
-                          <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                        </label>
-                        <div className="flex items-center gap-4 text-xs text-slate-700 md:col-span-2">
-                          <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" />Open shift</label>
-                          <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
-                        </div>
-                        <div className="md:col-span-2">
-                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Save shift</button>
-                        </div>
-                      </form>
-                    </section>
+                    <form action={copyPreviousWeekAction} className="mb-1">
+                      <input type="hidden" name="week_id" value={week.id} />
+                      {renderContextFields()}
+                      <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Copy previous week</button>
+                    </form>
                   ) : null}
 
                   {canEdit ? (
-                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
-                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Roster</h3>
-                      <form action={addRosterUserAction} className="space-y-2">
-                        {renderContextFields()}
-                        <label className="block text-xs text-slate-600">
-                          User
-                          <select name="user_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                            <option value="">Select user</option>
-                            {users.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {user.full_name || user.email || user.id}
-                                {user.email ? ` (${user.email})` : ""}
-                                {user.status ? ` - ${user.status}` : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="block text-xs text-slate-600">
-                          Role
-                          <select name="role_token" defaultValue="agent" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                            <option value="manager">Manager</option>
-                            <option value="team_leader">Team Leader</option>
-                            <option value="agent">Agent</option>
-                          </select>
-                        </label>
-                        <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add user</button>
-                      </form>
-                      <form action={syncRosterAction}>
-                        {renderContextFields()}
-                        <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Sync from Employee Info</button>
-                      </form>
-                    </section>
+                    <form action={syncRosterAction} className="mb-1">
+                      {renderContextFields()}
+                      <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Sync roster from employee info</button>
+                    </form>
+                  ) : null}
+
+                  {week ? (
+                    <Link href={`/schedules/${clientId}/export?week=${encodeURIComponent(weekStart)}`} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Export week CSV</Link>
                   ) : null}
 
                   {canEdit && week ? (
-                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
-                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Copy & Templates</h3>
-                      <form action={copyPreviousWeekAction}>
-                        <input type="hidden" name="week_id" value={week.id} />
-                        {renderContextFields()}
-                        <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Copy from previous week</button>
-                      </form>
-                      {canManageTemplates ? (
-                        <>
-                          <form action={createTemplateAction} className="flex flex-wrap items-center gap-2">
+                    <details className="mb-1 rounded-lg">
+                      <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</summary>
+                      <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                        <form action={upsertShiftAction} className="grid gap-2">
+                          <input type="hidden" name="week_id" value={week.id} />
+                          {renderContextFields()}
+                          <label className="text-xs text-slate-600">
+                            Employee
+                            <select name="roster_entry_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                              <option value="">Select employee</option>
+                              {roster.map((row) => (
+                                <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs text-slate-600">
+                            Date
+                            <input type="date" name="local_date" defaultValue={selectedDay} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                          </label>
+                          <label className="text-xs text-slate-600">
+                            Start
+                            <input type="time" name="start_local_time" defaultValue="09:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                          </label>
+                          <label className="text-xs text-slate-600">
+                            End
+                            <input type="time" name="end_local_time" defaultValue="17:00" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                          </label>
+                          <label className="text-xs text-slate-600">
+                            Break minutes
+                            <input type="number" name="break_minutes" min={0} defaultValue={30} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                          </label>
+                          <label className="text-xs text-slate-600">
+                            Job code
+                            <select name="job_code_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                              <option value="">None</option>
+                              {jobCodes.filter((code) => code.is_active).map((code) => (
+                                <option key={code.id} value={code.id}>{code.code}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs text-slate-600">
+                            Notes
+                            <input type="text" name="notes" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                          </label>
+                          <div className="flex items-center gap-4 text-xs text-slate-700">
+                            <label className="inline-flex items-center gap-2"><input type="checkbox" name="is_open" value="on" />Open shift</label>
+                            <label className="inline-flex items-center gap-2"><input type="checkbox" name="ends_next_day" value="on" />Ends next day</label>
+                          </div>
+                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Save shift</button>
+                        </form>
+                      </div>
+                    </details>
+                  ) : null}
+
+                  {canEdit ? (
+                    <details className="mb-1 rounded-lg">
+                      <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Add user</summary>
+                      <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                        <form action={addRosterUserAction} className="space-y-2">
+                          {renderContextFields()}
+                          <label className="block text-xs text-slate-600">
+                            User
+                            <select name="user_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                              <option value="">Select user</option>
+                              {users.map((user) => (
+                                <option key={user.id} value={user.id}>
+                                  {user.full_name || user.email || user.id}
+                                  {user.email ? ` (${user.email})` : ""}
+                                  {user.status ? ` - ${user.status}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="block text-xs text-slate-600">
+                            Role
+                            <select name="role_token" defaultValue="agent" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                              <option value="manager">Manager</option>
+                              <option value="team_leader">Team Leader</option>
+                              <option value="agent">Agent</option>
+                            </select>
+                          </label>
+                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add user</button>
+                        </form>
+                      </div>
+                    </details>
+                  ) : null}
+
+                  {canEdit && week && canManageTemplates ? (
+                    <>
+                      <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Templates</p>
+                      <details className="mb-1 rounded-lg">
+                        <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Save week as template</summary>
+                        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                          <form action={createTemplateAction} className="space-y-2">
                             <input type="hidden" name="week_id" value={week.id} />
                             {renderContextFields()}
-                            <input name="template_name" placeholder="Template name" className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                            <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Create template</button>
+                            <input name="template_name" placeholder="Template name" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                            <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Save template</button>
                           </form>
-                          <form action={applyTemplateAction} className="grid gap-2 md:grid-cols-[1fr,1fr,auto]">
+                        </div>
+                      </details>
+                      <details className="mb-1 rounded-lg">
+                        <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Load week template</summary>
+                        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                          <form action={applyTemplateAction} className="space-y-2">
                             <input type="hidden" name="week_id" value={week.id} />
                             {renderContextFields()}
-                            <select name="template_id" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                            <select name="template_id" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
                               <option value="">Select template</option>
                               {templates.map((template) => (
                                 <option key={template.id} value={template.id}>{template.name}</option>
                               ))}
                             </select>
-                            <select name="mapping_mode" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm" defaultValue="role_slot">
+                            <select name="mapping_mode" className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" defaultValue="role_slot">
                               <option value="role_slot">By role-slot</option>
                               <option value="by_employee">By employee</option>
                             </select>
-                            <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Apply template</button>
+                            <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Load template</button>
                           </form>
-                        </>
-                      ) : null}
-                    </section>
+                        </div>
+                      </details>
+                    </>
                   ) : null}
 
                   {canManageJobCodes ? (
-                    <section className="space-y-2 rounded-md border border-slate-200 p-2">
-                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Job Codes</h3>
-                      <form action={upsertJobCodeAction} className="grid gap-2 md:grid-cols-2">
-                        {renderContextFields()}
-                        <label className="text-xs text-slate-600">Code
-                          <input name="code" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                        </label>
-                        <label className="text-xs text-slate-600">Color
-                          <input name="color_hex" defaultValue="#2563EB" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
-                        </label>
-                        <label className="text-xs text-slate-600">Sort
-                          <input type="number" name="sort_order" defaultValue={0} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-                        </label>
-                        <label className="inline-flex items-center gap-2 self-end text-xs text-slate-700">
-                          <input type="checkbox" name="is_active" defaultChecked />
-                          Active
-                        </label>
-                        <div className="md:col-span-2">
-                          <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add job code</button>
-                        </div>
-                      </form>
-                      <div className="max-h-56 space-y-1 overflow-auto pr-1">
-                        {jobCodes.map((code) => (
-                          <div key={code.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-xs">
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: code.color_hex }} />
-                              <span className="font-semibold text-slate-900">{code.code}</span>
-                              {!code.is_active ? <span className="text-amber-700">(inactive)</span> : null}
-                            </div>
-                            <form action={deleteJobCodeAction}>
-                              <input type="hidden" name="job_code_id" value={code.id} />
-                              {renderContextFields()}
-                              <button type="submit" className="text-red-700 hover:underline">Remove</button>
-                            </form>
+                    <>
+                      <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Job codes</p>
+                      <details className="rounded-lg">
+                        <summary className="cursor-pointer list-none rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Manage job codes</summary>
+                        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                          <form action={upsertJobCodeAction} className="grid gap-2">
+                            {renderContextFields()}
+                            <label className="text-xs text-slate-600">Code
+                              <input name="code" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                            </label>
+                            <label className="text-xs text-slate-600">Color
+                              <input name="color_hex" defaultValue="#2563EB" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                            </label>
+                            <label className="text-xs text-slate-600">Sort
+                              <input type="number" name="sort_order" defaultValue={0} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                            </label>
+                            <label className="inline-flex items-center gap-2 self-end text-xs text-slate-700">
+                              <input type="checkbox" name="is_active" defaultChecked />
+                              Active
+                            </label>
+                            <button type="submit" className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Add job code</button>
+                          </form>
+                          <div className="max-h-56 space-y-1 overflow-auto pr-1">
+                            {jobCodes.map((code) => (
+                              <div key={code.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: code.color_hex }} />
+                                  <span className="font-semibold text-slate-900">{code.code}</span>
+                                  {!code.is_active ? <span className="text-amber-700">(inactive)</span> : null}
+                                </div>
+                                <form action={deleteJobCodeAction}>
+                                  <input type="hidden" name="job_code_id" value={code.id} />
+                                  {renderContextFields()}
+                                  <button type="submit" className="text-red-700 hover:underline">Remove</button>
+                                </form>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </section>
+                        </div>
+                      </details>
+                    </>
                   ) : null}
                 </div>
               </div>
@@ -1079,36 +1109,21 @@ export default async function ClientSchedulePage({
                           <div className="relative z-10 space-y-2">
                             {dayShifts.map((shift) => {
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
-                              const jobCodeText = jobCode ? jobCode.code : "None";
+                              const jobCodeText = jobCode ? jobCode.code : "No Job Code";
                               const shiftSummary = (
-                                <>
-                                  <div className="font-medium text-slate-900">
-                                    {formatTimeLabel(shift.start_local_time)} - {formatTimeLabel(shift.end_local_time)}
+                                <div className="rounded-xl border-2 border-sky-950 bg-sky-800 px-2.5 py-1.5 text-[12px] font-semibold leading-tight text-white">
+                                  <div>
+                                    {formatTimeCompact(shift.start_local_time)} - {formatTimeCompact(shift.end_local_time)} ({shift.break_minutes}m)
                                   </div>
-                                  <div className="flex flex-wrap items-center gap-2 text-slate-600">
-                                    <span>Break {shift.break_minutes}m</span>
-                                    {jobCode ? (
-                                      <span
-                                        className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                                        style={{ backgroundColor: jobCode.color_hex || "#1E293B" }}
-                                      >
-                                        {jobCode.code}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  <div className="text-slate-600">Job code: {jobCodeText}</div>
-                                  {shift.notes ? <div className="text-slate-500">{shift.notes}</div> : null}
-                                </>
+                                  <div className="mt-1 text-[11px] font-medium text-sky-100">&quot;{jobCodeText}&quot;</div>
+                                </div>
                               );
 
                               if (canEdit && week) {
                                 return (
-                                  <details key={shift.id} className="rounded-md border border-slate-200 bg-white text-xs">
-                                    <summary className="list-none cursor-pointer p-2 hover:bg-slate-50">
-                                      {shiftSummary}
-                                      <p className="mt-1 text-[10px] font-medium text-slate-500">Click shift to edit</p>
-                                    </summary>
-                                    <div className="border-t border-slate-200 bg-slate-50 p-2">
+                                  <details key={shift.id} className="text-xs">
+                                    <summary className="list-none cursor-pointer rounded-md p-0.5 hover:bg-sky-50/40">{shiftSummary}</summary>
+                                    <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-2">
                                       <form action={upsertShiftAction} className="grid gap-1.5">
                                         <input type="hidden" name="week_id" value={week.id} />
                                         <input type="hidden" name="shift_id" value={shift.id} />
@@ -1144,9 +1159,7 @@ export default async function ClientSchedulePage({
                               }
 
                               return (
-                                <div key={shift.id} className="rounded-md border border-slate-200 p-2 text-xs">
-                                  {shiftSummary}
-                                </div>
+                                <div key={shift.id} className="text-xs">{shiftSummary}</div>
                               );
                             })}
                           </div>
