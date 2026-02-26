@@ -929,6 +929,31 @@ export default async function ClientSchedulePage({
         </div>
         {resolvedSearch?.error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{resolvedSearch.error}</p> : null}
         {resolvedSearch?.success ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{resolvedSearch.success}</p> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Week status</span>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isWeekPublished ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${isWeekPublished ? "bg-emerald-500" : "bg-slate-400"}`} />
+            {week?.status || "Draft"}
+          </span>
+          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+            Target: {formatHours(effectiveWeeklyBillableMinutes)}h
+          </span>
+          <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700">
+            Scheduled: {formatHours(scheduledWeekBillableMinutes)}h
+          </span>
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+              billableGapMinutes >= 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {billableGapMinutes >= 0 ? "Over by" : "Gap"} {formatHours(Math.abs(billableGapMinutes))}h
+          </span>
+          {weeklyOverrideHours !== null ? (
+            <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
+              Week override active
+            </span>
+          ) : null}
+        </div>
       </section>
 
       {actionPanel === "create_shift" && canEdit && week ? (
@@ -1241,38 +1266,16 @@ export default async function ClientSchedulePage({
                   </div>
                 </div>
               </details>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Week status</span>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isWeekPublished ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${isWeekPublished ? "bg-emerald-500" : "bg-slate-400"}`} />
-                {week?.status || "Draft"}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                Target: {formatHours(effectiveWeeklyBillableMinutes)}h
-              </span>
-              <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700">
-                Scheduled: {formatHours(scheduledWeekBillableMinutes)}h
-              </span>
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  billableGapMinutes >= 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
-                }`}
-              >
-                {billableGapMinutes >= 0 ? "Over by" : "Gap"} {formatHours(Math.abs(billableGapMinutes))}h
-              </span>
-              {weeklyOverrideHours !== null ? (
-                <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">
-                  Week override active
-                </span>
-              ) : null}
               {!week && canEdit ? (
                 <form action={createOrLoadWeekAction}>
                   {renderContextFields()}
                   <button type="submit" className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Create draft week</button>
                 </form>
               ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               {canEdit || canManageJobCodes || week ? (
                 <details className="relative z-[70]">
                   <summary className="group cursor-pointer list-none rounded-full border border-sky-300 bg-sky-50 px-4 py-1.5 text-sm font-semibold text-sky-700 hover:bg-sky-100">
