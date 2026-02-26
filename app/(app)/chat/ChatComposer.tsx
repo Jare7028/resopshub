@@ -39,10 +39,16 @@ type InsertDraftRequest = {
 const typeLabel: Record<LinkEntityType, string> = {
   task: "Task",
   project: "Project",
-  feature_suggestion: "Feature Suggestion",
+  feature_suggestion: "Feature Request",
   note: "Note",
   client: "Client",
 };
+
+const attachableLinkTypes: LinkEntityType[] = [
+  "task",
+  "project",
+  "feature_suggestion",
+];
 
 export default function ChatComposer(props: {
   conversationId: string;
@@ -155,8 +161,6 @@ export default function ChatComposer(props: {
     });
   }, [insertDraftRequest]);
 
-  const selectedOption = entityOptions.find((option) => option.id === entityId) || null;
-
   const uploadImage = async (file: File) => {
     const formData = new FormData();
     formData.set("conversation_id", conversationId);
@@ -175,8 +179,7 @@ export default function ChatComposer(props: {
     return json.attachment;
   };
 
-  const attachSelected = () => {
-    if (!selectedOption) return;
+  const attachSelected = (selectedOption: LinkOption) => {
     const nextLink: AttachedLink = {
       entityType,
       entityId: selectedOption.id,
@@ -195,6 +198,7 @@ export default function ChatComposer(props: {
     });
     setEntityId("");
     setQuery("");
+    setIsSlashOpen(false);
   };
 
   const uploadImageFiles = async (files: File[]) => {
@@ -295,7 +299,7 @@ export default function ChatComposer(props: {
             }
           }}
           rows={3}
-          placeholder="Message... Paste image, or type / to attach Task, Project, Note, Client, or Feature Suggestion."
+          placeholder="Message... Paste image, or type / to attach open Task, Project, or Feature Request."
           className="w-full resize-none rounded-t-md border-0 px-3 py-2 text-sm focus:outline-none"
         />
         <div className="flex items-center justify-between border-t border-slate-200 px-2 py-1.5">
@@ -434,10 +438,10 @@ export default function ChatComposer(props: {
       {isSlashOpen ? (
         <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
           <p className="text-xs text-slate-600">
-            Slash link: choose a type, find an item, then attach it to this message.
+            Slash link: choose a type, find an open item, and click it to attach instantly.
           </p>
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(typeLabel) as LinkEntityType[]).map((type) => (
+            {attachableLinkTypes.map((type) => (
               <button
                 key={type}
                 type="button"
@@ -467,7 +471,14 @@ export default function ChatComposer(props: {
           ) : null}
           <select
             value={entityId}
-            onChange={(event) => setEntityId(event.target.value)}
+            onChange={(event) => {
+              const nextEntityId = event.target.value;
+              setEntityId(nextEntityId);
+              if (!nextEntityId) return;
+              const option = entityOptions.find((item) => item.id === nextEntityId);
+              if (!option) return;
+              attachSelected(option);
+            }}
             className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             <option value="">Select {typeLabel[entityType]}</option>
@@ -480,14 +491,6 @@ export default function ChatComposer(props: {
           {isLoadingEntityOptions ? (
             <p className="text-xs text-slate-500">Loading options...</p>
           ) : null}
-          <button
-            type="button"
-            onClick={attachSelected}
-            disabled={!entityId}
-            className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Attach link
-          </button>
         </div>
       ) : null}
     </form>

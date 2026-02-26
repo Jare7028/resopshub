@@ -500,15 +500,27 @@ export default async function ClientSchedulePage({
     "use server";
     const state = decodeContext(formData);
     const jobCodeIdRaw = String(formData.get("job_code_id") || "").trim();
+    const codeValue = String(formData.get("code") || "").trim();
     const sortOrder = Number.parseInt(String(formData.get("sort_order") || "0"), 10);
     const supabase = createSupabaseServerClient();
-    const { error } = await supabase.rpc("schedule_upsert_job_code", {
+    const payload = {
       p_job_code_id: uuidRegex.test(jobCodeIdRaw) ? jobCodeIdRaw : null,
-      p_code: String(formData.get("code") || "").trim(),
+      p_code: codeValue,
       p_color_hex: String(formData.get("color_hex") || "").trim(),
       p_sort_order: Number.isFinite(sortOrder) ? sortOrder : 0,
       p_is_active: String(formData.get("is_active") || "").trim() === "on",
-    });
+    };
+    let { error } = await supabase.rpc("schedule_upsert_job_code", payload);
+
+    // Backward compatibility for DBs still on the older RPC signature requiring p_label.
+    if (error && /job code label is required/i.test(String(error.message || ""))) {
+      const fallback = await supabase.rpc("schedule_upsert_job_code", {
+        ...payload,
+        p_label: codeValue,
+      });
+      error = fallback.error;
+    }
+
     const path = buildSchedulePath({
       ...stateFromContext(clientId, state, weekStart),
       ...(error ? { error: error.message } : { success: "Job code saved" }),

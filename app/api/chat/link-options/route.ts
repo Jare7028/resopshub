@@ -4,16 +4,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 type LinkEntityType =
   | "task"
   | "project"
-  | "feature_suggestion"
-  | "note"
-  | "client";
+  | "feature_suggestion";
 
 const VALID_TYPES = new Set<LinkEntityType>([
   "task",
   "project",
   "feature_suggestion",
-  "note",
-  "client",
 ]);
 
 const DEFAULT_LIMIT = 50;
@@ -40,7 +36,7 @@ export async function GET(req: Request) {
       .from("tasks")
       .select("id,title")
       .is("parent_task_id", null)
-      .not("status", "eq", "template")
+      .not("status", "in", "(completed,cancelled,template)")
       .order("created_at", { ascending: false })
       .limit(DEFAULT_LIMIT);
     if (query) request = request.ilike("title", `%${query}%`);
@@ -58,6 +54,7 @@ export async function GET(req: Request) {
     let request = supabase
       .from("projects")
       .select("id,name")
+      .not("status", "in", "(completed,cancelled)")
       .order("name", { ascending: true })
       .limit(DEFAULT_LIMIT);
     if (query) request = request.ilike("name", `%${query}%`);
@@ -71,27 +68,11 @@ export async function GET(req: Request) {
     });
   }
 
-  if (normalizedType === "client") {
-    let request = supabase
-      .from("clients")
-      .select("id,name")
-      .order("name", { ascending: true })
-      .limit(DEFAULT_LIMIT);
-    if (query) request = request.ilike("name", `%${query}%`);
-    const { data, error } = await request;
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({
-      options: ((data || []) as Array<{ id: string; name: string | null }>).map((row) => ({
-        id: row.id,
-        label: row.name || "Untitled client",
-      })),
-    });
-  }
-
   if (normalizedType === "feature_suggestion") {
     let request = supabase
       .from("feature_suggestions")
       .select("id,title")
+      .not("status", "in", "(completed,rejected)")
       .order("created_at", { ascending: false })
       .limit(DEFAULT_LIMIT);
     if (query) request = request.ilike("title", `%${query}%`);
@@ -105,19 +86,5 @@ export async function GET(req: Request) {
     });
   }
 
-  let request = supabase
-    .from("notes")
-    .select("id,title")
-    .order("created_at", { ascending: false })
-    .limit(DEFAULT_LIMIT);
-  if (query) request = request.ilike("title", `%${query}%`);
-  const { data, error } = await request;
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({
-    options: ((data || []) as Array<{ id: string; title: string | null }>).map((row) => ({
-      id: row.id,
-      label: row.title || "Untitled note",
-    })),
-  });
+  return NextResponse.json({ error: "Invalid type" }, { status: 400 });
 }
-
