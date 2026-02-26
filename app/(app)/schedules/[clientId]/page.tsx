@@ -183,6 +183,8 @@ function buildSchedulePath(args: {
   weekStart: string;
   rangeView?: RangeView;
   action?: ActionPanel;
+  createDate?: string;
+  createRosterEntryId?: string;
   day?: string;
   q?: string;
   roleFilter?: string;
@@ -194,6 +196,8 @@ function buildSchedulePath(args: {
   sp.set("week", args.weekStart);
   sp.set("range", args.rangeView || "week");
   if (args.action) sp.set("action", args.action);
+  if (args.createDate) sp.set("create_date", args.createDate);
+  if (args.createRosterEntryId) sp.set("create_roster_entry_id", args.createRosterEntryId);
   if (args.day) sp.set("day", args.day);
   if (args.q) sp.set("q", args.q);
   if (args.roleFilter) sp.set("role", args.roleFilter);
@@ -235,6 +239,8 @@ export default async function ClientSchedulePage({
     week?: string;
     range?: string;
     action?: string;
+    create_date?: string;
+    create_roster_entry_id?: string;
     day?: string;
     q?: string;
     role?: string;
@@ -254,6 +260,9 @@ export default async function ClientSchedulePage({
   const actionPanel = normalizeActionPanel(resolvedSearch?.action);
   const selectedDayDate = parseDateOnly(resolvedSearch?.day) || weekDate;
   const selectedDay = toDateOnly(selectedDayDate);
+  const createShiftDate = toDateOnly(parseDateOnly(resolvedSearch?.create_date) || selectedDayDate);
+  const createRosterEntryIdRaw = String(resolvedSearch?.create_roster_entry_id || "").trim();
+  const createShiftRosterEntryId = uuidRegex.test(createRosterEntryIdRaw) ? createRosterEntryIdRaw : "";
   const searchQueryRaw = String(resolvedSearch?.q || "").trim();
   const searchQuery = searchQueryRaw.toLowerCase();
   const roleFilterRaw = String(resolvedSearch?.role || "").trim();
@@ -662,12 +671,17 @@ export default async function ClientSchedulePage({
     roleFilter: roleFilterRaw,
     jobFilter,
   });
-  const scheduleActionPath = (action: Exclude<ActionPanel, "">) =>
+  const scheduleActionPath = (
+    action: Exclude<ActionPanel, "">,
+    prefill?: { createDate?: string; createRosterEntryId?: string },
+  ) =>
     buildSchedulePath({
       clientId,
       weekStart,
       rangeView,
       action,
+      createDate: prefill?.createDate,
+      createRosterEntryId: prefill?.createRosterEntryId,
       day: selectedDay,
       q: searchQueryRaw,
       roleFilter: roleFilterRaw,
@@ -867,7 +881,7 @@ export default async function ClientSchedulePage({
                   {renderContextFields()}
                   <label className="text-xs text-slate-600">
                     Employee
-                    <select name="roster_entry_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                    <select name="roster_entry_id" defaultValue={createShiftRosterEntryId} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
                       <option value="">Select employee</option>
                       {roster.map((row) => (
                         <option key={row.id} value={row.id}>{row.display_name} ({row.role_label})</option>
@@ -876,7 +890,7 @@ export default async function ClientSchedulePage({
                   </label>
                   <label className="text-xs text-slate-600">
                     Date
-                    <input type="date" name="local_date" defaultValue={selectedDay} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
+                    <input type="date" name="local_date" defaultValue={createShiftDate} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" required />
                   </label>
                   <label className="text-xs text-slate-600">
                     Start
@@ -1168,73 +1182,11 @@ export default async function ClientSchedulePage({
                       return (
                         <td key={day} className="relative border border-slate-200 p-2 align-top">
                           {canEdit && week ? (
-                            <details className="absolute inset-0 z-0 open:z-20">
-                              <summary
-                                className="block h-full w-full cursor-pointer list-none rounded-sm hover:bg-sky-50/40"
-                                aria-label={`Create shift for ${row.display_name} on ${day}`}
-                              />
-                              <div className="absolute left-2 right-2 top-2 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
-                                <p className="mb-1 text-[11px] font-semibold text-slate-800">
-                                  Create shift: {row.display_name} ({formatDateLabel(day)})
-                                </p>
-                                <form action={upsertShiftAction} className="grid gap-1.5">
-                                  <input type="hidden" name="week_id" value={week.id} />
-                                  <input type="hidden" name="roster_entry_id" value={row.id} />
-                                  <input type="hidden" name="local_date" value={day} />
-                                  {renderContextFields()}
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <input
-                                      type="time"
-                                      name="start_local_time"
-                                      defaultValue="09:00"
-                                      className="rounded border border-slate-300 px-2 py-1 text-xs"
-                                      required
-                                    />
-                                    <input
-                                      type="time"
-                                      name="end_local_time"
-                                      defaultValue="17:00"
-                                      className="rounded border border-slate-300 px-2 py-1 text-xs"
-                                      required
-                                    />
-                                  </div>
-                                  <input
-                                    type="number"
-                                    name="break_minutes"
-                                    min={0}
-                                    defaultValue={30}
-                                    className="rounded border border-slate-300 px-2 py-1 text-xs"
-                                  />
-                                  <select
-                                    name="job_code_id"
-                                    className="rounded border border-slate-300 px-2 py-1 text-xs"
-                                  >
-                                    <option value="">None</option>
-                                    {jobCodes.filter((code) => code.is_active).map((code) => (
-                                      <option key={code.id} value={code.id}>
-                                        {code.code}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <input
-                                    type="text"
-                                    name="notes"
-                                    placeholder="Notes (optional)"
-                                    className="rounded border border-slate-300 px-2 py-1 text-xs"
-                                  />
-                                  <label className="inline-flex items-center gap-1 text-[11px] text-slate-700">
-                                    <input type="checkbox" name="ends_next_day" value="on" />
-                                    Ends next day
-                                  </label>
-                                  <button
-                                    type="submit"
-                                    className="rounded border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                                  >
-                                    Save shift
-                                  </button>
-                                </form>
-                              </div>
-                            </details>
+                            <Link
+                              href={scheduleActionPath("create_shift", { createDate: day, createRosterEntryId: row.id })}
+                              className="absolute inset-0 z-0 block rounded-sm hover:bg-sky-50/40"
+                              aria-label={`Create shift for ${row.display_name} on ${day}`}
+                            />
                           ) : null}
                           <div className="relative z-10 space-y-2">
                             {dayShifts.map((shift) => {
