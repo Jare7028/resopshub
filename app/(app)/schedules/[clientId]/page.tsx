@@ -586,6 +586,12 @@ export default async function ClientSchedulePage({
     return filteredRosterIds.has(shift.roster_entry_id);
   });
   const openShifts = filteredShifts.filter((shift) => shift.is_open);
+  const openShiftsByDay = openShifts.reduce<Record<string, ShiftRow[]>>((acc, shift) => {
+    const key = shift.local_date;
+    acc[key] ||= [];
+    acc[key].push(shift);
+    return acc;
+  }, {});
   const shiftsByRosterDay = filteredShifts.reduce<Record<string, ShiftRow[]>>((acc, shift) => {
     if (shift.is_open || !shift.roster_entry_id) return acc;
     const key = `${shift.roster_entry_id}:${shift.local_date}`;
@@ -893,34 +899,6 @@ export default async function ClientSchedulePage({
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Open Shifts</h2>
-        {openShifts.length ? openShifts.map((shift) => (
-          <div key={shift.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
-            <div>
-              <p className="font-medium text-slate-900">{formatDateLabel(shift.local_date)} {formatTimeLabel(shift.start_local_time)} - {formatTimeLabel(shift.end_local_time)}</p>
-              <p className="text-xs text-slate-600">Break {shift.break_minutes}m{shift.job_code_id ? ` - ${jobCodeById.get(shift.job_code_id)?.code || ""}` : ""}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {canClaim ? (
-                <form action={claimOpenShiftAction}>
-                  <input type="hidden" name="shift_id" value={shift.id} />
-                  {renderContextFields()}
-                  <button type="submit" className="rounded-md border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-50">Claim shift</button>
-                </form>
-              ) : null}
-              {canEdit ? (
-                <form action={deleteShiftAction}>
-                  <input type="hidden" name="shift_id" value={shift.id} />
-                  {renderContextFields()}
-                  <button type="submit" className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50">Delete</button>
-                </form>
-              ) : null}
-            </div>
-          </div>
-        )) : <p className="text-sm text-slate-600">No open shifts for this range.</p>}
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Grid View</h2>
           <form method="get" className="flex flex-wrap items-center gap-2 text-xs">
@@ -966,6 +944,52 @@ export default async function ClientSchedulePage({
                 </tr>
               </thead>
               <tbody>
+                <tr>
+                  <td className="border border-slate-200 px-3 py-2 align-top">
+                    <p className="font-medium text-slate-900">Open Shifts</p>
+                    <p className="text-xs text-slate-500">Unassigned shifts</p>
+                  </td>
+                  {visibleDays.map((day) => {
+                    const dayOpenShifts = openShiftsByDay[day] || [];
+                    return (
+                      <td key={day} className="border border-slate-200 p-2 align-top">
+                        <div className="space-y-2">
+                          {dayOpenShifts.length ? dayOpenShifts.map((shift) => {
+                            const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
+                            return (
+                              <div key={shift.id} className="rounded-md border border-slate-200 p-2 text-xs">
+                                <div className="font-medium text-slate-900">
+                                  {formatTimeLabel(shift.start_local_time)} - {formatTimeLabel(shift.end_local_time)}
+                                </div>
+                                <div className="mt-0.5 text-slate-600">
+                                  Break {shift.break_minutes}m
+                                  {jobCode ? ` - ${jobCode.code}` : ""}
+                                </div>
+                                {shift.notes ? <div className="mt-0.5 text-slate-500">{shift.notes}</div> : null}
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                  {canClaim ? (
+                                    <form action={claimOpenShiftAction}>
+                                      <input type="hidden" name="shift_id" value={shift.id} />
+                                      {renderContextFields()}
+                                      <button type="submit" className="rounded border border-sky-300 px-2 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-50">Claim</button>
+                                    </form>
+                                  ) : null}
+                                  {canEdit ? (
+                                    <form action={deleteShiftAction}>
+                                      <input type="hidden" name="shift_id" value={shift.id} />
+                                      {renderContextFields()}
+                                      <button type="submit" className="rounded border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50">Delete</button>
+                                    </form>
+                                  ) : null}
+                                </div>
+                              </div>
+                            );
+                          }) : <p className="text-xs text-slate-400">No open shifts</p>}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
                 {filteredRoster.length ? filteredRoster.map((row) => (
                   <tr key={row.id}>
                     <td className="border border-slate-200 px-3 py-2 align-top">
