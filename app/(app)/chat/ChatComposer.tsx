@@ -33,7 +33,14 @@ type AttachedImage = {
 
 type InsertDraftRequest = {
   id: string;
-  text: string;
+  text?: string;
+  reply_to_message_id?: string;
+  reply_preview?: string;
+};
+
+type ActiveReply = {
+  messageId: string;
+  preview: string;
 };
 
 const typeLabel: Record<LinkEntityType, string> = {
@@ -61,6 +68,7 @@ export default function ChatComposer(props: {
       mime_type: string;
       size_bytes: number;
     }>;
+    replyToMessageId?: string;
   }) => Promise<void>;
   isSending?: boolean;
   insertDraftRequest?: InsertDraftRequest | null;
@@ -76,6 +84,7 @@ export default function ChatComposer(props: {
   const [entityOptionsError, setEntityOptionsError] = useState("");
   const [attachedLinks, setAttachedLinks] = useState<AttachedLink[]>([]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [activeReply, setActiveReply] = useState<ActiveReply | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -140,6 +149,18 @@ export default function ChatComposer(props: {
       return;
     }
     lastInsertedRequestIdRef.current = insertDraftRequest.id;
+    const replyToMessageId = String(insertDraftRequest.reply_to_message_id || "").trim();
+    const replyPreview = String(insertDraftRequest.reply_preview || "").trim();
+    if (replyToMessageId) {
+      setActiveReply({
+        messageId: replyToMessageId,
+        preview: replyPreview || "Replying to message",
+      });
+      requestAnimationFrame(() => {
+        bodyTextareaRef.current?.focus();
+      });
+    }
+
     const snippet = String(insertDraftRequest.text || "").trim();
     if (!snippet) {
       return;
@@ -260,16 +281,33 @@ export default function ChatComposer(props: {
             mime_type: image.mime_type,
             size_bytes: image.size_bytes,
           })),
+          replyToMessageId: activeReply?.messageId,
         });
         setBody("");
         setAttachedLinks([]);
         setAttachedImages([]);
+        setActiveReply(null);
         setQuery("");
         setEntityId("");
       }}
       className="space-y-3 rounded-md border border-slate-200 bg-white p-3"
     >
       <div className="rounded-md border border-slate-300 bg-white">
+        {activeReply ? (
+          <div className="flex items-start justify-between gap-2 rounded-t-md border-b border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Replying to</p>
+              <p className="line-clamp-1 text-xs text-slate-700">{activeReply.preview}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveReply(null)}
+              className="shrink-0 rounded border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
         <textarea
           ref={bodyTextareaRef}
           value={body}

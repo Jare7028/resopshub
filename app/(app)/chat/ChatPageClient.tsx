@@ -87,7 +87,9 @@ type LatestPreview = {
 
 type ComposerDraftInsertRequest = {
   id: string;
-  text: string;
+  text?: string;
+  reply_to_message_id?: string;
+  reply_preview?: string;
 };
 
 const typeLabel: Record<LinkEntityType, string> = {
@@ -173,21 +175,56 @@ function formatConversationTime(value: string | null | undefined) {
 function renderPreviewText(message: LatestPreview | null) {
   if (!message) return "No messages yet";
   if (message.deleted_at) return "Message deleted";
-  const body = String(message.body || "").trim();
+  const body = parseReplyBody(String(message.body || "")).cleanBody.trim();
   if (body) return body;
   return "Attachment or link";
 }
 
-function toReplyQuotePreview(message: MessageRow, senderName: string) {
-  const compactBody = String(message.body || "").replace(/\s+/g, " ").trim();
+function formatMessageDayLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function isSameCalendarDay(leftValue: string, rightValue: string) {
+  const left = new Date(leftValue);
+  const right = new Date(rightValue);
+  if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) return false;
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function parseReplyBody(rawBody: string): {
+  replyToMessageId: string | null;
+  cleanBody: string;
+} {
+  const body = String(rawBody || "");
+  const match = body.match(/^\[\[reply:([0-9a-f-]{36})\]\]\s*\n?/i);
+  if (!match) {
+    return { replyToMessageId: null, cleanBody: body };
+  }
+  return {
+    replyToMessageId: String(match[1] || "").toLowerCase(),
+    cleanBody: body.slice(match[0].length),
+  };
+}
+
+function toMessageSnippet(message: MessageRow) {
+  const compactBody = parseReplyBody(String(message.body || "")).cleanBody.replace(/\s+/g, " ").trim();
   const fallback = message.attachments.length
     ? "sent an attachment"
     : message.links.length
       ? "shared a link"
       : "sent a message";
   const preview = compactBody || fallback;
-  const clipped = preview.length > 120 ? `${preview.slice(0, 117)}...` : preview;
-  return `> ${senderName}: ${clipped}`;
+  return preview.length > 120 ? `${preview.slice(0, 117)}...` : preview;
 }
 
 export default function ChatPageClient(props: {
@@ -225,6 +262,10 @@ export default function ChatPageClient(props: {
   const [unreadByConversationId, setUnreadByConversationId] = useState(
     initialUnreadByConversationId
   );
+  const [unreadAnchorByConversationId, setUnreadAnchorByConversationId] = useState<
+    Record<string, string | null>
+  >({});
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
@@ -238,10 +279,13 @@ export default function ChatPageClient(props: {
   const [addMode, setAddMode] = useState<"direct" | "group">("direct");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
+  const [editingReplyToMessageId, setEditingReplyToMessageId] = useState<string | null>(null);
   const [composerInsertRequest, setComposerInsertRequest] =
     useState<ComposerDraftInsertRequest | null>(null);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const initialPositionConversationIdRef = useRef<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
 
   const userById = useMemo(
     () =>
@@ -318,6 +362,32 @@ export default function ChatPageClient(props: {
     return membersByConversationId[selectedConversationId] || [];
   }, [membersByConversationId, selectedConversationId]);
 
+  const selectedMessagesById = useMemo(() => {
+    return selectedMessages.reduce<Record<string, MessageRow>>((acc, message) => {
+      acc[message.id] = message;
+      return acc;
+    }, {});
+  }, [selectedMessages]);
+
+  const firstUnreadMessageId = useMemo(() => {
+    if (!selectedConversationId) return null;
+    const anchorValue = unreadAnchorByConversationId[selectedConversationId] || null;
+    if (!anchorValue) return null;
+    const anchorMs = toMs(anchorValue);
+    const firstUnread = selectedMessages.find(
+      (message) =>
+        !message.deleted_at &&
+        message.sender_id !== currentUserId &&
+        toMs(message.created_at) > anchorMs
+    );
+    return firstUnread?.id || null;
+  }, [
+    currentUserId,
+    selectedConversationId,
+    selectedMessages,
+    unreadAnchorByConversationId,
+  ]);
+
   const latestOwnMessageId = useMemo(() => {
     for (let index = selectedMessages.length - 1; index >= 0; index -= 1) {
       const message = selectedMessages[index];
@@ -378,6 +448,30 @@ export default function ChatPageClient(props: {
     if (typeof window === "undefined") return;
     window.history.replaceState(null, "", chatUrl({ c: conversationId || undefined }));
   };
+
+  const scrollMessageListToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (!messageListRef.current) return;
+    messageListRef.current.scrollTo({
+      top: messageListRef.current.scrollHeight,
+      behavior,
+    });
+  }, []);
+
+  const jumpToMessage = useCallback((messageId: string, behavior: ScrollBehavior = "smooth") => {
+    if (!messageListRef.current || !messageId) return;
+    const target = messageListRef.current.querySelector<HTMLElement>(
+      `[data-chat-message-id="${messageId}"]`
+    );
+    if (!target) return;
+    target.scrollIntoView({ behavior, block: "center" });
+    setHighlightedMessageId(messageId);
+    if (highlightTimerRef.current) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedMessageId((current) => (current === messageId ? null : current));
+    }, 1800);
+  }, []);
 
   const upsertConversationMembers = useCallback(
     (conversationId: string, nextRows: ConversationMemberRow[]) => {
@@ -503,8 +597,19 @@ export default function ChatPageClient(props: {
       setSelectedConversationId(conversationId);
       setEditingMessageId(null);
       setEditingDraft("");
+      setEditingReplyToMessageId(null);
       setComposerInsertRequest(null);
       syncUrl(conversationId);
+      initialPositionConversationIdRef.current = null;
+
+      const myMembership = (membersByConversationId[conversationId] || []).find(
+        (member) => member.user_id === currentUserId
+      );
+      const hasUnread = (unreadByConversationId[conversationId] || 0) > 0;
+      setUnreadAnchorByConversationId((prev) => ({
+        ...prev,
+        [conversationId]: hasUnread ? myMembership?.last_read_at || null : null,
+      }));
 
       try {
         const existing = messagesByConversation[conversationId] || [];
@@ -526,7 +631,13 @@ export default function ChatPageClient(props: {
         setError(err instanceof Error ? err.message : "Unable to load messages");
       }
     },
-    [fetchMessages, messagesByConversation]
+    [
+      currentUserId,
+      fetchMessages,
+      membersByConversationId,
+      messagesByConversation,
+      unreadByConversationId,
+    ]
   );
 
   const upsertConversationState = (
@@ -627,20 +738,25 @@ export default function ChatPageClient(props: {
     if (message.deleted_at) {
       return;
     }
+    const preview = toMessageSnippet(message);
     setComposerInsertRequest({
       id: `${message.id}-${Date.now()}`,
-      text: toReplyQuotePreview(message, senderName),
+      reply_to_message_id: message.id,
+      reply_preview: `${senderName}: ${preview}`,
     });
   };
 
   const startEditingMessage = (message: MessageRow) => {
+    const parsed = parseReplyBody(message.body);
     setEditingMessageId(message.id);
-    setEditingDraft(message.body);
+    setEditingDraft(parsed.cleanBody);
+    setEditingReplyToMessageId(parsed.replyToMessageId);
   };
 
   const cancelEditMessage = () => {
     setEditingMessageId(null);
     setEditingDraft("");
+    setEditingReplyToMessageId(null);
   };
 
   const saveEditedMessage = async (message: MessageRow) => {
@@ -649,6 +765,9 @@ export default function ChatPageClient(props: {
       setError("Message cannot be empty");
       return;
     }
+    const payloadBody = editingReplyToMessageId
+      ? `[[reply:${editingReplyToMessageId}]]\n${nextBody}`
+      : nextBody;
 
     setError("");
     setSuccess("");
@@ -657,7 +776,7 @@ export default function ChatPageClient(props: {
       const res = await fetch("/api/chat/messages", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message_id: message.id, body: nextBody }),
+        body: JSON.stringify({ message_id: message.id, body: payloadBody }),
       });
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -691,6 +810,7 @@ export default function ChatPageClient(props: {
 
       setEditingMessageId(null);
       setEditingDraft("");
+      setEditingReplyToMessageId(null);
       setSuccess("Message updated");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to edit message");
@@ -755,6 +875,27 @@ export default function ChatPageClient(props: {
   };
 
   useEffect(() => {
+    if (!selectedConversationId) return;
+    if (Object.prototype.hasOwnProperty.call(unreadAnchorByConversationId, selectedConversationId)) {
+      return;
+    }
+    const myMembership = (membersByConversationId[selectedConversationId] || []).find(
+      (member) => member.user_id === currentUserId
+    );
+    const hasUnread = (unreadByConversationId[selectedConversationId] || 0) > 0;
+    setUnreadAnchorByConversationId((prev) => ({
+      ...prev,
+      [selectedConversationId]: hasUnread ? myMembership?.last_read_at || null : null,
+    }));
+  }, [
+    currentUserId,
+    membersByConversationId,
+    selectedConversationId,
+    unreadAnchorByConversationId,
+    unreadByConversationId,
+  ]);
+
+  useEffect(() => {
     if (!selectedConversationId) {
       return;
     }
@@ -777,33 +918,47 @@ export default function ChatPageClient(props: {
   }, [fetchMessages, messagesByConversation, selectedConversationId]);
 
   useEffect(() => {
-    if (!selectedConversationId) {
-      return;
-    }
+    return () => {
+      if (highlightTimerRef.current) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
 
-    if ((unreadByConversationId[selectedConversationId] || 0) <= 0) {
-      return;
-    }
+  useEffect(() => {
+    if (!selectedConversationId || !selectedMessages.length) return;
+    if (initialPositionConversationIdRef.current === selectedConversationId) return;
+    initialPositionConversationIdRef.current = selectedConversationId;
 
-    const latestCreatedAt =
-      messagesByConversation[selectedConversationId]?.[
-        (messagesByConversation[selectedConversationId] || []).length - 1
-      ]?.created_at || null;
-
-    void markConversationRead(selectedConversationId, latestCreatedAt).catch(() => null);
+    requestAnimationFrame(() => {
+      if (firstUnreadMessageId) {
+        jumpToMessage(firstUnreadMessageId, "auto");
+      } else {
+        scrollMessageListToBottom("auto");
+      }
+    });
   }, [
-    markConversationRead,
-    messagesByConversation,
+    firstUnreadMessageId,
+    jumpToMessage,
+    scrollMessageListToBottom,
     selectedConversationId,
-    unreadByConversationId,
+    selectedMessages.length,
   ]);
 
   useEffect(() => {
-    if (!messageListRef.current) {
-      return;
-    }
-    messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
-  }, [selectedConversationId, selectedMessages.length]);
+    if (!selectedConversationId || !selectedMessages.length) return;
+    const latestMessage = selectedMessages[selectedMessages.length - 1];
+    if (!latestMessage || latestMessage.sender_id !== currentUserId) return;
+    requestAnimationFrame(() => {
+      scrollMessageListToBottom("smooth");
+    });
+  }, [
+    currentUserId,
+    scrollMessageListToBottom,
+    selectedConversationId,
+    selectedMessages,
+    selectedMessages.length,
+  ]);
 
   const composerDisabled = !selectedConversationId || isLoadingConversation;
 
@@ -1088,9 +1243,29 @@ export default function ChatPageClient(props: {
               <h2 className="text-base font-semibold text-slate-900">
                 {selectedConversation ? getConversationTitle(selectedConversation) : "Select chat"}
               </h2>
-              {isLoadingConversation ? (
-                <span className="text-xs font-medium text-slate-500">Refreshing...</span>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {firstUnreadMessageId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      jumpToMessage(firstUnreadMessageId);
+                      if (!selectedConversationId) return;
+                      const latestCreatedAt = selectedMessages[selectedMessages.length - 1]?.created_at || null;
+                      void markConversationRead(selectedConversationId, latestCreatedAt).catch(() => null);
+                      setUnreadAnchorByConversationId((prev) => ({
+                        ...prev,
+                        [selectedConversationId]: null,
+                      }));
+                    }}
+                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
+                  >
+                    Jump to unread
+                  </button>
+                ) : null}
+                {isLoadingConversation ? (
+                  <span className="text-xs font-medium text-slate-500">Refreshing...</span>
+                ) : null}
+              </div>
             </div>
             {selectedConversationId ? (
               <p className="mt-1 line-clamp-1 text-xs text-slate-500">
@@ -1109,7 +1284,16 @@ export default function ChatPageClient(props: {
                 className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3"
               >
                 {selectedMessages.length ? (
-                  selectedMessages.map((message) => {
+                  selectedMessages.map((message, index) => {
+                    const previousMessage = index > 0 ? selectedMessages[index - 1] : null;
+                    const startsNewDay = !previousMessage || !isSameCalendarDay(previousMessage.created_at, message.created_at);
+                    const groupedWithPrev =
+                      Boolean(previousMessage) &&
+                      !startsNewDay &&
+                      previousMessage?.sender_id === message.sender_id &&
+                      !previousMessage?.deleted_at &&
+                      !message.deleted_at &&
+                      toMs(message.created_at) - toMs(previousMessage?.created_at) <= 10 * 60 * 1000;
                     const senderUser = userById[message.sender_id] || null;
                     const senderName = getUserDisplayName(senderUser);
                     const senderAvatarUrl = getUserAvatarUrl(senderUser);
@@ -1119,6 +1303,10 @@ export default function ChatPageClient(props: {
                     const isEditing = editingMessageId === message.id;
                     const readNames = readByMessageId[message.id] || [];
                     const isLatestOwn = latestOwnMessageId === message.id;
+                    const { replyToMessageId, cleanBody } = parseReplyBody(message.body);
+                    const replyTarget = replyToMessageId ? selectedMessagesById[replyToMessageId] || null : null;
+                    const replySenderName = replyTarget ? getUserDisplayName(userById[replyTarget.sender_id] || null) : "Original message";
+                    const replyPreview = replyTarget ? toMessageSnippet(replyTarget) : "Original message is unavailable";
 
                     const reactionCounts = message.reactions.reduce<
                       Array<{ emoji: string; count: number; reactedByMe: boolean }>
@@ -1140,233 +1328,289 @@ export default function ChatPageClient(props: {
                     }, []);
 
                     return (
-                      <div
-                        key={message.id}
-                        className={`group/message relative -mx-1 flex w-full items-end gap-2 rounded-xl px-1 py-1 transition-colors ${
-                          isMine ? "justify-end" : "justify-start"
-                        } ${isEditing ? "bg-slate-100/70" : "hover:bg-slate-100/70"}`}
-                      >
-                        {!isMine ? (
-                          <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
-                            {senderAvatarUrl ? (
-                              <Image
-                                src={senderAvatarUrl}
-                                alt={`${senderName} avatar`}
-                                fill
-                                unoptimized
-                                sizes="32px"
-                                className="object-cover"
-                              />
-                            ) : (
-                              senderInitials
-                            )}
-                          </span>
+                      <div key={message.id}>
+                        {startsNewDay ? (
+                          <div className="my-3 flex items-center gap-3">
+                            <span className="h-px flex-1 bg-slate-200" />
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              {formatMessageDayLabel(message.created_at)}
+                            </span>
+                            <span className="h-px flex-1 bg-slate-200" />
+                          </div>
                         ) : null}
-                        <article className="relative max-w-[min(760px,92%)]">
-                          {!isEditing && !isDeleted ? (
-                            <div
-                              className={`absolute -top-3 z-20 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm transition-opacity duration-150 ${
-                                isMine ? "right-2" : "left-2"
-                              } opacity-100 md:pointer-events-none md:opacity-0 md:group-hover/message:pointer-events-auto md:group-hover/message:opacity-100 md:group-focus-within/message:pointer-events-auto md:group-focus-within/message:opacity-100`}
-                            >
-                              <EmojiPickerButton
-                                onSelect={(emoji) => {
-                                  void applyReaction(message, emoji);
-                                }}
-                                panelAlign={isMine ? "right" : "left"}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => startReplyToMessage(message, senderName)}
-                                className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+
+                        {firstUnreadMessageId === message.id ? (
+                          <div className="my-2 flex items-center gap-3">
+                            <span className="h-px flex-1 bg-blue-200" />
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                              Unread messages
+                            </span>
+                            <span className="h-px flex-1 bg-blue-200" />
+                          </div>
+                        ) : null}
+
+                        <div
+                          data-chat-message-id={message.id}
+                          className={`group/message relative -mx-1 flex w-full items-end gap-2 rounded-xl px-1 py-1 transition-colors ${
+                            highlightedMessageId === message.id
+                              ? "bg-amber-50 ring-1 ring-amber-300"
+                              : isEditing
+                                ? "bg-slate-100/70"
+                                : "hover:bg-slate-100/70"
+                          } ${isMine ? "justify-end" : "justify-start"}`}
+                        >
+                          {!isMine ? (
+                            groupedWithPrev ? (
+                              <span className="inline-block h-8 w-8 shrink-0" />
+                            ) : (
+                              <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
+                                {senderAvatarUrl ? (
+                                  <Image
+                                    src={senderAvatarUrl}
+                                    alt={`${senderName} avatar`}
+                                    fill
+                                    unoptimized
+                                    sizes="32px"
+                                    className="object-cover"
+                                  />
+                                ) : (
+                                  senderInitials
+                                )}
+                              </span>
+                            )
+                          ) : null}
+                          <article className="relative max-w-[min(760px,92%)]">
+                            {!isEditing && !isDeleted ? (
+                              <div
+                                className={`absolute -top-3 z-20 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm transition-opacity duration-150 ${
+                                  isMine ? "right-2" : "left-2"
+                                } opacity-100 md:pointer-events-none md:opacity-0 md:group-hover/message:pointer-events-auto md:group-hover/message:opacity-100 md:group-focus-within/message:pointer-events-auto md:group-focus-within/message:opacity-100`}
                               >
-                                Reply
-                              </button>
-                              {isMine ? (
+                                <EmojiPickerButton
+                                  onSelect={(emoji) => {
+                                    void applyReaction(message, emoji);
+                                  }}
+                                  panelAlign={isMine ? "right" : "left"}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => startReplyToMessage(message, senderName)}
+                                  className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                                >
+                                  Reply
+                                </button>
+                                {isMine ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditingMessage(message)}
+                                      className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void deleteMessage(message)}
+                                      className="inline-flex h-7 items-center rounded-md border border-red-200 bg-white px-2 text-[11px] font-medium text-red-700 hover:bg-red-50"
+                                    >
+                                      Delete
+                                    </button>
+                                  </>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <div
+                              className={`rounded-2xl border px-3 py-2 shadow-sm ${
+                                isMine
+                                  ? "border-blue-600 bg-blue-600 text-white"
+                                  : "border-slate-200 bg-white text-slate-900"
+                              }`}
+                            >
+                              {!groupedWithPrev ? (
+                                <div
+                                  className={`mb-1 flex items-center justify-between gap-3 text-[11px] ${
+                                    isMine ? "text-blue-100" : "text-slate-500"
+                                  }`}
+                                >
+                                  <span className="font-semibold">{senderName}</span>
+                                  <span>{formatMessageTime(message.created_at)}</span>
+                                </div>
+                              ) : null}
+
+                              {isEditing ? (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={editingDraft}
+                                    onChange={(event) => setEditingDraft(event.target.value)}
+                                    rows={3}
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                                  />
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={cancelEditMessage}
+                                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isSavingEdit}
+                                      onClick={() => void saveEditedMessage(message)}
+                                      className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                                    >
+                                      {isSavingEdit ? "Saving..." : "Save"}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : isDeleted ? (
+                                <p className={`text-sm italic ${isMine ? "text-blue-100" : "text-slate-500"}`}>
+                                  Message deleted
+                                </p>
+                              ) : (
                                 <>
-                                  <button
-                                    type="button"
-                                    onClick={() => startEditingMessage(message)}
-                                    className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void deleteMessage(message)}
-                                    className="inline-flex h-7 items-center rounded-md border border-red-200 bg-white px-2 text-[11px] font-medium text-red-700 hover:bg-red-50"
-                                  >
-                                    Delete
-                                  </button>
+                                  {replyToMessageId ? (
+                                    <button
+                                      type="button"
+                                      disabled={!replyTarget}
+                                      onClick={() => {
+                                        if (replyTarget) jumpToMessage(replyToMessageId);
+                                      }}
+                                      className={`mb-2 w-full rounded-lg border px-2.5 py-2 text-left text-xs ${
+                                        isMine
+                                          ? "border-blue-300 bg-blue-500/30 text-blue-50 hover:bg-blue-500/40"
+                                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                                      } ${replyTarget ? "" : "cursor-not-allowed opacity-70"}`}
+                                    >
+                                      <p className={`font-semibold ${isMine ? "text-blue-100" : "text-slate-600"}`}>
+                                        Reply to {replySenderName}
+                                      </p>
+                                      <p className="line-clamp-2">{replyPreview}</p>
+                                    </button>
+                                  ) : null}
+
+                                  {cleanBody ? (
+                                    <p className="whitespace-pre-wrap text-sm">{cleanBody}</p>
+                                  ) : null}
+
+                                  {message.links.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {message.links.map((link) => (
+                                        <Link
+                                          key={link.id}
+                                          href={link.href}
+                                          className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                                            isMine
+                                              ? "border-blue-300 bg-blue-500/30 text-white hover:bg-blue-500/40"
+                                              : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                                          }`}
+                                        >
+                                          {typeLabel[link.entity_type]}: {link.label}
+                                        </Link>
+                                      ))}
+                                    </div>
+                                  ) : null}
+
+                                  {message.attachments.length ? (
+                                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                      {message.attachments.map((attachment) =>
+                                        attachment.url ? (
+                                          <a
+                                            key={attachment.id}
+                                            href={attachment.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="block overflow-hidden rounded-md border border-slate-200"
+                                          >
+                                            <Image
+                                              src={attachment.url}
+                                              alt={attachment.filename}
+                                              width={320}
+                                              height={112}
+                                              unoptimized
+                                              className="h-28 w-full object-cover"
+                                            />
+                                          </a>
+                                        ) : (
+                                          <div
+                                            key={attachment.id}
+                                            className="flex h-28 items-center justify-center rounded-md border border-slate-200 bg-slate-100 px-2 text-center text-xs text-slate-600"
+                                          >
+                                            Attachment unavailable
+                                          </div>
+                                        )
+                                      )}
+                                    </div>
+                                  ) : null}
                                 </>
+                              )}
+
+                              {message.edited_at && !isDeleted && !isEditing ? (
+                                <p className={`mt-2 text-[11px] ${isMine ? "text-blue-100" : "text-slate-500"}`}>
+                                  Edited
+                                </p>
                               ) : null}
                             </div>
-                          ) : null}
-                          <div
-                            className={`rounded-2xl border px-3 py-2 shadow-sm ${
-                              isMine
-                                ? "border-blue-600 bg-blue-600 text-white"
-                                : "border-slate-200 bg-white text-slate-900"
-                            }`}
-                          >
-                            <div
-                              className={`mb-1 flex items-center justify-between gap-3 text-[11px] ${
-                                isMine ? "text-blue-100" : "text-slate-500"
-                              }`}
-                            >
-                              <span className="font-semibold">{senderName}</span>
-                              <span>{formatMessageTime(message.created_at)}</span>
-                            </div>
 
-                            {isEditing ? (
-                              <div className="space-y-2">
-                                <textarea
-                                  value={editingDraft}
-                                  onChange={(event) => setEditingDraft(event.target.value)}
-                                  rows={3}
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                                />
-                                <div className="flex justify-end gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={cancelEditMessage}
-                                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={isSavingEdit}
-                                    onClick={() => void saveEditedMessage(message)}
-                                    className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-                                  >
-                                    {isSavingEdit ? "Saving..." : "Save"}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : isDeleted ? (
-                              <p className={`text-sm italic ${isMine ? "text-blue-100" : "text-slate-500"}`}>
-                                Message deleted
-                              </p>
-                            ) : (
-                              <>
-                                {message.body ? (
-                                  <p className="whitespace-pre-wrap text-sm">{message.body}</p>
-                                ) : null}
-
-                                {message.links.length ? (
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    {message.links.map((link) => (
-                                      <Link
-                                        key={link.id}
-                                        href={link.href}
-                                        className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                                          isMine
-                                            ? "border-blue-300 bg-blue-500/30 text-white hover:bg-blue-500/40"
-                                            : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                            {!isEditing ? (
+                              <div
+                                className={`mt-1 flex flex-wrap items-center gap-1 ${
+                                  isMine ? "justify-end" : "justify-start"
+                                }`}
+                              >
+                                {!isDeleted
+                                  ? reactionCounts.map((item) => (
+                                      <button
+                                        key={`${message.id}-${item.emoji}`}
+                                        type="button"
+                                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+                                          item.reactedByMe
+                                            ? "border-blue-300 bg-blue-50 text-blue-700"
+                                            : "border-slate-200 bg-white text-slate-600"
                                         }`}
+                                        onClick={() => {
+                                          void applyReaction(message, item.emoji);
+                                        }}
                                       >
-                                        {typeLabel[link.entity_type]}: {link.label}
-                                      </Link>
-                                    ))}
-                                  </div>
-                                ) : null}
+                                        <span>{item.emoji}</span>
+                                        <span>{item.count}</span>
+                                      </button>
+                                    ))
+                                  : null}
+                              </div>
+                            ) : null}
 
-                                {message.attachments.length ? (
-                                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                    {message.attachments.map((attachment) =>
-                                      attachment.url ? (
-                                        <a
-                                          key={attachment.id}
-                                          href={attachment.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="block overflow-hidden rounded-md border border-slate-200"
-                                        >
-                                          <Image
-                                            src={attachment.url}
-                                            alt={attachment.filename}
-                                            width={320}
-                                            height={112}
-                                            unoptimized
-                                            className="h-28 w-full object-cover"
-                                          />
-                                        </a>
-                                      ) : (
-                                        <div
-                                          key={attachment.id}
-                                          className="flex h-28 items-center justify-center rounded-md border border-slate-200 bg-slate-100 px-2 text-center text-xs text-slate-600"
-                                        >
-                                          Attachment unavailable
-                                        </div>
-                                      )
-                                    )}
-                                  </div>
-                                ) : null}
-                              </>
-                            )}
-
-                            {message.edited_at && !isDeleted && !isEditing ? (
-                              <p className={`mt-2 text-[11px] ${isMine ? "text-blue-100" : "text-slate-500"}`}>
-                                Edited
+                            {isMine && isLatestOwn && readNames.length ? (
+                              <p className="mt-1 text-right text-[11px] text-slate-500">
+                                Seen by{" "}
+                                {readNames.length <= 2
+                                  ? readNames.join(", ")
+                                  : `${readNames[0]} +${readNames.length - 1}`}
                               </p>
                             ) : null}
-                          </div>
-
-                          {!isEditing ? (
-                            <div
-                              className={`mt-1 flex flex-wrap items-center gap-1 ${
-                                isMine ? "justify-end" : "justify-start"
-                              }`}
-                            >
-                              {!isDeleted
-                                ? reactionCounts.map((item) => (
-                                    <button
-                                      key={`${message.id}-${item.emoji}`}
-                                      type="button"
-                                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
-                                        item.reactedByMe
-                                          ? "border-blue-300 bg-blue-50 text-blue-700"
-                                          : "border-slate-200 bg-white text-slate-600"
-                                      }`}
-                                      onClick={() => {
-                                        void applyReaction(message, item.emoji);
-                                      }}
-                                    >
-                                      <span>{item.emoji}</span>
-                                      <span>{item.count}</span>
-                                    </button>
-                                  ))
-                                : null}
-                            </div>
-                          ) : null}
-
-                          {isMine && isLatestOwn && readNames.length ? (
-                            <p className="mt-1 text-right text-[11px] text-slate-500">
-                              Seen by{" "}
-                              {readNames.length <= 2
-                                ? readNames.join(", ")
-                                : `${readNames[0]} +${readNames.length - 1}`}
-                            </p>
-                          ) : null}
-                        </article>
-                        {isMine ? (
-                          <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
-                            {senderAvatarUrl ? (
-                              <Image
-                                src={senderAvatarUrl}
-                                alt={`${senderName} avatar`}
-                                fill
-                                unoptimized
-                                sizes="32px"
-                                className="object-cover"
-                              />
+                          </article>
+                          {isMine ? (
+                            groupedWithPrev ? (
+                              <span className="inline-block h-8 w-8 shrink-0" />
                             ) : (
-                              senderInitials
-                            )}
-                          </span>
-                        ) : null}
+                              <span className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-700">
+                                {senderAvatarUrl ? (
+                                  <Image
+                                    src={senderAvatarUrl}
+                                    alt={`${senderName} avatar`}
+                                    fill
+                                    unoptimized
+                                    sizes="32px"
+                                    className="object-cover"
+                                  />
+                                ) : (
+                                  senderInitials
+                                )}
+                              </span>
+                            )
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })
@@ -1380,17 +1624,21 @@ export default function ChatPageClient(props: {
                   conversationId={selectedConversationId}
                   isSending={isSending || composerDisabled}
                   insertDraftRequest={composerInsertRequest}
-                  onSend={async ({ body, links, attachments }) => {
+                  onSend={async ({ body, links, attachments, replyToMessageId }) => {
                     setError("");
                     setSuccess("");
                     try {
                       setIsSending(true);
+                      const normalizedBody = String(body || "").trim();
+                      const payloadBody = replyToMessageId
+                        ? `[[reply:${replyToMessageId}]]\n${normalizedBody}`
+                        : normalizedBody;
                       const res = await fetch("/api/chat/messages", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                           conversation_id: selectedConversationId,
-                          body,
+                          body: payloadBody,
                           attachments,
                           links: links.map((link) => ({
                             entity_type: link.entityType,
