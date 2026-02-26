@@ -1319,17 +1319,6 @@ export default async function ClientSchedulePage({
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-medium text-slate-900">{row.display_name}</p>
-                          <div className="mt-1 space-y-1">
-                            <div className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              Work {formatHours(periodTotals.workingMinutes)}h
-                            </div>
-                            <div className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                              Break {formatHours(periodTotals.breakMinutes)}h
-                            </div>
-                            <div className="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                              Total {formatHours(periodTotals.totalMinutes)}h
-                            </div>
-                          </div>
                           <p className="text-xs text-slate-500">{row.role_label}</p>
                           {canEdit ? (
                             <form action={removeRosterUserAction}>
@@ -1339,25 +1328,44 @@ export default async function ClientSchedulePage({
                             </form>
                           ) : null}
                         </div>
-                        {periodJobTallies.length ? (
-                          <div className="ml-auto min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
-                            <ul className="mt-1 space-y-1">
-                              {periodJobTallies.map((tally) => (
-                                <li key={tally.key} className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-700">
-                                  <span className="inline-flex min-w-0 items-center gap-1">
-                                    <span
-                                      className={`inline-flex h-1.5 w-1.5 rounded-full ${tally.colorHex ? "" : "bg-slate-400"}`}
-                                      style={tally.colorHex ? { backgroundColor: tally.colorHex } : undefined}
-                                    />
-                                    <span className="truncate">{tally.label}</span>
-                                  </span>
-                                  <span className="text-slate-600">{formatHours(tally.minutes)}h</span>
-                                </li>
-                              ))}
+                        <div className="ml-auto flex min-w-[9.5rem] flex-col gap-2">
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Hours</p>
+                            <ul className="mt-1 space-y-1 text-[10px] font-semibold text-slate-700">
+                              <li className="flex items-center justify-between gap-2">
+                                <span className="text-emerald-700">Work</span>
+                                <span className="text-slate-600">{formatHours(periodTotals.workingMinutes)}h</span>
+                              </li>
+                              <li className="flex items-center justify-between gap-2">
+                                <span className="text-amber-700">Break</span>
+                                <span className="text-slate-600">{formatHours(periodTotals.breakMinutes)}h</span>
+                              </li>
+                              <li className="flex items-center justify-between gap-2">
+                                <span>Total</span>
+                                <span className="text-slate-700">{formatHours(periodTotals.totalMinutes)}h</span>
+                              </li>
                             </ul>
                           </div>
-                        ) : null}
+                          {periodJobTallies.length ? (
+                            <div className="min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
+                              <ul className="mt-1 space-y-1">
+                                {periodJobTallies.map((tally) => (
+                                  <li key={tally.key} className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-700">
+                                    <span className="inline-flex min-w-0 items-center gap-1">
+                                      <span
+                                        className={`inline-flex h-1.5 w-1.5 rounded-full ${tally.colorHex ? "" : "bg-slate-400"}`}
+                                        style={tally.colorHex ? { backgroundColor: tally.colorHex } : undefined}
+                                      />
+                                      <span className="truncate">{tally.label}</span>
+                                    </span>
+                                    <span className="text-slate-600">{formatHours(tally.minutes)}h</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
                     {visibleDays.map((day) => {
