@@ -343,7 +343,12 @@ function ColumnEditPanel({
   const [formulaValue, setFormulaValue] = useState(column.formula || "");
   const [isFormulaEditorOpen, setIsFormulaEditorOpen] = useState(false);
   const detailsRef = useRef<HTMLDetailsElement | null>(null);
+  const summaryRef = useRef<HTMLElement | null>(null);
   const updateFormRef = useRef<HTMLFormElement | null>(null);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(
+    null
+  );
   const dropdownSource = parseDropdownSource(column.options_json);
   const initialLabel = column.label;
   const initialKind = column.column_kind;
@@ -361,6 +366,37 @@ function ColumnEditPanel({
       setIsFormulaEditorOpen(false);
     }
   }, [columnKind, isFormulaEditorOpen]);
+
+  const computePanelPosition = useCallback((trigger: HTMLElement) => {
+    if (typeof window === "undefined") return null;
+    const rect = trigger.getBoundingClientRect();
+    const panelWidth = 288;
+    const viewportPadding = 8;
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - panelWidth),
+      Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+    );
+    const top = Math.max(viewportPadding, rect.bottom + 6);
+    return { left, top };
+  }, []);
+
+  useEffect(() => {
+    if (!isPanelOpen) return;
+
+    const syncPanelPosition = () => {
+      if (!summaryRef.current) return;
+      const next = computePanelPosition(summaryRef.current);
+      if (next) setPanelPosition(next);
+    };
+
+    syncPanelPosition();
+    window.addEventListener("scroll", syncPanelPosition, true);
+    window.addEventListener("resize", syncPanelPosition);
+    return () => {
+      window.removeEventListener("scroll", syncPanelPosition, true);
+      window.removeEventListener("resize", syncPanelPosition);
+    };
+  }, [computePanelPosition, isPanelOpen]);
 
   const runAction = (
     event: FormEvent<HTMLFormElement>,
@@ -464,15 +500,35 @@ function ColumnEditPanel({
       ref={detailsRef}
       className="relative shrink-0"
       data-inventory-popover="true"
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setIsPanelOpen(nextOpen);
+        if (!nextOpen) {
+          setPanelPosition(null);
+          return;
+        }
+        if (summaryRef.current) {
+          const nextPosition = computePanelPosition(summaryRef.current);
+          if (nextPosition) setPanelPosition(nextPosition);
+        }
+      }}
     >
       <summary
+        ref={summaryRef}
         className="flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold tracking-normal text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
         aria-label={`Edit ${column.label}`}
         title={`Edit ${column.label}`}
       >
         Edit
       </summary>
-      <div className="absolute right-0 z-[140] mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 text-left normal-case shadow-lg">
+      <div
+        className="fixed z-[280] w-72 max-h-[min(80vh,42rem)] overflow-auto rounded-md border border-slate-200 bg-white p-3 text-left normal-case shadow-lg"
+        style={
+          panelPosition
+            ? { left: panelPosition.left, top: panelPosition.top }
+            : { left: 8, top: 8 }
+        }
+      >
         <div className="mb-2 grid grid-cols-2 gap-2">
           <form onSubmit={(event) => runAction(event, onMoveColumn, { refresh: true })}>
             <input type="hidden" name="column_id" value={column.id} />
@@ -700,6 +756,9 @@ export default function InventoryTable({
   const [columnTextFilters, setColumnTextFilters] = useState<Record<string, string>>({});
   const [columnOptionFilters, setColumnOptionFilters] = useState<Record<string, string[]>>({});
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [openMenuPosition, setOpenMenuPosition] = useState<{ left: number; top: number } | null>(
+    null
+  );
   const [rowContextMenu, setRowContextMenu] = useState<RowContextMenuState | null>(null);
   const [hasLoadedVisibility, setHasLoadedVisibility] = useState(false);
   const [hasLoadedFilters, setHasLoadedFilters] = useState(false);
@@ -708,6 +767,7 @@ export default function InventoryTable({
   const lastPointerDownTargetRef = useRef<Element | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openMenuRef = useRef<string | null>(null);
+  const openMenuAnchorRef = useRef<HTMLElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const rowContextMenuRef = useRef<HTMLDivElement | null>(null);
   const tableRootRef = useRef<HTMLDivElement | null>(null);
@@ -926,11 +986,34 @@ export default function InventoryTable({
   }, []);
 
   useEffect(() => {
-    if (!openMenu) return;
+    if (!openMenu) {
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+      return;
+    }
+
+    const closeOpenMenu = () => {
+      setOpenMenu(null);
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+    };
+
+    const syncOpenMenuPosition = () => {
+      if (!openMenuAnchorRef.current || typeof window === "undefined") return;
+      const rect = openMenuAnchorRef.current.getBoundingClientRect();
+      const panelWidth = 288;
+      const viewportPadding = 8;
+      const left = Math.min(
+        Math.max(viewportPadding, rect.right - panelWidth),
+        Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+      );
+      const top = Math.max(viewportPadding, rect.bottom + 8);
+      setOpenMenuPosition({ left, top });
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpenMenu(null);
+        closeOpenMenu();
       }
     };
 
@@ -938,15 +1021,20 @@ export default function InventoryTable({
       const target = event.target as Node | null;
       if (!target) return;
       if (menuRef.current && !menuRef.current.contains(target)) {
-        setOpenMenu(null);
+        closeOpenMenu();
       }
     };
 
+    syncOpenMenuPosition();
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("scroll", syncOpenMenuPosition, true);
+    window.addEventListener("resize", syncOpenMenuPosition);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", syncOpenMenuPosition, true);
+      window.removeEventListener("resize", syncOpenMenuPosition);
     };
   }, [openMenu]);
 
@@ -1390,6 +1478,35 @@ export default function InventoryTable({
 
   const hasAnyFilters = activeFilterCount > 0;
 
+  const computeHeaderMenuPosition = useCallback((trigger: HTMLElement) => {
+    if (typeof window === "undefined") return null;
+    const rect = trigger.getBoundingClientRect();
+    const panelWidth = 288;
+    const viewportPadding = 8;
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - panelWidth),
+      Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+    );
+    const top = Math.max(viewportPadding, rect.bottom + 8);
+    return { left, top };
+  }, []);
+
+  const toggleHeaderMenu = useCallback(
+    (menuKey: string, trigger: HTMLElement) => {
+      if (openMenu === menuKey) {
+        setOpenMenu(null);
+        setOpenMenuPosition(null);
+        openMenuAnchorRef.current = null;
+        return;
+      }
+      openMenuAnchorRef.current = trigger;
+      const nextPosition = computeHeaderMenuPosition(trigger);
+      setOpenMenuPosition(nextPosition);
+      setOpenMenu(menuKey);
+    },
+    [computeHeaderMenuPosition, openMenu]
+  );
+
   const preventMiddleClickAutoscroll = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button === 1) {
       event.preventDefault();
@@ -1465,9 +1582,7 @@ export default function InventoryTable({
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        setOpenMenu((current) =>
-                          current === "full_name" ? null : "full_name"
-                        );
+                        toggleHeaderMenu("full_name", event.currentTarget);
                       }}
                     >
                       <FilterIcon active={Boolean(fullNameFilter.trim())} />
@@ -1485,7 +1600,12 @@ export default function InventoryTable({
                   {openMenu === "full_name" ? (
                     <div
                       ref={menuRef}
-                      className="absolute right-0 top-full z-[150] mt-2 normal-case"
+                      className="fixed z-[260] normal-case"
+                      style={
+                        openMenuPosition
+                          ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                          : { left: 8, top: 8 }
+                      }
                     >
                       <FilterMenuText
                         title="Inventory Item"
@@ -1526,9 +1646,7 @@ export default function InventoryTable({
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            setOpenMenu((current) =>
-                              current === columnMenuKey ? null : columnMenuKey
-                            );
+                            toggleHeaderMenu(columnMenuKey, event.currentTarget);
                           }}
                         >
                           <FilterIcon active={hasColumnFilter} />
@@ -1548,7 +1666,12 @@ export default function InventoryTable({
                       {openMenu === columnMenuKey ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-[150] mt-2 normal-case"
+                          className="fixed z-[260] normal-case"
+                          style={
+                            openMenuPosition
+                              ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                              : { left: 8, top: 8 }
+                          }
                         >
                           {isDropdownFilter ? (
                             <FilterMenuMulti
