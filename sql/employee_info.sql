@@ -6,14 +6,26 @@ create table if not exists public.employee_info_records (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
   client_id uuid references public.clients(id) on delete set null,
+  user_id uuid references public.users(id) on delete set null,
   created_by_user_id uuid references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint employee_info_records_full_name_not_blank check (length(trim(full_name)) > 0)
 );
 
+alter table public.employee_info_records
+  add column if not exists user_id uuid references public.users(id) on delete set null;
+
 create index if not exists employee_info_records_client_created_idx
   on public.employee_info_records(client_id, created_at desc);
+
+create unique index if not exists employee_info_records_user_id_unique_idx
+  on public.employee_info_records(user_id)
+  where user_id is not null;
+
+create index if not exists employee_info_records_user_id_created_idx
+  on public.employee_info_records(user_id, created_at desc)
+  where user_id is not null;
 
 create table if not exists public.employee_info_columns (
   id uuid primary key default gen_random_uuid(),
@@ -286,3 +298,40 @@ grant select, insert, update, delete on table public.employee_info_columns to au
 grant select, insert, update, delete on table public.employee_info_values to authenticated;
 grant select, insert, update, delete on table public.employee_info_exchange_rates to authenticated;
 grant select, insert, delete on table public.employee_info_access_users to authenticated;
+
+create or replace function public.employee_info_auto_create_record_for_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.employee_info_records (
+    full_name,
+    client_id,
+    user_id,
+    created_by_user_id
+  )
+  values (
+    coalesce(
+      nullif(trim(new.full_name), ''),
+      nullif(trim(new.email), ''),
+      new.id::text
+    ),
+    null,
+    new.id,
+    null
+  )
+  on conflict (user_id) where user_id is not null do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_employee_info_auto_create_record_for_user
+  on public.users;
+
+create trigger trg_employee_info_auto_create_record_for_user
+after insert on public.users
+for each row
+execute procedure public.employee_info_auto_create_record_for_user();
