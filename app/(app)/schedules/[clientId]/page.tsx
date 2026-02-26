@@ -1328,7 +1328,7 @@ export default async function ClientSchedulePage({
                             </form>
                           ) : null}
                         </div>
-                        <div className="ml-auto flex min-w-[9.5rem] flex-col gap-2">
+                        <div className="ml-auto grid grid-cols-[minmax(9.5rem,10.5rem)_minmax(9rem,11rem)] gap-2">
                           <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
                             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Hours</p>
                             <ul className="mt-1 space-y-1 text-[10px] font-semibold text-slate-700">
@@ -1346,9 +1346,9 @@ export default async function ClientSchedulePage({
                               </li>
                             </ul>
                           </div>
-                          {periodJobTallies.length ? (
-                            <div className="min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
+                          <div className="min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
+                            {periodJobTallies.length ? (
                               <ul className="mt-1 space-y-1">
                                 {periodJobTallies.map((tally) => (
                                   <li key={tally.key} className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-700">
@@ -1363,8 +1363,10 @@ export default async function ClientSchedulePage({
                                   </li>
                                 ))}
                               </ul>
-                            </div>
-                          ) : null}
+                            ) : (
+                              <p className="mt-1 text-[10px] text-slate-400">No job totals</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
