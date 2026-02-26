@@ -636,13 +636,9 @@ export default async function ClientSchedulePage({
   return (
     <div className="space-y-6">
       <section className="space-y-2">
-        <Link href="/schedules" className="text-sm text-slate-600 hover:underline">
-          Back to clients
-        </Link>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">{client.name} Schedule</h1>
-            <p className="text-sm text-slate-600">Week of {formatDateLabel(weekStart)}</p>
           </div>
           <div className="flex items-center gap-1.5">
             <Link
