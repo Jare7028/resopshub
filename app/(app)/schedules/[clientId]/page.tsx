@@ -1267,8 +1267,7 @@ export default async function ClientSchedulePage({
       ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Grid View</h2>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <form method="get" className="flex flex-wrap items-center gap-2 text-xs">
             <input type="hidden" name="week" value={weekStart} />
             <input type="hidden" name="range" value={rangeView} />

@@ -476,11 +476,7 @@ function ScheduleGridDndClient() {
         >
           {isApplying ? "Updating schedule..." : toastMessage}
         </div>
-      ) : (
-        <div className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
-          Drag shift to move. Hold Shift while dragging to copy.
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }
