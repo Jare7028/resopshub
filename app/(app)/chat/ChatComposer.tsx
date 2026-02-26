@@ -410,11 +410,6 @@ export default function ChatComposer(props: {
       </div>
 
       {uploadError ? <p className="text-xs text-red-600">{uploadError}</p> : null}
-      {!uploadError ? (
-        <p className="text-[11px] text-slate-500">
-          Enter to send. Shift+Enter for a new line. Add emoji, paste, or upload images.
-        </p>
-      ) : null}
 
       {attachedImages.length ? (
         <div className="flex flex-wrap gap-2">

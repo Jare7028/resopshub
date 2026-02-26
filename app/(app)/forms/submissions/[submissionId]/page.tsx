@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import ConfirmSubmitButton from "../../../_components/ConfirmSubmitButton";
 import {
   formSubmissionStatusOptions,
   formatFormLabel,
@@ -45,6 +46,7 @@ export default async function FormSubmissionDetailPage(props: {
   if (!submission) {
     notFound();
   }
+  const submissionFormId = String(submission.form_id || "").trim();
 
   const [{ data: form }, { data: comments }, { data: templateTasks }, { data: actionTasks }] =
     await Promise.all([
@@ -179,6 +181,32 @@ export default async function FormSubmissionDetailPage(props: {
     redirect(`${detailPath}?${detailParams.toString()}`);
   }
 
+  async function deleteSubmission() {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const detailParams = new URLSearchParams();
+    detailParams.set("return_to", returnTo);
+
+    const { error } = await supabase.from("form_submissions").delete().eq("id", submissionId);
+    if (error) {
+      detailParams.set("error", error.message);
+      redirect(`${detailPath}?${detailParams.toString()}`);
+    }
+
+    revalidatePath("/forms");
+    if (submissionFormId) {
+      revalidatePath(`/forms/${submissionFormId}`);
+    }
+
+    const returnParams = new URLSearchParams();
+    returnParams.set("success", "Submission deleted");
+    redirect(
+      returnTo.includes("?")
+        ? `${returnTo}&${returnParams.toString()}`
+        : `${returnTo}?${returnParams.toString()}`
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -192,12 +220,23 @@ export default async function FormSubmissionDetailPage(props: {
             {new Date(submission.created_at).toLocaleString()}
           </p>
         </div>
-        <Link
-          href={returnTo}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-        >
-          Back
-        </Link>
+        <div className="flex items-center gap-2">
+          <form action={deleteSubmission}>
+            <ConfirmSubmitButton
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+              confirmText="Delete this submission? This cannot be undone."
+              pendingLabel="Deleting..."
+            >
+              Delete submission
+            </ConfirmSubmitButton>
+          </form>
+          <Link
+            href={returnTo}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+          >
+            Back
+          </Link>
+        </div>
       </div>
 
       {(searchParams?.error || searchParams?.success) && (

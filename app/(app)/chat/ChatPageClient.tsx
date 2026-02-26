@@ -289,6 +289,12 @@ export default function ChatPageClient(props: {
   const [isSavingConversationPrefsById, setIsSavingConversationPrefsById] = useState<
     Record<string, boolean>
   >({});
+  const [isConversationSettingsOpen, setIsConversationSettingsOpen] = useState(false);
+  const [isEditUsersOpen, setIsEditUsersOpen] = useState(false);
+  const [isUpdatingConversationMembers, setIsUpdatingConversationMembers] = useState(false);
+  const [memberDraftUserId, setMemberDraftUserId] = useState("");
+  const [memberEditorError, setMemberEditorError] = useState("");
+  const [memberEditorSuccess, setMemberEditorSuccess] = useState("");
 
   const [searchChats, setSearchChats] = useState("");
   const [addMode, setAddMode] = useState<"direct" | "group">("direct");
@@ -413,6 +419,30 @@ export default function ChatPageClient(props: {
     if (!selectedConversationId) return [];
     return membersByConversationId[selectedConversationId] || [];
   }, [membersByConversationId, selectedConversationId]);
+
+  const selectedConversationMembership = useMemo(() => {
+    if (!selectedConversationId) return null;
+    return myMembershipByConversationId[selectedConversationId] || null;
+  }, [myMembershipByConversationId, selectedConversationId]);
+
+  const selectedConversationIsGroup = selectedConversation?.type === "group";
+  const canManageSelectedConversationMembers =
+    selectedConversationIsGroup && selectedConversationMembership?.role === "owner";
+
+  const selectedConversationMemberUserIds = useMemo(
+    () => new Set(selectedConversationMembers.map((member) => member.user_id)),
+    [selectedConversationMembers]
+  );
+
+  const addableUsersForSelectedConversation = useMemo(() => {
+    if (!selectedConversationId || !selectedConversationIsGroup) return [];
+    return users.filter((user) => !selectedConversationMemberUserIds.has(user.id));
+  }, [
+    selectedConversationId,
+    selectedConversationIsGroup,
+    selectedConversationMemberUserIds,
+    users,
+  ]);
 
   const selectedMessagesById = useMemo(() => {
     return selectedMessages.reduce<Record<string, MessageRow>>((acc, message) => {
@@ -795,6 +825,79 @@ export default function ChatPageClient(props: {
     [currentUserId, myMembershipByConversationId]
   );
 
+  const addConversationMember = useCallback(async () => {
+    if (!selectedConversationId) return;
+    const nextUserId = String(memberDraftUserId || "").trim();
+    if (!nextUserId) {
+      setMemberEditorError("Select a teammate to add.");
+      return;
+    }
+
+    setMemberEditorError("");
+    setMemberEditorSuccess("");
+    try {
+      setIsUpdatingConversationMembers(true);
+      const res = await fetch("/api/chat/conversations/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversation_id: selectedConversationId,
+          user_id: nextUserId,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        members?: ConversationMemberRow[];
+      };
+      if (!res.ok || !json.members) {
+        throw new Error(json.error || "Unable to add member");
+      }
+      upsertConversationMembers(selectedConversationId, json.members);
+      setMemberDraftUserId("");
+      setMemberEditorSuccess("Member added");
+    } catch (err) {
+      setMemberEditorError(err instanceof Error ? err.message : "Unable to add member");
+    } finally {
+      setIsUpdatingConversationMembers(false);
+    }
+  }, [memberDraftUserId, selectedConversationId, upsertConversationMembers]);
+
+  const removeConversationMember = useCallback(
+    async (memberUserId: string) => {
+      if (!selectedConversationId) return;
+      const targetUserId = String(memberUserId || "").trim();
+      if (!targetUserId) return;
+
+      setMemberEditorError("");
+      setMemberEditorSuccess("");
+      try {
+        setIsUpdatingConversationMembers(true);
+        const res = await fetch("/api/chat/conversations/members", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: selectedConversationId,
+            user_id: targetUserId,
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          members?: ConversationMemberRow[];
+        };
+        if (!res.ok || !json.members) {
+          throw new Error(json.error || "Unable to remove member");
+        }
+        upsertConversationMembers(selectedConversationId, json.members);
+        setMemberEditorSuccess("Member removed");
+      } catch (err) {
+        setMemberEditorError(err instanceof Error ? err.message : "Unable to remove member");
+      } finally {
+        setIsUpdatingConversationMembers(false);
+      }
+    },
+    [selectedConversationId, upsertConversationMembers]
+  );
+
   const toggleReaction = async (message: MessageRow, emoji: string) => {
     if (message.deleted_at) {
       return;
@@ -1054,6 +1157,14 @@ export default function ChatPageClient(props: {
       }
     };
   }, []);
+
+  useEffect(() => {
+    setIsConversationSettingsOpen(false);
+    setIsEditUsersOpen(false);
+    setMemberDraftUserId("");
+    setMemberEditorError("");
+    setMemberEditorSuccess("");
+  }, [selectedConversationId]);
 
   useEffect(() => {
     if (!selectedConversationId || !selectedMessages.length) return;
@@ -1444,7 +1555,7 @@ export default function ChatPageClient(props: {
 
       <section className="min-h-0 overflow-hidden bg-slate-100">
         <div className="flex h-full min-h-0 flex-col border-l border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-5 py-4">
+          <div className="relative border-b border-slate-200 px-5 py-4">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-slate-900">
                 {selectedConversation ? getConversationTitle(selectedConversation) : "Select chat"}
@@ -1468,6 +1579,51 @@ export default function ChatPageClient(props: {
                     Jump to unread
                   </button>
                 ) : null}
+                {selectedConversationId ? (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConversationSettingsOpen((prev) => !prev);
+                        setMemberEditorError("");
+                        setMemberEditorSuccess("");
+                      }}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                      aria-label="Chat settings"
+                      title="Chat settings"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="3.5" />
+                        <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2h.1a1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1v.1a1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6z" />
+                      </svg>
+                    </button>
+                    {isConversationSettingsOpen ? (
+                      <div className="absolute right-0 top-9 z-30 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsConversationSettingsOpen(false);
+                            setIsEditUsersOpen(true);
+                            setMemberEditorError("");
+                            setMemberEditorSuccess("");
+                          }}
+                          className="block w-full rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        >
+                          Edit users
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {isLoadingConversation ? (
                   <span className="text-xs font-medium text-slate-500">Refreshing...</span>
                 ) : null}
@@ -1480,6 +1636,145 @@ export default function ChatPageClient(props: {
                   .map((member) => getUserDisplayName(userById[member.user_id]))
                   .join(", ")}
               </p>
+            ) : null}
+            {selectedConversationId && isEditUsersOpen ? (
+              <div className="absolute right-5 top-[calc(100%-2px)] z-30 mt-2 w-[min(440px,calc(100vw-3rem))] rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">Edit users</h3>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditUsersOpen(false)}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {memberEditorError ? (
+                  <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {memberEditorError}
+                  </p>
+                ) : null}
+                {memberEditorSuccess ? (
+                  <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                    {memberEditorSuccess}
+                  </p>
+                ) : null}
+
+                {!selectedConversationIsGroup ? (
+                  <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Direct chats don&apos;t support member editing. Create a group chat to manage
+                    members.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                        Add member
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <select
+                          value={memberDraftUserId}
+                          onChange={(event) => setMemberDraftUserId(event.target.value)}
+                          className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs"
+                          disabled={
+                            !canManageSelectedConversationMembers || isUpdatingConversationMembers
+                          }
+                        >
+                          <option value="">Select teammate</option>
+                          {addableUsersForSelectedConversation.map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {getUserDisplayName(user)}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void addConversationMember();
+                          }}
+                          disabled={
+                            !canManageSelectedConversationMembers ||
+                            !memberDraftUserId ||
+                            isUpdatingConversationMembers
+                          }
+                          className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isUpdatingConversationMembers ? "Saving..." : "Add"}
+                        </button>
+                      </div>
+                      {!canManageSelectedConversationMembers ? (
+                        <p className="mt-2 text-[11px] text-slate-500">
+                          Only group owners can add or remove users.
+                        </p>
+                      ) : null}
+                      {canManageSelectedConversationMembers &&
+                      !addableUsersForSelectedConversation.length ? (
+                        <p className="mt-2 text-[11px] text-slate-500">
+                          Everyone is already in this chat.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-white">
+                      <p className="border-b border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                        Members
+                      </p>
+                      <div className="max-h-48 overflow-y-auto">
+                        {selectedConversationMembers
+                          .slice()
+                          .sort((left, right) => {
+                            if (left.role === right.role) {
+                              const leftName = getUserDisplayName(userById[left.user_id]);
+                              const rightName = getUserDisplayName(userById[right.user_id]);
+                              return leftName.localeCompare(rightName);
+                            }
+                            return left.role === "owner" ? -1 : 1;
+                          })
+                          .map((member) => {
+                            const memberName = getUserDisplayName(userById[member.user_id]);
+                            const isSelf = member.user_id === currentUserId;
+                            const canRemove =
+                              canManageSelectedConversationMembers &&
+                              !isSelf &&
+                              !isUpdatingConversationMembers;
+                            return (
+                              <div
+                                key={`${member.conversation_id}-${member.user_id}`}
+                                className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 last:border-b-0"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-medium text-slate-800">
+                                    {memberName}
+                                  </p>
+                                  <p className="mt-0.5 flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500">
+                                    <span>{member.role}</span>
+                                    {isSelf ? (
+                                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-600">
+                                        You
+                                      </span>
+                                    ) : null}
+                                  </p>
+                                </div>
+                                {canRemove ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void removeConversationMember(member.user_id);
+                                    }}
+                                    className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                                  >
+                                    Remove
+                                  </button>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : null}
           </div>
 
