@@ -16,6 +16,11 @@ import FormConfigureAutosave from "../FormConfigureAutosave";
 import FormAccessPopover from "../FormAccessPopover";
 import FormShareLinksPopover from "../FormShareLinksPopover";
 import {
+  formatSubmissionValue,
+  shortQuestionLabel,
+  type SubmissionTableField,
+} from "../formSubmissionTableUtils";
+import {
   buildFieldKey,
   doesFormFieldVisibilityMatch,
   ensureUniqueFormFieldKeys,
@@ -285,7 +290,7 @@ export default async function FormDetailPage(props: {
       .order("created_at", { ascending: true }),
     supabase
       .from("form_submissions")
-      .select("id,status,submitted_by,created_at")
+      .select("id,status,submitted_by,created_at,values_json")
       .eq("form_id", formId)
       .order("created_at", { ascending: false }),
     supabase.from("task_templates").select("id,name,title").order("name", { ascending: true }),
@@ -355,7 +360,14 @@ export default async function FormDetailPage(props: {
     status: string | null;
     submitted_by: string | null;
     created_at: string;
+    values_json: Record<string, unknown> | null;
   }>;
+
+  const questionColumns = formFields.map((field) => ({
+    key: field.key,
+    label: String(field.label || formatFormLabel(field.key)),
+    type: field.type,
+  })) as SubmissionTableField[];
 
   const submissionUserIds = Array.from(
     new Set(submissions.map((submission) => submission.submitted_by).filter(Boolean))
@@ -1295,6 +1307,16 @@ export default async function FormDetailPage(props: {
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-6 py-3">Submission</th>
+                {questionColumns.map((column) => (
+                  <th key={column.key} className="px-4 py-3 normal-case">
+                    <span
+                      className="block max-w-[11rem] truncate whitespace-nowrap text-[11px] font-semibold tracking-wide text-slate-600"
+                      title={column.label}
+                    >
+                      {shortQuestionLabel(column.label)}
+                    </span>
+                  </th>
+                ))}
                 <th className="px-6 py-3">
                   <Link
                     href={buildDetailUrl(
@@ -1354,6 +1376,19 @@ export default async function FormDetailPage(props: {
                         {submission.id.slice(0, 8)}
                       </Link>
                     </td>
+                    {questionColumns.map((column) => {
+                      const displayValue = formatSubmissionValue(column, submission.values_json);
+                      return (
+                        <td key={`${submission.id}-${column.key}`} className="px-4 py-3 text-slate-700">
+                          <span
+                            className="block max-w-[14rem] truncate whitespace-nowrap"
+                            title={displayValue}
+                          >
+                            {displayValue}
+                          </span>
+                        </td>
+                      );
+                    })}
                     <td className="px-6 py-3 text-slate-700">
                       {formatFormLabel(String(submission.status || "open"))}
                     </td>
@@ -1367,7 +1402,7 @@ export default async function FormDetailPage(props: {
                 ))
               ) : (
                 <tr>
-                  <td className="px-6 py-6 text-sm text-slate-500" colSpan={4}>
+                  <td className="px-6 py-6 text-sm text-slate-500" colSpan={1 + questionColumns.length + 3}>
                     No submissions found.
                   </td>
                 </tr>
