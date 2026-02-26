@@ -74,6 +74,12 @@ type JobHoursTally = {
   colorHex: string | null;
 };
 
+type RosterPeriodTotals = {
+  workingMinutes: number;
+  breakMinutes: number;
+  totalMinutes: number;
+};
+
 function normalizeRangeView(value: string | null | undefined): RangeView {
   const v = String(value || "").trim().toLowerCase();
   if (v === "day") return "day";
@@ -713,6 +719,18 @@ export default async function ClientSchedulePage({
       }),
     ])
   ) as Record<string, JobHoursTally[]>;
+  const rosterPeriodTotalsById = filteredShifts.reduce<Record<string, RosterPeriodTotals>>((acc, shift) => {
+    if (shift.is_open || !shift.roster_entry_id) return acc;
+    const rosterId = shift.roster_entry_id;
+    const workedMinutes = shiftWorkedMinutes(shift);
+    const breakMinutes = Math.max(0, Number(shift.break_minutes || 0));
+    const current = acc[rosterId] || { workingMinutes: 0, breakMinutes: 0, totalMinutes: 0 };
+    current.workingMinutes += workedMinutes;
+    current.breakMinutes += breakMinutes;
+    current.totalMinutes += workedMinutes + breakMinutes;
+    acc[rosterId] = current;
+    return acc;
+  }, {});
 
   const prevWeek = toDateOnly(addDays(weekDate, -7));
   const nextWeek = toDateOnly(addDays(weekDate, 7));
@@ -1290,12 +1308,28 @@ export default async function ClientSchedulePage({
                 </tr>
                 {filteredRoster.length ? filteredRoster.map((row) => {
                   const periodJobTallies = rosterJobTotalsById[row.id] || [];
+                  const periodTotals = rosterPeriodTotalsById[row.id] || {
+                    workingMinutes: 0,
+                    breakMinutes: 0,
+                    totalMinutes: 0,
+                  };
                   return (
                   <tr key={row.id}>
                     <td className="sticky left-0 z-20 min-w-[20rem] border border-slate-200 bg-white px-3 py-2 align-top">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-medium text-slate-900">{row.display_name}</p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="font-medium text-slate-900">{row.display_name}</p>
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Work {formatHours(periodTotals.workingMinutes)}h
+                            </span>
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              Break {formatHours(periodTotals.breakMinutes)}h
+                            </span>
+                            <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                              Total {formatHours(periodTotals.totalMinutes)}h
+                            </span>
+                          </div>
                           <p className="text-xs text-slate-500">{row.role_label}</p>
                           {canEdit ? (
                             <form action={removeRosterUserAction}>
