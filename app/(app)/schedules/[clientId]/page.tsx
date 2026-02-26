@@ -206,19 +206,6 @@ function hexToRgb(hex: string) {
   };
 }
 
-function mixRgb(
-  left: { r: number; g: number; b: number },
-  right: { r: number; g: number; b: number },
-  weight: number
-) {
-  const w = Math.max(0, Math.min(1, weight));
-  return {
-    r: Math.round(left.r * (1 - w) + right.r * w),
-    g: Math.round(left.g * (1 - w) + right.g * w),
-    b: Math.round(left.b * (1 - w) + right.b * w),
-  };
-}
-
 function toRelativeLuminance({ r, g, b }: { r: number; g: number; b: number }) {
   const channel = (value: number) => {
     const normalized = value / 255;
@@ -229,18 +216,12 @@ function toRelativeLuminance({ r, g, b }: { r: number; g: number; b: number }) {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
-  const toHex = (value: number) =>
-    Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0").toUpperCase();
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
 function getShiftBubblePalette(colorHex: string | null | undefined) {
   const fallback = {
     className:
-      "rounded-xl border-2 border-sky-950 bg-sky-800 px-2.5 py-1.5 text-[12px] font-semibold leading-tight text-white",
+      "rounded-xl bg-sky-800 px-2.5 py-1.5 text-[12px] font-semibold leading-tight text-white",
     subtitleClassName: "mt-1 text-[11px] font-medium text-sky-100",
-    style: undefined as { backgroundColor: string; borderColor: string; color: string } | undefined,
+    style: undefined as { backgroundColor: string; color: string } | undefined,
     subtitleStyle: undefined as { color: string } | undefined,
   };
 
@@ -251,19 +232,13 @@ function getShiftBubblePalette(colorHex: string | null | undefined) {
 
   const isDark = toRelativeLuminance(rgb) < 0.42;
   const textColor = isDark ? "#FFFFFF" : "#0F172A";
-  const borderColor = rgbToHex(
-    isDark
-      ? mixRgb(rgb, { r: 2, g: 6, b: 23 }, 0.35)
-      : mixRgb(rgb, { r: 15, g: 23, b: 42 }, 0.22)
-  );
   const subtitleColor = isDark ? "rgba(255,255,255,0.88)" : "rgba(15,23,42,0.76)";
 
   return {
-    className: "rounded-xl border-2 px-2.5 py-1.5 text-[12px] font-semibold leading-tight",
+    className: "rounded-xl px-2.5 py-1.5 text-[12px] font-semibold leading-tight",
     subtitleClassName: "mt-1 text-[11px] font-medium",
     style: {
       backgroundColor,
-      borderColor,
       color: textColor,
     },
     subtitleStyle: {
