@@ -67,6 +67,13 @@ type AuditRow = {
   created_at: string;
 };
 
+type JobHoursTally = {
+  key: string;
+  label: string;
+  minutes: number;
+  colorHex: string | null;
+};
+
 function normalizeRangeView(value: string | null | undefined): RangeView {
   const v = String(value || "").trim().toLowerCase();
   if (v === "day") return "day";
@@ -680,6 +687,32 @@ export default async function ClientSchedulePage({
       .reduce((sum, shift) => sum + shiftWorkedMinutes(shift), 0);
     return acc;
   }, {});
+  const rosterJobTotalsMap = filteredShifts.reduce<Record<string, Map<string, JobHoursTally>>>((acc, shift) => {
+    if (shift.is_open || !shift.roster_entry_id) return acc;
+    const rosterId = shift.roster_entry_id;
+    const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
+    const jobKey = shift.job_code_id || "__no_job_code__";
+    const rowMap = acc[rosterId] || new Map<string, JobHoursTally>();
+    const current = rowMap.get(jobKey) || {
+      key: jobKey,
+      label: jobCode?.code || "No Job Code",
+      minutes: 0,
+      colorHex: jobCode?.color_hex || null,
+    };
+    current.minutes += shiftWorkedMinutes(shift);
+    rowMap.set(jobKey, current);
+    acc[rosterId] = rowMap;
+    return acc;
+  }, {});
+  const rosterJobTotalsById = Object.fromEntries(
+    Object.entries(rosterJobTotalsMap).map(([rosterId, map]) => [
+      rosterId,
+      Array.from(map.values()).sort((a, b) => {
+        if (b.minutes !== a.minutes) return b.minutes - a.minutes;
+        return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+      }),
+    ])
+  ) as Record<string, JobHoursTally[]>;
 
   const prevWeek = toDateOnly(addDays(weekDate, -7));
   const nextWeek = toDateOnly(addDays(weekDate, 7));
@@ -1255,11 +1288,29 @@ export default async function ClientSchedulePage({
                     );
                   })}
                 </tr>
-                {filteredRoster.length ? filteredRoster.map((row) => (
+                {filteredRoster.length ? filteredRoster.map((row) => {
+                  const periodJobTallies = rosterJobTotalsById[row.id] || [];
+                  return (
                   <tr key={row.id}>
                     <td className="sticky left-0 z-20 min-w-[15rem] border border-slate-200 bg-white px-3 py-2 align-top">
                       <p className="font-medium text-slate-900">{row.display_name}</p>
                       <p className="text-xs text-slate-500">{row.role_label}</p>
+                      {periodJobTallies.length ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {periodJobTallies.map((tally) => (
+                            <span
+                              key={tally.key}
+                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600"
+                            >
+                              <span
+                                className={`inline-flex h-1.5 w-1.5 rounded-full ${tally.colorHex ? "" : "bg-slate-400"}`}
+                                style={tally.colorHex ? { backgroundColor: tally.colorHex } : undefined}
+                              />
+                              {tally.label}: {formatHours(tally.minutes)}h
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       {canEdit ? (
                         <form action={removeRosterUserAction}>
                           <input type="hidden" name="roster_entry_id" value={row.id} />
@@ -1270,25 +1321,6 @@ export default async function ClientSchedulePage({
                     </td>
                     {visibleDays.map((day) => {
                       const dayShifts = shiftsByRosterDay[`${row.id}:${day}`] || [];
-                      const tallyByJobCode = dayShifts.reduce<
-                        Map<string, { key: string; label: string; minutes: number; colorHex: string | null }>
-                      >((acc, shift) => {
-                        const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
-                        const key = shift.job_code_id || "__no_job_code__";
-                        const current = acc.get(key) || {
-                          key,
-                          label: jobCode?.code || "No Job Code",
-                          minutes: 0,
-                          colorHex: jobCode?.color_hex || null,
-                        };
-                        current.minutes += shiftWorkedMinutes(shift);
-                        acc.set(key, current);
-                        return acc;
-                      }, new Map());
-                      const dayShiftTallies = Array.from(tallyByJobCode.values()).sort((a, b) => {
-                        if (b.minutes !== a.minutes) return b.minutes - a.minutes;
-                        return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
-                      });
                       return (
                         <td
                           key={day}
@@ -1306,22 +1338,6 @@ export default async function ClientSchedulePage({
                             />
                           ) : null}
                           <div className="relative z-10 space-y-2">
-                            {dayShiftTallies.length ? (
-                              <div className="flex flex-wrap gap-1">
-                                {dayShiftTallies.map((tally) => (
-                                  <span
-                                    key={tally.key}
-                                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600"
-                                  >
-                                    <span
-                                      className={`inline-flex h-1.5 w-1.5 rounded-full ${tally.colorHex ? "" : "bg-slate-400"}`}
-                                      style={tally.colorHex ? { backgroundColor: tally.colorHex } : undefined}
-                                    />
-                                    {tally.label}: {formatHours(tally.minutes)}h
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
                             {dayShifts.map((shift) => {
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                               const jobCodeText = jobCode ? jobCode.code : "No Job Code";
@@ -1425,7 +1441,8 @@ export default async function ClientSchedulePage({
                       );
                     })}
                   </tr>
-                )) : (
+                );
+                }) : (
                   <tr>
                     <td className="border border-slate-200 px-3 py-4 text-slate-500" colSpan={visibleDays.length + 1}>
                       {hasActiveFilters ? "No roster entries match the current filters." : "No roster entries available."}
