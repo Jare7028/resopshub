@@ -1198,7 +1198,7 @@ export default async function ClientSchedulePage({
             <table className="min-w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <th className="sticky left-0 top-0 z-40 min-w-[15rem] border border-slate-200 bg-slate-50 px-3 py-2 text-left">Employee</th>
+                  <th className="sticky left-0 top-0 z-40 min-w-[20rem] border border-slate-200 bg-slate-50 px-3 py-2 text-left">Employee</th>
                   {visibleDays.map((day) => (
                     <th key={day} className="sticky top-0 z-30 border border-slate-200 bg-slate-50 px-3 py-2 text-left">
                       <div>{formatDateLabel(day)}</div>
@@ -1209,7 +1209,7 @@ export default async function ClientSchedulePage({
               </thead>
               <tbody>
                 <tr>
-                  <td className="sticky left-0 z-20 min-w-[15rem] border border-slate-200 bg-white px-3 py-2 align-top">
+                  <td className="sticky left-0 z-20 min-w-[20rem] border border-slate-200 bg-white px-3 py-2 align-top">
                     <p className="font-medium text-slate-900">Open Shifts</p>
                     <p className="text-xs text-slate-500">Unassigned shifts</p>
                   </td>
@@ -1292,32 +1292,39 @@ export default async function ClientSchedulePage({
                   const periodJobTallies = rosterJobTotalsById[row.id] || [];
                   return (
                   <tr key={row.id}>
-                    <td className="sticky left-0 z-20 min-w-[15rem] border border-slate-200 bg-white px-3 py-2 align-top">
-                      <p className="font-medium text-slate-900">{row.display_name}</p>
-                      <p className="text-xs text-slate-500">{row.role_label}</p>
-                      {periodJobTallies.length ? (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {periodJobTallies.map((tally) => (
-                            <span
-                              key={tally.key}
-                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600"
-                            >
-                              <span
-                                className={`inline-flex h-1.5 w-1.5 rounded-full ${tally.colorHex ? "" : "bg-slate-400"}`}
-                                style={tally.colorHex ? { backgroundColor: tally.colorHex } : undefined}
-                              />
-                              {tally.label}: {formatHours(tally.minutes)}h
-                            </span>
-                          ))}
+                    <td className="sticky left-0 z-20 min-w-[20rem] border border-slate-200 bg-white px-3 py-2 align-top">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-900">{row.display_name}</p>
+                          <p className="text-xs text-slate-500">{row.role_label}</p>
+                          {canEdit ? (
+                            <form action={removeRosterUserAction}>
+                              <input type="hidden" name="roster_entry_id" value={row.id} />
+                              {renderContextFields()}
+                              <button type="submit" className="mt-1 text-xs text-red-700 hover:underline">Remove</button>
+                            </form>
+                          ) : null}
                         </div>
-                      ) : null}
-                      {canEdit ? (
-                        <form action={removeRosterUserAction}>
-                          <input type="hidden" name="roster_entry_id" value={row.id} />
-                          {renderContextFields()}
-                          <button type="submit" className="mt-1 text-xs text-red-700 hover:underline">Remove</button>
-                        </form>
-                      ) : null}
+                        {periodJobTallies.length ? (
+                          <div className="ml-auto min-w-[9rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Totals</p>
+                            <ul className="mt-1 space-y-1">
+                              {periodJobTallies.map((tally) => (
+                                <li key={tally.key} className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-700">
+                                  <span className="inline-flex min-w-0 items-center gap-1">
+                                    <span
+                                      className={`inline-flex h-1.5 w-1.5 rounded-full ${tally.colorHex ? "" : "bg-slate-400"}`}
+                                      style={tally.colorHex ? { backgroundColor: tally.colorHex } : undefined}
+                                    />
+                                    <span className="truncate">{tally.label}</span>
+                                  </span>
+                                  <span className="text-slate-600">{formatHours(tally.minutes)}h</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                     {visibleDays.map((day) => {
                       const dayShifts = shiftsByRosterDay[`${row.id}:${day}`] || [];
