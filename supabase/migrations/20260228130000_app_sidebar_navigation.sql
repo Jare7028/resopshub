@@ -22,6 +22,7 @@ begin
 end;
 $$;
 
+drop trigger if exists trg_user_sidebar_link_order_updated_at on public.user_sidebar_link_order;
 create trigger trg_user_sidebar_link_order_updated_at
   before update on public.user_sidebar_link_order
   for each row
@@ -29,25 +30,49 @@ create trigger trg_user_sidebar_link_order_updated_at
 
 alter table public.user_sidebar_link_order enable row level security;
 
-create policy if not exists "Users can view their own sidebar order"
-  on public.user_sidebar_link_order
-  for select
-  using (user_id = auth.uid() or user_id = public.current_app_user_id());
+do $$
+begin
+  create policy "Users can view their own sidebar order"
+    on public.user_sidebar_link_order
+    for select
+    using (user_id = auth.uid() or user_id = public.current_app_user_id());
+exception
+  when duplicate_object then null;
+end;
+$$;
 
-create policy if not exists "Users can insert their own sidebar order"
-  on public.user_sidebar_link_order
-  for insert
-  with check (user_id = auth.uid() or user_id = public.current_app_user_id());
+do $$
+begin
+  create policy "Users can insert their own sidebar order"
+    on public.user_sidebar_link_order
+    for insert
+    with check (user_id = auth.uid() or user_id = public.current_app_user_id());
+exception
+  when duplicate_object then null;
+end;
+$$;
 
-create policy if not exists "Users can update their own sidebar order"
-  on public.user_sidebar_link_order
-  for update
-  using (user_id = auth.uid() or user_id = public.current_app_user_id())
-  with check (user_id = auth.uid() or user_id = public.current_app_user_id());
+do $$
+begin
+  create policy "Users can update their own sidebar order"
+    on public.user_sidebar_link_order
+    for update
+    using (user_id = auth.uid() or user_id = public.current_app_user_id())
+    with check (user_id = auth.uid() or user_id = public.current_app_user_id());
+exception
+  when duplicate_object then null;
+end;
+$$;
 
-create policy if not exists "Users can delete their own sidebar order"
-  on public.user_sidebar_link_order
-  for delete
-  using (user_id = auth.uid() or user_id = public.current_app_user_id());
+do $$
+begin
+  create policy "Users can delete their own sidebar order"
+    on public.user_sidebar_link_order
+    for delete
+    using (user_id = auth.uid() or user_id = public.current_app_user_id());
+exception
+  when duplicate_object then null;
+end;
+$$;
 
 grant select, insert, update, delete on public.user_sidebar_link_order to authenticated;
