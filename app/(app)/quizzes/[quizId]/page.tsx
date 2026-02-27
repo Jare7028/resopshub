@@ -446,12 +446,12 @@ export default async function QuizManageDetailPage({
     answersByAttemptId.set(answer.attempt_id, mapForAttempt);
   }
 
-  const questionBuilderVersions = versions
-    .filter((version) => version.lifecycle_status === "draft")
-    .map((version) => ({
-      id: version.id,
-      label: `v${version.version_number} (${version.lifecycle_status})`,
-    }));
+  const draftVersions = versions.filter((version) => version.lifecycle_status === "draft");
+  const defaultDraftVersion = draftVersions[0] || null;
+  const defaultDraftVersionId = defaultDraftVersion?.id || "";
+  const defaultDraftVersionLabel = defaultDraftVersion
+    ? `v${defaultDraftVersion.version_number} (${defaultDraftVersion.lifecycle_status})`
+    : "";
 
   const publishedVersions = versions.filter((version) => version.lifecycle_status === "published");
   const submissionCounts = {
@@ -1136,11 +1136,12 @@ export default async function QuizManageDetailPage({
               <p className="mt-1 text-sm text-slate-600">
                 Keep it simple: choose Free text or Multi select.
               </p>
-              {questionBuilderVersions.length > 0 ? (
+              {defaultDraftVersionId ? (
                 <SimpleQuestionBuilder
                   action={addQuestionAction}
                   clientId={quiz.client_id}
-                  versions={questionBuilderVersions}
+                  quizVersionId={defaultDraftVersionId}
+                  quizVersionLabel={defaultDraftVersionLabel}
                 />
               ) : (
                 <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">

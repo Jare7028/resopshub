@@ -2,11 +2,6 @@
 
 import { useState } from "react";
 
-type VersionOption = {
-  id: string;
-  label: string;
-};
-
 type QuestionType = "free_text" | "multi_select";
 
 type ChoiceOption = {
@@ -17,7 +12,8 @@ type ChoiceOption = {
 
 type SimpleQuestionBuilderProps = {
   clientId: string;
-  versions: VersionOption[];
+  quizVersionId: string;
+  quizVersionLabel: string;
   action: (formData: FormData) => void | Promise<void>;
 };
 
@@ -31,7 +27,8 @@ function createOption(index: number, label: string): ChoiceOption {
 
 export default function SimpleQuestionBuilder({
   clientId,
-  versions,
+  quizVersionId,
+  quizVersionLabel,
   action,
 }: SimpleQuestionBuilderProps) {
   const [questionType, setQuestionType] = useState<QuestionType>("free_text");
@@ -69,22 +66,12 @@ export default function SimpleQuestionBuilder({
   return (
     <form action={action} className="mt-3 space-y-4">
       <input type="hidden" name="client_id" value={clientId} />
+      <input type="hidden" name="quiz_version_id" value={quizVersionId} />
       <input type="hidden" name="points" value="1" />
 
-      <label className="block text-sm text-slate-700">
-        Quiz version
-        <select
-          name="quiz_version_id"
-          required
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-        >
-          {versions.map((version) => (
-            <option key={version.id} value={version.id}>
-              {version.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <p className="text-sm text-slate-700">
+        Adding to <span className="font-semibold text-slate-900">{quizVersionLabel}</span> draft version.
+      </p>
 
       <label className="block text-sm text-slate-700">
         Question type
