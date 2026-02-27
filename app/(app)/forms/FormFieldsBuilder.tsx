@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildFieldKey,
   conditionOperatorUsesValue,
-  doesFormFieldVisibilityMatch,
   ensureUniqueFormFieldKeys,
   formFieldConditionModeOptions,
   formFieldConditionOperatorOptions,
@@ -64,50 +63,13 @@ function computeNextFieldSeed(fields: FormField[]) {
   return maxSeed + 1;
 }
 
-function TypeIcon({ type }: { type: BuilderFieldType }) {
-  const cls = "h-4 w-4 text-slate-500";
-  if (type === "textarea") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
-        <path d="M4 6h12M4 10h12M4 14h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (type === "number") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
-        <path d="M7 4 5 16M14 4l-2 12M4 8h12M3 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (type === "date") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
-        <rect x="3.5" y="5.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M6.5 3.5v3M13.5 3.5v3M3.5 8h13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (type === "select") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
-        <path d="M7 6h8M7 10h8M7 14h8M4 6h.01M4 10h.01M4 14h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (type === "checkbox") {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
-        <rect x="3.5" y="3.5" width="13" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-        <path d="m7 10 2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className={cls}>
-      <path d="M4 6h12M4 10h12M4 14h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
+function formatFieldType(type: BuilderFieldType) {
+  return builderFieldTypes.find((entry) => entry.value === type)?.label || type;
+}
+
+function buildPositionOptions(totalFields: number) {
+  const normalized = Number.isFinite(totalFields) ? Math.max(0, Math.floor(totalFields)) : 0;
+  return Array.from({ length: normalized }, (_, index) => index + 1);
 }
 
 export default function FormFieldsBuilder({
@@ -129,7 +91,9 @@ export default function FormFieldsBuilder({
         label: field.label || "",
         type: normalizeFormFieldType(field.type),
         required: Boolean(field.required),
-        options: Array.isArray(field.options) ? field.options.filter(Boolean) : [],
+        options: Array.isArray(field.options)
+          ? Array.from(new Set(field.options.map((option) => String(option || "").trim()).filter(Boolean)))
+          : [],
         placeholder: metadata.placeholder,
         helpText: metadata.helpText,
         minValue: metadata.minValue,
@@ -146,8 +110,6 @@ export default function FormFieldsBuilder({
   const [fields, setFields] = useState<FormField[]>(normalizedInitialFields);
   const nextFieldSeedRef = useRef<number>(computeNextFieldSeed(normalizedInitialFields));
   const [isAddFieldModalOpen, setIsAddFieldModalOpen] = useState(false);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
   const [openAdvancedByFieldId, setOpenAdvancedByFieldId] = useState<Record<string, boolean>>({});
   const modalRef = useRef<HTMLDivElement | null>(null);
 
@@ -158,6 +120,21 @@ export default function FormFieldsBuilder({
     nextFieldSeedRef.current += 1;
     setFields((current) => ensureUniqueFormFieldKeys([...current, createField(seed, type)]));
     setIsAddFieldModalOpen(false);
+  };
+
+  const moveField = (index: number, nextPositionOneBased: number) => {
+    setFields((current) => {
+      const normalizedPosition = Number.isFinite(nextPositionOneBased)
+        ? Math.floor(nextPositionOneBased)
+        : index + 1;
+      const destinationIndex = Math.max(0, Math.min(current.length - 1, normalizedPosition - 1));
+      if (destinationIndex === index) return current;
+
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(destinationIndex, 0, moved);
+      return ensureUniqueFormFieldKeys(next);
+    });
   };
 
   const updateField = (index: number, updater: (field: FormField) => FormField) => {
@@ -229,10 +206,7 @@ export default function FormFieldsBuilder({
 
       {isAddFieldModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/30 px-4 pt-20">
-          <div
-            ref={modalRef}
-            className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl"
-          >
+          <div ref={modalRef} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
             <p className="mb-3 text-sm font-medium text-slate-500">Add field type</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {builderFieldTypes.map((option) => (
@@ -240,9 +214,8 @@ export default function FormFieldsBuilder({
                   key={option.value}
                   type="button"
                   onClick={() => addField(option.value)}
-                  className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  className="rounded-md border border-slate-200 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                 >
-                  <TypeIcon type={option.value} />
                   {option.label}
                 </button>
               ))}
@@ -265,521 +238,448 @@ export default function FormFieldsBuilder({
           const canAddCondition = conditionFieldOptions.length > 0;
 
           return (
-            <div key={field.id} className="rounded-lg border border-slate-200 p-4">
-              <div className="grid gap-3 md:grid-cols-12">
-              <label className="md:col-span-5 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Label
-                <input
-                  value={field.label}
-                  onChange={(event) =>
-                    updateField(index, (item) => ({
-                      ...item,
-                      label: event.target.value,
-                      key:
-                        item.key.startsWith("field_") || !item.key
-                          ? buildFieldKey(event.target.value, `field_${index + 1}`)
-                          : item.key,
-                    }))
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                  placeholder="Field label"
-                />
-              </label>
-
-              <label className="md:col-span-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Type
-                <select
-                  value={field.type}
-                  onChange={(event) =>
-                    updateField(index, (item) => ({
-                      ...item,
-                      type: normalizeFormFieldType(event.target.value),
-                    }))
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                >
-                  {builderFieldTypes.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                  {!builderFieldTypes.some((option) => option.value === field.type) ? (
-                    <option value={field.type}>{field.type}</option>
-                  ) : null}
-                </select>
-              </label>
-
-              <div className="md:col-span-4 flex items-end justify-end gap-2">
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={field.required}
-                    onChange={(event) =>
-                      updateField(index, (item) => ({ ...item, required: event.target.checked }))
-                    }
-                  />
-                  Required
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setOpenAdvancedByFieldId((current) => ({
-                      ...current,
-                      [field.id]: !current[field.id],
-                    }))
-                  }
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
-                >
-                  {openAdvancedByFieldId[field.id] ? "Hide advanced" : "Advanced"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFields((current) =>
-                      current.length > 1
-                        ? ensureUniqueFormFieldKeys(
-                            current.filter((_, itemIndex) => itemIndex !== index)
-                          )
-                        : current
-                    )
-                  }
-                  className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:border-red-300 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={fields.length === 1}
-                >
-                  Remove
-                </button>
-              </div>
-
-              {field.type === "select" ? (
-                <div className="md:col-span-12 space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Dropdown options
-                  </p>
-                  {[
-                    ...(field.options || []),
-                    ...((field.options || []).length === 0 ||
-                    (field.options || [])[Math.max((field.options || []).length - 1, 0)]?.trim()
-                      ? [""]
-                      : []),
-                  ].map((value, optionIndex) => (
-                    <input
-                      key={`${field.id}_option_${optionIndex}`}
-                      value={value}
-                      onChange={(event) =>
-                        updateField(index, (item) => {
-                          const existing = [...(item.options || [])];
-                          if (optionIndex >= existing.length) {
-                            existing.push(event.target.value);
-                          } else {
-                            existing[optionIndex] = event.target.value;
-                          }
-                          return {
-                            ...item,
-                            options: existing.filter((option) => option.trim().length > 0),
-                          };
-                        })
-                      }
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      placeholder={`Dropdown ${optionIndex + 1}`}
-                    />
-                  ))}
+            <details key={field.id} className="rounded-lg border border-slate-200 bg-white">
+              <summary className="cursor-pointer list-none px-4 py-3">
+                <div className="flex flex-wrap items-start gap-2">
+                  <span className="mt-0.5 text-[11px] font-semibold tracking-wide text-slate-600">
+                    {`Question ${index + 1}`}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {field.label || `Field ${index + 1}`}
+                    </p>
+                    <p className="text-xs text-slate-500">{formatFieldType(field.type)}</p>
+                  </div>
                 </div>
-              ) : null}
+              </summary>
 
-              {openAdvancedByFieldId[field.id] ? (
-                <>
-                  <label className="md:col-span-6 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Placeholder
+              <div className="space-y-3 border-t border-slate-200 px-4 py-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="text-sm text-slate-700">
+                    Position
+                    <select
+                      name={`field_position_${field.id}`}
+                      value={String(index + 1)}
+                      onChange={(event) => moveField(index, Number(event.target.value))}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    >
+                      {buildPositionOptions(fields.length).map((position) => (
+                        <option key={position} value={String(position)}>
+                          {`Question ${position}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="text-sm text-slate-700">
+                    Label
                     <input
-                      value={field.placeholder || ""}
+                      value={field.label}
                       onChange={(event) =>
                         updateField(index, (item) => ({
                           ...item,
-                          placeholder: event.target.value,
+                          label: event.target.value,
+                          key:
+                            item.key.startsWith("field_") || !item.key
+                              ? buildFieldKey(event.target.value, `field_${index + 1}`)
+                              : item.key,
                         }))
                       }
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      placeholder="e.g. Enter response"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      placeholder="Field label"
                     />
                   </label>
-                  <label className="md:col-span-6 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Help text
-                    <input
-                      value={field.helpText || ""}
+
+                  <label className="text-sm text-slate-700">
+                    Type
+                    <select
+                      value={field.type}
                       onChange={(event) =>
                         updateField(index, (item) => ({
                           ...item,
-                          helpText: event.target.value,
+                          type: normalizeFormFieldType(event.target.value),
                         }))
                       }
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      placeholder="Short guidance shown under label"
-                    />
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    >
+                      {builderFieldTypes.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                      {!builderFieldTypes.some((option) => option.value === field.type) ? (
+                        <option value={field.type}>{field.type}</option>
+                      ) : null}
+                    </select>
                   </label>
-                  {(field.type === "number" || field.type === "date") ? (
-                    <>
-                      <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                        Min value
+
+                  <label className="text-sm text-slate-700">
+                    Required
+                    <label className="mt-2 inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={field.required}
+                        onChange={(event) =>
+                          updateField(index, (item) => ({ ...item, required: event.target.checked }))
+                        }
+                      />
+                      Make this field required
+                    </label>
+                  </label>
+                </div>
+
+                {field.type === "select" ? (
+                  (() => {
+                    const optionRows = [...(field.options || [])];
+                    const lastOption = optionRows[optionRows.length - 1]?.trim();
+                    if (optionRows.length === 0 || !lastOption) {
+                      optionRows.push("");
+                    }
+                    return (
+                  <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Dropdown options
+                    </p>
+                    {optionRows.map((value, optionIndex) => (
+                      <div
+                        key={`${field.id}_option_${optionIndex}`}
+                        className="grid gap-2 sm:grid-cols-[1fr_auto]"
+                      >
                         <input
-                          type={field.type === "date" ? "date" : "number"}
-                          value={field.minValue || ""}
+                          value={value}
                           onChange={(event) =>
-                            updateField(index, (item) => ({
-                              ...item,
-                              minValue: event.target.value,
-                            }))
-                          }
-                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                          placeholder={field.type === "date" ? "YYYY-MM-DD" : "0"}
-                        />
-                      </label>
-                      <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                        Max value
-                        <input
-                          type={field.type === "date" ? "date" : "number"}
-                          value={field.maxValue || ""}
-                          onChange={(event) =>
-                            updateField(index, (item) => ({
-                              ...item,
-                              maxValue: event.target.value,
-                            }))
-                          }
-                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                          placeholder={field.type === "date" ? "YYYY-MM-DD" : "100"}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                  <div className="md:col-span-12 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    <p>Visibility rules</p>
-                    <div className="mt-1 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        {conditions.length > 1 ? (
-                          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            Match
-                            <select
-                              value={conditionMode}
-                              onChange={(event) =>
-                                updateField(index, (item) =>
-                                  withVisibility(item, {
-                                    conditionMode: event.target.value,
-                                    conditions,
-                                  })
-                                )
+                            updateField(index, (item) => {
+                              const existing = [...(item.options || [])];
+                              if (optionIndex >= existing.length) {
+                                existing.push(event.target.value);
+                              } else {
+                                existing[optionIndex] = event.target.value;
                               }
-                              className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700"
-                            >
-                              {formFieldConditionModeOptions.map((mode) => (
-                                <option key={mode} value={mode}>
-                                  {mode === "all" ? "All rules (AND)" : "Any rule (OR)"}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        ) : (
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                            {conditions.length ? "1 rule" : "Always visible"}
-                          </p>
-                        )}
+                              return {
+                                ...item,
+                                options: existing.map((option) => option.trim()).filter((option) => option.length),
+                              };
+                            })
+                          }
+                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                          placeholder={`Option ${optionIndex + 1}`}
+                        />
                         <button
                           type="button"
                           onClick={() =>
-                            updateField(index, (item) =>
-                              withVisibility(item, {
-                                conditionMode,
-                                conditions: [
-                                  ...conditions,
-                                  {
-                                    fieldKey: conditionFieldOptions[0]?.key || "",
-                                    operator: "equals",
-                                    value: "",
-                                  },
-                                ],
-                              })
-                            )
+                            updateField(index, (item) => ({
+                              ...item,
+                              options: (item.options || []).filter((_, currentIndex) => currentIndex !== optionIndex),
+                            }))
                           }
-                          className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
-                          disabled={!canAddCondition}
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                         >
-                          Add rule
+                          Remove
                         </button>
                       </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateField(index, (item) => ({
+                          ...item,
+                          options: [...(item.options || []), ""],
+                        }))
+                      }
+                      className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Add option
+                    </button>
+                  </div>
+                    );
+                  })()
+                ) : null}
 
-                      {!canAddCondition ? (
-                        <p className="text-xs font-normal normal-case text-slate-500">
-                          Add another field first to build visibility rules.
-                        </p>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenAdvancedByFieldId((current) => ({
+                          ...current,
+                          [field.id]: !current[field.id],
+                        }))
+                      }
+                      className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                    >
+                      {openAdvancedByFieldId[field.id] ? "Hide advanced" : "Advanced"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFields((current) =>
+                          current.length > 1
+                            ? ensureUniqueFormFieldKeys(
+                                current.filter((_, itemIndex) => itemIndex !== index)
+                              )
+                            : current
+                        )
+                      }
+                      className="rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:border-red-300 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={fields.length === 1}
+                    >
+                      Remove field
+                    </button>
+                  </div>
+
+                  {openAdvancedByFieldId[field.id] ? (
+                    <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <label className="text-sm text-slate-700">
+                        Placeholder
+                        <input
+                          value={field.placeholder || ""}
+                          onChange={(event) =>
+                            updateField(index, (item) => ({
+                              ...item,
+                              placeholder: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                          placeholder="e.g. Enter response"
+                        />
+                      </label>
+                      <label className="text-sm text-slate-700">
+                        Help text
+                        <input
+                          value={field.helpText || ""}
+                          onChange={(event) =>
+                            updateField(index, (item) => ({
+                              ...item,
+                              helpText: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                          placeholder="Short guidance shown under label"
+                        />
+                      </label>
+
+                      {(field.type === "number" || field.type === "date") ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="text-sm text-slate-700">
+                            Min value
+                            <input
+                              type={field.type === "date" ? "date" : "number"}
+                              value={field.minValue || ""}
+                              onChange={(event) =>
+                                updateField(index, (item) => ({
+                                  ...item,
+                                  minValue: event.target.value,
+                                }))
+                              }
+                              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                              placeholder={field.type === "date" ? "YYYY-MM-DD" : "0"}
+                            />
+                          </label>
+                          <label className="text-sm text-slate-700">
+                            Max value
+                            <input
+                              type={field.type === "date" ? "date" : "number"}
+                              value={field.maxValue || ""}
+                              onChange={(event) =>
+                                updateField(index, (item) => ({
+                                  ...item,
+                                  maxValue: event.target.value,
+                                }))
+                              }
+                              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                              placeholder={field.type === "date" ? "YYYY-MM-DD" : "100"}
+                            />
+                          </label>
+                        </div>
                       ) : null}
 
-                      {conditions.map((condition, conditionIndex) => {
-                        const conditionOperator = normalizeFormFieldConditionOperator(
-                          condition.operator
-                        );
-                        const showConditionValue = conditionOperatorUsesValue(conditionOperator);
-                        return (
-                          <div
-                            key={`${field.id}_condition_${conditionIndex}`}
-                            className="grid gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-12"
-                          >
-                            <label className="md:col-span-5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                              Field
-                              <select
-                                value={condition.fieldKey}
-                                onChange={(event) =>
-                                  updateField(index, (item) => {
-                                    const nextConditions = [...conditions];
-                                    nextConditions[conditionIndex] = {
-                                      ...nextConditions[conditionIndex],
-                                      fieldKey: event.target.value,
-                                    };
-                                    return withVisibility(item, {
-                                      conditionMode,
-                                      conditions: nextConditions,
-                                    });
+                      <div className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+                        Visibility rules
+                        <div className="mt-2 space-y-3 rounded-md border border-slate-200 bg-white p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            {conditions.length > 1 ? (
+                              <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                                Match
+                                <select
+                                  value={conditionMode}
+                                  onChange={(event) =>
+                                    updateField(index, (item) =>
+                                      withVisibility(item, {
+                                        conditionMode: event.target.value,
+                                        conditions,
+                                      })
+                                    )
+                                  }
+                                  className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+                                >
+                                  {formFieldConditionModeOptions.map((mode) => (
+                                    <option key={mode} value={mode}>
+                                      {mode === "all" ? "All rules (AND)" : "Any rule (OR)"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            ) : (
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                {conditions.length ? "1 rule" : "Always visible"}
+                              </p>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateField(index, (item) =>
+                                  withVisibility(item, {
+                                    conditionMode,
+                                    conditions: [
+                                      ...conditions,
+                                      {
+                                        fieldKey: conditionFieldOptions[0]?.key || "",
+                                        operator: "equals",
+                                        value: "",
+                                      },
+                                    ],
                                   })
-                                }
-                                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
-                              >
-                                <option value="">Select field</option>
-                                {conditionFieldOptions.map((option) => (
-                                  <option key={option.key} value={option.key}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-
-                            <label className="md:col-span-3 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                              Condition
-                              <select
-                                value={conditionOperator}
-                                onChange={(event) =>
-                                  updateField(index, (item) => {
-                                    const nextOperator = normalizeFormFieldConditionOperator(
-                                      event.target.value
-                                    );
-                                    const nextConditions = [...conditions];
-                                    nextConditions[conditionIndex] = {
-                                      ...nextConditions[conditionIndex],
-                                      operator: nextOperator,
-                                      value: conditionOperatorUsesValue(nextOperator)
-                                        ? nextConditions[conditionIndex]?.value || ""
-                                        : "",
-                                    };
-                                    return withVisibility(item, {
-                                      conditionMode,
-                                      conditions: nextConditions,
-                                    });
-                                  })
-                                }
-                                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
-                              >
-                                {formFieldConditionOperatorOptions.map((operator) => (
-                                  <option key={operator} value={operator}>
-                                    {formatFormLabel(operator)}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-
-                            <label className="md:col-span-3 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                              Value
-                              <input
-                                value={condition.value || ""}
-                                onChange={(event) =>
-                                  updateField(index, (item) => {
-                                    const nextConditions = [...conditions];
-                                    nextConditions[conditionIndex] = {
-                                      ...nextConditions[conditionIndex],
-                                      value: event.target.value,
-                                    };
-                                    return withVisibility(item, {
-                                      conditionMode,
-                                      conditions: nextConditions,
-                                    });
-                                  })
-                                }
-                                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal disabled:bg-slate-100 disabled:text-slate-400"
-                                placeholder="Expected value"
-                                disabled={!showConditionValue}
-                              />
-                            </label>
-
-                            <div className="md:col-span-1 flex items-end justify-end">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateField(index, (item) =>
-                                    withVisibility(item, {
-                                      conditionMode,
-                                      conditions: conditions.filter(
-                                        (_entry, entryIndex) => entryIndex !== conditionIndex
-                                      ),
-                                    })
-                                  )
-                                }
-                                className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-700 hover:border-red-300 hover:text-red-800"
-                                aria-label="Remove condition"
-                              >
-                                x
-                              </button>
-                            </div>
+                                )
+                              }
+                              className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={!canAddCondition}
+                            >
+                              Add rule
+                            </button>
                           </div>
-                        );
-                      })}
+
+                          {!canAddCondition ? (
+                            <p className="text-xs font-normal normal-case text-slate-500">
+                              Add another field first to build visibility rules.
+                            </p>
+                          ) : null}
+
+                          {conditions.map((condition, conditionIndex) => {
+                            const conditionOperator = normalizeFormFieldConditionOperator(
+                              condition.operator
+                            );
+                            const showConditionValue = conditionOperatorUsesValue(conditionOperator);
+                            return (
+                              <div
+                                key={`${field.id}_condition_${conditionIndex}`}
+                                className="grid gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-12"
+                              >
+                                <label className="md:col-span-5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                                  Field
+                                  <select
+                                    value={condition.fieldKey}
+                                    onChange={(event) =>
+                                      updateField(index, (item) => {
+                                        const nextConditions = [...conditions];
+                                        nextConditions[conditionIndex] = {
+                                          ...nextConditions[conditionIndex],
+                                          fieldKey: event.target.value,
+                                        };
+                                        return withVisibility(item, {
+                                          conditionMode,
+                                          conditions: nextConditions,
+                                        });
+                                      })
+                                    }
+                                    className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
+                                  >
+                                    <option value="">Select field</option>
+                                    {conditionFieldOptions.map((option) => (
+                                      <option key={option.key} value={option.key}>
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <label className="md:col-span-3 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                                  Condition
+                                  <select
+                                    value={conditionOperator}
+                                    onChange={(event) =>
+                                      updateField(index, (item) => {
+                                        const nextOperator = normalizeFormFieldConditionOperator(
+                                          event.target.value
+                                        );
+                                        const nextConditions = [...conditions];
+                                        nextConditions[conditionIndex] = {
+                                          ...nextConditions[conditionIndex],
+                                          operator: nextOperator,
+                                          value: conditionOperatorUsesValue(nextOperator)
+                                            ? nextConditions[conditionIndex]?.value || ""
+                                            : "",
+                                        };
+                                        return withVisibility(item, {
+                                          conditionMode,
+                                          conditions: nextConditions,
+                                        });
+                                      })
+                                    }
+                                    className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
+                                  >
+                                    {formFieldConditionOperatorOptions.map((operator) => (
+                                      <option key={operator} value={operator}>
+                                        {formatFormLabel(operator)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <label className="md:col-span-3 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                                  Value
+                                  <input
+                                    value={condition.value || ""}
+                                    onChange={(event) =>
+                                      updateField(index, (item) => {
+                                        const nextConditions = [...conditions];
+                                        nextConditions[conditionIndex] = {
+                                          ...nextConditions[conditionIndex],
+                                          value: event.target.value,
+                                        };
+                                        return withVisibility(item, {
+                                          conditionMode,
+                                          conditions: nextConditions,
+                                        });
+                                      })
+                                    }
+                                    className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal disabled:bg-slate-100 disabled:text-slate-400"
+                                    placeholder="Expected value"
+                                    disabled={!showConditionValue}
+                                  />
+                                </label>
+
+                                <div className="md:col-span-1 flex items-end justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      updateField(index, (item) =>
+                                        withVisibility(item, {
+                                          conditionMode,
+                                          conditions: conditions.filter(
+                                            (_entry, entryIndex) => entryIndex !== conditionIndex
+                                          ),
+                                        })
+                                      )
+                                    }
+                                    className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-700 hover:border-red-300 hover:text-red-800"
+                                    aria-label="Remove condition"
+                                  >
+                                    x
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </>
-              ) : null}
+                  ) : null}
+                </div>
               </div>
-            </div>
+            </details>
           );
         })}
       </div>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h4 className="text-sm font-semibold text-slate-900">Visibility preview</h4>
-            <p className="text-xs text-slate-500">
-              Enter sample answers to test visibility rules instantly.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsPreviewOpen((current) => !current)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
-          >
-            {isPreviewOpen ? "Hide preview" : "Open preview"}
-          </button>
-        </div>
-
-        {isPreviewOpen ? (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              {fields
-                .filter((field) => Boolean(field.key))
-                .map((field) => {
-                  const fieldLabel = field.label || formatFormLabel(field.key) || field.key;
-                  const value = previewValues[field.key] || "";
-                  if (field.type === "select") {
-                    return (
-                      <label
-                        key={`${field.id}_preview`}
-                        className="text-xs font-semibold uppercase tracking-wide text-slate-600"
-                      >
-                        {fieldLabel}
-                        <select
-                          value={value}
-                          onChange={(event) =>
-                            setPreviewValues((current) => ({
-                              ...current,
-                              [field.key]: event.target.value,
-                            }))
-                          }
-                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                        >
-                          <option value="">(blank)</option>
-                          {(field.options || []).map((option) => (
-                            <option key={`${field.id}_preview_option_${option}`} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    );
-                  }
-                  if (field.type === "checkbox") {
-                    return (
-                      <label
-                        key={`${field.id}_preview`}
-                        className="inline-flex items-center gap-2 text-sm text-slate-700"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={value === "true"}
-                          onChange={(event) =>
-                            setPreviewValues((current) => ({
-                              ...current,
-                              [field.key]: event.target.checked ? "true" : "false",
-                            }))
-                          }
-                        />
-                        {fieldLabel}
-                      </label>
-                    );
-                  }
-                  if (field.type === "textarea") {
-                    return (
-                      <label
-                        key={`${field.id}_preview`}
-                        className="text-xs font-semibold uppercase tracking-wide text-slate-600"
-                      >
-                        {fieldLabel}
-                        <textarea
-                          rows={2}
-                          value={value}
-                          onChange={(event) =>
-                            setPreviewValues((current) => ({
-                              ...current,
-                              [field.key]: event.target.value,
-                            }))
-                          }
-                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                        />
-                      </label>
-                    );
-                  }
-                  return (
-                    <label
-                      key={`${field.id}_preview`}
-                      className="text-xs font-semibold uppercase tracking-wide text-slate-600"
-                    >
-                      {fieldLabel}
-                      <input
-                        type={field.type === "number" || field.type === "date" ? field.type : "text"}
-                        value={value}
-                        onChange={(event) =>
-                          setPreviewValues((current) => ({
-                            ...current,
-                            [field.key]: event.target.value,
-                          }))
-                        }
-                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
-                      />
-                    </label>
-                  );
-                })}
-            </div>
-
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Current visibility
-              </p>
-              <div className="mt-2 space-y-1">
-                {fields.map((field) => {
-                  const fieldLabel = field.label || formatFormLabel(field.key) || field.key || field.id;
-                  const visible = doesFormFieldVisibilityMatch(field, previewValues);
-                  return (
-                    <p key={`${field.id}_visibility`} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-slate-700">{fieldLabel}</span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          visible
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-slate-200 text-slate-600"
-                        }`}
-                      >
-                        {visible ? "Visible" : "Hidden"}
-                      </span>
-                    </p>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </section>
     </div>
   );
 }
