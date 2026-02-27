@@ -8,6 +8,7 @@ import ScheduleGridDndClient from "./ScheduleGridDndClient";
 import ShiftTimeRangeLabel from "./ShiftTimeRangeLabel";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const scheduleBaseTimezone = "UTC";
 type RangeView = "week" | "day" | "month";
 type ActionPanel =
   | ""
@@ -384,7 +385,7 @@ export default async function ClientSchedulePage({
     const { error } = await supabase.rpc("schedule_get_or_create_week", {
       p_client_id: clientId,
       p_reference_date: nextWeek,
-      p_timezone: "UTC",
+      p_timezone: scheduleBaseTimezone,
     });
     const path = buildSchedulePath({
       ...stateFromContext(clientId, state, weekStart),
@@ -645,13 +646,15 @@ export default async function ClientSchedulePage({
   const canViewAudit = Boolean(canAuditData);
   const canManageJobCodes = Boolean(canManageJobCodesData);
 
+  let ensuredWeekId: string | null = null;
   if (canEdit) {
-    await supabase.rpc("schedule_sync_roster_for_client", { p_client_id: clientId });
-    await supabase.rpc("schedule_get_or_create_week", {
+    const { data: ensuredWeekData } = await supabase.rpc("schedule_get_or_create_week", {
       p_client_id: clientId,
       p_reference_date: weekStart,
-      p_timezone: "UTC",
+      p_timezone: scheduleBaseTimezone,
     });
+    const ensuredWeekIdRaw = String(ensuredWeekData || "").trim();
+    ensuredWeekId = uuidRegex.test(ensuredWeekIdRaw) ? ensuredWeekIdRaw : null;
   }
 
   const { data: weekData } = await supabase
@@ -660,7 +663,19 @@ export default async function ClientSchedulePage({
     .eq("client_id", clientId)
     .eq("week_start_date", weekStart)
     .maybeSingle();
-  const week = (weekData || null) as WeekRow | null;
+  const weekFromTable = (weekData || null) as WeekRow | null;
+  const week =
+    weekFromTable ||
+    (ensuredWeekId
+      ? ({
+          id: ensuredWeekId,
+          client_id: clientId,
+          week_start_date: weekStart,
+          timezone: scheduleBaseTimezone,
+          status: "draft",
+          published_version: 0,
+        } as WeekRow)
+      : null);
 
   const [
     { data: rosterData },
