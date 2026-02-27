@@ -730,12 +730,6 @@ export default async function EmployeeInfoPage(props: {
   if (isSupabaseMissingTableError(recordsError) || isSupabaseMissingTableError(columnsError)) {
     return (
       <div className="space-y-6">
-        <section className="space-y-2">
-          <h1 className="text-2xl font-semibold text-slate-900">Employee Info</h1>
-          <p className="text-sm text-slate-600">
-            Manage employee client placement and custom employee fields.
-          </p>
-        </section>
         <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
           Employee Info is not set up yet. Run <code>sql/employee_info.sql</code> in Supabase SQL
           editor, then refresh this page.
@@ -1881,14 +1875,7 @@ export default async function EmployeeInfoPage(props: {
     columns.find((column) => column.id === selectedRoleColumnId)?.label || "";
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Employee Info</h1>
-        <p className="text-sm text-slate-600">
-          Track employee placement by client and maintain custom employee fields.
-        </p>
-      </section>
-
+    <div className="space-y-6">
       {(searchParams?.error || searchParams?.success) && (
         <div className="space-y-2">
           {searchParams?.error ? (
@@ -1903,91 +1890,6 @@ export default async function EmployeeInfoPage(props: {
           ) : null}
         </div>
       )}
-
-      {isAdmin && viewerVisibilityRule.enabled ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-          <p className="font-semibold uppercase tracking-wide">
-            {viewerUsesDefaultScope ? "Default scope is active" : "Custom scope is active"}
-          </p>
-          <p className="mt-1">
-            {viewerAllowedClientNames.length
-              ? `Clients: ${viewerAllowedClientNames.join(", ")}.`
-              : viewerUsesDefaultScope
-              ? "Clients: none assigned."
-              : "Clients: all."}{" "}
-            {viewerRoleColumnLabel
-              ? viewerAllowedRoleValues.length
-                ? `Role filter (${viewerRoleColumnLabel}): ${viewerAllowedRoleValues.join(", ")}.`
-                : `Role filter column (${viewerRoleColumnLabel}) is set, but no role values are limited.`
-              : "Role filter: none."}
-          </p>
-        </div>
-      ) : null}
-
-      {canManageVisibilityRules ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-4 md:p-6">
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              <span
-                aria-hidden="true"
-                className="inline-block text-[10px] transition-transform group-open:rotate-90"
-              >
-                &gt;
-              </span>
-              <span>Visibility Rules</span>
-            </summary>
-            <p className="mt-2 text-xs text-slate-500">
-              Access to Employee Info is controlled in <code>/permissions</code>. Rules here only
-              narrow what each user can see.
-            </p>
-            {viewerVisibilityTableMissing ? (
-              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Run <code>sql/employee_info_visibility_rules.sql</code> in Supabase SQL editor to
-                enable per-user visibility rules.
-              </p>
-            ) : visibilityRulesLoadError ? (
-              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                Failed to load visibility rules: {visibilityRulesLoadError}
-              </p>
-            ) : (
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50/70">
-                <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Users
-                </div>
-                <div className="max-h-80 space-y-1 overflow-y-auto p-2">
-                  {visibilityEditableUsers.map((user) => {
-                    const userRuleRow = visibilityRuleRowsByUserId.get(user.id) || null;
-                    const userAssignedClientCount = (assignedClientIdsByUserId.get(user.id) || new Set()).size;
-                    const isSelected = selectedVisibilityUserId === user.id;
-                    return (
-                      <a
-                        key={user.id}
-                        href={buildEmployeeInfoUrl({
-                          displayCurrency,
-                          visibilityUserId: user.id,
-                        })}
-                        className={[
-                          "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
-                          isSelected
-                            ? "border-slate-400 bg-white text-slate-900"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
-                        ].join(" ")}
-                      >
-                        <span>{user.full_name || user.email || "Unnamed user"}</span>
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          {userRuleRow
-                            ? "Custom scope"
-                            : `Default: ${userAssignedClientCount} clients, CSR only`}
-                        </span>
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </details>
-        </section>
-      ) : null}
 
       {canManageVisibilityRules &&
       selectedVisibilityUser &&
@@ -2108,6 +2010,109 @@ export default async function EmployeeInfoPage(props: {
             <CurrencyDisplaySelect value={displayCurrency} />
           </div>
           <div className="flex items-center gap-2">
+            {canManageVisibilityRules ? (
+              <details className="relative">
+                <summary
+                  className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
+                  aria-label="Employee info settings"
+                  title="Settings"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                  </svg>
+                </summary>
+                <div className="absolute right-0 z-30 mt-2 w-[26rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+                  <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Visibility Rules
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Access to Employee Info is controlled in <code>/permissions</code>. Rules
+                        here only narrow what each user can see.
+                      </p>
+                    </div>
+
+                    {isAdmin && viewerVisibilityRule.enabled ? (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        <p className="font-semibold uppercase tracking-wide">
+                          {viewerUsesDefaultScope ? "Default scope is active" : "Custom scope is active"}
+                        </p>
+                        <p className="mt-1">
+                          {viewerAllowedClientNames.length
+                            ? `Clients: ${viewerAllowedClientNames.join(", ")}.`
+                            : viewerUsesDefaultScope
+                            ? "Clients: none assigned."
+                            : "Clients: all."}{" "}
+                          {viewerRoleColumnLabel
+                            ? viewerAllowedRoleValues.length
+                              ? `Role filter (${viewerRoleColumnLabel}): ${viewerAllowedRoleValues.join(", ")}.`
+                              : `Role filter column (${viewerRoleColumnLabel}) is set, but no role values are limited.`
+                            : "Role filter: none."}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {viewerVisibilityTableMissing ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Run <code>sql/employee_info_visibility_rules.sql</code> in Supabase SQL
+                        editor to enable per-user visibility rules.
+                      </p>
+                    ) : visibilityRulesLoadError ? (
+                      <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        Failed to load visibility rules: {visibilityRulesLoadError}
+                      </p>
+                    ) : (
+                      <div className="rounded-md border border-slate-200 bg-slate-50/70">
+                        <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Users
+                        </div>
+                        <div className="max-h-80 space-y-1 overflow-y-auto p-2">
+                          {visibilityEditableUsers.map((user) => {
+                            const userRuleRow = visibilityRuleRowsByUserId.get(user.id) || null;
+                            const userAssignedClientCount = (assignedClientIdsByUserId.get(user.id) || new Set()).size;
+                            const isSelected = selectedVisibilityUserId === user.id;
+                            return (
+                              <a
+                                key={user.id}
+                                href={buildEmployeeInfoUrl({
+                                  displayCurrency,
+                                  visibilityUserId: user.id,
+                                })}
+                                className={[
+                                  "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
+                                  isSelected
+                                    ? "border-slate-400 bg-white text-slate-900"
+                                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                                ].join(" ")}
+                              >
+                                <span>{user.full_name || user.email || "Unnamed user"}</span>
+                                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                  {userRuleRow
+                                    ? "Custom scope"
+                                    : `Default: ${userAssignedClientCount} clients, CSR only`}
+                                </span>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </details>
+            ) : null}
             <a
               href={
                 displayCurrency === "ORIGINAL"
