@@ -1458,39 +1458,11 @@ export default async function QuizManageDetailPage({
       ) : null}
 
       {activeTab === "submissions" ? (
-        versions.length > 0 ? (
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <form method="get" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <input type="hidden" name="return_to" value={returnTo} />
-              <input type="hidden" name="tab" value="submissions" />
-              <input type="hidden" name="submission_result" value={submissionScope} />
-              <label className="text-sm text-slate-700">
-                Version scope for submissions table
-                <select
-                  name="version_id"
-                  defaultValue={selectedVersionId}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                >
-                  {versions.map((version) => (
-                    <option key={version.id} value={version.id}>
-                      {`v${version.version_number} (${version.lifecycle_status})`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="submit"
-                className="self-end rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Switch version
-              </button>
-            </form>
-          </section>
-        ) : (
-          <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            This quiz has no versions yet.
-          </section>
-        )
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-sm text-slate-700">
+            {selectedVersion ? `Viewing submissions for v${selectedVersion.version_number}` : "No versions available."}
+          </div>
+        </section>
       ) : null}
 
       {activeTab === "configure" ? (
