@@ -114,6 +114,27 @@ function normalizeActionPanel(value: string | null | undefined): ActionPanel {
   return "";
 }
 
+function extractUuid(value: unknown): string | null {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return uuidRegex.test(text) ? text : null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = extractUuid(item);
+      if (nested) return nested;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const nestedValue of Object.values(value as Record<string, unknown>)) {
+      const nested = extractUuid(nestedValue);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 function parseDateOnly(value: string | null | undefined) {
   const text = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
@@ -647,14 +668,18 @@ export default async function ClientSchedulePage({
   const canManageJobCodes = Boolean(canManageJobCodesData);
 
   let ensuredWeekId: string | null = null;
+  let ensuredWeekErrorMessage = "";
   if (canEdit) {
-    const { data: ensuredWeekData } = await supabase.rpc("schedule_get_or_create_week", {
+    const { data: ensuredWeekData, error: ensuredWeekError } = await supabase.rpc(
+      "schedule_get_or_create_week",
+      {
       p_client_id: clientId,
       p_reference_date: weekStart,
       p_timezone: scheduleBaseTimezone,
-    });
-    const ensuredWeekIdRaw = String(ensuredWeekData || "").trim();
-    ensuredWeekId = uuidRegex.test(ensuredWeekIdRaw) ? ensuredWeekIdRaw : null;
+      }
+    );
+    ensuredWeekId = extractUuid(ensuredWeekData);
+    ensuredWeekErrorMessage = ensuredWeekError?.message || "";
   }
 
   const { data: weekData } = await supabase
@@ -926,6 +951,11 @@ export default async function ClientSchedulePage({
           </div>
         </div>
         {resolvedSearch?.error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{resolvedSearch.error}</p> : null}
+        {!resolvedSearch?.error && ensuredWeekErrorMessage ? (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            Could not auto-create week: {ensuredWeekErrorMessage}
+          </p>
+        ) : null}
         {resolvedSearch?.success ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{resolvedSearch.success}</p> : null}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Week status</span>
