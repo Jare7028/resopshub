@@ -338,6 +338,7 @@ export default async function QuizReviewPage({
 
     revalidatePath("/quizzes/review");
     revalidatePath("/quizzes");
+    revalidatePath("/quizzes/assigned");
 
     if (error) {
       redirect(buildReviewPath({ clientId, error: error.message }));
@@ -360,6 +361,7 @@ export default async function QuizReviewPage({
 
     revalidatePath("/quizzes/review");
     revalidatePath("/quizzes");
+    revalidatePath("/quizzes/assigned");
     revalidatePath(`/quizzes/attempts/${attemptId}`);
 
     if (error) {
@@ -375,13 +377,13 @@ export default async function QuizReviewPage({
           <h1 className="text-2xl font-semibold text-slate-900">Quiz Review Queue</h1>
           <div className="flex flex-wrap gap-2">
             <Link
-              href="/quizzes"
+              href="/quizzes/assigned"
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Employee view
             </Link>
             <Link
-              href={selectedClient ? `/quizzes/manage?client_id=${selectedClient.id}` : "/quizzes/manage"}
+              href={selectedClient ? `/quizzes?client_id=${selectedClient.id}` : "/quizzes"}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Manage quizzes

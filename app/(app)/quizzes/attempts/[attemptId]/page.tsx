@@ -144,7 +144,7 @@ export default async function QuizAttemptPage({
     .maybeSingle();
 
   if (attemptError) {
-    redirect(`/quizzes?error=${encodeURIComponent(attemptError.message)}`);
+    redirect(`/quizzes/assigned?error=${encodeURIComponent(attemptError.message)}`);
   }
   if (!attemptData) {
     notFound();
@@ -160,7 +160,7 @@ export default async function QuizAttemptPage({
 
   if (versionError || !versionData) {
     redirect(
-      `/quizzes?error=${encodeURIComponent(versionError?.message || "Quiz version not found")}`
+      `/quizzes/assigned?error=${encodeURIComponent(versionError?.message || "Quiz version not found")}`
     );
   }
   const version = versionData as VersionRow;
@@ -172,7 +172,7 @@ export default async function QuizAttemptPage({
     .maybeSingle();
 
   if (quizError || !quizData) {
-    redirect(`/quizzes?error=${encodeURIComponent(quizError?.message || "Quiz not found")}`);
+    redirect(`/quizzes/assigned?error=${encodeURIComponent(quizError?.message || "Quiz not found")}`);
   }
   const quiz = quizData as QuizRow;
 
@@ -185,7 +185,7 @@ export default async function QuizAttemptPage({
     .order("position", { ascending: true });
 
   if (questionsError) {
-    redirect(`/quizzes?error=${encodeURIComponent(questionsError.message)}`);
+    redirect(`/quizzes/assigned?error=${encodeURIComponent(questionsError.message)}`);
   }
   const questions = (questionsData || []) as QuestionRow[];
 
@@ -197,7 +197,7 @@ export default async function QuizAttemptPage({
     .eq("attempt_id", attempt.id);
 
   if (answersError) {
-    redirect(`/quizzes?error=${encodeURIComponent(answersError.message)}`);
+    redirect(`/quizzes/assigned?error=${encodeURIComponent(answersError.message)}`);
   }
 
   const answers = (answersData || []) as AnswerRow[];
@@ -254,7 +254,7 @@ export default async function QuizAttemptPage({
 
     const status = String((data as { status?: string } | null)?.status || "submitted");
     revalidatePath(`/quizzes/attempts/${attemptId}`);
-    revalidatePath("/quizzes");
+    revalidatePath("/quizzes/assigned");
     redirect(
       `/quizzes/attempts/${attemptId}?success=${encodeURIComponent(`Attempt ${status.replace(/_/g, " ")}`)}`
     );
@@ -263,7 +263,7 @@ export default async function QuizAttemptPage({
   return (
     <div className="space-y-4">
       <header className="space-y-2">
-        <Link href="/quizzes" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+        <Link href="/quizzes/assigned" className="text-sm font-medium text-slate-600 hover:text-slate-900">
           &larr; Back to quizzes
         </Link>
         <div>

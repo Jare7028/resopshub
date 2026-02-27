@@ -6,33 +6,40 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type QuizzesSearchParams = {
+  client_id?: string;
+  tab?: string;
   error?: string;
   success?: string;
 };
 
-type AssignmentRow = {
-  id: string;
-  quiz_version_id: string;
-  assignment_mode: "required" | "optional";
-  available_from: string | null;
-  due_at: string | null;
-  expires_at: string | null;
-  created_at: string;
-};
+type QuizTabKey = "list" | "create";
 
-type QuizVersionRow = {
+type ClientRow = {
   id: string;
-  quiz_id: string;
-  version_number: number;
-  title: string;
-  lifecycle_status: "draft" | "published" | "retired";
+  name: string;
 };
 
 type QuizRow = {
   id: string;
   title: string;
-  max_attempts: number;
+  status: "draft" | "published" | "archived";
   passing_score_percent: number;
+  max_attempts: number;
+  published_version_number: number;
+  published_at: string | null;
+  created_at: string;
+};
+
+type VersionRow = {
+  id: string;
+  quiz_id: string;
+  version_number: number;
+  lifecycle_status: "draft" | "published" | "retired";
+};
+
+type QuestionRow = {
+  id: string;
+  quiz_version_id: string;
 };
 
 type AttemptRow = {
@@ -46,33 +53,29 @@ type AttemptRow = {
     | "final_scored"
     | "expired"
     | "cancelled";
-  attempt_number: number;
-  score_percent: number | null;
-  passed: boolean | null;
-  started_at: string;
-  submitted_at: string | null;
-  requires_manual_review: boolean;
 };
 
-function extractUuid(value: unknown): string | null {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return uuidRegex.test(trimmed) ? trimmed : null;
-  }
-  if (Array.isArray(value)) {
-    for (const nested of value) {
-      const result = extractUuid(nested);
-      if (result) return result;
-    }
-    return null;
-  }
-  if (value && typeof value === "object") {
-    for (const nested of Object.values(value as Record<string, unknown>)) {
-      const result = extractUuid(nested);
-      if (result) return result;
-    }
-  }
-  return null;
+function normalizeQuizTabKey(value: string | undefined): QuizTabKey {
+  return String(value || "")
+    .trim()
+    .toLowerCase() === "create"
+    ? "create"
+    : "list";
+}
+
+function buildQuizzesPath(args: {
+  clientId?: string;
+  tab?: QuizTabKey;
+  error?: string;
+  success?: string;
+}) {
+  const params = new URLSearchParams();
+  if (args.clientId) params.set("client_id", args.clientId);
+  if (args.tab && args.tab !== "list") params.set("tab", args.tab);
+  if (args.error) params.set("error", args.error);
+  if (args.success) params.set("success", args.success);
+  const query = params.toString();
+  return query ? `/quizzes?${query}` : "/quizzes";
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -88,21 +91,14 @@ function formatDateTime(value: string | null | undefined) {
   });
 }
 
-function statusLabel(status: AttemptRow["status"]) {
-  if (status === "in_progress") return "In progress";
-  if (status === "submitted") return "Submitted";
-  if (status === "auto_scored") return "Auto-scored";
-  if (status === "partially_scored") return "Partially scored";
-  if (status === "final_scored") return "Final scored";
-  if (status === "expired") return "Expired";
-  return "Cancelled";
+function isSubmissionStatus(status: AttemptRow["status"]) {
+  return status !== "in_progress" && status !== "cancelled" && status !== "expired";
 }
 
-function resultLabel(attempt: AttemptRow) {
-  if (attempt.passed == null) {
-    return attempt.requires_manual_review ? "Pending review" : "Pending";
-  }
-  return attempt.passed ? "Pass" : "Fail";
+function quizStatusBadgeClass(status: QuizRow["status"]) {
+  if (status === "published") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "draft") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
 export default async function QuizzesPage({
@@ -111,6 +107,9 @@ export default async function QuizzesPage({
   searchParams?: Promise<QuizzesSearchParams>;
 }) {
   const resolvedSearch = await searchParams;
+  const selectedClientIdRaw = String(resolvedSearch?.client_id || "").trim();
+  const selectedClientId = uuidRegex.test(selectedClientIdRaw) ? selectedClientIdRaw : "";
+  const activeTab = normalizeQuizTabKey(resolvedSearch?.tab);
   const errorMessage = String(resolvedSearch?.error || "").trim();
   const successMessage = String(resolvedSearch?.success || "").trim();
 
@@ -118,173 +117,195 @@ export default async function QuizzesPage({
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user?.id) redirect("/login");
 
-  const userId = authData.user.id;
+  const { data: clientsData, error: clientsError } = await supabase
+    .from("clients")
+    .select("id,name")
+    .order("name", { ascending: true });
 
-  const { data: assignmentsData, error: assignmentsError } = await supabase
-    .from("quiz_assignments")
-    .select("id,quiz_version_id,assignment_mode,available_from,due_at,expires_at,created_at")
-    .eq("assigned_user_id", userId)
-    .order("due_at", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: false });
+  const clients = (clientsData || []) as ClientRow[];
+  let selectedClient =
+    (selectedClientId ? clients.find((client) => client.id === selectedClientId) : null) ||
+    clients[0] ||
+    null;
 
-  const assignments = (assignmentsData || []) as AssignmentRow[];
-  let loadError = assignmentsError?.message || "";
+  let canManage = false;
+  let pageLoadError = clientsError?.message || "";
 
-  let versionsById = new Map<string, QuizVersionRow>();
-  let quizzesById = new Map<string, QuizRow>();
-  const attemptsByVersion = new Map<string, AttemptRow[]>();
+  if (!pageLoadError && selectedClient) {
+    const manageResult = await supabase.rpc("quiz_can_manage_client", {
+      client_uuid: selectedClient.id,
+    });
+    if (manageResult.error) {
+      pageLoadError = manageResult.error.message;
+    } else {
+      canManage = Boolean(manageResult.data);
+    }
+  }
 
-  const versionIds = Array.from(new Set(assignments.map((row) => row.quiz_version_id).filter(Boolean)));
-  if (!loadError && versionIds.length > 0) {
-    const { data: versionsData, error: versionsError } = await supabase
+  if (!pageLoadError && clients.length > 0 && !canManage) {
+    for (const candidate of clients) {
+      if (selectedClient && candidate.id === selectedClient.id) continue;
+      const manageResult = await supabase.rpc("quiz_can_manage_client", {
+        client_uuid: candidate.id,
+      });
+      if (manageResult.error) {
+        pageLoadError = manageResult.error.message;
+        break;
+      }
+      if (manageResult.data) {
+        selectedClient = candidate;
+        canManage = true;
+        break;
+      }
+    }
+  }
+
+  if (!pageLoadError && clients.length > 0 && !canManage) {
+    redirect("/quizzes/assigned");
+  }
+
+  let quizzes: QuizRow[] = [];
+  let versions: VersionRow[] = [];
+  let questions: QuestionRow[] = [];
+  let attempts: AttemptRow[] = [];
+
+  if (!pageLoadError && selectedClient) {
+    const quizzesResult = await supabase
+      .from("quiz_definitions")
+      .select(
+        "id,title,status,passing_score_percent,max_attempts,published_version_number,published_at,created_at"
+      )
+      .eq("client_id", selectedClient.id)
+      .order("created_at", { ascending: false });
+
+    if (quizzesResult.error) {
+      pageLoadError = quizzesResult.error.message;
+    } else {
+      quizzes = (quizzesResult.data || []) as QuizRow[];
+    }
+  }
+
+  if (!pageLoadError && quizzes.length > 0) {
+    const quizIds = quizzes.map((quiz) => quiz.id);
+    const versionsResult = await supabase
       .from("quiz_versions")
-      .select("id,quiz_id,version_number,title,lifecycle_status")
-      .in("id", versionIds);
+      .select("id,quiz_id,version_number,lifecycle_status")
+      .in("quiz_id", quizIds)
+      .order("version_number", { ascending: false });
 
-    if (versionsError) {
-      loadError = versionsError.message;
+    if (versionsResult.error) {
+      pageLoadError = versionsResult.error.message;
     } else {
-      const versions = (versionsData || []) as QuizVersionRow[];
-      versionsById = new Map(versions.map((row) => [row.id, row]));
-
-      const quizIds = Array.from(new Set(versions.map((row) => row.quiz_id).filter(Boolean)));
-      if (quizIds.length > 0) {
-        const { data: quizzesData, error: quizzesError } = await supabase
-          .from("quiz_definitions")
-          .select("id,title,max_attempts,passing_score_percent")
-          .in("id", quizIds);
-
-        if (quizzesError) {
-          loadError = quizzesError.message;
-        } else {
-          const quizzes = (quizzesData || []) as QuizRow[];
-          quizzesById = new Map(quizzes.map((row) => [row.id, row]));
-        }
-      }
+      versions = (versionsResult.data || []) as VersionRow[];
     }
   }
 
-  if (!loadError && versionIds.length > 0) {
-    const { data: attemptsData, error: attemptsError } = await supabase
-      .from("quiz_attempts")
-      .select("id,quiz_version_id,status,attempt_number,score_percent,passed,started_at,submitted_at,requires_manual_review")
-      .eq("user_id", userId)
-      .in("quiz_version_id", versionIds)
-      .order("attempt_number", { ascending: false })
-      .order("started_at", { ascending: false });
+  if (!pageLoadError && versions.length > 0) {
+    const versionIds = versions.map((version) => version.id);
+    const [questionsResult, attemptsResult] = await Promise.all([
+      supabase
+        .from("quiz_version_questions")
+        .select("id,quiz_version_id")
+        .in("quiz_version_id", versionIds),
+      supabase
+        .from("quiz_attempts")
+        .select("id,quiz_version_id,status")
+        .in("quiz_version_id", versionIds),
+    ]);
 
-    if (attemptsError) {
-      loadError = attemptsError.message;
+    if (questionsResult.error || attemptsResult.error) {
+      pageLoadError = questionsResult.error?.message || attemptsResult.error?.message || "";
     } else {
-      const attempts = (attemptsData || []) as AttemptRow[];
-      for (const attempt of attempts) {
-        const existing = attemptsByVersion.get(attempt.quiz_version_id) || [];
-        existing.push(attempt);
-        attemptsByVersion.set(attempt.quiz_version_id, existing);
-      }
-      for (const entry of attemptsByVersion.values()) {
-        entry.sort((a, b) => {
-          if (a.attempt_number !== b.attempt_number) {
-            return b.attempt_number - a.attempt_number;
-          }
-          return new Date(b.started_at).getTime() - new Date(a.started_at).getTime();
-        });
-      }
+      questions = (questionsResult.data || []) as QuestionRow[];
+      attempts = (attemptsResult.data || []) as AttemptRow[];
     }
   }
 
-  async function startAttemptAction(formData: FormData) {
+  const versionsByQuizId = versions.reduce<Record<string, VersionRow[]>>((acc, version) => {
+    acc[version.quiz_id] ||= [];
+    acc[version.quiz_id].push(version);
+    return acc;
+  }, {});
+
+  const questionCountByVersionId = questions.reduce<Record<string, number>>((acc, question) => {
+    acc[question.quiz_version_id] = (acc[question.quiz_version_id] || 0) + 1;
+    return acc;
+  }, {});
+
+  const submissionCountByVersionId = attempts.reduce<Record<string, number>>((acc, attempt) => {
+    if (!isSubmissionStatus(attempt.status)) return acc;
+    acc[attempt.quiz_version_id] = (acc[attempt.quiz_version_id] || 0) + 1;
+    return acc;
+  }, {});
+
+  async function createQuizAction(formData: FormData) {
     "use server";
-    const assignmentId = String(formData.get("assignment_id") || "").trim();
-    if (!uuidRegex.test(assignmentId)) {
-      redirect("/quizzes?error=Invalid assignment id");
+    const clientId = String(formData.get("client_id") || "").trim();
+    if (!uuidRegex.test(clientId)) {
+      redirect(buildQuizzesPath({ clientId: selectedClient?.id, tab: "create", error: "Invalid client id" }));
+    }
+
+    const title = String(formData.get("title") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const passingScore = Number.parseFloat(String(formData.get("passing_score_percent") || "70"));
+    const maxAttempts = Number.parseInt(String(formData.get("max_attempts") || "1"), 10);
+    const timeLimitRaw = String(formData.get("time_limit_seconds") || "").trim();
+    const timeLimit = timeLimitRaw ? Number.parseInt(timeLimitRaw, 10) : null;
+
+    if (!title) {
+      redirect(buildQuizzesPath({ clientId, tab: "create", error: "Quiz title is required" }));
     }
 
     const supabase = createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("quiz_start_attempt", {
-      p_assignment_id: assignmentId,
+    const { error } = await supabase.rpc("quiz_create_definition_with_version", {
+      p_client_id: clientId,
+      p_title: title,
+      p_description: description || null,
+      p_passing_score_percent: Number.isFinite(passingScore) ? passingScore : 70,
+      p_max_attempts: Number.isInteger(maxAttempts) ? maxAttempts : 1,
+      p_time_limit_seconds: timeLimit,
+      p_multi_select_scoring_mode: "all_or_nothing",
     });
 
-    if (error) {
-      redirect(`/quizzes?error=${encodeURIComponent(error.message)}`);
-    }
-
-    const attemptId = extractUuid(data);
-    if (!attemptId) {
-      redirect("/quizzes?error=Unable to start attempt");
-    }
-
     revalidatePath("/quizzes");
-    redirect(`/quizzes/attempts/${attemptId}?success=${encodeURIComponent("Attempt ready")}`);
+    revalidatePath("/quizzes/assigned");
+
+    if (error) {
+      redirect(buildQuizzesPath({ clientId, tab: "create", error: error.message }));
+    }
+    redirect(buildQuizzesPath({ clientId, tab: "list", success: "Quiz created with draft version 1" }));
   }
 
-  const assignmentCards = assignments.map((assignment) => {
-    const version = versionsById.get(assignment.quiz_version_id);
-    const quiz = version ? quizzesById.get(version.quiz_id) : null;
-    const attempts = attemptsByVersion.get(assignment.quiz_version_id) || [];
-    const inProgressAttempt = attempts.find((row) => row.status === "in_progress") || null;
-    const latestAttempt = attempts[0] || null;
-    const primaryAttempt = inProgressAttempt || latestAttempt;
-    const needsReview = latestAttempt ? resultLabel(latestAttempt) === "Pending review" : false;
-    const isComplete =
-      latestAttempt != null &&
-      latestAttempt.status !== "in_progress" &&
-      latestAttempt.status !== "submitted" &&
-      !needsReview;
-    const needsAttention = inProgressAttempt != null || latestAttempt == null || needsReview;
-
-    return {
-      assignment,
-      version,
-      quiz,
-      inProgressAttempt,
-      latestAttempt,
-      primaryAttempt,
-      needsReview,
-      isComplete,
-      needsAttention,
-    };
-  });
-
-  const attentionCards = assignmentCards.filter((card) => card.needsAttention);
-  const completedCards = assignmentCards.filter((card) => card.isComplete);
-  const pendingReviewCount = assignmentCards.filter((card) => card.needsReview).length;
-  const orderedAssignmentCards = [...assignmentCards].sort((left, right) => {
-    if (left.needsAttention !== right.needsAttention) {
-      return left.needsAttention ? -1 : 1;
-    }
-    if (left.assignment.due_at && right.assignment.due_at) {
-      return new Date(left.assignment.due_at).getTime() - new Date(right.assignment.due_at).getTime();
-    }
-    if (left.assignment.due_at) return -1;
-    if (right.assignment.due_at) return 1;
-    return new Date(right.assignment.created_at).getTime() - new Date(left.assignment.created_at).getTime();
-  });
+  const tabUrls: Record<QuizTabKey, string> = {
+    list: buildQuizzesPath({ clientId: selectedClient?.id, tab: "list" }),
+    create: buildQuizzesPath({ clientId: selectedClient?.id, tab: "create" }),
+  };
+  const listReturnTo = buildQuizzesPath({ clientId: selectedClient?.id, tab: "list" });
 
   return (
-    <div className="space-y-4">
-      <header className="space-y-2 rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="space-y-5">
+      <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-semibold text-slate-900">Quizzes</h1>
           <div className="flex flex-wrap gap-2">
             <Link
-              href="/quizzes/manage"
+              href="/quizzes/assigned"
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              Manage
+              My assignments
             </Link>
             <Link
-              href="/quizzes/review"
+              href={selectedClient ? `/quizzes/review?client_id=${selectedClient.id}` : "/quizzes/review"}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              Review Queue
+              Review queue
             </Link>
           </div>
         </div>
         <p className="text-sm text-slate-600">
-          Track assigned quizzes, continue in-progress attempts, and see scoring outcomes.
+          Manage quizzes in the same flow as forms: list existing quizzes or create a new one.
         </p>
-      </header>
+      </section>
 
       {errorMessage ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -296,120 +317,224 @@ export default async function QuizzesPage({
           {successMessage}
         </p>
       ) : null}
-      {loadError ? (
+      {pageLoadError ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {loadError}
+          {pageLoadError}
         </p>
       ) : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assigned</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{assignmentCards.length}</p>
-          <p className="text-xs text-slate-600">Total active assignments</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Needs Attention</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{attentionCards.length}</p>
-          <p className="text-xs text-slate-600">No attempt yet, in progress, or review pending</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending Review</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{pendingReviewCount}</p>
-          <p className="text-xs text-slate-600">Awaiting manual marking</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Completed</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{completedCards.length}</p>
-          <p className="text-xs text-slate-600">Scored attempts with final outcomes</p>
-        </div>
-      </section>
+      <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
+        <Link
+          href={tabUrls.list}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            activeTab === "list"
+              ? "tab-active"
+              : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          Quizzes
+        </Link>
+        <Link
+          href={tabUrls.create}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            activeTab === "create"
+              ? "tab-active"
+              : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          Create quiz
+        </Link>
+      </nav>
 
-      <section className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Assignments (sorted by urgency)
-        </p>
-        {assignments.length === 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            No quiz assignments yet.
-          </div>
-        ) : (
-          orderedAssignmentCards.map((card) => {
-            return (
-              <article key={card.assignment.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <h2 className="text-base font-semibold text-slate-900">
-                      {card.quiz?.title || card.version?.title || "Untitled quiz"}
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Version {card.version?.version_number ?? "?"} -{" "}
-                      {card.assignment.assignment_mode === "required" ? "Required" : "Optional"}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Available: {formatDateTime(card.assignment.available_from)} - Due:{" "}
-                      {formatDateTime(card.assignment.due_at)}
-                    </p>
-                    {card.assignment.expires_at ? (
-                      <p className="text-xs text-slate-500">
-                        Expires: {formatDateTime(card.assignment.expires_at)}
-                      </p>
-                    ) : null}
-                    {card.quiz ? (
-                      <p className="text-xs text-slate-500">
-                        Passing score: {card.quiz.passing_score_percent}% - Max attempts: {card.quiz.max_attempts}
-                      </p>
-                    ) : null}
-                  </div>
+      {!selectedClient ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          No accessible clients found.
+        </section>
+      ) : null}
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {card.primaryAttempt ? (
-                      <Link
-                        href={`/quizzes/attempts/${card.primaryAttempt.id}`}
-                        className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        {card.inProgressAttempt ? "Continue attempt" : "View attempt"}
-                      </Link>
-                    ) : null}
-                    <form action={startAttemptAction}>
-                      <input type="hidden" name="assignment_id" value={card.assignment.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
-                      >
-                        {card.primaryAttempt ? "Start another attempt" : "Start attempt"}
-                      </button>
-                    </form>
-                  </div>
+      {activeTab === "create" && selectedClient ? (
+        canManage ? (
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="text-base font-semibold text-slate-900">Create quiz</h2>
+            <form action={createQuizAction} className="mt-3 grid gap-3">
+              <label className="text-sm text-slate-700">
+                Client
+                <select
+                  name="client_id"
+                  defaultValue={selectedClient.id}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                >
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm text-slate-700">
+                Quiz title
+                <input
+                  name="title"
+                  required
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                  placeholder="Quarterly Safety Quiz"
+                />
+              </label>
+              <label className="text-sm text-slate-700">
+                Description
+                <textarea
+                  name="description"
+                  rows={2}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                  placeholder="Optional context shown to employees"
+                />
+              </label>
+              <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <summary className="cursor-pointer text-sm font-medium text-slate-700">
+                  Advanced settings
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm text-slate-700">
+                    Passing score (%)
+                    <input
+                      name="passing_score_percent"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      defaultValue={70}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Max attempts
+                    <input
+                      name="max_attempts"
+                      type="number"
+                      min={1}
+                      defaultValue={1}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Time limit (seconds)
+                    <input
+                      name="time_limit_seconds"
+                      type="number"
+                      min={1}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
                 </div>
+              </details>
+              <div>
+                <button
+                  type="submit"
+                  className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Create draft quiz
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : (
+          <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            You do not have manage access for this client.
+          </section>
+        )
+      ) : null}
 
-                {card.latestAttempt ? (
-                  <div className="mt-3 grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4">
-                    <p>
-                      <span className="font-semibold text-slate-700">Latest status:</span>{" "}
-                      {statusLabel(card.latestAttempt.status)}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-slate-700">Attempt #:</span>{" "}
-                      {card.latestAttempt.attempt_number}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-slate-700">Score:</span>{" "}
-                      {card.latestAttempt.score_percent == null
-                        ? "Pending"
-                        : `${card.latestAttempt.score_percent}%`}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-slate-700">Result:</span>{" "}
-                      {resultLabel(card.latestAttempt)}
-                    </p>
-                  </div>
-                ) : null}
-              </article>
-            );
-          })
-        )}
-      </section>
+      {activeTab === "list" && selectedClient ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <form method="get" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <input type="hidden" name="tab" value="list" />
+            <label className="text-sm text-slate-700">
+              Client
+              <select
+                name="client_id"
+                defaultValue={selectedClient.id}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+              >
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="self-end rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Apply
+            </button>
+          </form>
+
+          {quizzes.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-600">No quizzes created for this client yet.</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2">Quiz</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Versions</th>
+                    <th className="px-3 py-2">Questions</th>
+                    <th className="px-3 py-2">Submissions</th>
+                    <th className="px-3 py-2">Published</th>
+                    <th className="px-3 py-2">Open</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {quizzes.map((quiz) => {
+                    const quizVersions = versionsByQuizId[quiz.id] || [];
+                    const totalQuestions = quizVersions.reduce((sum, version) => {
+                      return sum + (questionCountByVersionId[version.id] || 0);
+                    }, 0);
+                    const totalSubmissions = quizVersions.reduce((sum, version) => {
+                      return sum + (submissionCountByVersionId[version.id] || 0);
+                    }, 0);
+                    const openHref = `/quizzes/${quiz.id}?${new URLSearchParams({
+                      return_to: listReturnTo,
+                    }).toString()}`;
+
+                    return (
+                      <tr key={quiz.id} className="border-t border-slate-200">
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-slate-900">{quiz.title}</p>
+                          <p className="text-xs text-slate-500">
+                            Pass {quiz.passing_score_percent}% - Max attempts {quiz.max_attempts}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${quizStatusBadgeClass(quiz.status)}`}
+                          >
+                            {quiz.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-700">{quizVersions.length}</td>
+                        <td className="px-3 py-2 text-slate-700">{totalQuestions}</td>
+                        <td className="px-3 py-2 text-slate-700">{totalSubmissions}</td>
+                        <td className="px-3 py-2 text-slate-700">{formatDateTime(quiz.published_at)}</td>
+                        <td className="px-3 py-2">
+                          <Link
+                            href={openHref}
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Open quiz
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
