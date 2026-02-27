@@ -74,6 +74,12 @@ function normalizeSubmissionSortDir(value: string | null | undefined): Submissio
   return "desc";
 }
 
+function formStatusBadgeClass(status: ReturnType<typeof normalizeFormStatus>) {
+  if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "draft") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
 function parseFields(value: unknown): FormField[] {
   if (!Array.isArray(value)) return [];
   const fields = value
@@ -466,6 +472,11 @@ export default async function FormDetailPage(props: {
     dir: submissionSortDir,
   }).toString()}`;
   const canConfigureForm = canManageForm;
+  const formStatus = normalizeFormStatus(form.status);
+  const openSubmissionCount = submissions.filter((submission) => {
+    const status = String(submission.status || "open");
+    return status !== "completed" && status !== "rejected";
+  }).length;
 
   const filteredSubmissions = submissions.filter((submission) => {
     const status = String(submission.status || "open");
@@ -1147,25 +1158,46 @@ export default async function FormDetailPage(props: {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Form</p>
-          <h1 className="text-2xl font-semibold text-slate-900">{form.title}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {submissions.filter((submission) => {
-              const status = String(submission.status || "open");
-              return status !== "completed" && status !== "rejected";
-            }).length}{" "}
-            open submissions
-          </p>
+      <header className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Link href={returnTo} className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              &larr; Back to forms
+            </Link>
+            <h1 className="mt-2 text-2xl font-semibold text-slate-900">{form.title}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+              <span
+                className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${formStatusBadgeClass(formStatus)}`}
+              >
+                {formatFormLabel(formStatus)}
+              </span>
+              <span>{`${openSubmissionCount} open submissions`}</span>
+              <span>{`${formFields.length} field${formFields.length === 1 ? "" : "s"}`}</span>
+            </div>
+            {form.description ? (
+              <p className="mt-1 text-sm text-slate-600">{form.description}</p>
+            ) : null}
+          </div>
+          {canConfigureForm ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <FormAccessPopover
+                users={workspaceUserOptions}
+                initialAssignments={formAccessAssignments}
+                formAccessSchemaMissing={formAccessSchemaMissing}
+                onSave={saveFormAccess}
+              />
+              <FormShareLinksPopover
+                appBaseUrl={appBaseUrl}
+                links={formShareLinks}
+                schemaMissing={formShareLinksSchemaMissing}
+                loadErrorMessage={formShareLinksLoadErrorMessage}
+                onCreateLink={createFormShareLink}
+                onToggleLink={toggleFormShareLink}
+              />
+            </div>
+          ) : null}
         </div>
-        <Link
-          href={returnTo}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
-        >
-          Back to forms
-        </Link>
-      </div>
+      </header>
 
       <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-4 text-sm">
         <Link
@@ -1189,24 +1221,6 @@ export default async function FormDetailPage(props: {
           >
             Configure form
           </Link>
-        ) : null}
-        {canConfigureForm ? (
-          <FormAccessPopover
-            users={workspaceUserOptions}
-            initialAssignments={formAccessAssignments}
-            formAccessSchemaMissing={formAccessSchemaMissing}
-            onSave={saveFormAccess}
-          />
-        ) : null}
-        {canConfigureForm ? (
-          <FormShareLinksPopover
-            appBaseUrl={appBaseUrl}
-            links={formShareLinks}
-            schemaMissing={formShareLinksSchemaMissing}
-            loadErrorMessage={formShareLinksLoadErrorMessage}
-            onCreateLink={createFormShareLink}
-            onToggleLink={toggleFormShareLink}
-          />
         ) : null}
         <Link
           href={tabUrls.create_submission}
@@ -1246,7 +1260,7 @@ export default async function FormDetailPage(props: {
           <FormConfigureAutosave
             initialTitle={form.title}
             initialDescription={form.description || ""}
-            initialStatus={normalizeFormStatus(form.status)}
+            initialStatus={formStatus}
             initialFields={formFields}
             initialTemplateIds={selectedTaskTemplateIds}
             initialManualTasks={manualTasks}
@@ -1265,7 +1279,7 @@ export default async function FormDetailPage(props: {
       ) : null}
 
       {activeTab === "create_submission" ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
+        <section className="rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-slate-900">Create submission</h2>
           </div>
@@ -1282,7 +1296,7 @@ export default async function FormDetailPage(props: {
       ) : null}
 
       {activeTab === "submissions" ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
+        <section className="rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Submissions</h2>
