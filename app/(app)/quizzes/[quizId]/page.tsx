@@ -410,24 +410,12 @@ export default async function QuizManageDetailPage({
   }
 
   if (!pageLoadError && canAssign) {
-    const clientUsersResult = await supabase
-      .from("client_users")
-      .select("user_id")
-      .eq("client_id", quiz.client_id);
-    if (!clientUsersResult.error) {
-      const assignableUserIds = Array.from(
-        new Set((clientUsersResult.data || []).map((row) => row.user_id).filter(Boolean))
-      );
-      if (assignableUserIds.length > 0) {
-        const usersResult = await supabase
-          .from("users")
-          .select("id,full_name,email")
-          .in("id", assignableUserIds)
-          .order("full_name", { ascending: true });
-        if (!usersResult.error) {
-          assignableUsers = (usersResult.data || []) as UserRow[];
-        }
-      }
+    const usersResult = await supabase
+      .from("users")
+      .select("id,full_name,email")
+      .order("full_name", { ascending: true });
+    if (!usersResult.error) {
+      assignableUsers = (usersResult.data || []) as UserRow[];
     }
   }
 
@@ -459,6 +447,8 @@ export default async function QuizManageDetailPage({
     : "";
 
   const publishedVersions = versions.filter((version) => version.lifecycle_status === "published");
+  const defaultPublishedVersion = publishedVersions[0] || null;
+  const defaultPublishedVersionId = defaultPublishedVersion?.id || "";
   const submissionCounts = {
     all: attempts.length,
     passed: attempts.filter((attempt) => attempt.passed === true).length,
@@ -1312,14 +1302,30 @@ export default async function QuizManageDetailPage({
 
   async function assignVersionAction(formData: FormData) {
     "use server";
-    const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
+    const requestedVersionId = String(formData.get("quiz_version_id") || "").trim();
+    const quizVersionId = uuidRegex.test(requestedVersionId)
+      ? requestedVersionId
+      : defaultPublishedVersionId;
     const userId = String(formData.get("assigned_user_id") || "").trim();
     const assignmentMode = String(formData.get("assignment_mode") || "required").trim();
     const availableFromRaw = String(formData.get("available_from") || "").trim();
     const dueAtRaw = String(formData.get("due_at") || "").trim();
     const expiresAtRaw = String(formData.get("expires_at") || "").trim();
 
-    if (!uuidRegex.test(quizVersionId) || !uuidRegex.test(userId)) {
+    if (!uuidRegex.test(quizVersionId)) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "assignments",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Publish a version before creating assignments",
+        })
+      );
+    }
+
+    if (!uuidRegex.test(userId)) {
       redirect(
         buildDetailPath({
           quizId,
@@ -1679,26 +1685,14 @@ export default async function QuizManageDetailPage({
       {activeTab === "assignments" ? (
         canAssign ? (
           <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-base font-semibold text-slate-900">Assign published version</h2>
+            <h2 className="text-base font-semibold text-slate-900">Assign quiz</h2>
             {publishedVersions.length === 0 ? (
               <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 Publish a version first, then assignment appears here.
               </p>
             ) : (
               <form action={assignVersionAction} className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className="text-sm text-slate-700">
-                  Published version
-                  <select
-                    name="quiz_version_id"
-                    required
-                    defaultValue={selectedVersionId || publishedVersions[0]?.id}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    {publishedVersions.map((version) => (
-                      <option key={version.id} value={version.id}>{`v${version.version_number}`}</option>
-                    ))}
-                  </select>
-                </label>
+                <input type="hidden" name="quiz_version_id" value={defaultPublishedVersionId} />
                 <label className="text-sm text-slate-700">
                   Employee
                   <select
@@ -1713,7 +1707,7 @@ export default async function QuizManageDetailPage({
                         </option>
                       ))
                     ) : (
-                      <option value="">No client users found</option>
+                      <option value="">No employees found</option>
                     )}
                   </select>
                 </label>
