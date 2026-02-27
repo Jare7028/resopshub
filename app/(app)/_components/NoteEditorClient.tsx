@@ -147,6 +147,9 @@ type MentionMenuState = {
 type NoteEditorClientProps = {
   entityId: string;
   initialContent: unknown;
+  initialUpdatedAt?: string | null;
+  liveContentSnapshot?: NoteLiveContentSnapshot | null;
+  onLiveSnapshotApplied?: (updatedAt: string | null) => void;
   title: string;
   placeholder: string;
   onSave: (entityId: string, content: unknown) => Promise<NoteSaveResult | void>;
@@ -185,6 +188,11 @@ export type NoteSaveResult = {
   content?: unknown;
   updatedAt?: string | null;
   warnings?: string[];
+};
+
+export type NoteLiveContentSnapshot = {
+  content: unknown;
+  updatedAt: string | null;
 };
 
 type TaskHoverSummary = {
@@ -448,6 +456,18 @@ function parseFontSizePx(value: string | null | undefined) {
     return null;
   }
   return parsed;
+}
+
+function parseTimestampMs(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function getNextFontSizeValue(currentValue: string, direction: "up" | "down") {
@@ -2553,6 +2573,9 @@ function getSuggestedTaskTitle(editor: Editor) {
 export default function NoteEditorClient({
   entityId,
   initialContent,
+  initialUpdatedAt = null,
+  liveContentSnapshot = null,
+  onLiveSnapshotApplied,
   title,
   placeholder,
   onSave,
@@ -2670,6 +2693,9 @@ export default function NoteEditorClient({
   const viewStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoredDraftRef = useRef(false);
   const restoredDraftContentRef = useRef(false);
+  const pendingLiveSnapshotRef = useRef<NoteLiveContentSnapshot | null>(null);
+  const lastAppliedLiveUpdatedAtRef = useRef<string | null>(initialUpdatedAt ?? null);
+  const lastAppliedLiveContentJsonRef = useRef("");
   const persistedEphemeralImageSrcBySourceRef = useRef<Map<string, string>>(new Map());
   const uploadedImageSrcQueueRef = useRef<string[]>([]);
   const legacyMissingImageCleanupAppliedRef = useRef(false);
@@ -2688,6 +2714,16 @@ export default function NoteEditorClient({
       removedCount: cleaned.removedCount,
     };
   }, [enforceImageNodeIntegrity, normalizedInitialContent]);
+  const initialUpdatedAtMs = useMemo(
+    () => parseTimestampMs(initialUpdatedAt),
+    [initialUpdatedAt]
+  );
+
+  useEffect(() => {
+    pendingLiveSnapshotRef.current = null;
+    lastAppliedLiveUpdatedAtRef.current = initialUpdatedAt ?? null;
+    lastAppliedLiveContentJsonRef.current = JSON.stringify(initialImageIntegrity.content);
+  }, [entityId, initialImageIntegrity.content, initialUpdatedAt]);
 
   useEffect(() => {
     uploadedImageSrcQueueRef.current = [];
@@ -2994,6 +3030,10 @@ export default function NoteEditorClient({
         setSaveWarning(warnings.join(" "));
         setSaveState("saved");
         persistDraftSnapshot(canonicalContent, false);
+        lastAppliedLiveContentJsonRef.current = JSON.stringify(canonicalContent);
+        if (typeof saveResult?.updatedAt === "string" && saveResult.updatedAt.trim()) {
+          lastAppliedLiveUpdatedAtRef.current = saveResult.updatedAt.trim();
+        }
         if (saveStatusTimerRef.current) {
           clearTimeout(saveStatusTimerRef.current);
         }
@@ -3099,6 +3139,65 @@ export default function NoteEditorClient({
       }),
     []
   );
+
+  const applyPendingLiveSnapshot = useCallback(() => {
+    const pending = pendingLiveSnapshotRef.current;
+    if (!pending) {
+      return;
+    }
+    if (saveState === "saving" || hasActiveSaveWork()) {
+      return;
+    }
+    const currentEditor = editorRef.current;
+    if (!currentEditor) {
+      return;
+    }
+
+    const pendingUpdatedAt =
+      typeof pending.updatedAt === "string" ? pending.updatedAt.trim() || null : null;
+    const pendingUpdatedAtMs = parseTimestampMs(pendingUpdatedAt);
+    const lastAppliedUpdatedAtMs = parseTimestampMs(lastAppliedLiveUpdatedAtRef.current);
+
+    const normalizedPendingContent = normalizeContent(pending.content);
+    const pendingJson = JSON.stringify(normalizedPendingContent);
+
+    if (
+      pendingUpdatedAtMs !== null
+      && lastAppliedUpdatedAtMs !== null
+      && pendingUpdatedAtMs <= lastAppliedUpdatedAtMs
+    ) {
+      pendingLiveSnapshotRef.current = null;
+      return;
+    }
+
+    if (pendingUpdatedAtMs === null && pendingJson === lastAppliedLiveContentJsonRef.current) {
+      pendingLiveSnapshotRef.current = null;
+      return;
+    }
+
+    const currentJson = JSON.stringify(normalizeContent(currentEditor.getJSON()));
+    if (currentJson !== pendingJson) {
+      currentEditor.commands.setContent(normalizedPendingContent, { emitUpdate: false });
+    }
+
+    persistDraftSnapshot(normalizedPendingContent, false);
+    lastAppliedLiveUpdatedAtRef.current = pendingUpdatedAt;
+    lastAppliedLiveContentJsonRef.current = pendingJson;
+    pendingLiveSnapshotRef.current = null;
+    onLiveSnapshotApplied?.(pendingUpdatedAt);
+    setSaveError("");
+    setSaveWarning("");
+    setSaveState("saved");
+    if (saveStatusTimerRef.current) {
+      clearTimeout(saveStatusTimerRef.current);
+    }
+    saveStatusTimerRef.current = setTimeout(() => {
+      setSaveState((current) => (current === "saved" ? "idle" : current));
+    }, 1400);
+    logSaveDebug("live_snapshot_applied", {
+      updatedAt: pendingUpdatedAt,
+    });
+  }, [hasActiveSaveWork, logSaveDebug, onLiveSnapshotApplied, persistDraftSnapshot, saveState]);
 
   const flushPendingSave = useCallback(
     (options?: { immediate?: boolean }) => {
@@ -4112,6 +4211,18 @@ export default function NoteEditorClient({
   }, [editor]);
 
   useEffect(() => {
+    if (!liveContentSnapshot) {
+      return;
+    }
+    pendingLiveSnapshotRef.current = liveContentSnapshot;
+    applyPendingLiveSnapshot();
+  }, [applyPendingLiveSnapshot, liveContentSnapshot]);
+
+  useEffect(() => {
+    applyPendingLiveSnapshot();
+  }, [applyPendingLiveSnapshot, saveState]);
+
+  useEffect(() => {
     if (!editor || restoredDraftRef.current) {
       return;
     }
@@ -4124,8 +4235,18 @@ export default function NoteEditorClient({
       const parsed = JSON.parse(raw) as {
         content?: unknown;
         dirty?: boolean;
+        updatedAt?: unknown;
       };
       if (!parsed?.dirty || !parsed.content) {
+        return;
+      }
+      const draftUpdatedAtMs = parseTimestampMs(parsed.updatedAt);
+      if (
+        initialUpdatedAtMs !== null
+        && draftUpdatedAtMs !== null
+        && draftUpdatedAtMs <= initialUpdatedAtMs
+      ) {
+        window.sessionStorage.removeItem(draftStorageKey);
         return;
       }
       const initialJson = JSON.stringify(initialImageIntegrity.content);
@@ -4150,7 +4271,7 @@ export default function NoteEditorClient({
     } catch {
       // Ignore malformed draft snapshots.
     }
-  }, [draftStorageKey, editor, enforceImageNodeIntegrity, initialImageIntegrity.content]);
+  }, [draftStorageKey, editor, enforceImageNodeIntegrity, initialImageIntegrity.content, initialUpdatedAtMs]);
 
   useEffect(() => {
     if (!editor || !enforceImageNodeIntegrity) {

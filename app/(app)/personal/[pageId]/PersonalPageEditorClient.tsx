@@ -1,8 +1,11 @@
 "use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import NoteEditorClient from "../../_components/NoteEditorClient";
-import type { ContextMenuFavoriteActionId } from "../../_components/NoteEditorClient";
-import { useCallback, useEffect, useRef } from "react";
+import type {
+  ContextMenuFavoriteActionId,
+  NoteLiveContentSnapshot,
+} from "../../_components/NoteEditorClient";
 import {
   createTaskFromPersonalPage,
   savePersonalContextMenuFavorites,
@@ -14,6 +17,7 @@ import {
 } from "../workspaceActions";
 import type { PersonalWorkspaceRibbonTab } from "../types";
 import { uploadPersonalPageImage } from "@/lib/personalPageImageUpload";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function PersonalPageEditorClient({
   pageId,
@@ -39,6 +43,9 @@ export default function PersonalPageEditorClient({
   initialFocusMode?: boolean;
 }) {
   const expectedUpdatedAtRef = useRef<string | null>(initialUpdatedAt ?? null);
+  const [liveContentSnapshot, setLiveContentSnapshot] = useState<NoteLiveContentSnapshot | null>(
+    null
+  );
 
   useEffect(() => {
     void recordPersonalPageOpened({ pageId }).catch(() => undefined);
@@ -47,6 +54,41 @@ export default function PersonalPageEditorClient({
   useEffect(() => {
     expectedUpdatedAtRef.current = initialUpdatedAt ?? null;
   }, [initialUpdatedAt, pageId]);
+
+  useEffect(() => {
+    setLiveContentSnapshot(null);
+    const channel = supabase
+      .channel(`live:personal_pages:${pageId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "personal_pages",
+          filter: `id=eq.${pageId}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown>;
+          if (!Object.prototype.hasOwnProperty.call(row, "content")) {
+            return;
+          }
+          const nextUpdatedAt =
+            typeof row.updated_at === "string" ? row.updated_at.trim() || null : null;
+          if (nextUpdatedAt && nextUpdatedAt === expectedUpdatedAtRef.current) {
+            return;
+          }
+          setLiveContentSnapshot({
+            content: row.content ?? null,
+            updatedAt: nextUpdatedAt,
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [pageId]);
 
   const handleCreateTask = useCallback(
     (input: { title: string; dueDate: string | null; dueTime: string | null; assignToMe: boolean }) =>
@@ -86,11 +128,17 @@ export default function PersonalPageEditorClient({
       }).then(() => undefined),
     [pageId]
   );
+  const handleLiveSnapshotApplied = useCallback((updatedAt: string | null) => {
+    expectedUpdatedAtRef.current = updatedAt;
+  }, []);
 
   return (
     <NoteEditorClient
       entityId={pageId}
       initialContent={initialContent}
+      initialUpdatedAt={initialUpdatedAt}
+      liveContentSnapshot={liveContentSnapshot}
+      onLiveSnapshotApplied={handleLiveSnapshotApplied}
       title="Page"
       placeholder="Start writing your page..."
       onSave={handleSave}
