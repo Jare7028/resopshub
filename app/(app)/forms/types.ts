@@ -12,6 +12,7 @@ export const formFieldTypeOptions = [
   "number",
   "date",
   "select",
+  "multi_select",
   "checkbox",
 ] as const;
 export const formFieldConditionOperatorOptions = [

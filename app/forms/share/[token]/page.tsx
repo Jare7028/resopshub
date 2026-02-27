@@ -164,18 +164,36 @@ export default async function SharedFormPage(props: {
 
     const fields = parseFields(resolved.form_fields);
     const rawValues: Record<string, string> = {};
+    const multiSelectValuesByKey: Record<string, string[]> = {};
     fields.forEach((field) => {
       const key = `field_${field.key}`;
       if (field.type === "checkbox") {
         rawValues[field.key] = formData.get(key) ? "true" : "false";
+      } else if (field.type === "multi_select") {
+        const allowedOptions = new Set((field.options || []).map((option) => String(option || "").trim()).filter(Boolean));
+        const selectedOptions = Array.from(
+          new Set(formData.getAll(key).map((entry) => String(entry || "").trim()).filter(Boolean))
+        ).filter((value) => (allowedOptions.size ? allowedOptions.has(value) : false));
+        multiSelectValuesByKey[field.key] = selectedOptions;
+        rawValues[field.key] = selectedOptions.join(", ");
       } else {
         rawValues[field.key] = String(formData.get(key) || "").trim();
       }
     });
 
     const visibleFields = fields.filter((field) => shouldIncludeField(field, rawValues));
-    const values: Record<string, string> = {};
+    const values: Record<string, unknown> = {};
     for (const field of visibleFields) {
+      if (field.type === "multi_select") {
+        const selectedOptions = multiSelectValuesByKey[field.key] || [];
+        if (field.required && selectedOptions.length === 0) {
+          const fieldLabel = field.label || formatFormLabel(field.key);
+          redirect(buildSharedFormDetailUrl(detailPath, { error: `Required field missing: ${fieldLabel}` }));
+        }
+        values[field.key] = selectedOptions;
+        continue;
+      }
+
       const value = rawValues[field.key] || "";
       if (field.required && !value) {
         const fieldLabel = field.label || formatFormLabel(field.key);

@@ -8,10 +8,32 @@ import {
   type FormField,
 } from "./types";
 
-type ValueMap = Record<string, string>;
+type FieldValue = string | string[];
+type ValueMap = Record<string, FieldValue>;
+
+function asScalarValue(value: FieldValue | undefined): string {
+  if (Array.isArray(value)) {
+    return value.join(", ").trim();
+  }
+  return String(value || "").trim();
+}
+
+function asMultiSelectValue(value: FieldValue | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+  const scalar = String(value || "").trim();
+  return scalar ? [scalar] : [];
+}
+
+function toVisibilityValues(values: ValueMap): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [key, asScalarValue(value)])
+  );
+}
 
 function shouldShowField(field: FormField, values: ValueMap) {
-  return doesFormFieldVisibilityMatch(field, values);
+  return doesFormFieldVisibilityMatch(field, toVisibilityValues(values));
 }
 
 export default function FormSubmissionBuilder({
@@ -43,6 +65,7 @@ export default function FormSubmissionBuilder({
         const visible = shouldShowField(field, values);
         if (!visible) return null;
         const required = Boolean(field.required);
+        const scalarValue = asScalarValue(values[field.key]);
         const commonProps = {
           name: `field_${field.key}`,
           required,
@@ -66,7 +89,7 @@ export default function FormSubmissionBuilder({
                 {...commonProps}
                 rows={4}
                 placeholder={field.placeholder || undefined}
-                value={values[field.key] || ""}
+                value={scalarValue}
                 onChange={(event) =>
                   setValues((current) => ({ ...current, [field.key]: event.target.value }))
                 }
@@ -89,7 +112,7 @@ export default function FormSubmissionBuilder({
               ) : null}
               <select
                 {...commonProps}
-                value={values[field.key] || ""}
+                value={scalarValue}
                 onChange={(event) =>
                   setValues((current) => ({ ...current, [field.key]: event.target.value }))
                 }
@@ -105,6 +128,61 @@ export default function FormSubmissionBuilder({
           );
         }
 
+        if (field.type === "multi_select") {
+          const selectedOptions = new Set(asMultiSelectValue(values[field.key]));
+          const options = Array.isArray(field.options) ? field.options : [];
+          return (
+            <fieldset
+              key={field.id}
+              className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+            >
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                {field.label || field.key}
+              </legend>
+              {field.helpText ? (
+                <p className="text-xs font-normal normal-case tracking-normal text-slate-500">
+                  {field.helpText}
+                </p>
+              ) : null}
+              <div className="mt-2 space-y-2">
+                {options.length ? (
+                  options.map((option) => (
+                    <label
+                      key={`${field.id}_${option}`}
+                      className="flex items-start gap-2 text-sm font-normal text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        name={`field_${field.key}`}
+                        value={option}
+                        checked={selectedOptions.has(option)}
+                        onChange={(event) =>
+                          setValues((current) => {
+                            const next = new Set(asMultiSelectValue(current[field.key]));
+                            if (event.target.checked) {
+                              next.add(option);
+                            } else {
+                              next.delete(option);
+                            }
+                            return {
+                              ...current,
+                              [field.key]: Array.from(next),
+                            };
+                          })
+                        }
+                        className="mt-0.5"
+                      />
+                      <span>{option}</span>
+                    </label>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500">No options configured.</p>
+                )}
+              </div>
+            </fieldset>
+          );
+        }
+
         if (field.type === "checkbox") {
           return (
             <label key={field.id} className="block text-sm text-slate-700">
@@ -112,7 +190,7 @@ export default function FormSubmissionBuilder({
                 type="checkbox"
                 name={`field_${field.key}`}
                 value="true"
-                checked={values[field.key] === "true"}
+                checked={scalarValue === "true"}
                 onChange={(event) =>
                   setValues((current) => ({
                     ...current,
@@ -146,7 +224,7 @@ export default function FormSubmissionBuilder({
               placeholder={field.placeholder || undefined}
               min={field.minValue || undefined}
               max={field.maxValue || undefined}
-              value={values[field.key] || ""}
+              value={scalarValue}
               onChange={(event) =>
                 setValues((current) => ({ ...current, [field.key]: event.target.value }))
               }

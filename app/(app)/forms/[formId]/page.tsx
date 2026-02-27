@@ -841,18 +841,38 @@ export default async function FormDetailPage(props: {
 
     const fields = parseFields(form.fields);
     const rawValues: Record<string, string> = {};
+    const multiSelectValuesByKey: Record<string, string[]> = {};
     fields.forEach((field) => {
       const key = `field_${field.key}`;
       if (field.type === "checkbox") {
         rawValues[field.key] = formData.get(key) ? "true" : "false";
+      } else if (field.type === "multi_select") {
+        const allowedOptions = new Set((field.options || []).map((option) => String(option || "").trim()).filter(Boolean));
+        const selectedOptions = Array.from(
+          new Set(formData.getAll(key).map((entry) => String(entry || "").trim()).filter(Boolean))
+        ).filter((value) => (allowedOptions.size ? allowedOptions.has(value) : false));
+        multiSelectValuesByKey[field.key] = selectedOptions;
+        rawValues[field.key] = selectedOptions.join(", ");
       } else {
         rawValues[field.key] = String(formData.get(key) || "").trim();
       }
     });
 
     const visibleFields = fields.filter((field) => fieldShouldBeIncluded(field, rawValues));
-    const values: Record<string, string> = {};
+    const valuesForTemplates: Record<string, string> = {};
+    const valuesForStorage: Record<string, unknown> = {};
     for (const field of visibleFields) {
+      if (field.type === "multi_select") {
+        const selectedOptions = multiSelectValuesByKey[field.key] || [];
+        if (field.required && selectedOptions.length === 0) {
+          const fieldLabel = field.label || formatFormLabel(field.key);
+          redirect(createSubmissionUrl({ error: `Required field missing: ${fieldLabel}` }));
+        }
+        valuesForTemplates[field.key] = selectedOptions.join(", ");
+        valuesForStorage[field.key] = selectedOptions;
+        continue;
+      }
+
       const value = rawValues[field.key] || "";
       if (field.required && !value) {
         const fieldLabel = field.label || formatFormLabel(field.key);
@@ -862,7 +882,8 @@ export default async function FormDetailPage(props: {
       if (validationError) {
         redirect(createSubmissionUrl({ error: validationError }));
       }
-      values[field.key] = value;
+      valuesForTemplates[field.key] = value;
+      valuesForStorage[field.key] = value;
     }
 
     const { data: insertedSubmission, error: submissionInsertError } = await supabase
@@ -870,7 +891,7 @@ export default async function FormDetailPage(props: {
       .insert({
         form_id: formId,
         status: "open",
-        values_json: values,
+        values_json: valuesForStorage,
         submitted_by: currentUser.id,
       })
       .select("id")
@@ -919,9 +940,9 @@ export default async function FormDetailPage(props: {
       assignee_user_id: string | null;
       priority: string | null;
     }>) {
-      const taskTitle = renderTemplate(action.task_title_template || "", values).trim();
+      const taskTitle = renderTemplate(action.task_title_template || "", valuesForTemplates).trim();
       if (!taskTitle) continue;
-      const taskDescription = renderTemplate(action.task_description_template || "", values).trim();
+      const taskDescription = renderTemplate(action.task_description_template || "", valuesForTemplates).trim();
       const { data: insertedTask, error: insertedTaskError } = await supabase
         .from("tasks")
         .insert({

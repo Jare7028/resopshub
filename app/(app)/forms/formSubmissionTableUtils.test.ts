@@ -42,4 +42,9 @@ describe("formatSubmissionValue", () => {
     const field: SubmissionTableField = { key: "tags", type: "text" };
     expect(formatSubmissionValue(field, { tags: ["A", "B", "C"] })).toBe("A, B, C");
   });
+
+  it("joins multi-select responses", () => {
+    const field: SubmissionTableField = { key: "skills", type: "multi_select" };
+    expect(formatSubmissionValue(field, { skills: ["HTML", "CSS"] })).toBe("HTML, CSS");
+  });
 });

@@ -17,7 +17,14 @@ import {
   type FormField,
 } from "./types";
 
-type BuilderFieldType = "text" | "textarea" | "number" | "date" | "select" | "checkbox";
+type BuilderFieldType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "date"
+  | "select"
+  | "multi_select"
+  | "checkbox";
 
 const builderFieldTypes: Array<{ value: BuilderFieldType; label: string }> = [
   { value: "text", label: "Text" },
@@ -25,6 +32,7 @@ const builderFieldTypes: Array<{ value: BuilderFieldType; label: string }> = [
   { value: "number", label: "Number" },
   { value: "date", label: "Date" },
   { value: "select", label: "Dropdown" },
+  { value: "multi_select", label: "Multi select" },
   { value: "checkbox", label: "Checkbox" },
 ];
 
@@ -328,7 +336,7 @@ export default function FormFieldsBuilder({
                   </label>
                 </div>
 
-                {field.type === "select" ? (
+                {field.type === "select" || field.type === "multi_select" ? (
                   (() => {
                     const optionRows = [...(field.options || [])];
                     const lastOption = optionRows[optionRows.length - 1]?.trim();
@@ -338,7 +346,7 @@ export default function FormFieldsBuilder({
                     return (
                   <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                      Dropdown options
+                      {field.type === "multi_select" ? "Multi select options" : "Dropdown options"}
                     </p>
                     {optionRows.map((value, optionIndex) => (
                       <div
