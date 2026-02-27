@@ -377,20 +377,8 @@ export default async function QuizzesPage({
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold text-slate-900">Create quiz</h2>
             <form action={createQuizAction} className="mt-3 grid gap-3">
-              <label className="text-sm text-slate-700">
-                Client
-                <select
-                  name="client_id"
-                  defaultValue={selectedClient.id}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                >
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <input type="hidden" name="client_id" value={selectedClient.id} />
+              <p className="text-sm text-slate-600">Creating quiz for {selectedClient.name}</p>
               <label className="text-sm text-slate-700">
                 Quiz title
                 <input
