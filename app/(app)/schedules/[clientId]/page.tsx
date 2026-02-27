@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { computeBillableMinutes } from "@/lib/schedules/billableHours";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
+import ConfirmSubmitButton from "../../_components/ConfirmSubmitButton";
 import ScheduleGridDndClient from "./ScheduleGridDndClient";
 import ShiftTimeRangeLabel from "./ShiftTimeRangeLabel";
 
@@ -550,14 +551,25 @@ export default async function ClientSchedulePage({
     const { data, error } = await supabase.rpc("schedule_copy_previous_week", {
       p_week_id: String(formData.get("week_id") || "").trim(),
     });
+    const overwrittenCount = Number(
+      (data as { overwritten?: unknown } | null)?.overwritten
+    );
     const warningCount = Array.isArray((data as { warnings?: unknown[] } | null)?.warnings)
       ? ((data as { warnings?: unknown[] }).warnings || []).length
       : 0;
+    const overwriteLabel =
+      Number.isFinite(overwrittenCount) && overwrittenCount > 0
+        ? ` (overwrote ${overwrittenCount} existing shift${overwrittenCount === 1 ? "" : "s"})`
+        : "";
     const path = buildSchedulePath({
       ...stateFromContext(clientId, state, weekStart),
       ...(error
         ? { error: error.message }
-        : { success: warningCount ? `Copied with ${warningCount} warning(s)` : "Copied from previous week" }),
+        : {
+            success: warningCount
+              ? `Copied with ${warningCount} warning(s)${overwriteLabel}`
+              : `Copied from previous week${overwriteLabel}`,
+          }),
     });
     await finishAction(path);
   }
@@ -1340,7 +1352,13 @@ export default async function ClientSchedulePage({
                         <form action={copyPreviousWeekAction} className="mb-1">
                           <input type="hidden" name="week_id" value={week.id} />
                           {renderContextFields()}
-                          <button type="submit" className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">Copy previous week</button>
+                          <ConfirmSubmitButton
+                            confirmText="Copy previous week and overwrite all existing shifts in this week?"
+                            pendingLabel="Copying..."
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                          >
+                            Copy previous week
+                          </ConfirmSubmitButton>
                         </form>
                       ) : null}
 
