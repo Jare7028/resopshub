@@ -40,6 +40,14 @@ import type {
   DashboardSnapshotCard as DashboardSnapshotCardData,
 } from "./types";
 
+type DashboardViewKey =
+  | "overview"
+  | "finance"
+  | "delivery"
+  | "workload"
+  | "requests"
+  | "activity";
+
 const taskStatuses = TASK_STATUS_OPTIONS;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
 const projectActiveStatuses = ["planned", "active", "on_hold"] as const;
@@ -59,6 +67,22 @@ const dashboardFocusKeys = new Set<DashboardFocusKey>([
   "projects_glance",
   "recent_activity",
 ]);
+const dashboardViewKeys = new Set<DashboardViewKey>([
+  "overview",
+  "finance",
+  "delivery",
+  "workload",
+  "requests",
+  "activity",
+]);
+const dashboardViews: Array<{ key: DashboardViewKey; label: string; description: string }> = [
+  { key: "overview", label: "Overview", description: "Top KPIs across the workspace" },
+  { key: "finance", label: "Finance", description: "Revenue, costs, and margin" },
+  { key: "delivery", label: "Delivery", description: "Tasks, projects, and execution health" },
+  { key: "workload", label: "Workload", description: "Client and team capacity" },
+  { key: "requests", label: "Requests", description: "Feature demand and status" },
+  { key: "activity", label: "Activity", description: "Recent movement and updates" },
+];
 
 function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -71,12 +95,25 @@ const formatSuggestionStatusLabel = (status: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
+function formatCountLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function normalizeToken(value: string | null | undefined) {
   return String(value || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function normalizeDashboardViewKey(value: string | undefined): DashboardViewKey {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return dashboardViewKeys.has(normalized as DashboardViewKey)
+    ? (normalized as DashboardViewKey)
+    : "overview";
 }
 
 function isLeaveDateColumn(column: { key: string; label: string; column_kind: string }) {
@@ -102,6 +139,7 @@ export default async function DashboardPage(props: {
     priority?: string | string[];
     currency?: string;
     focus?: string;
+    view?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -109,6 +147,7 @@ export default async function DashboardPage(props: {
   const selectedFocus = dashboardFocusKeys.has(selectedFocusRaw as DashboardFocusKey)
     ? (selectedFocusRaw as DashboardFocusKey)
     : null;
+  const selectedView = normalizeDashboardViewKey(searchParams?.view);
   const supabase = createSupabaseServerClient();
 
   const { data: authData } = await withPerfTiming("dashboard.auth", () =>
@@ -1116,10 +1155,36 @@ export default async function DashboardPage(props: {
     dashboardQueryParams.set("currency", filtersForQuery.currency);
   }
 
-  const buildDashboardSelfHref = (focusKey: DashboardFocusKey) => {
+  const focusViewMap: Record<DashboardFocusKey, DashboardViewKey> = {
+    finance: "finance",
+    people: "finance",
+    task_delivery: "delivery",
+    feature_requests: "requests",
+    work_by_client: "workload",
+    work_by_user: "workload",
+    projects_glance: "activity",
+    recent_activity: "activity",
+  };
+
+  const buildDashboardViewHref = (
+    viewKey: DashboardViewKey,
+    focusKey?: DashboardFocusKey | null
+  ) => {
     const params = new URLSearchParams(dashboardQueryParams.toString());
-    params.set("focus", focusKey);
-    return `/dashboard?${params.toString()}`;
+    if (viewKey !== "overview") {
+      params.set("view", viewKey);
+    }
+    if (focusKey) {
+      params.set("focus", focusKey);
+    } else {
+      params.delete("focus");
+    }
+    const query = params.toString();
+    return query ? `/dashboard?${query}` : "/dashboard";
+  };
+
+  const buildDashboardSelfHref = (focusKey: DashboardFocusKey) => {
+    return buildDashboardViewHref(focusViewMap[focusKey], focusKey);
   };
 
   const buildTasksHref = (options?: {
@@ -1341,20 +1406,124 @@ export default async function DashboardPage(props: {
   const sectionFocusClass = (key: DashboardFocusKey) =>
     selectedFocus === key ? "rounded-xl ring-2 ring-emerald-200 ring-offset-2 ring-offset-slate-50" : "";
 
+  const activeView = dashboardViews.find((view) => view.key === selectedView) || dashboardViews[0];
+  const isOverviewView = selectedView === "overview";
+  const showFinanceSection = isOverviewView || selectedView === "finance";
+  const showDeliverySection = isOverviewView || selectedView === "delivery";
+  const showWorkloadSection = selectedView === "workload";
+  const showRequestsSection = isOverviewView || selectedView === "requests";
+  const showActivitySection = isOverviewView || selectedView === "activity";
+
+  const overviewSignalCards = [
+    {
+      key: "signal_open",
+      label: "Open tasks",
+      value: String(openTasks.length),
+      href: buildDashboardViewHref("delivery", "task_delivery"),
+    },
+    {
+      key: "signal_overdue",
+      label: "Overdue tasks",
+      value: String(overdueTasks.length),
+      href: buildDashboardViewHref("delivery", "task_delivery"),
+    },
+    {
+      key: "signal_margin",
+      label: "Gross margin",
+      value: formatEmployeeInfoCurrencyAmount(financeSummary.marginTotal, financeSummary.currencyCode),
+      href: buildDashboardViewHref("finance", "finance"),
+    },
+    {
+      key: "signal_requests",
+      label: "Open suggestions",
+      value: String(ideasCount + needsCheckingCount + plannedCount),
+      href: buildDashboardViewHref("requests", "feature_requests"),
+    },
+  ];
+
+  const activeFilterChips: string[] = [];
+  if (selectedRange !== "all") {
+    const rangeLabel = rangeOptions.find((option) => option.value === selectedRange)?.label || selectedRange;
+    activeFilterChips.push(rangeLabel);
+  }
+  if (filteredClientIds.length) activeFilterChips.push(formatCountLabel(filteredClientIds.length, "client"));
+  if (filteredProjectIds.length) activeFilterChips.push(formatCountLabel(filteredProjectIds.length, "project"));
+  if (filteredUserIds.length) activeFilterChips.push(formatCountLabel(filteredUserIds.length, "user"));
+  if (selectedStatuses.length) activeFilterChips.push(formatCountLabel(selectedStatuses.length, "status"));
+  if (selectedPriorities.length) {
+    activeFilterChips.push(formatCountLabel(selectedPriorities.length, "priority"));
+  }
+  if (!activeFilterChips.length) {
+    activeFilterChips.push("No active filters");
+  }
+
   return (
     <div className="space-y-8">
-      <section className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Manager overview
-          </p>
-          <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
-          <p className="text-sm text-slate-600">
-            Snapshot-first visibility across finance, people, and delivery.
-          </p>
+      <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50/50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Workspace Dashboard
+            </p>
+            <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+            <p className="max-w-xl text-sm text-slate-600">
+              {activeView.description}. Use views to move between finance, delivery, workload, and requests.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {activeFilterChips.map((chip) => (
+                <span
+                  key={chip}
+                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+          </div>
+          <DashboardCurrencySelect
+            filters={filtersForQuery}
+            focus={selectedFocus}
+            view={selectedView}
+          />
         </div>
-        <DashboardCurrencySelect filters={filtersForQuery} focus={selectedFocus} />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {overviewSignalCards.map((card) => (
+            <Link
+              key={card.key}
+              href={card.href}
+              className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm transition-colors hover:bg-white"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
+              <p className="mt-1 text-xl font-semibold text-slate-900">{card.value}</p>
+            </Link>
+          ))}
+        </div>
       </section>
+
+      <nav className="rounded-xl border border-slate-200 bg-white p-2">
+        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          {dashboardViews.map((view) => {
+            const active = view.key === selectedView;
+            return (
+              <li key={view.key}>
+                <Link
+                  href={buildDashboardViewHref(view.key)}
+                  className={`block rounded-lg border px-3 py-2 transition-colors ${
+                    active
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <p className="text-sm font-semibold">{view.label}</p>
+                  <p className={`text-xs ${active ? "text-slate-200" : "text-slate-500"}`}>
+                    {view.description}
+                  </p>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
         <DashboardFilters
@@ -1365,6 +1534,8 @@ export default async function DashboardPage(props: {
           statusOptions={taskStatuses}
           priorityOptions={taskPriorities}
           initialFilters={filtersForQuery}
+          focus={selectedFocus}
+          view={selectedView}
         />
       </section>
 
@@ -1381,129 +1552,140 @@ export default async function DashboardPage(props: {
         </section>
       ) : null}
 
-      <section id="finance" className={`space-y-3 ${sectionFocusClass("finance")}`}>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Finance + People
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {financePeopleSnapshotCards.map((card) => (
-            <DashboardSnapshotCard key={card.key} card={card} />
-          ))}
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Total Cost by Role</h3>
-            <span className="text-xs text-slate-500">{financeSummary.currencyCode} per month</span>
+      {showFinanceSection ? (
+        <section id="finance" className={`space-y-3 ${sectionFocusClass("finance")}`}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Finance + People
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {financePeopleSnapshotCards.map((card) => (
+              <DashboardSnapshotCard key={card.key} card={card} />
+            ))}
           </div>
-          {financeRoleCostRows.length ? (
-            <div className="mt-3 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-2 py-2 font-medium">Role</th>
-                    <th className="px-2 py-2 text-right font-medium">Employees</th>
-                    <th className="px-2 py-2 text-right font-medium">Monthly cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {financeRoleCostRows.map((row) => (
-                    <tr key={row.roleLabel} className="border-t border-slate-100">
-                      <td className="px-2 py-2 font-medium text-slate-900">{row.roleLabel}</td>
-                      <td className="px-2 py-2 text-right text-slate-700">{row.employeeCount}</td>
-                      <td className="px-2 py-2 text-right font-semibold text-slate-900">
-                        {formatEmployeeInfoCurrencyAmount(row.totalCost, financeSummary.currencyCode)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {!isOverviewView ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">Total Cost by Role</h3>
+                <span className="text-xs text-slate-500">{financeSummary.currencyCode} per month</span>
+              </div>
+              {financeRoleCostRows.length ? (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-2 py-2 font-medium">Role</th>
+                        <th className="px-2 py-2 text-right font-medium">Employees</th>
+                        <th className="px-2 py-2 text-right font-medium">Monthly cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {financeRoleCostRows.map((row) => (
+                        <tr key={row.roleLabel} className="border-t border-slate-100">
+                          <td className="px-2 py-2 font-medium text-slate-900">{row.roleLabel}</td>
+                          <td className="px-2 py-2 text-right text-slate-700">{row.employeeCount}</td>
+                          <td className="px-2 py-2 text-right font-semibold text-slate-900">
+                            {formatEmployeeInfoCurrencyAmount(row.totalCost, financeSummary.currencyCode)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">
+                  {financeSummary.isEmptyScope
+                    ? "No scoped clients from current filters."
+                    : "No role cost data yet."}
+                </p>
+              )}
             </div>
-          ) : (
-            <p className="mt-3 text-sm text-slate-500">
-              {financeSummary.isEmptyScope
-                ? "No scoped clients from current filters."
-                : "No role cost data yet."}
-            </p>
-          )}
-        </div>
-      </section>
+          ) : null}
+        </section>
+      ) : null}
 
-      <section id="task_delivery" className={`space-y-3 ${sectionFocusClass("task_delivery")}`}>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Task + Delivery
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {taskSnapshotCards.map((card) => (
-            <DashboardSnapshotCard key={card.key} card={card} />
-          ))}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {projectSnapshotCards.map((card) => (
-            <DashboardSnapshotCard key={card.key} card={card} />
-          ))}
-        </div>
-      </section>
-
-      <section id="feature_requests" className={`space-y-3 ${sectionFocusClass("feature_requests")}`}>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Feature Requests
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {featureSnapshotCards.map((card) => (
-            <DashboardSnapshotCard key={card.key} card={card} />
-          ))}
-        </div>
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Open tasks by status</h2>
-          <div className="mt-4 space-y-3">
-            {statusDistribution.length ? (
-              statusDistribution.map((item) => (
-                <div key={item.label}>
-                  <div className="flex items-center justify-between text-sm text-slate-600">
-                    <span>{item.label}</span>
-                    <span>{item.value}</span>
-                  </div>
-                  <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
-                    <div
-                      className="h-2 rounded-full bg-slate-700"
-                      style={{ width: `${item.percent}%` }}
-                    />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-slate-500">No open tasks yet.</p>
-            )}
+      {showDeliverySection ? (
+        <section id="task_delivery" className={`space-y-3 ${sectionFocusClass("task_delivery")}`}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Task + Delivery
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {taskSnapshotCards.map((card) => (
+              <DashboardSnapshotCard key={card.key} card={card} />
+            ))}
           </div>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Open tasks by priority</h2>
-          <div className="mt-4 space-y-3">
-            {priorityDistribution.length ? (
-              priorityDistribution.map((item) => (
-                <div key={item.label}>
-                  <div className="flex items-center justify-between text-sm text-slate-600">
-                    <span>{item.label}</span>
-                    <span>{item.value}</span>
-                  </div>
-                  <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
-                    <div
-                      className="h-2 rounded-full bg-slate-700"
-                      style={{ width: `${item.percent}%` }}
-                    />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-slate-500">No open tasks yet.</p>
-            )}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {projectSnapshotCards.map((card) => (
+              <DashboardSnapshotCard key={card.key} card={card} />
+            ))}
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
+      {showRequestsSection ? (
+        <section id="feature_requests" className={`space-y-3 ${sectionFocusClass("feature_requests")}`}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Feature Requests
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {featureSnapshotCards.map((card) => (
+              <DashboardSnapshotCard key={card.key} card={card} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {showDeliverySection && !isOverviewView ? (
+        <section className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">Open tasks by status</h2>
+            <div className="mt-4 space-y-3">
+              {statusDistribution.length ? (
+                statusDistribution.map((item) => (
+                  <div key={item.label}>
+                    <div className="flex items-center justify-between text-sm text-slate-600">
+                      <span>{item.label}</span>
+                      <span>{item.value}</span>
+                    </div>
+                    <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
+                      <div
+                        className="h-2 rounded-full bg-slate-700"
+                        style={{ width: `${item.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No open tasks yet.</p>
+              )}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">Open tasks by priority</h2>
+            <div className="mt-4 space-y-3">
+              {priorityDistribution.length ? (
+                priorityDistribution.map((item) => (
+                  <div key={item.label}>
+                    <div className="flex items-center justify-between text-sm text-slate-600">
+                      <span>{item.label}</span>
+                      <span>{item.value}</span>
+                    </div>
+                    <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
+                      <div
+                        className="h-2 rounded-full bg-slate-700"
+                        style={{ width: `${item.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No open tasks yet.</p>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {showWorkloadSection ? (
       <section className={`grid gap-6 lg:grid-cols-2 ${sectionFocusClass("work_by_client")}`}>
         <details className="rounded-lg border border-slate-200 bg-white" open={false}>
           <summary className="cursor-pointer select-none border-b border-slate-200 px-6 py-4 text-lg font-semibold text-slate-900">
@@ -1589,7 +1771,9 @@ export default async function DashboardPage(props: {
           </div>
         </details>
       </section>
+      ) : null}
 
+      {showRequestsSection && !isOverviewView ? (
       <section className={`grid gap-6 lg:grid-cols-2 ${sectionFocusClass("feature_requests")}`}>
         <div className="rounded-lg border border-slate-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-slate-900">All tasks by status</h2>
@@ -1666,7 +1850,9 @@ export default async function DashboardPage(props: {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {showActivitySection && !isOverviewView ? (
       <details className={`rounded-lg border border-slate-200 bg-white ${sectionFocusClass("projects_glance")}`} open={false}>
         <summary className="cursor-pointer select-none border-b border-slate-200 px-6 py-4 text-lg font-semibold text-slate-900">
           Projects at a glance ({projectHealth.length})
@@ -1711,7 +1897,9 @@ export default async function DashboardPage(props: {
           </table>
         </div>
       </details>
+      ) : null}
 
+      {showActivitySection ? (
       <section className={`rounded-lg border border-slate-200 bg-white p-6 ${sectionFocusClass("recent_activity")}`}>
         <h2 className="text-lg font-semibold text-slate-900">Recent activity</h2>
         <div className="mt-4 space-y-3">
@@ -1730,6 +1918,7 @@ export default async function DashboardPage(props: {
           )}
         </div>
       </section>
+      ) : null}
     </div>
   );
 }

@@ -12,9 +12,11 @@ import {
 export default function DashboardCurrencySelect({
   filters,
   focus,
+  view,
 }: {
   filters: DashboardFiltersState;
   focus: string | null;
+  view?: string | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -31,6 +33,9 @@ export default function DashboardCurrencySelect({
           writeDashboardFiltersCookie(next);
           const query = buildDashboardQuery(next);
           const params = new URLSearchParams(query);
+          if (view && view !== "overview") {
+            params.set("view", view);
+          }
           if (focus) {
             params.set("focus", focus);
           }

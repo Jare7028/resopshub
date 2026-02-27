@@ -25,6 +25,8 @@ export default function DashboardFilters({
   statusOptions,
   priorityOptions,
   initialFilters,
+  view,
+  focus,
 }: {
   rangeOptions: readonly RangeOption[];
   clients: ClientOption[];
@@ -33,6 +35,8 @@ export default function DashboardFilters({
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   initialFilters: DashboardFiltersState;
+  view?: string | null;
+  focus?: string | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -72,10 +76,18 @@ export default function DashboardFilters({
       const immediate = options?.immediate ?? false;
       writeDashboardFiltersCookie(next);
       const query = buildDashboardQuery(next);
+      const params = new URLSearchParams(query);
+      if (view && view !== "overview") {
+        params.set("view", view);
+      }
+      if (focus) {
+        params.set("focus", focus);
+      }
+      const finalQuery = params.toString();
       cancelPendingNavigation();
       const navigate = () => {
         startTransition(() => {
-          router.replace(query ? `/dashboard?${query}` : "/dashboard", {
+          router.replace(finalQuery ? `/dashboard?${finalQuery}` : "/dashboard", {
             scroll: false,
           });
         });
@@ -89,7 +101,7 @@ export default function DashboardFilters({
         navigate();
       }, FILTER_NAV_DEBOUNCE_MS);
     },
-    [cancelPendingNavigation, router]
+    [cancelPendingNavigation, focus, router, view]
   );
 
   const update = useCallback(
