@@ -543,7 +543,7 @@ export default async function FeatureSuggestionDetailPage(props: {
             <textarea
               name="body"
               rows={3}
-              placeholder="Add a comment"
+              placeholder="Add a comment (use @name to mention)"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               required
             />

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
+import { extractMentionHandles } from "@/lib/mentions";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -356,16 +357,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { data: conversationMembersRaw, error: conversationMembersError } = await supabase
-    .from("chat_conversation_members")
-    .select("user_id")
-    .eq("conversation_id", conversationId);
-  if (conversationMembersError) {
-    return NextResponse.json({ error: conversationMembersError.message }, { status: 400 });
-  }
-  const conversationMemberUserIds = ((conversationMembersRaw || []) as Array<{ user_id: string | null }>)
-    .map((row) => String(row.user_id || "").trim())
-    .filter(Boolean);
+  const mentionHandles = extractMentionHandles(body || "");
 
   const { data: createdMessage, error: messageError } = await supabase
     .from("chat_messages")
@@ -431,20 +423,33 @@ export async function POST(req: Request) {
     href: linkHref(link, noteClientById),
   }));
 
-  try {
-    await notifyMentionedUsersFromTextChange({
-      actorAuthUserId: userId,
-      previousText: null,
-      nextText: body || "",
-      sourceType: "chat_message",
-      sourceId: createdMessage.id,
-      sourceUrl: `/chat?c=${encodeURIComponent(conversationId)}`,
-      sourceTitle: null,
-      allowedRecipientUserIds: conversationMemberUserIds,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[chat.messages.post.mentions.notify]", message);
+  if (mentionHandles.length) {
+    const { data: conversationMembersRaw, error: conversationMembersError } = await supabase
+      .from("chat_conversation_members")
+      .select("user_id")
+      .eq("conversation_id", conversationId);
+    if (conversationMembersError) {
+      return NextResponse.json({ error: conversationMembersError.message }, { status: 400 });
+    }
+    const conversationMemberUserIds = ((conversationMembersRaw || []) as Array<{ user_id: string | null }>)
+      .map((row) => String(row.user_id || "").trim())
+      .filter(Boolean);
+
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: userId,
+        previousText: null,
+        nextText: body || "",
+        sourceType: "chat_message",
+        sourceId: createdMessage.id,
+        sourceUrl: `/chat?c=${encodeURIComponent(conversationId)}`,
+        sourceTitle: null,
+        allowedRecipientUserIds: conversationMemberUserIds,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[chat.messages.post.mentions.notify]", message);
+    }
   }
 
   return NextResponse.json({
@@ -496,16 +501,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Deleted messages cannot be edited" }, { status: 400 });
   }
 
-  const { data: conversationMembersRaw, error: conversationMembersError } = await supabase
-    .from("chat_conversation_members")
-    .select("user_id")
-    .eq("conversation_id", access.message.conversation_id);
-  if (conversationMembersError) {
-    return NextResponse.json({ error: conversationMembersError.message }, { status: 400 });
-  }
-  const conversationMemberUserIds = ((conversationMembersRaw || []) as Array<{ user_id: string | null }>)
-    .map((row) => String(row.user_id || "").trim())
-    .filter(Boolean);
+  const previousMentionHandles = new Set(extractMentionHandles(access.message.body || ""));
+  const nextMentionHandles = extractMentionHandles(nextBody);
+  const hasAddedMention = nextMentionHandles.some((handle) => !previousMentionHandles.has(handle));
 
   const { data: updatedRaw, error: updatedError } = await supabase
     .from("chat_messages")
@@ -524,20 +522,33 @@ export async function PATCH(req: Request) {
     );
   }
 
-  try {
-    await notifyMentionedUsersFromTextChange({
-      actorAuthUserId: userId,
-      previousText: access.message.body,
-      nextText: nextBody,
-      sourceType: "chat_message",
-      sourceId: messageId,
-      sourceUrl: `/chat?c=${encodeURIComponent(access.message.conversation_id)}`,
-      sourceTitle: null,
-      allowedRecipientUserIds: conversationMemberUserIds,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[chat.messages.patch.mentions.notify]", message);
+  if (hasAddedMention) {
+    const { data: conversationMembersRaw, error: conversationMembersError } = await supabase
+      .from("chat_conversation_members")
+      .select("user_id")
+      .eq("conversation_id", access.message.conversation_id);
+    if (conversationMembersError) {
+      return NextResponse.json({ error: conversationMembersError.message }, { status: 400 });
+    }
+    const conversationMemberUserIds = ((conversationMembersRaw || []) as Array<{ user_id: string | null }>)
+      .map((row) => String(row.user_id || "").trim())
+      .filter(Boolean);
+
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: userId,
+        previousText: access.message.body,
+        nextText: nextBody,
+        sourceType: "chat_message",
+        sourceId: messageId,
+        sourceUrl: `/chat?c=${encodeURIComponent(access.message.conversation_id)}`,
+        sourceTitle: null,
+        allowedRecipientUserIds: conversationMemberUserIds,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[chat.messages.patch.mentions.notify]", message);
+    }
   }
 
   const payload = await buildMessagePayloads(supabase, [updatedRaw as DbMessageRow]);
