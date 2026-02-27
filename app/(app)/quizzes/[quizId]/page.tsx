@@ -1462,24 +1462,35 @@ export default async function QuizManageDetailPage({
       {activeTab === "configure" ? (
         canManage ? (
           <>
-            <section className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-base font-semibold text-slate-900">Add question</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Keep it simple: choose Free text or Multi select.
-              </p>
-              {defaultDraftVersionId ? (
-                <SimpleQuestionBuilder
-                  action={addQuestionAction}
-                  clientId={quiz.client_id}
-                  quizVersionId={defaultDraftVersionId}
-                  questionCount={questionCountByVersionId[defaultDraftVersionId] || 0}
-                />
-              ) : (
-                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                  No editable draft is available yet.
+            {publishedVersions.length > 0 ? (
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
+                <h2 className="text-base font-semibold text-slate-900">
+                  Published Quizzes Cannot be Edited
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  This quiz has already been published, so new questions cannot be added.
                 </p>
+              </section>
+            ) : (
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
+                <h2 className="text-base font-semibold text-slate-900">Add question</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Keep it simple: choose Free text or Multi select.
+                </p>
+                {defaultDraftVersionId ? (
+                  <SimpleQuestionBuilder
+                    action={addQuestionAction}
+                    clientId={quiz.client_id}
+                    quizVersionId={defaultDraftVersionId}
+                    questionCount={questionCountByVersionId[defaultDraftVersionId] || 0}
+                  />
+                ) : (
+                  <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    No editable draft is available yet.
+                  </p>
                 )}
-            </section>
+              </section>
+            )}
 
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
