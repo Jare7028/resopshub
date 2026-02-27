@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import QuizzesTable from "./_components/QuizzesTable";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -35,6 +36,19 @@ type VersionRow = {
   quiz_id: string;
   version_number: number;
   lifecycle_status: "draft" | "published" | "retired";
+};
+
+type QuizTableRow = {
+  id: string;
+  title: string;
+  status: "draft" | "published" | "archived";
+  passingScorePercent: number;
+  maxAttempts: number;
+  publishedAt: string | null;
+  versions: number;
+  questions: number;
+  submissions: number;
+  openHref: string;
 };
 
 type QuestionRow = {
@@ -78,27 +92,8 @@ function buildQuizzesPath(args: {
   return query ? `/quizzes?${query}` : "/quizzes";
 }
 
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 function isSubmissionStatus(status: AttemptRow["status"]) {
   return status !== "in_progress" && status !== "cancelled" && status !== "expired";
-}
-
-function quizStatusBadgeClass(status: QuizRow["status"]) {
-  if (status === "published") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "draft") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
 export default async function QuizzesPage({
@@ -238,6 +233,32 @@ export default async function QuizzesPage({
     return acc;
   }, {});
 
+  const quizRows: QuizTableRow[] = quizzes.map((quiz) => {
+    const quizVersions = versionsByQuizId[quiz.id] || [];
+    const totalQuestions = quizVersions.reduce((sum, version) => {
+      return sum + (questionCountByVersionId[version.id] || 0);
+    }, 0);
+    const totalSubmissions = quizVersions.reduce((sum, version) => {
+      return sum + (submissionCountByVersionId[version.id] || 0);
+    }, 0);
+    const openHref = `/quizzes/${quiz.id}?${new URLSearchParams({
+      return_to: buildQuizzesPath({ clientId: selectedClient?.id, tab: "list" }),
+    }).toString()}`;
+
+    return {
+      id: quiz.id,
+      title: quiz.title,
+      status: quiz.status,
+      passingScorePercent: quiz.passing_score_percent,
+      maxAttempts: quiz.max_attempts,
+      publishedAt: quiz.published_at,
+      versions: quizVersions.length,
+      questions: totalQuestions,
+      submissions: totalSubmissions,
+      openHref,
+    };
+  });
+
   async function createQuizAction(formData: FormData) {
     "use server";
     const clientId = String(formData.get("client_id") || "").trim();
@@ -280,7 +301,6 @@ export default async function QuizzesPage({
     list: buildQuizzesPath({ clientId: selectedClient?.id, tab: "list" }),
     create: buildQuizzesPath({ clientId: selectedClient?.id, tab: "create" }),
   };
-  const listReturnTo = buildQuizzesPath({ clientId: selectedClient?.id, tab: "list" });
 
   return (
     <div className="space-y-5">
@@ -473,64 +493,8 @@ export default async function QuizzesPage({
           {quizzes.length === 0 ? (
             <p className="mt-3 text-sm text-slate-600">No quizzes created for this client yet.</p>
           ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-600">
-                  <tr>
-                    <th className="px-3 py-2">Quiz</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Versions</th>
-                    <th className="px-3 py-2">Questions</th>
-                    <th className="px-3 py-2">Submissions</th>
-                    <th className="px-3 py-2">Published</th>
-                    <th className="px-3 py-2">Open</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {quizzes.map((quiz) => {
-                    const quizVersions = versionsByQuizId[quiz.id] || [];
-                    const totalQuestions = quizVersions.reduce((sum, version) => {
-                      return sum + (questionCountByVersionId[version.id] || 0);
-                    }, 0);
-                    const totalSubmissions = quizVersions.reduce((sum, version) => {
-                      return sum + (submissionCountByVersionId[version.id] || 0);
-                    }, 0);
-                    const openHref = `/quizzes/${quiz.id}?${new URLSearchParams({
-                      return_to: listReturnTo,
-                    }).toString()}`;
-
-                    return (
-                      <tr key={quiz.id} className="border-t border-slate-200">
-                        <td className="px-3 py-2">
-                          <p className="font-medium text-slate-900">{quiz.title}</p>
-                          <p className="text-xs text-slate-500">
-                            Pass {quiz.passing_score_percent}% - Max attempts {quiz.max_attempts}
-                          </p>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${quizStatusBadgeClass(quiz.status)}`}
-                          >
-                            {quiz.status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-slate-700">{quizVersions.length}</td>
-                        <td className="px-3 py-2 text-slate-700">{totalQuestions}</td>
-                        <td className="px-3 py-2 text-slate-700">{totalSubmissions}</td>
-                        <td className="px-3 py-2 text-slate-700">{formatDateTime(quiz.published_at)}</td>
-                        <td className="px-3 py-2">
-                          <Link
-                            href={openHref}
-                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Open quiz
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="mt-3">
+              <QuizzesTable rows={quizRows} />
             </div>
           )}
         </section>
