@@ -8,7 +8,7 @@ import {
   useTransition,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
 import {
@@ -66,13 +66,18 @@ export default function FormsTable({
   fixedParams?: Record<string, string | null | undefined>;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigationHref, setNavigationHref] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [mobileSearchInput, setMobileSearchInput] = useState(initialFilters.q);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const filtersRef = useRef(filters);
   const searchDebounceTimerRef = useRef<number | null>(null);
+  const searchKey = searchParams?.toString() || "";
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
@@ -170,15 +175,37 @@ export default function FormsTable({
     ? `?return_to=${encodeURIComponent(`/forms?${currentQuery}`)}`
     : "";
   const openRow = (rowId: string) => {
-    router.push(
-      `/forms/${rowId}?tab=submissions&scope=all${detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""}`
-    );
+    const href = `/forms/${rowId}?tab=submissions&scope=all${
+      detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
+    }`;
+    setIsNavigating(true);
+    setNavigationHref(href);
+    startTransition(() => {
+      router.push(href);
+    });
   };
   const handleRowKeyDown = (event: ReactKeyboardEvent<HTMLElement>, rowId: string) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     openRow(rowId);
   };
+
+  useEffect(() => {
+    if (!isNavigating) return;
+    const failSafeTimer = window.setTimeout(() => {
+      setIsNavigating(false);
+      setNavigationHref(null);
+    }, 15000);
+
+    return () => {
+      window.clearTimeout(failSafeTimer);
+    };
+  }, [isNavigating]);
+
+  useEffect(() => {
+    setIsNavigating(false);
+    setNavigationHref(null);
+  }, [pathname, searchKey]);
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white">
@@ -360,6 +387,14 @@ export default function FormsTable({
           </p>
         )}
       </div>
+      {isNavigating && navigationHref ? (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-slate-900/10">
+          <div
+            className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 bg-white/90 shadow-md"
+            aria-hidden="true"
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
