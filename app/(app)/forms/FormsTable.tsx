@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
@@ -163,6 +162,21 @@ export default function FormsTable({
   const detailQuery = currentQuery
     ? `?return_to=${encodeURIComponent(`/forms?${currentQuery}`)}`
     : "";
+  const openRow = (rowId: string) => {
+    router.push(
+      `/forms/${rowId}?tab=submissions&scope=all${detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""}`
+    );
+  };
+  const handleRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement | HTMLDivElement>, rowId: string) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openRow(rowId);
+  };
+  const handleRowKeyDownDiv = (event: KeyboardEvent<HTMLDivElement>, rowId: string) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openRow(rowId);
+  };
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white">
@@ -277,16 +291,16 @@ export default function FormsTable({
           <tbody className="divide-y divide-slate-200">
             {rows.length ? (
               rows.map((row) => (
-                <tr key={row.id}>
+                <tr
+                  key={row.id}
+                  role="button"
+                  tabIndex={0}
+                  className="cursor-pointer border-t border-slate-200 hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
+                  onClick={() => openRow(row.id)}
+                  onKeyDown={(event) => handleRowKeyDown(event, row.id)}
+                >
                   <td className="px-6 py-3 font-semibold text-slate-900">
-                    <Link
-                      href={`/forms/${row.id}?tab=submissions&scope=all${
-                        detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
-                      }`}
-                      className="hover:underline"
-                    >
-                      {row.title}
-                    </Link>
+                    {row.title}
                   </td>
                   <td className="max-w-xl px-6 py-3 text-slate-600" title={row.description || ""}>
                     <p className="truncate">{summarizeDescription(row.description)}</p>
@@ -314,20 +328,17 @@ export default function FormsTable({
       </div>
       <div className="mobile-list-stack md:hidden">
         {rows.length ? (
-          rows.map((row) => (
+            rows.map((row) => (
             <article
               key={`mobile-${row.id}`}
-              className="mobile-list-card space-y-3"
+              role="button"
+              tabIndex={0}
+              className="mobile-list-card space-y-3 cursor-pointer focus-visible:ring-2 focus-visible:ring-slate-900/20"
+              onClick={() => openRow(row.id)}
+              onKeyDown={(event) => handleRowKeyDownDiv(event, row.id)}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Link
-                  href={`/forms/${row.id}?tab=submissions&scope=all${
-                    detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
-                  }`}
-                  className="text-base font-semibold text-slate-900 hover:underline"
-                >
-                  {row.title}
-                </Link>
+                <h3 className="text-base font-semibold text-slate-900">{row.title}</h3>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
                   {formatFormLabel(row.status)}
                 </span>
@@ -339,14 +350,6 @@ export default function FormsTable({
                 </span>
                 <span>Updated {new Date(row.updated_at || row.created_at).toLocaleDateString()}</span>
               </div>
-              <Link
-                href={`/forms/${row.id}?tab=submissions&scope=all${
-                  detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""
-                }`}
-                className="mobile-card-action"
-              >
-                Open form
-              </Link>
             </article>
           ))
         ) : (
