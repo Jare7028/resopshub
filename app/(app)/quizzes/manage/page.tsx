@@ -83,6 +83,12 @@ function isSubmissionStatus(status: AttemptRow["status"]) {
   return status !== "in_progress" && status !== "cancelled" && status !== "expired";
 }
 
+function quizStatusBadgeClass(status: QuizRow["status"]) {
+  if (status === "published") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "draft") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
 export default async function QuizManagePage({
   searchParams,
 }: {
@@ -424,7 +430,13 @@ export default async function QuizManagePage({
                               Pass {quiz.passing_score_percent}% - Max attempts {quiz.max_attempts}
                             </p>
                           </td>
-                          <td className="px-3 py-2 text-slate-700">{quiz.status}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${quizStatusBadgeClass(quiz.status)}`}
+                            >
+                              {quiz.status}
+                            </span>
+                          </td>
                           <td className="px-3 py-2 text-slate-700">{quizVersions.length}</td>
                           <td className="px-3 py-2 text-slate-700">{totalQuestions}</td>
                           <td className="px-3 py-2 text-slate-700">{totalSubmissions}</td>

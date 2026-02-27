@@ -9,6 +9,7 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 type ManageDetailSearchParams = {
   client_id?: string;
   version_id?: string;
+  submission_result?: string;
   error?: string;
   success?: string;
 };
@@ -89,12 +90,14 @@ function buildDetailPath(args: {
   quizId: string;
   clientId: string;
   versionId?: string;
+  submissionResult?: string;
   error?: string;
   success?: string;
 }) {
   const params = new URLSearchParams();
   params.set("client_id", args.clientId);
   if (args.versionId) params.set("version_id", args.versionId);
+  if (args.submissionResult) params.set("submission_result", args.submissionResult);
   if (args.error) params.set("error", args.error);
   if (args.success) params.set("success", args.success);
   return `/quizzes/manage/${args.quizId}?${params.toString()}`;
@@ -121,6 +124,28 @@ function statusLabel(status: AttemptRow["status"]) {
   if (status === "final_scored") return "Final scored";
   if (status === "expired") return "Expired";
   return "Cancelled";
+}
+
+function quizStatusBadgeClass(status: QuizRow["status"]) {
+  if (status === "published") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "draft") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function versionStatusBadgeClass(status: VersionRow["lifecycle_status"]) {
+  if (status === "published") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "draft") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function attemptStatusBadgeClass(status: AttemptRow["status"]) {
+  if (status === "final_scored" || status === "auto_scored") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (status === "partially_scored" || status === "submitted") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
 function parseOptionSnapshot(value: unknown): OptionSnapshot[] {
@@ -227,6 +252,15 @@ export default async function QuizManageDetailPage({
     versions[0] ||
     null;
   const selectedVersionId = selectedVersion?.id || "";
+  const submissionScopeRaw = String(resolvedSearch?.submission_result || "all")
+    .trim()
+    .toLowerCase();
+  const submissionScope: "all" | "passed" | "failed" | "pending" =
+    submissionScopeRaw === "passed" ||
+    submissionScopeRaw === "failed" ||
+    submissionScopeRaw === "pending"
+      ? submissionScopeRaw
+      : "all";
 
   let questions: QuestionRow[] = [];
   let attempts: AttemptRow[] = [];
@@ -320,6 +354,18 @@ export default async function QuizManageDetailPage({
     }));
 
   const publishedVersions = versions.filter((version) => version.lifecycle_status === "published");
+  const submissionCounts = {
+    all: attempts.length,
+    passed: attempts.filter((attempt) => attempt.passed === true).length,
+    failed: attempts.filter((attempt) => attempt.passed === false).length,
+    pending: attempts.filter((attempt) => attempt.passed == null).length,
+  };
+  const filteredAttempts = attempts.filter((attempt) => {
+    if (submissionScope === "passed") return attempt.passed === true;
+    if (submissionScope === "failed") return attempt.passed === false;
+    if (submissionScope === "pending") return attempt.passed == null;
+    return true;
+  });
 
   async function addQuestionAction(formData: FormData) {
     "use server";
@@ -332,10 +378,26 @@ export default async function QuizManageDetailPage({
     const manualReviewRequired = questionType === "short_answer";
 
     if (!uuidRegex.test(clientId) || !uuidRegex.test(quizVersionId)) {
-      redirect(buildDetailPath({ quizId, clientId: quiz.client_id, error: "Invalid version selection" }));
+      redirect(
+        buildDetailPath({
+          quizId,
+          clientId: quiz.client_id,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Invalid version selection",
+        })
+      );
     }
     if (!prompt) {
-      redirect(buildDetailPath({ quizId, clientId: quiz.client_id, error: "Question text is required" }));
+      redirect(
+        buildDetailPath({
+          quizId,
+          clientId: quiz.client_id,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Question text is required",
+        })
+      );
     }
 
     const rawOptionLabels = formData
@@ -368,6 +430,7 @@ export default async function QuizManageDetailPage({
             quizId,
             clientId: quiz.client_id,
             versionId: quizVersionId,
+            submissionResult: submissionScope,
             error: "Multi select needs at least 2 options",
           })
         );
@@ -378,6 +441,7 @@ export default async function QuizManageDetailPage({
             quizId,
             clientId: quiz.client_id,
             versionId: quizVersionId,
+            submissionResult: submissionScope,
             error: "Select at least one correct option",
           })
         );
@@ -408,6 +472,7 @@ export default async function QuizManageDetailPage({
           quizId,
           clientId: quiz.client_id,
           versionId: quizVersionId,
+          submissionResult: submissionScope,
           error: error.message,
         })
       );
@@ -417,6 +482,7 @@ export default async function QuizManageDetailPage({
         quizId,
         clientId: quiz.client_id,
         versionId: quizVersionId,
+        submissionResult: submissionScope,
         success: "Question added",
       })
     );
@@ -426,7 +492,15 @@ export default async function QuizManageDetailPage({
     "use server";
     const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
     if (!uuidRegex.test(quizVersionId)) {
-      redirect(buildDetailPath({ quizId, clientId: quiz.client_id, error: "Invalid version id" }));
+      redirect(
+        buildDetailPath({
+          quizId,
+          clientId: quiz.client_id,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Invalid version id",
+        })
+      );
     }
 
     const supabase = createSupabaseServerClient();
@@ -444,6 +518,7 @@ export default async function QuizManageDetailPage({
           quizId,
           clientId: quiz.client_id,
           versionId: quizVersionId,
+          submissionResult: submissionScope,
           error: error.message,
         })
       );
@@ -453,6 +528,7 @@ export default async function QuizManageDetailPage({
         quizId,
         clientId: quiz.client_id,
         versionId: quizVersionId,
+        submissionResult: submissionScope,
         success: "Version published",
       })
     );
@@ -468,7 +544,15 @@ export default async function QuizManageDetailPage({
     const expiresAtRaw = String(formData.get("expires_at") || "").trim();
 
     if (!uuidRegex.test(quizVersionId) || !uuidRegex.test(userId)) {
-      redirect(buildDetailPath({ quizId, clientId: quiz.client_id, error: "Invalid assignment request" }));
+      redirect(
+        buildDetailPath({
+          quizId,
+          clientId: quiz.client_id,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Invalid assignment request",
+        })
+      );
     }
 
     const toIsoDate = (value: string) =>
@@ -494,6 +578,7 @@ export default async function QuizManageDetailPage({
           quizId,
           clientId: quiz.client_id,
           versionId: quizVersionId,
+          submissionResult: submissionScope,
           error: error.message,
         })
       );
@@ -503,6 +588,7 @@ export default async function QuizManageDetailPage({
         quizId,
         clientId: quiz.client_id,
         versionId: quizVersionId,
+        submissionResult: submissionScope,
         success: "Assignment saved",
       })
     );
@@ -520,9 +606,15 @@ export default async function QuizManageDetailPage({
               &larr; Back to quiz list
             </Link>
             <h1 className="mt-2 text-2xl font-semibold text-slate-900">{quiz.title}</h1>
-            <p className="text-sm text-slate-600">
-              Status: {quiz.status} - Pass mark: {quiz.passing_score_percent}% - Max attempts: {quiz.max_attempts}
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+              <span
+                className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${quizStatusBadgeClass(quiz.status)}`}
+              >
+                {quiz.status}
+              </span>
+              <span>{`Pass mark: ${quiz.passing_score_percent}%`}</span>
+              <span>{`Max attempts: ${quiz.max_attempts}`}</span>
+            </div>
           </div>
           <Link
             href={`/quizzes/review?client_id=${quiz.client_id}`}
@@ -553,6 +645,7 @@ export default async function QuizManageDetailPage({
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <form method="get" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
             <input type="hidden" name="client_id" value={quiz.client_id} />
+            <input type="hidden" name="submission_result" value={submissionScope} />
             <label className="text-sm text-slate-700">
               Version scope for submissions table
               <select
@@ -617,9 +710,14 @@ export default async function QuizManageDetailPage({
                 className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"
               >
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {`v${version.version_number} - ${version.lifecycle_status}`}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-900">{`v${version.version_number}`}</p>
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${versionStatusBadgeClass(version.lifecycle_status)}`}
+                    >
+                      {version.lifecycle_status}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-600">
                     Questions: {questionCountByVersionId[version.id] || 0} - Published:{" "}
                     {formatDateTime(version.published_at)}
@@ -732,14 +830,50 @@ export default async function QuizManageDetailPage({
       ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="text-base font-semibold text-slate-900">Submissions</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Columns are quiz questions, rows are submitted attempts.
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Submissions</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Columns are quiz questions, rows are submitted attempts.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: "all", label: "All" },
+              { key: "passed", label: "Passed" },
+              { key: "failed", label: "Failed" },
+              { key: "pending", label: "Pending" },
+            ] as const).map((scope) => (
+              <Link
+                key={scope.key}
+                href={buildDetailPath({
+                  quizId,
+                  clientId: quiz.client_id,
+                  versionId: selectedVersionId,
+                  submissionResult: scope.key,
+                })}
+                className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${
+                  submissionScope === scope.key
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {`${scope.label} (${submissionCounts[scope.key]})`}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          {`Showing ${submissionCounts[submissionScope]} ${submissionScope} submission(s) for the selected version.`}
         </p>
         {selectedVersion == null ? (
           <p className="mt-3 text-sm text-slate-600">Select a version to view submissions.</p>
-        ) : attempts.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-600">No submissions yet for this version.</p>
+        ) : filteredAttempts.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-600">
+            {submissionScope === "all"
+              ? "No submissions yet for this version."
+              : "No submissions in this filter for the selected version."}
+          </p>
         ) : (
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-left text-xs">
@@ -752,13 +886,18 @@ export default async function QuizManageDetailPage({
                   <th className="px-2 py-2">Submitted</th>
                   {questions.map((question) => (
                     <th key={question.id} className="min-w-[220px] px-2 py-2">
-                      {`Q${question.position}: ${question.prompt}`}
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        {`Q${question.position}`}
+                      </div>
+                      <div className="max-w-[220px] truncate font-medium text-slate-700" title={question.prompt}>
+                        {question.prompt}
+                      </div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {attempts.map((attempt) => {
+                {filteredAttempts.map((attempt) => {
                   const answersForAttempt = answersByAttemptId.get(attempt.id) || new Map<string, AnswerRow>();
                   return (
                     <tr key={attempt.id} className="border-t border-slate-200 align-top">
@@ -773,7 +912,13 @@ export default async function QuizManageDetailPage({
                           #{attempt.attempt_number}
                         </Link>
                       </td>
-                      <td className="px-2 py-2 text-slate-700">{statusLabel(attempt.status)}</td>
+                      <td className="px-2 py-2">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${attemptStatusBadgeClass(attempt.status)}`}
+                        >
+                          {statusLabel(attempt.status)}
+                        </span>
+                      </td>
                       <td className="px-2 py-2 text-slate-700">
                         {attempt.score_percent == null ? "Pending" : `${attempt.score_percent}%`}
                       </td>
