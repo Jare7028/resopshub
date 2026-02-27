@@ -1,24 +1,17 @@
--- Custom task/project statuses for Settings.
--- Apply in Supabase SQL editor.
+-- Extend configurable status options for feature suggestions.
+-- Adds feature_suggestion entity support, visibility/completion metadata, and seeds defaults.
 
 create table if not exists public.status_options (
   id uuid primary key default gen_random_uuid(),
-  entity_type text not null check (entity_type in ('task', 'project')),
+  entity_type text not null,
   value text not null,
   position integer not null default 0,
-  is_visible boolean not null default true,
-  counts_as_completed boolean not null default false,
+  is_visible boolean,
+  counts_as_completed boolean,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint status_options_value_not_blank check (length(trim(value)) > 0)
 );
-
-alter table public.status_options
-  drop constraint if exists status_options_entity_type_check;
-
-alter table public.status_options
-  add constraint status_options_entity_type_check
-  check (entity_type in ('task', 'project', 'feature_suggestion'));
 
 create unique index if not exists status_options_entity_value_uidx
   on public.status_options (entity_type, lower(value));
@@ -26,7 +19,41 @@ create unique index if not exists status_options_entity_value_uidx
 create index if not exists status_options_entity_position_idx
   on public.status_options (entity_type, position, value);
 
-alter table public.status_options enable row level security;
+alter table if exists public.status_options
+  drop constraint if exists status_options_entity_type_check;
+
+alter table public.status_options
+  add constraint status_options_entity_type_check
+  check (entity_type in ('task', 'project', 'feature_suggestion'));
+
+alter table public.status_options
+  add column if not exists is_visible boolean;
+
+alter table public.status_options
+  add column if not exists counts_as_completed boolean;
+
+update public.status_options
+  set is_visible = true
+  where is_visible is null;
+
+update public.status_options
+  set counts_as_completed = false
+  where counts_as_completed is null;
+
+alter table public.status_options
+  alter column is_visible set default true;
+
+alter table public.status_options
+  alter column counts_as_completed set default false;
+
+alter table public.status_options
+  alter column is_visible set not null;
+
+alter table public.status_options
+  alter column counts_as_completed set not null;
+
+alter table public.status_options
+  enable row level security;
 
 drop policy if exists status_options_select on public.status_options;
 create policy status_options_select
@@ -59,17 +86,6 @@ create policy status_options_delete
 
 grant select, insert, update, delete on public.status_options to authenticated;
 
--- Allow template statuses to follow the configurable status lists.
-alter table public.task_templates
-  drop constraint if exists task_templates_status_check;
-
-alter table public.task_template_subtasks
-  drop constraint if exists task_template_subtasks_status_check;
-
-alter table public.project_templates
-  drop constraint if exists project_templates_status_check;
-
--- Seed default statuses for feature suggestions.
 insert into public.status_options (
   entity_type,
   value,

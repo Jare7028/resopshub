@@ -2,8 +2,14 @@
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isSupabaseMissingColumnError } from "@/lib/supabaseErrors";
+import {
+  buildStatusOptionsWithMetadata,
+  DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
+  type StatusOptionRow,
+  normalizeStatusValue,
+} from "@/lib/statusOptions";
 
-const statusOptions = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
 const typeOptions = ["bug", "improvement", "new_feature"] as const;
 
 const formatStatusLabel = (status: string) =>
@@ -56,6 +62,39 @@ export default async function FeatureSuggestionDetailPage(props: {
   if (!currentUser?.id) {
     redirect("/tasks?error=Missing%20user%20profile");
   }
+
+  type StatusOptionsResponse = {
+    data: Array<StatusOptionRow> | null;
+    error: {
+      message: string;
+      code?: string;
+      details?: string | null;
+      hint?: string | null;
+    } | null;
+  };
+
+  const statusOptionsResult: StatusOptionsResponse = await supabase
+    .from("status_options")
+    .select("entity_type,value,position,is_visible,counts_as_completed")
+    .eq("entity_type", "feature_suggestion")
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+
+  let statusOptionsRowsResult = statusOptionsResult;
+  if (statusOptionsResult.error && isSupabaseMissingColumnError(statusOptionsResult.error)) {
+    statusOptionsRowsResult = (await supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .eq("entity_type", "feature_suggestion")
+      .order("position", { ascending: true })
+      .order("value", { ascending: true })) as StatusOptionsResponse;
+  }
+
+  const featureSuggestionStatusOptions = buildStatusOptionsWithMetadata(
+    "feature_suggestion",
+    ((statusOptionsRowsResult.data || []) as Array<StatusOptionRow>) || [],
+    DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS
+  );
 
   const suggestionWithClosedAt = await supabase
     .from("feature_suggestions")
@@ -163,7 +202,11 @@ export default async function FeatureSuggestionDetailPage(props: {
       detailParams.set("error", "Title is required");
       redirect(`${detailPath}?${detailParams.toString()}`);
     }
-    if (!statusOptions.includes(status as (typeof statusOptions)[number])) {
+    const normalizedStatus = normalizeStatusValue(status);
+    const availableStatus = featureSuggestionStatusOptions.find(
+      (option) => normalizeStatusValue(option.value) === normalizedStatus
+    );
+    if (!availableStatus) {
       detailParams.set("error", "Invalid status");
       redirect(`${detailPath}?${detailParams.toString()}`);
     }
@@ -172,7 +215,7 @@ export default async function FeatureSuggestionDetailPage(props: {
       redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
-    const shouldClose = status === "completed" || status === "rejected";
+    const shouldClose = availableStatus?.countsAsCompleted ?? false;
     let { error } = await supabase
       .from("feature_suggestions")
       .update({
@@ -381,9 +424,9 @@ export default async function FeatureSuggestionDetailPage(props: {
               defaultValue={suggestion.status || "idea"}
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
             >
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {formatStatusLabel(status)}
+              {featureSuggestionStatusOptions.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {formatStatusLabel(status.value)}
                 </option>
               ))}
             </select>

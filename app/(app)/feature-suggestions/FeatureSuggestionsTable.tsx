@@ -36,6 +36,13 @@ type FilterState = {
   q: string;
 };
 
+type FeatureSuggestionStatusOption = {
+  value: string;
+  position: number;
+  isVisible: boolean;
+  countsAsCompleted: boolean;
+};
+
 type SortKey = "title" | "status" | "type" | "score" | "created_at";
 type SortDir = "asc" | "desc";
 
@@ -184,7 +191,7 @@ export default function FeatureSuggestionsTable({
   sortDir: SortDir;
   initialView?: "table" | "gantt" | "board";
   initialFilters: FilterState;
-  statusOptions: readonly string[];
+  statusOptions: readonly FeatureSuggestionStatusOption[];
   typeOptions: readonly string[];
   onVote: (formData: FormData) => Promise<void>;
   onUpdateStatus: (formData: FormData) => Promise<void> | void;
@@ -400,20 +407,29 @@ export default function FeatureSuggestionsTable({
     return ticks;
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
+  const visibleStatusOptions = useMemo(
+    () => statusOptions.filter((status) => status.isVisible),
+    [statusOptions]
+  );
+  const statusOptionsForBoard = visibleStatusOptions.length
+    ? visibleStatusOptions
+    : statusOptions;
+  const statusForFilters = statusOptionsForBoard;
+
   const boardSuggestionsByStatus = useMemo(() => {
     const buckets = new Map<string, SuggestionRow[]>();
-    statusOptions.forEach((status) => buckets.set(status, []));
+    statusOptionsForBoard.forEach((status) => buckets.set(status.value, []));
     rows.forEach((suggestion) => {
       const bucketKey = buckets.has(suggestion.status)
         ? suggestion.status
-        : statusOptions[0] || suggestion.status;
+        : statusOptionsForBoard[0]?.value || suggestion.status;
       const bucket = buckets.get(bucketKey);
       if (bucket) {
         bucket.push(suggestion);
       }
     });
     return buckets;
-  }, [rows, statusOptions]);
+  }, [rows, statusOptionsForBoard]);
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white">
@@ -533,9 +549,9 @@ export default function FeatureSuggestionsTable({
                       <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
                         <FilterMenuMulti
                           title="Status"
-                          options={statusOptions.map((status) => ({
-                            value: status,
-                            label: formatStatusLabel(status),
+                          options={statusForFilters.map((status) => ({
+                            value: status.value,
+                            label: formatStatusLabel(status.value),
                           }))}
                           selectedValues={filters.status}
                           onChange={(next) => applyFilters({ ...filters, status: next })}
@@ -695,13 +711,13 @@ export default function FeatureSuggestionsTable({
         <div className="overflow-x-auto p-4">
           {rows.length ? (
             <div className="flex min-w-max gap-4">
-              {statusOptions.map((status) => {
-                const bucket = boardSuggestionsByStatus.get(status) || [];
+              {statusOptionsForBoard.map((status) => {
+                const bucket = boardSuggestionsByStatus.get(status.value) || [];
                 return (
-                  <div key={status} className="w-[320px] rounded-lg border border-slate-200 bg-slate-50">
+                  <div key={status.value} className="w-[320px] rounded-lg border border-slate-200 bg-slate-50">
                     <div className="border-b border-slate-200 px-4 py-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        {formatStatusLabel(status)}
+                        {formatStatusLabel(status.value)}
                       </p>
                       <p className="text-sm text-slate-500">{bucket.length} items</p>
                     </div>

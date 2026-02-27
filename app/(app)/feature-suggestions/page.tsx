@@ -2,8 +2,16 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingFunctionError,
+} from "@/lib/supabaseErrors";
 import FeatureSuggestionsTable from "./FeatureSuggestionsTable";
+import {
+  buildStatusOptionsWithMetadata,
+  DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
+  normalizeStatusValue,
+} from "@/lib/statusOptions";
 
 type SuggestionRow = {
   id: string;
@@ -25,8 +33,25 @@ type SuggestionVoteRow = {
 type SortKey = "title" | "status" | "type" | "score" | "created_at";
 type SortDir = "asc" | "desc";
 
-const statusOptions = ["idea", "needs_checking", "planned", "completed", "rejected"] as const;
 const typeOptions = ["bug", "improvement", "new_feature"] as const;
+
+type StatusOptionRow = {
+  entity_type: "feature_suggestion";
+  value: string;
+  position: number;
+  is_visible?: boolean | null;
+  counts_as_completed?: boolean | null;
+};
+
+type StatusOptionsResult = {
+  data: Array<StatusOptionRow> | null;
+  error: {
+    message: string;
+    code?: string;
+    details?: string | null;
+    hint?: string | null;
+  } | null;
+};
 
 function sanitizeSearchQuery(value: string) {
   return value
@@ -115,8 +140,35 @@ export default async function FeatureSuggestionsPage(props: {
   const sortKey = normalizeSortKey((searchParams?.sort || "").trim());
   const sortDir = normalizeSortDir((searchParams?.dir || "").trim(), sortKey);
 
+  let statusOptionsResult: StatusOptionsResult = (await supabase
+    .from("status_options")
+    .select("entity_type,value,position,is_visible,counts_as_completed")
+    .eq("entity_type", "feature_suggestion")
+    .order("position", { ascending: true })
+    .order("value", { ascending: true })) as StatusOptionsResult;
+
+  if (statusOptionsResult.error && isSupabaseMissingColumnError(statusOptionsResult.error)) {
+    const legacyStatusOptions = await supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .eq("entity_type", "feature_suggestion")
+      .order("position", { ascending: true })
+      .order("value", { ascending: true });
+    statusOptionsResult = {
+      data: legacyStatusOptions.data as Array<StatusOptionRow> | null,
+      error: legacyStatusOptions.error as StatusOptionsResult["error"],
+    };
+  }
+
+  const featureSuggestionStatusOptions = buildStatusOptionsWithMetadata(
+    "feature_suggestion",
+    ((statusOptionsResult.data || []) as Array<StatusOptionRow>) || [],
+    DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS
+  );
+  const statusValues = featureSuggestionStatusOptions.map((status) => status.value);
+
   const selectedStatuses = parseCsvParam(searchParams?.status).filter((status) =>
-    statusOptions.includes(status as (typeof statusOptions)[number])
+    statusValues.includes(normalizeStatusValue(status))
   );
   const selectedTypes = parseCsvParam(searchParams?.type).filter((type) =>
     typeOptions.includes(type as (typeof typeOptions)[number])
@@ -154,7 +206,13 @@ export default async function FeatureSuggestionsPage(props: {
     if (selectedStatuses.length) {
       queryBuilder = queryBuilder.in("status", selectedStatuses);
     } else if (hideCompleted) {
-      queryBuilder = queryBuilder.not("status", "in", "(completed,rejected)");
+      const completedStatuses = featureSuggestionStatusOptions
+        .filter((status) => status.countsAsCompleted)
+        .map((status) => normalizeStatusValue(status.value))
+        .filter(Boolean);
+      if (completedStatuses.length) {
+        queryBuilder = queryBuilder.not("status", "in", `(${completedStatuses.join(",")})`);
+      }
     }
 
     if (selectedTypes.length) {
@@ -395,11 +453,15 @@ export default async function FeatureSuggestionsPage(props: {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20status%20update`);
     }
 
-    if (!statusOptions.includes(status as (typeof statusOptions)[number])) {
+    if (!statusValues.includes(normalizeStatusValue(status))) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Invalid%20status`);
     }
 
-    const shouldClose = status === "completed" || status === "rejected";
+    const normalizedStatus = normalizeStatusValue(status);
+    const statusMeta = featureSuggestionStatusOptions.find(
+      (statusOption) => normalizeStatusValue(statusOption.value) === normalizedStatus
+    );
+    const shouldClose = statusMeta ? statusMeta.countsAsCompleted : false;
     let { error } = await supabase
       .from("feature_suggestions")
       .update({ status, closed_at: shouldClose ? new Date().toISOString() : null })
@@ -556,7 +618,7 @@ export default async function FeatureSuggestionsPage(props: {
           type: selectedTypes,
           q: query,
         }}
-        statusOptions={statusOptions}
+        statusOptions={featureSuggestionStatusOptions}
         typeOptions={typeOptions}
         onVote={toggleVote}
         onUpdateStatus={updateStatus}

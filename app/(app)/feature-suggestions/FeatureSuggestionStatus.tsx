@@ -2,10 +2,15 @@
 
 import { type ChangeEvent, useTransition } from "react";
 
+type FeatureSuggestionStatusOption = {
+  value: string;
+  isVisible?: boolean;
+};
+
 type FeatureSuggestionStatusProps = {
   suggestionId: string;
   defaultStatus: string;
-  statusOptions: readonly string[];
+  statusOptions: readonly FeatureSuggestionStatusOption[];
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   disabled?: boolean;
 };
@@ -26,6 +31,21 @@ export default function FeatureSuggestionStatus({
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
 
+  const normalizedCurrentStatus = defaultStatus.trim().toLowerCase();
+  const normalizedOptionValues = statusOptions.map((status) => status.value.toLowerCase());
+  const normalizedCurrentExists = normalizedOptionValues.includes(normalizedCurrentStatus);
+
+  const visibleStatusOptions = statusOptions.filter((status) => status.isVisible !== false);
+  const includesCurrentStatus =
+    normalizedCurrentExists &&
+    visibleStatusOptions.some((status) => status.value.toLowerCase() === normalizedCurrentStatus);
+
+  const options = includesCurrentStatus
+    ? visibleStatusOptions
+    : normalizedCurrentStatus
+    ? [...visibleStatusOptions, { value: normalizedCurrentStatus }]
+    : visibleStatusOptions;
+
   const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const form = event.currentTarget.form;
     if (!form) return;
@@ -45,9 +65,9 @@ export default function FeatureSuggestionStatus({
         disabled={disabled}
         onChange={handleChange}
       >
-        {statusOptions.map((status) => (
-          <option key={status} value={status}>
-            {formatStatusLabel(status)}
+        {options.map((status) => (
+          <option key={status.value} value={status.value}>
+            {formatStatusLabel(status.value)}
           </option>
         ))}
       </select>
