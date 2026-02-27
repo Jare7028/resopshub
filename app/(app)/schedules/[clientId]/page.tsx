@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { computeBillableMinutes } from "@/lib/schedules/billableHours";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import ScheduleGridDndClient from "./ScheduleGridDndClient";
+import ShiftTimeRangeLabel from "./ShiftTimeRangeLabel";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type RangeView = "week" | "day" | "month";
@@ -21,6 +22,7 @@ type WeekRow = {
   id: string;
   client_id: string;
   week_start_date: string;
+  timezone: string;
   status: "draft" | "published";
   published_version: number;
 };
@@ -47,6 +49,8 @@ type ShiftRow = {
   break_minutes: number;
   job_code_id: string | null;
   notes: string | null;
+  start_at: string;
+  end_at: string;
 };
 
 type JobCodeRow = {
@@ -146,27 +150,6 @@ function formatDateLabel(value: string) {
   const date = parseDateOnly(value);
   if (!date) return value;
   return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-}
-
-function formatTimeLabel(value: string) {
-  const match = String(value || "").match(/^(\d{2}):(\d{2})/);
-  if (!match) return value;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const period = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 === 0 ? 12 : hours % 12;
-  return `${displayHours}:${String(minutes).padStart(2, "0")} ${period}`;
-}
-
-function formatTimeCompact(value: string) {
-  const match = String(value || "").match(/^(\d{2}):(\d{2})/);
-  if (!match) return value;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const period = hours >= 12 ? "pm" : "am";
-  const displayHours = hours % 12 === 0 ? 12 : hours % 12;
-  if (minutes === 0) return `${displayHours}${period}`;
-  return `${displayHours}:${String(minutes).padStart(2, "0")}${period}`;
 }
 
 function roleRank(roleToken: string) {
@@ -673,7 +656,7 @@ export default async function ClientSchedulePage({
 
   const { data: weekData } = await supabase
     .from("schedule_weeks")
-    .select("id,client_id,week_start_date,status,published_version")
+    .select("id,client_id,week_start_date,timezone,status,published_version")
     .eq("client_id", clientId)
     .eq("week_start_date", weekStart)
     .maybeSingle();
@@ -698,7 +681,7 @@ export default async function ClientSchedulePage({
       week
         ? supabase
             .from("schedule_shifts")
-            .select("id,week_id,roster_entry_id,is_open,local_date,start_local_time,end_local_time,ends_next_day,break_minutes,job_code_id,notes")
+            .select("id,week_id,roster_entry_id,is_open,local_date,start_local_time,end_local_time,ends_next_day,break_minutes,job_code_id,notes,start_at,end_at")
             .eq("week_id", week.id)
             .order("local_date", { ascending: true })
             .order("start_local_time", { ascending: true })
@@ -949,6 +932,11 @@ export default async function ClientSchedulePage({
             {billableGapMinutes >= 0 ? "Over by" : "Gap"} {formatHours(Math.abs(billableGapMinutes))}h
           </span>
         </div>
+        {week ? (
+          <p className="text-xs text-slate-500">
+            Shift times are shown in each viewer&apos;s local timezone. Schedule base timezone: {week.timezone}.
+          </p>
+        ) : null}
       </section>
 
       {actionPanel === "create_shift" && canEdit && week ? (
@@ -967,6 +955,10 @@ export default async function ClientSchedulePage({
                   <input type="hidden" name="week_id" value={week.id} />
                   <input type="hidden" name="shift_id" value={shiftFormDefaults.shiftId} />
                   {renderContextFields()}
+                  <p className="md:col-span-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    Shift editor fields use the schedule base timezone: {week.timezone}. Shift cards show each
+                    viewer&apos;s local timezone.
+                  </p>
                   <label className="text-xs text-slate-600">
                     Employee
                     <select name="roster_entry_id" defaultValue={shiftFormDefaults.rosterEntryId} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
@@ -1436,7 +1428,14 @@ export default async function ClientSchedulePage({
                             const shiftContent = (
                               <>
                                 <div className="font-medium text-slate-900">
-                                  {formatTimeLabel(shift.start_local_time)} - {formatTimeLabel(shift.end_local_time)}
+                                  <ShiftTimeRangeLabel
+                                    startAt={shift.start_at}
+                                    endAt={shift.end_at}
+                                    fallbackStartLocalTime={shift.start_local_time}
+                                    fallbackEndLocalTime={shift.end_local_time}
+                                    fallbackTimezone={week?.timezone || "UTC"}
+                                    timezoneClassName="text-slate-500"
+                                  />
                                 </div>
                                 <div className="mt-0.5 text-slate-600">
                                   Break {shift.break_minutes}m
@@ -1596,7 +1595,16 @@ export default async function ClientSchedulePage({
                               const shiftSummary = (
                                 <div className={shiftPalette.className} style={shiftPalette.style}>
                                   <div>
-                                    {formatTimeCompact(shift.start_local_time)} - {formatTimeCompact(shift.end_local_time)} ({shift.break_minutes}m)
+                                    <ShiftTimeRangeLabel
+                                      startAt={shift.start_at}
+                                      endAt={shift.end_at}
+                                      fallbackStartLocalTime={shift.start_local_time}
+                                      fallbackEndLocalTime={shift.end_local_time}
+                                      fallbackTimezone={week?.timezone || "UTC"}
+                                      compact
+                                      timezoneClassName="opacity-80"
+                                    />{" "}
+                                    ({shift.break_minutes}m)
                                   </div>
                                   <div className={shiftPalette.subtitleClassName} style={shiftPalette.subtitleStyle}>&quot;{jobCodeText}&quot;</div>
                                 </div>
