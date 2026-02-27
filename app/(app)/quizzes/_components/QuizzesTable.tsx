@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { type KeyboardEvent } from "react";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useState, useTransition, type KeyboardEvent } from "react";
 
 type QuizTableRowStatus = "draft" | "published" | "archived";
 
@@ -43,9 +43,44 @@ export default function QuizzesTable({
   rows: QuizTableRow[];
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigationHref, setNavigationHref] = useState<string | null>(null);
+
+  const searchKey = searchParams.toString();
+
+  useEffect(() => {
+    if (!isNavigating) {
+      return;
+    }
+
+    const failSafeTimer = window.setTimeout(() => {
+      setIsNavigating(false);
+      setNavigationHref(null);
+    }, 15000);
+
+    return () => {
+      window.clearTimeout(failSafeTimer);
+    };
+  }, [isNavigating]);
+
+  useEffect(() => {
+    if (!isNavigating) {
+      return;
+    }
+
+    setIsNavigating(false);
+    setNavigationHref(null);
+  }, [pathname, searchKey, isNavigating]);
 
   const openRow = (href: string) => {
-    router.push(href);
+    setIsNavigating(true);
+    setNavigationHref(href);
+    startTransition(() => {
+      router.push(href);
+    });
   };
 
   const handleKeyDown = (
@@ -110,6 +145,15 @@ export default function QuizzesTable({
           )}
         </tbody>
       </table>
+      {isNavigating && navigationHref ? (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center">
+          <div
+            className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 bg-white/85 shadow-md"
+            aria-hidden="true"
+          />
+          <span className="sr-only">Loading quiz</span>
+        </div>
+      ) : null}
     </div>
   );
 }
