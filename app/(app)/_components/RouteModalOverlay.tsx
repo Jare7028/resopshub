@@ -54,7 +54,7 @@ export default function RouteModalOverlay({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[200]">
       <button
         type="button"
         aria-label={overlayLabel}
