@@ -44,6 +44,8 @@ type QuestionRow = {
   prompt: string;
   question_type: "single_choice" | "multi_select" | "true_false" | "short_answer" | "scenario";
   option_snapshot_json: unknown;
+  answer_key_snapshot_json: unknown;
+  scoring_mode: "all_or_nothing" | "partial_credit";
 };
 
 type AttemptRow = {
@@ -83,6 +85,13 @@ type UserRow = {
 type OptionSnapshot = {
   id: string;
   label: string;
+};
+
+type EditableQuestionOption = {
+  id: string;
+  label: string;
+  position: number;
+  isCorrect: boolean;
 };
 
 function normalizeQuizDetailTabKey(value: string | undefined): QuizDetailTabKey {
@@ -176,6 +185,66 @@ function parseOptionSnapshot(value: unknown): OptionSnapshot[] {
       };
     })
     .filter(Boolean) as OptionSnapshot[];
+}
+
+function parseTextArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const textValues = value
+    .map((entry) => String(entry || "").trim())
+    .filter((entry) => Boolean(entry));
+  return Array.from(new Set(textValues));
+}
+
+function parseCorrectOptionIds(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const entry = value as Record<string, unknown>;
+  const rawIds = entry.correct_option_ids;
+  if (!Array.isArray(rawIds)) return [];
+  const normalized = rawIds
+    .map((optionId) => String(optionId || "").trim())
+    .filter(uuidRegex.test, uuidRegex);
+  return Array.from(new Set(normalized));
+}
+
+function parseScoringMode(value: string) {
+  if (value === "partial_credit") return "partial_credit";
+  return "all_or_nothing";
+}
+
+function questionTypeLabel(type: QuestionRow["question_type"]) {
+  if (type === "multi_select" || type === "single_choice") return "Multi select";
+  if (type === "short_answer" || type === "scenario") return "Free text";
+  if (type === "true_false") return "True/False";
+  return "Question";
+}
+
+function questionSupportsSimpleEditing(type: QuestionRow["question_type"]) {
+  return type === "short_answer" || type === "multi_select" || type === "single_choice";
+}
+
+function toUiQuestionType(type: QuestionRow["question_type"]) {
+  if (type === "multi_select" || type === "single_choice") return "multi_select";
+  return "free_text";
+}
+
+function buildEditableOptionRows(question: QuestionRow): EditableQuestionOption[] {
+  const correctOptionIds = new Set(parseCorrectOptionIds(question.answer_key_snapshot_json));
+  const rawOptions = parseOptionSnapshot(question.option_snapshot_json).map((option, index) => ({
+    id: option.id,
+    label: option.label,
+    position: index + 1,
+    isCorrect: correctOptionIds.has(option.id),
+  }));
+  if (rawOptions.length >= 2) return rawOptions;
+
+  const fallbackOptions = [...rawOptions];
+  if (fallbackOptions.length === 0) {
+    fallbackOptions.push({ id: crypto.randomUUID(), label: "", position: 1, isCorrect: false });
+  }
+  if (fallbackOptions.length === 1) {
+    fallbackOptions.push({ id: crypto.randomUUID(), label: "", position: 2, isCorrect: false });
+  }
+  return fallbackOptions;
 }
 
 function formatSubmissionAnswer(answer: AnswerRow | null, question: QuestionRow): string {
@@ -284,21 +353,28 @@ export default async function QuizManageDetailPage({
   let users: UserRow[] = [];
   let assignableUsers: UserRow[] = [];
 
-  if (!pageLoadError && selectedVersionId) {
-    const [questionsResult, attemptsResult] = await Promise.all([
-      supabase
-        .from("quiz_version_questions")
-        .select("id,quiz_version_id,position,prompt,question_type,option_snapshot_json")
-        .eq("quiz_version_id", selectedVersionId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("quiz_attempts")
-        .select("id,quiz_version_id,user_id,status,attempt_number,score_percent,passed,submitted_at,started_at")
-        .eq("quiz_version_id", selectedVersionId)
-        .in("status", ["submitted", "auto_scored", "partially_scored", "final_scored"])
-        .order("submitted_at", { ascending: false, nullsFirst: false })
-        .order("started_at", { ascending: false }),
-    ]);
+  const questionVersionIds = versions.map((version) => version.id);
+  if (!pageLoadError && versions.length > 0) {
+    const questionsResultPromise = supabase
+      .from("quiz_version_questions")
+      .select(
+        "id,quiz_version_id,position,prompt,question_type,option_snapshot_json,answer_key_snapshot_json,scoring_mode"
+      )
+      .in("quiz_version_id", questionVersionIds)
+      .order("quiz_version_id", { ascending: false })
+      .order("position", { ascending: true });
+
+    const attemptsResultPromise = selectedVersionId
+      ? supabase
+          .from("quiz_attempts")
+          .select("id,quiz_version_id,user_id,status,attempt_number,score_percent,passed,submitted_at,started_at")
+          .eq("quiz_version_id", selectedVersionId)
+          .in("status", ["submitted", "auto_scored", "partially_scored", "final_scored"])
+          .order("submitted_at", { ascending: false, nullsFirst: false })
+          .order("started_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null } as const);
+
+    const [questionsResult, attemptsResult] = await Promise.all([questionsResultPromise, attemptsResultPromise]);
 
     if (questionsResult.error || attemptsResult.error) {
       pageLoadError = questionsResult.error?.message || attemptsResult.error?.message || "";
@@ -355,6 +431,14 @@ export default async function QuizManageDetailPage({
     acc[question.quiz_version_id] = (acc[question.quiz_version_id] || 0) + 1;
     return acc;
   }, {});
+  const questionsByVersionId = questions.reduce<Record<string, QuestionRow[]>>((acc, question) => {
+    acc[question.quiz_version_id] ||= [];
+    acc[question.quiz_version_id].push(question);
+    return acc;
+  }, {});
+  const draftVersionIds = new Set(
+    versions.filter((version) => version.lifecycle_status === "draft").map((version) => version.id)
+  );
   const answersByAttemptId = new Map<string, Map<string, AnswerRow>>();
   for (const answer of answers) {
     const mapForAttempt = answersByAttemptId.get(answer.attempt_id) || new Map<string, AnswerRow>();
@@ -405,6 +489,285 @@ export default async function QuizManageDetailPage({
       submissionResult: submissionScope,
     }),
   };
+
+  async function updateQuestionAction(formData: FormData) {
+    "use server";
+    const clientId = String(formData.get("client_id") || "").trim();
+    const questionId = String(formData.get("quiz_question_id") || "").trim();
+    const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
+    const prompt = String(formData.get("prompt") || "").trim();
+    const uiQuestionType = String(formData.get("ui_question_type") || "free_text").trim();
+    const requestedQuestionType = uiQuestionType === "multi_select" ? "multi_select" : "short_answer";
+
+    if (!uuidRegex.test(clientId) || !uuidRegex.test(questionId) || !uuidRegex.test(quizVersionId)) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Invalid question update request",
+        })
+      );
+    }
+
+    if (!prompt) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Question text is required",
+        })
+      );
+    }
+
+    const supabase = createSupabaseServerClient();
+    const questionResult = await supabase
+      .from("quiz_version_questions")
+      .select("id,quiz_version_id,question_type,scoring_mode,answer_key_snapshot_json")
+      .eq("id", questionId)
+      .maybeSingle();
+
+    if (questionResult.error || !questionResult.data) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: questionResult.error?.message || "Question not found",
+        })
+      );
+    }
+    if (questionResult.data.quiz_version_id !== quizVersionId) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Question version mismatch",
+        })
+      );
+    }
+
+    const versionResult = await supabase
+      .from("quiz_versions")
+      .select("id,quiz_id,lifecycle_status")
+      .eq("id", quizVersionId)
+      .maybeSingle();
+    if (versionResult.error || !versionResult.data) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: versionResult.error?.message || "Quiz version not found",
+        })
+      );
+    }
+    if (versionResult.data.lifecycle_status !== "draft") {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "You can only edit questions in a draft version",
+        })
+      );
+    }
+
+    const quizResult = await supabase
+      .from("quiz_definitions")
+      .select("id,client_id")
+      .eq("id", versionResult.data.quiz_id)
+      .maybeSingle();
+    if (quizResult.error || !quizResult.data) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: quizResult.error?.message || "Quiz not found",
+        })
+      );
+    }
+
+    const manageResult = await supabase.rpc("quiz_can_manage_client", {
+      client_uuid: quizResult.data.client_id,
+    });
+    if (manageResult.error || !manageResult.data) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: manageResult.error?.message || "Not authorized to edit this quiz",
+        })
+      );
+    }
+
+    const questionType = questionResult.data.question_type;
+    const existingAnswerKey = questionResult.data.answer_key_snapshot_json;
+    const currentScoringMode = parseScoringMode(questionResult.data.scoring_mode);
+    const allowedQuestionType =
+      requestedQuestionType === "multi_select" || questionType === "multi_select" || questionType === "short_answer";
+
+    if (!allowedQuestionType) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "This question type is not editable in the quiz builder yet",
+        })
+      );
+    }
+
+    if (requestedQuestionType === "multi_select") {
+      const rawOptionLabels = formData
+        .getAll("option_label")
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      const selectedRawPositions = new Set(
+        formData
+          .getAll("correct_option_positions")
+          .map((value) => Number.parseInt(String(value || "").trim(), 10))
+          .filter((value) => Number.isInteger(value) && value > 0)
+      );
+
+      if (rawOptionLabels.length < 2) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: quizVersionId,
+            submissionResult: submissionScope,
+            error: "Multi select needs at least 2 options",
+          })
+        );
+      }
+
+      const compacted: { id: string; label: string; position: number }[] = [];
+      const correctOptionIds: string[] = [];
+      for (let idx = 0; idx < rawOptionLabels.length; idx += 1) {
+        const label = rawOptionLabels[idx] || "";
+        compacted.push({ id: crypto.randomUUID(), label, position: idx + 1 });
+        if (selectedRawPositions.has(idx + 1)) {
+          correctOptionIds.push(compacted[idx].id);
+        }
+      }
+
+      if (correctOptionIds.length === 0) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: quizVersionId,
+            submissionResult: submissionScope,
+            error: "Select at least one correct option",
+          })
+        );
+      }
+
+      const optionPayload = compacted.map((option) => ({
+        id: option.id,
+        label: option.label,
+        position: option.position,
+      }));
+      const answerKeyPayload = {
+        scoring_mode: currentScoringMode,
+        correct_option_ids: correctOptionIds,
+        accepted_text_answers: [],
+      };
+
+      const { error } = await supabase
+        .from("quiz_version_questions")
+        .update({
+          prompt,
+          question_type: "multi_select",
+          option_snapshot_json: optionPayload,
+          answer_key_snapshot_json: answerKeyPayload,
+          manual_review_required: false,
+        })
+        .eq("id", questionId);
+      if (error) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: quizVersionId,
+            submissionResult: submissionScope,
+            error: error.message,
+          })
+        );
+      }
+    } else {
+      const acceptedTextAnswers = parseTextArray((existingAnswerKey as Record<string, unknown>).accepted_text_answers);
+      const answerKeyPayload = {
+        scoring_mode: currentScoringMode,
+        correct_option_ids: [],
+        accepted_text_answers: acceptedTextAnswers,
+      };
+
+      const { error } = await supabase
+        .from("quiz_version_questions")
+        .update({
+          prompt,
+          question_type: "short_answer",
+          option_snapshot_json: [],
+          answer_key_snapshot_json: answerKeyPayload,
+          manual_review_required: true,
+        })
+        .eq("id", questionId);
+      if (error) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: quizVersionId,
+            submissionResult: submissionScope,
+            error: error.message,
+          })
+        );
+      }
+    }
+
+    revalidatePath("/quizzes");
+    revalidatePath(`/quizzes/${quizId}`);
+    revalidatePath("/quizzes/review");
+
+    redirect(
+      buildDetailPath({
+        quizId,
+        tab: "configure",
+        returnTo,
+        versionId: quizVersionId,
+        submissionResult: submissionScope,
+        success: "Question updated",
+      })
+    );
+  }
 
   async function addQuestionAction(formData: FormData) {
     "use server";
@@ -783,45 +1146,167 @@ export default async function QuizManageDetailPage({
                 <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                   No draft version available. Create a new draft version before adding questions.
                 </p>
-              )}
+                )}
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-base font-semibold text-slate-900">Versions</h2>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Questions</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    All versions and their current questions. Draft versions can be edited here.
+                  </p>
+                </div>
+              </div>
               {versions.length === 0 ? (
                 <p className="mt-3 text-sm text-slate-600">No versions found.</p>
               ) : (
                 <div className="mt-3 space-y-2">
                   {versions.map((version) => (
-                    <div
-                      key={version.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"
-                    >
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-900">{`v${version.version_number}`}</p>
-                          <span
-                            className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${versionStatusBadgeClass(version.lifecycle_status)}`}
-                          >
-                            {version.lifecycle_status}
-                          </span>
+                    <article key={version.id} className="rounded-lg border border-slate-200">
+                      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 p-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-900">{`v${version.version_number}`}</p>
+                            <span
+                              className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${versionStatusBadgeClass(version.lifecycle_status)}`}
+                            >
+                              {version.lifecycle_status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600">
+                            Questions: {questionCountByVersionId[version.id] || 0} - Published:{" "}
+                            {formatDateTime(version.published_at)}
+                          </p>
                         </div>
-                        <p className="text-xs text-slate-600">
-                          Questions: {questionCountByVersionId[version.id] || 0} - Published:{" "}
-                          {formatDateTime(version.published_at)}
-                        </p>
+                        <form action={publishVersionAction}>
+                          <input type="hidden" name="quiz_version_id" value={version.id} />
+                          <button
+                            type="submit"
+                            disabled={(questionCountByVersionId[version.id] || 0) === 0}
+                            className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Publish
+                          </button>
+                        </form>
                       </div>
-                      <form action={publishVersionAction}>
-                        <input type="hidden" name="quiz_version_id" value={version.id} />
-                        <button
-                          type="submit"
-                          disabled={(questionCountByVersionId[version.id] || 0) === 0}
-                          className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Publish
-                        </button>
-                      </form>
-                    </div>
+
+                      <div className="space-y-2 p-3">
+                        {(questionsByVersionId[version.id] || [])
+                          .slice()
+                          .sort((a, b) => a.position - b.position)
+                          .map((question) => {
+                            const supportsSimpleEditing = questionSupportsSimpleEditing(question.question_type);
+                            const canEditCurrentQuestion =
+                              draftVersionIds.has(version.id) && canManage && supportsSimpleEditing;
+                            const uiQuestionType = toUiQuestionType(question.question_type);
+                            const optionRows = buildEditableOptionRows(question);
+
+                            return (
+                              <details key={question.id} className="rounded-lg border border-slate-200 bg-white">
+                                <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-slate-900">
+                                  <div className="flex items-start gap-2">
+                                    <span className="mt-0.5 text-xs font-semibold text-slate-600">{`Q${question.position}`}</span>
+                                    <span className="text-sm text-slate-900">{question.prompt}</span>
+                                  </div>
+                                </summary>
+                                <div className="border-t border-slate-200 px-3 py-3">
+                                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                                    {questionTypeLabel(question.question_type)}
+                                  </p>
+
+                                  {canEditCurrentQuestion ? (
+                                    <form action={updateQuestionAction} className="mt-3 space-y-3">
+                                      <input type="hidden" name="quiz_question_id" value={question.id} />
+                                      <input type="hidden" name="quiz_version_id" value={version.id} />
+                                      <input type="hidden" name="client_id" value={quiz.client_id} />
+                                      <input type="hidden" name="ui_question_type" value={uiQuestionType} />
+
+                                      <label className="block text-sm text-slate-700">
+                                        Question
+                                        <textarea
+                                          name="prompt"
+                                          required
+                                          rows={3}
+                                          defaultValue={question.prompt}
+                                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                                        />
+                                      </label>
+
+                                      {uiQuestionType === "multi_select" ? (
+                                        <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+                                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                                            Options (check all correct answers)
+                                          </p>
+                                          <div className="space-y-2">
+                                            {optionRows.map((option) => (
+                                              <div
+                                                key={option.id}
+                                                className="grid gap-2 sm:grid-cols-[auto_1fr_auto] items-start"
+                                              >
+                                                <div className="self-start pt-2">
+                                                  <input
+                                                    type="checkbox"
+                                                    name="correct_option_positions"
+                                                    value={String(option.position)}
+                                                    defaultChecked={option.isCorrect}
+                                                    className="h-4 w-4 rounded border-slate-300 text-slate-900"
+                                                  />
+                                                </div>
+                                                <input
+                                                  name="option_label"
+                                                  defaultValue={option.label}
+                                                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                                                  placeholder={`Answer option ${option.position}`}
+                                                />
+                                                <p className="self-start pt-2 text-xs font-medium text-slate-500">
+                                                  Correct
+                                                </p>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                          Free text questions are reviewed and marked manually.
+                                        </p>
+                                      )}
+
+                                      <button
+                                        type="submit"
+                                        className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                      >
+                                        Save question
+                                      </button>
+                                    </form>
+                                  ) : (
+                                    <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                                      {!draftVersionIds.has(version.id) ? (
+                                        <p className="text-sm text-slate-600">
+                                          Published or retired versions are locked.
+                                        </p>
+                                      ) : null}
+                                      {!supportsSimpleEditing ? (
+                                        <p className="text-sm text-slate-600">
+                                          This question type is not editable in the quiz builder yet.
+                                        </p>
+                                      ) : null}
+                                      <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
+                                        {question.prompt}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </details>
+                            );
+                          })}
+                        {questionsByVersionId[version.id]?.length === 0 ? (
+                          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                            No questions yet.
+                          </p>
+                        ) : null}
+                      </div>
+                    </article>
                   ))}
                 </div>
               )}
