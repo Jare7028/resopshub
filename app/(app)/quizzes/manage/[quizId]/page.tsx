@@ -8,7 +8,6 @@ type LegacyManageDetailSearchParams = {
   submission_result?: string | string[];
   error?: string | string[];
   success?: string | string[];
-  client_id?: string | string[];
 };
 
 function firstValue(value: string | string[] | undefined) {
@@ -29,16 +28,14 @@ export default async function LegacyQuizManageDetailPage({
 
   const resolvedSearch = await searchParams;
   const query = new URLSearchParams();
-  const returnTo = firstValue(resolvedSearch?.return_to) || firstValue(resolvedSearch?.client_id);
+  const returnTo = firstValue(resolvedSearch?.return_to);
   const tab = firstValue(resolvedSearch?.tab);
   const submissionResult = firstValue(resolvedSearch?.submission_result);
   const error = firstValue(resolvedSearch?.error);
   const success = firstValue(resolvedSearch?.success);
 
   if (returnTo) {
-    const normalized = returnTo.startsWith("/quizzes")
-      ? returnTo
-      : `/quizzes?client_id=${returnTo}`;
+    const normalized = returnTo.startsWith("/quizzes") ? returnTo : "/quizzes";
     query.set("return_to", normalized);
   }
   if (tab) query.set("tab", tab);

@@ -4,21 +4,13 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import QuizzesTable from "./_components/QuizzesTable";
 
-const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 type QuizzesSearchParams = {
-  client_id?: string;
   tab?: string;
   error?: string;
   success?: string;
 };
 
 type QuizTabKey = "list" | "create";
-
-type ClientRow = {
-  id: string;
-  name: string;
-};
 
 type QuizRow = {
   id: string;
@@ -75,14 +67,8 @@ function normalizeQuizTabKey(value: string | undefined): QuizTabKey {
     : "list";
 }
 
-function buildQuizzesPath(args: {
-  clientId?: string;
-  tab?: QuizTabKey;
-  error?: string;
-  success?: string;
-}) {
+function buildQuizzesPath(args: { tab?: QuizTabKey; error?: string; success?: string }) {
   const params = new URLSearchParams();
-  if (args.clientId) params.set("client_id", args.clientId);
   if (args.tab && args.tab !== "list") params.set("tab", args.tab);
   if (args.error) params.set("error", args.error);
   if (args.success) params.set("success", args.success);
@@ -100,8 +86,6 @@ export default async function QuizzesPage({
   searchParams?: Promise<QuizzesSearchParams>;
 }) {
   const resolvedSearch = await searchParams;
-  const selectedClientIdRaw = String(resolvedSearch?.client_id || "").trim();
-  const selectedClientId = uuidRegex.test(selectedClientIdRaw) ? selectedClientIdRaw : "";
   const activeTab = normalizeQuizTabKey(resolvedSearch?.tab);
   const errorMessage = String(resolvedSearch?.error || "").trim();
   const successMessage = String(resolvedSearch?.success || "").trim();
@@ -110,50 +94,16 @@ export default async function QuizzesPage({
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user?.id) redirect("/login");
 
-  const { data: clientsData, error: clientsError } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true });
-
-  const clients = (clientsData || []) as ClientRow[];
-  let selectedClient =
-    (selectedClientId ? clients.find((client) => client.id === selectedClientId) : null) ||
-    clients[0] ||
-    null;
-
+  const manageResult = await supabase.rpc("can_edit_page", { p_page_key: "quizzes" });
   let canManage = false;
-  let pageLoadError = clientsError?.message || "";
-
-  if (!pageLoadError && selectedClient) {
-    const manageResult = await supabase.rpc("quiz_can_manage_client", {
-      client_uuid: selectedClient.id,
-    });
-    if (manageResult.error) {
-      pageLoadError = manageResult.error.message;
-    } else {
-      canManage = Boolean(manageResult.data);
-    }
+  let pageLoadError = "";
+  if (manageResult.error) {
+    pageLoadError = manageResult.error.message;
+  } else {
+    canManage = Boolean(manageResult.data);
   }
 
-  if (!pageLoadError && clients.length > 0 && !canManage) {
-    for (const candidate of clients) {
-      if (selectedClient && candidate.id === selectedClient.id) continue;
-      const manageResult = await supabase.rpc("quiz_can_manage_client", {
-        client_uuid: candidate.id,
-      });
-      if (manageResult.error) {
-        pageLoadError = manageResult.error.message;
-        break;
-      }
-      if (manageResult.data) {
-        selectedClient = candidate;
-        canManage = true;
-        break;
-      }
-    }
-  }
-
-  if (!pageLoadError && clients.length > 0 && !canManage) {
+  if (!pageLoadError && !canManage) {
     redirect("/quizzes/assigned");
   }
 
@@ -162,13 +112,12 @@ export default async function QuizzesPage({
   let questions: QuestionRow[] = [];
   let attempts: AttemptRow[] = [];
 
-  if (!pageLoadError && selectedClient) {
+  if (!pageLoadError) {
     const quizzesResult = await supabase
       .from("quiz_definitions")
       .select(
         "id,title,status,passing_score_percent,max_attempts,published_at,created_at"
       )
-      .eq("client_id", selectedClient.id)
       .order("created_at", { ascending: false });
 
     if (quizzesResult.error) {
@@ -240,7 +189,7 @@ export default async function QuizzesPage({
       return sum + (submissionCountByVersionId[version.id] || 0);
     }, 0);
     const openHref = `/quizzes/${quiz.id}?${new URLSearchParams({
-      return_to: buildQuizzesPath({ clientId: selectedClient?.id, tab: "list" }),
+      return_to: buildQuizzesPath({ tab: "list" }),
     }).toString()}`;
 
     return {
@@ -258,11 +207,6 @@ export default async function QuizzesPage({
 
   async function createQuizAction(formData: FormData) {
     "use server";
-    const clientId = String(formData.get("client_id") || "").trim();
-    if (!uuidRegex.test(clientId)) {
-      redirect(buildQuizzesPath({ clientId: selectedClient?.id, tab: "create", error: "Invalid client id" }));
-    }
-
     const title = String(formData.get("title") || "").trim();
     const description = String(formData.get("description") || "").trim();
     const passingScore = Number.parseFloat(String(formData.get("passing_score_percent") || "70"));
@@ -271,12 +215,11 @@ export default async function QuizzesPage({
     const timeLimit = timeLimitRaw ? Number.parseInt(timeLimitRaw, 10) : null;
 
     if (!title) {
-      redirect(buildQuizzesPath({ clientId, tab: "create", error: "Quiz title is required" }));
+      redirect(buildQuizzesPath({ tab: "create", error: "Quiz title is required" }));
     }
 
     const supabase = createSupabaseServerClient();
     const { error } = await supabase.rpc("quiz_create_definition_with_version", {
-      p_client_id: clientId,
       p_title: title,
       p_description: description || null,
       p_passing_score_percent: Number.isFinite(passingScore) ? passingScore : 70,
@@ -289,14 +232,14 @@ export default async function QuizzesPage({
     revalidatePath("/quizzes/assigned");
 
     if (error) {
-      redirect(buildQuizzesPath({ clientId, tab: "create", error: error.message }));
+      redirect(buildQuizzesPath({ tab: "create", error: error.message }));
     }
-    redirect(buildQuizzesPath({ clientId, tab: "list", success: "Quiz created" }));
+    redirect(buildQuizzesPath({ tab: "list", success: "Quiz created" }));
   }
 
   const tabUrls: Record<QuizTabKey, string> = {
-    list: buildQuizzesPath({ clientId: selectedClient?.id, tab: "list" }),
-    create: buildQuizzesPath({ clientId: selectedClient?.id, tab: "create" }),
+    list: buildQuizzesPath({ tab: "list" }),
+    create: buildQuizzesPath({ tab: "create" }),
   };
 
   return (
@@ -312,7 +255,7 @@ export default async function QuizzesPage({
               My assignments
             </Link>
             <Link
-              href={selectedClient ? `/quizzes/review?client_id=${selectedClient.id}` : "/quizzes/review"}
+              href="/quizzes/review"
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Review queue
@@ -363,19 +306,11 @@ export default async function QuizzesPage({
         </Link>
       </nav>
 
-      {!selectedClient ? (
-        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-          No accessible clients found.
-        </section>
-      ) : null}
-
-      {activeTab === "create" && selectedClient ? (
+      {activeTab === "create" ? (
         canManage ? (
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold text-slate-900">Create quiz</h2>
             <form action={createQuizAction} className="mt-3 grid gap-3">
-              <input type="hidden" name="client_id" value={selectedClient.id} />
-              <p className="text-sm text-slate-600">Creating quiz for {selectedClient.name}</p>
               <label className="text-sm text-slate-700">
                 Quiz title
                 <input
@@ -444,39 +379,15 @@ export default async function QuizzesPage({
           </section>
         ) : (
           <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            You do not have manage access for this client.
+            You do not have manage access for quizzes.
           </section>
         )
       ) : null}
 
-      {activeTab === "list" && selectedClient ? (
+      {activeTab === "list" ? (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <form method="get" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <input type="hidden" name="tab" value="list" />
-            <label className="text-sm text-slate-700">
-              Client
-              <select
-                name="client_id"
-                defaultValue={selectedClient.id}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-              >
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="submit"
-              className="self-end rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Apply
-            </button>
-          </form>
-
           {quizzes.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-600">No quizzes created for this client yet.</p>
+            <p className="mt-3 text-sm text-slate-600">No quizzes created yet.</p>
           ) : (
             <div className="mt-3">
               <QuizzesTable rows={quizRows} />

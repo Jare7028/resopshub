@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 
 type LegacyManageSearchParams = {
-  client_id?: string | string[];
   tab?: string | string[];
   error?: string | string[];
   success?: string | string[];
@@ -19,12 +18,10 @@ export default async function LegacyQuizManagePage({
 }) {
   const resolvedSearch = await searchParams;
   const params = new URLSearchParams();
-  const clientId = firstValue(resolvedSearch?.client_id);
   const tab = firstValue(resolvedSearch?.tab);
   const error = firstValue(resolvedSearch?.error);
   const success = firstValue(resolvedSearch?.success);
 
-  if (clientId) params.set("client_id", clientId);
   if (tab) params.set("tab", tab);
   if (error) params.set("error", error);
   if (success) params.set("success", success);

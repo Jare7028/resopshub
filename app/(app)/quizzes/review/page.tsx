@@ -6,14 +6,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type ReviewSearchParams = {
-  client_id?: string;
   error?: string;
   success?: string;
-};
-
-type ClientRow = {
-  id: string;
-  name: string;
 };
 
 type TaskRow = {
@@ -63,7 +57,6 @@ type VersionRow = {
 
 type QuizRow = {
   id: string;
-  client_id: string;
   title: string;
   passing_score_percent: number;
 };
@@ -93,13 +86,8 @@ function parseOptionsSnapshot(value: unknown): OptionItem[] {
   return parsed;
 }
 
-function buildReviewPath(args: {
-  clientId?: string;
-  error?: string;
-  success?: string;
-}) {
+function buildReviewPath(args: { error?: string; success?: string }) {
   const params = new URLSearchParams();
-  if (args.clientId) params.set("client_id", args.clientId);
   if (args.error) params.set("error", args.error);
   if (args.success) params.set("success", args.success);
   const query = params.toString();
@@ -140,8 +128,6 @@ export default async function QuizReviewPage({
   searchParams?: Promise<ReviewSearchParams>;
 }) {
   const resolvedSearch = await searchParams;
-  const selectedClientIdRaw = String(resolvedSearch?.client_id || "").trim();
-  const selectedClientId = uuidRegex.test(selectedClientIdRaw) ? selectedClientIdRaw : "";
   const errorMessage = String(resolvedSearch?.error || "").trim();
   const successMessage = String(resolvedSearch?.success || "").trim();
 
@@ -149,28 +135,13 @@ export default async function QuizReviewPage({
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user?.id) redirect("/login");
 
-  const { data: clientsData, error: clientsError } = await supabase
-    .from("clients")
-    .select("id,name")
-    .order("name", { ascending: true });
-
-  const clients = (clientsData || []) as ClientRow[];
-  const selectedClient =
-    (selectedClientId ? clients.find((client) => client.id === selectedClientId) : null) ||
-    clients[0] ||
-    null;
-
   let canReview = false;
-  let pageLoadError = clientsError?.message || "";
-  if (!pageLoadError && selectedClient) {
-    const reviewResult = await supabase.rpc("quiz_can_review_client", {
-      client_uuid: selectedClient.id,
-    });
-    if (reviewResult.error) {
-      pageLoadError = reviewResult.error.message;
-    } else {
-      canReview = Boolean(reviewResult.data);
-    }
+  let pageLoadError = "";
+  const reviewResult = await supabase.rpc("can_edit_page", { p_page_key: "quizzes" });
+  if (reviewResult.error) {
+    pageLoadError = reviewResult.error.message;
+  } else {
+    canReview = Boolean(reviewResult.data);
   }
 
   let tasks: TaskRow[] = [];
@@ -249,7 +220,7 @@ export default async function QuizReviewPage({
     const quizIds = Array.from(new Set(versions.map((version) => version.quiz_id)));
     const quizzesResult = await supabase
       .from("quiz_definitions")
-      .select("id,client_id,title,passing_score_percent")
+      .select("id,title,passing_score_percent")
       .in("id", quizIds);
     if (quizzesResult.error) {
       pageLoadError = quizzesResult.error.message;
@@ -286,8 +257,7 @@ export default async function QuizReviewPage({
     const version = versionsById.get(attempt.quiz_version_id);
     if (!version) return false;
     const quiz = quizzesById.get(version.quiz_id);
-    if (!quiz) return false;
-    return !selectedClient || quiz.client_id === selectedClient.id;
+    return Boolean(quiz);
   });
 
   const tasksByAttemptId = filteredTasks.reduce<Record<string, TaskRow[]>>((acc, task) => {
@@ -310,19 +280,18 @@ export default async function QuizReviewPage({
 
   async function reviewAnswerAction(formData: FormData) {
     "use server";
-    const clientId = String(formData.get("client_id") || "").trim();
     const attemptAnswerId = String(formData.get("attempt_answer_id") || "").trim();
     const pointsRaw = String(formData.get("points_earned") || "").trim();
     const feedbackText = String(formData.get("feedback_text") || "").trim();
     const markCorrectRaw = String(formData.get("mark_correct") || "").trim();
 
     if (!uuidRegex.test(attemptAnswerId)) {
-      redirect(buildReviewPath({ clientId, error: "Invalid attempt answer id" }));
+      redirect(buildReviewPath({ error: "Invalid attempt answer id" }));
     }
 
     const pointsEarned = Number.parseFloat(pointsRaw);
     if (!Number.isFinite(pointsEarned) || pointsEarned < 0) {
-      redirect(buildReviewPath({ clientId, error: "points_earned must be a non-negative number" }));
+      redirect(buildReviewPath({ error: "points_earned must be a non-negative number" }));
     }
 
     const markCorrect =
@@ -341,17 +310,16 @@ export default async function QuizReviewPage({
     revalidatePath("/quizzes/assigned");
 
     if (error) {
-      redirect(buildReviewPath({ clientId, error: error.message }));
+      redirect(buildReviewPath({ error: error.message }));
     }
-    redirect(buildReviewPath({ clientId, success: "Answer reviewed" }));
+    redirect(buildReviewPath({ success: "Answer reviewed" }));
   }
 
   async function finalizeAttemptAction(formData: FormData) {
     "use server";
-    const clientId = String(formData.get("client_id") || "").trim();
     const attemptId = String(formData.get("attempt_id") || "").trim();
     if (!uuidRegex.test(attemptId)) {
-      redirect(buildReviewPath({ clientId, error: "Invalid attempt id" }));
+      redirect(buildReviewPath({ error: "Invalid attempt id" }));
     }
 
     const supabase = createSupabaseServerClient();
@@ -365,9 +333,9 @@ export default async function QuizReviewPage({
     revalidatePath(`/quizzes/attempts/${attemptId}`);
 
     if (error) {
-      redirect(buildReviewPath({ clientId, error: error.message }));
+      redirect(buildReviewPath({ error: error.message }));
     }
-    redirect(buildReviewPath({ clientId, success: "Attempt finalized" }));
+    redirect(buildReviewPath({ success: "Attempt finalized" }));
   }
 
   return (
@@ -383,7 +351,7 @@ export default async function QuizReviewPage({
               Employee view
             </Link>
             <Link
-              href={selectedClient ? `/quizzes?client_id=${selectedClient.id}` : "/quizzes"}
+              href="/quizzes"
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Manage quizzes
@@ -411,36 +379,6 @@ export default async function QuizReviewPage({
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workspace</p>
-        {clients.length ? (
-          <form method="get" className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <label className="text-sm text-slate-700">
-              Client
-              <select
-                name="client_id"
-                defaultValue={selectedClient?.id || ""}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-              >
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="submit"
-              className="self-end rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Switch client
-            </button>
-          </form>
-        ) : (
-          <p className="mt-2 text-sm text-slate-600">No accessible clients found.</p>
-        )}
-      </section>
-
       {canReview ? (
         <section className="grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -461,9 +399,9 @@ export default async function QuizReviewPage({
         </section>
       ) : null}
 
-      {!canReview && selectedClient ? (
+      {!canReview ? (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          You do not have review access for this client.
+          You do not have review access for quizzes.
         </section>
       ) : null}
 
@@ -471,7 +409,7 @@ export default async function QuizReviewPage({
         <section className="space-y-4">
           {orderedAttemptIds.length === 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-              No pending manual review items for this client.
+              No pending manual review items.
             </div>
           ) : (
             orderedAttemptIds.map((attemptId) => {
@@ -494,7 +432,6 @@ export default async function QuizReviewPage({
                       </p>
                     </div>
                     <form action={finalizeAttemptAction}>
-                      <input type="hidden" name="client_id" value={selectedClient?.id || ""} />
                       <input type="hidden" name="attempt_id" value={attempt.id} />
                       <button
                         type="submit"
@@ -524,7 +461,6 @@ export default async function QuizReviewPage({
                             {preview}
                           </p>
                           <form action={reviewAnswerAction} className="mt-3 grid gap-2 md:grid-cols-3">
-                            <input type="hidden" name="client_id" value={selectedClient?.id || ""} />
                             <input type="hidden" name="attempt_answer_id" value={answer.id} />
                             <label className="text-xs text-slate-600">
                               Points Earned (max {answer.points_possible})

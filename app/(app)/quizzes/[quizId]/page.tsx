@@ -19,7 +19,6 @@ type QuizDetailTabKey = "submissions" | "configure" | "assignments";
 
 type QuizRow = {
   id: string;
-  client_id: string;
   title: string;
   status: "draft" | "published" | "archived";
   passing_score_percent: number;
@@ -102,8 +101,8 @@ function normalizeQuizDetailTabKey(value: string | undefined): QuizDetailTabKey 
   return "submissions";
 }
 
-function buildQuizzesPath(clientId?: string) {
-  return clientId ? `/quizzes?client_id=${clientId}` : "/quizzes";
+function buildQuizzesPath() {
+  return "/quizzes";
 }
 
 function buildDetailPath(args: {
@@ -294,7 +293,7 @@ export default async function QuizManageDetailPage({
 
   const { data: quizData, error: quizError } = await supabase
     .from("quiz_definitions")
-    .select("id,client_id,title,status,passing_score_percent,max_attempts,published_version_number,published_at")
+    .select("id,title,status,passing_score_percent,max_attempts,published_version_number,published_at")
     .eq("id", quizId)
     .maybeSingle();
 
@@ -306,22 +305,19 @@ export default async function QuizManageDetailPage({
   }
   const quiz = quizData as QuizRow;
   const returnToRaw = String(resolvedSearch?.return_to || "").trim();
-  const returnTo = returnToRaw.startsWith("/quizzes") ? returnToRaw : buildQuizzesPath(quiz.client_id);
+  const returnTo = returnToRaw.startsWith("/quizzes") ? returnToRaw : buildQuizzesPath();
 
   let canManage = false;
   let canAssign = false;
   let pageLoadError = "";
 
-  const [manageResult, assignResult] = await Promise.all([
-    supabase.rpc("quiz_can_manage_client", { client_uuid: quiz.client_id }),
-    supabase.rpc("quiz_can_assign_client", { client_uuid: quiz.client_id }),
-  ]);
-
-  if (manageResult.error || assignResult.error) {
-    pageLoadError = manageResult.error?.message || assignResult.error?.message || "";
+  const editResult = await supabase.rpc("can_edit_page", { p_page_key: "quizzes" });
+  if (editResult.error) {
+    pageLoadError = editResult.error.message;
   } else {
-    canManage = Boolean(manageResult.data);
-    canAssign = Boolean(assignResult.data);
+    const canEdit = Boolean(editResult.data);
+    canManage = canEdit;
+    canAssign = canEdit;
   }
 
   const { data: versionsData, error: versionsError } = await supabase
@@ -484,7 +480,6 @@ export default async function QuizManageDetailPage({
 
   async function updateQuestionAction(formData: FormData) {
     "use server";
-    const clientId = String(formData.get("client_id") || "").trim();
     const questionId = String(formData.get("quiz_question_id") || "").trim();
     const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
     const prompt = String(formData.get("prompt") || "").trim();
@@ -492,7 +487,7 @@ export default async function QuizManageDetailPage({
     const uiQuestionType = String(formData.get("ui_question_type") || "free_text").trim();
     const requestedQuestionType = uiQuestionType === "multi_select" ? "multi_select" : "short_answer";
 
-    if (!uuidRegex.test(clientId) || !uuidRegex.test(questionId) || !uuidRegex.test(quizVersionId)) {
+    if (!uuidRegex.test(questionId) || !uuidRegex.test(quizVersionId)) {
       redirect(
         buildDetailPath({
           quizId,
@@ -592,27 +587,7 @@ export default async function QuizManageDetailPage({
       );
     }
 
-    const quizResult = await supabase
-      .from("quiz_definitions")
-      .select("id,client_id")
-      .eq("id", versionResult.data.quiz_id)
-      .maybeSingle();
-    if (quizResult.error || !quizResult.data) {
-      redirect(
-        buildDetailPath({
-          quizId,
-          tab: "configure",
-          returnTo,
-          versionId: selectedVersionId,
-          submissionResult: submissionScope,
-          error: quizResult.error?.message || "Quiz not found",
-        })
-      );
-    }
-
-    const manageResult = await supabase.rpc("quiz_can_manage_client", {
-      client_uuid: quizResult.data.client_id,
-    });
+    const manageResult = await supabase.rpc("can_edit_page", { p_page_key: "quizzes" });
     if (manageResult.error || !manageResult.data) {
       redirect(
         buildDetailPath({
@@ -944,7 +919,6 @@ export default async function QuizManageDetailPage({
 
   async function addQuestionAction(formData: FormData) {
     "use server";
-    const clientId = String(formData.get("client_id") || "").trim();
     const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
     const prompt = String(formData.get("prompt") || "").trim();
     const requestedPosition = Number.parseInt(String(formData.get("position") || "").trim(), 10);
@@ -953,7 +927,7 @@ export default async function QuizManageDetailPage({
     const questionType = uiQuestionType === "multi_select" ? "multi_select" : "short_answer";
     const manualReviewRequired = questionType === "short_answer";
 
-    if (!uuidRegex.test(clientId) || !uuidRegex.test(quizVersionId)) {
+    if (!uuidRegex.test(quizVersionId)) {
       redirect(
         buildDetailPath({
           quizId,
@@ -1071,27 +1045,7 @@ export default async function QuizManageDetailPage({
       );
     }
 
-    const quizResult = await supabase
-      .from("quiz_definitions")
-      .select("id,client_id")
-      .eq("id", versionResult.data.quiz_id)
-      .maybeSingle();
-    if (quizResult.error || !quizResult.data) {
-      redirect(
-        buildDetailPath({
-          quizId,
-          tab: "configure",
-          returnTo,
-          versionId: selectedVersionId,
-          submissionResult: submissionScope,
-          error: quizResult.error?.message || "Quiz not found",
-        })
-      );
-    }
-
-    const manageResult = await supabase.rpc("quiz_can_manage_client", {
-      client_uuid: quizResult.data.client_id,
-    });
+    const manageResult = await supabase.rpc("can_edit_page", { p_page_key: "quizzes" });
     if (manageResult.error || !manageResult.data) {
       redirect(
         buildDetailPath({
@@ -1399,7 +1353,7 @@ export default async function QuizManageDetailPage({
             </div>
           </div>
           <Link
-            href={`/quizzes/review?client_id=${quiz.client_id}`}
+            href="/quizzes/review"
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Review queue
@@ -1481,7 +1435,6 @@ export default async function QuizManageDetailPage({
                 {defaultDraftVersionId ? (
                   <SimpleQuestionBuilder
                     action={addQuestionAction}
-                    clientId={quiz.client_id}
                     quizVersionId={defaultDraftVersionId}
                     questionCount={questionCountByVersionId[defaultDraftVersionId] || 0}
                   />
@@ -1563,7 +1516,6 @@ export default async function QuizManageDetailPage({
                                     <form action={updateQuestionAction} className="mt-3 space-y-3">
                                       <input type="hidden" name="quiz_question_id" value={question.id} />
                                       <input type="hidden" name="quiz_version_id" value={version.id} />
-                                      <input type="hidden" name="client_id" value={quiz.client_id} />
                                       <input type="hidden" name="ui_question_type" value={uiQuestionType} />
 
                                       <label className="block text-sm text-slate-700">
