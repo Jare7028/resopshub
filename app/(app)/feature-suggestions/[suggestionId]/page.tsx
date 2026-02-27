@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { isSupabaseMissingColumnError } from "@/lib/supabaseErrors";
 import {
   buildStatusOptionsWithMetadata,
@@ -265,6 +266,7 @@ export default async function FeatureSuggestionDetailPage(props: {
 
     const { data: authData } = await supabase.auth.getUser();
     const authEmail = authData.user?.email;
+    const authUserId = authData.user?.id || null;
 
     if (!authEmail) {
       redirect("/login");
@@ -281,15 +283,35 @@ export default async function FeatureSuggestionDetailPage(props: {
       redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
-    const { error } = await supabase.from("feature_suggestion_comments").insert({
-      suggestion_id: suggestionId,
-      user_id: user.id,
-      body,
-    });
+    const { data: insertedComment, error } = await supabase
+      .from("feature_suggestion_comments")
+      .insert({
+        suggestion_id: suggestionId,
+        user_id: user.id,
+        body,
+      })
+      .select("id")
+      .single();
 
     if (error) {
       detailParams.set("error", error.message);
       redirect(`${detailPath}?${detailParams.toString()}`);
+    }
+
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: authUserId,
+        previousText: null,
+        nextText: body,
+        sourceType: "feature_suggestion_comment",
+        sourceId: String(insertedComment?.id || suggestionId),
+        sourceUrl: detailPath,
+        sourceTitle: String(suggestion?.title || "Feature suggestion"),
+      });
+    } catch (notifyError) {
+      const message =
+        notifyError instanceof Error ? notifyError.message : String(notifyError);
+      console.error("[featureSuggestion.addComment.mentions.notify]", message);
     }
 
     revalidatePath(`/feature-suggestions/${suggestionId}`);

@@ -337,7 +337,7 @@ export default function ChatComposer(props: {
             }
           }}
           rows={3}
-          placeholder="Message... Paste image, or type / to attach open Task, Project, or Feature Request."
+          placeholder="Message... Use @name to mention someone. Paste image, or type / to attach open Task, Project, or Feature Request."
           className="w-full resize-none rounded-t-md border-0 px-3 py-2 text-sm focus:outline-none"
         />
         <div className="flex items-center justify-between border-t border-slate-200 px-2 py-1.5">

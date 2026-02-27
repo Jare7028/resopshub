@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import ConfirmSubmitButton from "../../../_components/ConfirmSubmitButton";
 import {
   formSubmissionStatusOptions,
@@ -150,6 +151,7 @@ export default async function FormSubmissionDetailPage(props: {
 
     const { data: authData } = await supabase.auth.getUser();
     const authEmail = authData.user?.email;
+    const authUserId = authData.user?.id || null;
     if (!authEmail) {
       redirect("/login");
     }
@@ -164,15 +166,35 @@ export default async function FormSubmissionDetailPage(props: {
       redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
-    const { error } = await supabase.from("form_submission_comments").insert({
-      submission_id: submissionId,
-      user_id: currentUser.id,
-      body,
-    });
+    const { data: insertedComment, error } = await supabase
+      .from("form_submission_comments")
+      .insert({
+        submission_id: submissionId,
+        user_id: currentUser.id,
+        body,
+      })
+      .select("id")
+      .single();
 
     if (error) {
       detailParams.set("error", error.message);
       redirect(`${detailPath}?${detailParams.toString()}`);
+    }
+
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: authUserId,
+        previousText: null,
+        nextText: body,
+        sourceType: "form_submission_comment",
+        sourceId: String(insertedComment?.id || submissionId),
+        sourceUrl: detailPath,
+        sourceTitle: String(form?.title || "Form submission"),
+      });
+    } catch (notifyError) {
+      const message =
+        notifyError instanceof Error ? notifyError.message : String(notifyError);
+      console.error("[forms.submission.addComment.mentions.notify]", message);
     }
 
     revalidatePath(detailPath);

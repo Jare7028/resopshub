@@ -10,7 +10,10 @@ type MentionSourceType =
   | "client_note"
   | "task"
   | "social_post"
-  | "social_comment";
+  | "social_comment"
+  | "chat_message"
+  | "feature_suggestion_comment"
+  | "form_submission_comment";
 
 type MentionNotificationInput = {
   actorAuthUserId: string | null;
@@ -20,6 +23,7 @@ type MentionNotificationInput = {
   sourceId: string;
   sourceUrl: string;
   sourceTitle: string | null | undefined;
+  allowedRecipientUserIds?: string[] | null | undefined;
 };
 
 type MentionUserRow = {
@@ -43,6 +47,9 @@ const SOURCE_LABEL: Record<MentionSourceType, string> = {
   task: "task",
   social_post: "social post",
   social_comment: "social comment",
+  chat_message: "chat message",
+  feature_suggestion_comment: "feature suggestion comment",
+  form_submission_comment: "form submission comment",
 };
 
 function isMissingColumnError(error: unknown) {
@@ -156,7 +163,15 @@ export async function notifyMentionedUsersFromTextChange(
   const activeUsers = allUsers.filter(
     (user) => String(user.status || "active").toLowerCase() !== "disabled"
   );
-  const mentionMap = resolveMentionHandlesToRecipients(addedHandles, activeUsers);
+  const allowedRecipientUserIds = new Set(
+    (Array.isArray(input.allowedRecipientUserIds) ? input.allowedRecipientUserIds : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)
+  );
+  const candidateUsers = allowedRecipientUserIds.size
+    ? activeUsers.filter((user) => allowedRecipientUserIds.has(user.id))
+    : activeUsers;
+  const mentionMap = resolveMentionHandlesToRecipients(addedHandles, candidateUsers);
   mentionMap.delete(input.actorAuthUserId);
 
   if (!mentionMap.size) {
