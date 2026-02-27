@@ -6,6 +6,7 @@ import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { summarizeImageNodes } from "@/lib/imageNodeIntegrity";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -151,16 +152,31 @@ export async function updatePersonalPageContent(
 
   const savedUpdatedAt = normalizeTimestamp(updatedPages[0]?.updated_at) || now;
 
-  const { data: linkedNotesSynced, error: linkedNotesSyncError } = await supabase
-    .from("notes")
-    .update({
-      content_json: canonicalContent,
-      content: contentText,
-      last_edited_at: now,
-      last_edited_by_user_id: editorId,
-    })
-    .eq("source_personal_page_id", pageId)
-    .select("id,client_id");
+  let linkedNotesSynced: Array<{ id: string; client_id: string | null }> | null = null;
+  let linkedNotesSyncError: { message: string; code?: string } | null = null;
+  try {
+    const adminSupabase = createSupabaseAdminClient();
+    const { data, error } = await adminSupabase
+      .from("notes")
+      .update({
+        content_json: canonicalContent,
+        content: contentText,
+        last_edited_at: now,
+        last_edited_by_user_id: editorId,
+      })
+      .eq("source_personal_page_id", pageId)
+      .select("id,client_id");
+    linkedNotesSynced = (data || []) as Array<{ id: string; client_id: string | null }>;
+    if (error) {
+      linkedNotesSyncError = {
+        message: error.message,
+        code: typeof error.code === "string" ? error.code : undefined,
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    linkedNotesSyncError = { message };
+  }
 
   if (linkedNotesSyncError && !isMissingColumnError(linkedNotesSyncError)) {
     console.error("[personal.updatePersonalPageContent.notes.sync]", linkedNotesSyncError.message);
@@ -196,10 +212,7 @@ export async function updatePersonalPageContent(
     }
   }
 
-  const linkedNotes = (linkedNotesSynced || []) as Array<{
-    id: string;
-    client_id: string | null;
-  }>;
+  const linkedNotes = linkedNotesSynced || [];
   linkedNotes.forEach((note) => {
     if (note.client_id) {
       revalidatePath(`/clients/${note.client_id}`);

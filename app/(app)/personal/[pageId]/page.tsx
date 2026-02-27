@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
@@ -292,6 +293,7 @@ export default async function PersonalPage(props: {
     { data: sections },
     { data: users },
     { data: clients },
+    { data: linkedClientNotesRaw },
     { data: pageTemplatesRaw, error: pageTemplatesError },
     sidebarTree,
     { map: pageUserStateById, missingTable: pageUserStateTableMissing },
@@ -300,6 +302,11 @@ export default async function PersonalPage(props: {
     supabase.from("personal_sections").select("id,title").order("sort_order", { ascending: true }),
     supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
     supabase.from("clients").select("id,name").order("name", { ascending: true }),
+    supabase
+      .from("notes")
+      .select("id,client_id,title,last_edited_at")
+      .eq("source_personal_page_id", pageId)
+      .order("last_edited_at", { ascending: false }),
     supabase
       .from("personal_page_templates")
       .select("id,name")
@@ -323,6 +330,16 @@ export default async function PersonalPage(props: {
     id: string;
     name: string;
   }>;
+  const clientNameById = new Map((clients || []).map((client) => [client.id, client.name]));
+  const linkedClientNotes = ((linkedClientNotesRaw || []) as Array<{
+    id: string;
+    client_id: string | null;
+    title: string | null;
+    last_edited_at: string | null;
+  }>).map((note) => ({
+    ...note,
+    client_name: note.client_id ? clientNameById.get(note.client_id) || "Client" : "Client",
+  }));
 
   const lastEditedAtLabel = page.last_edited_at
     ? new Date(page.last_edited_at).toLocaleString("en-US")
@@ -981,24 +998,64 @@ export default async function PersonalPage(props: {
       );
     }
 
-    const noteInsert = {
-      client_id: clientId,
-      project_id: null,
+    const notePayload = {
       title: titlePrefix,
       visibility,
       content: contentText,
       content_json: sourceContent,
       source_personal_page_id: pageId,
-      user_id: user.id,
       last_edited_at: now,
       last_edited_by_user_id: user.id,
     };
 
-    const { data: note, error } = await supabase
+    const { data: existingCandidate } = await supabase
       .from("notes")
-      .insert(noteInsert)
       .select("id")
-      .single();
+      .eq("client_id", clientId)
+      .eq("title", titlePrefix)
+      .is("source_personal_page_id", null)
+      .order("last_edited_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let note: { id: string } | null = null;
+    let error: { message: string; code?: string } | null = null;
+
+    if (existingCandidate?.id) {
+      const { data: linkedExisting, error: linkExistingError } = await supabase
+        .from("notes")
+        .update(notePayload)
+        .eq("id", existingCandidate.id)
+        .eq("client_id", clientId)
+        .select("id")
+        .single();
+      note = (linkedExisting as { id: string } | null) || null;
+      if (linkExistingError) {
+        error = {
+          message: linkExistingError.message,
+          code: typeof linkExistingError.code === "string" ? linkExistingError.code : undefined,
+        };
+      }
+    } else {
+      const noteInsert = {
+        client_id: clientId,
+        project_id: null,
+        ...notePayload,
+        user_id: user.id,
+      };
+      const { data: insertedNote, error: insertError } = await supabase
+        .from("notes")
+        .insert(noteInsert)
+        .select("id")
+        .single();
+      note = (insertedNote as { id: string } | null) || null;
+      if (insertError) {
+        error = {
+          message: insertError.message,
+          code: typeof insertError.code === "string" ? insertError.code : undefined,
+        };
+      }
+    }
 
     if (error && isMissingColumnError(error)) {
       redirect(
@@ -1255,6 +1312,28 @@ export default async function PersonalPage(props: {
           <summary className="cursor-pointer text-sm font-semibold text-slate-800">
             Link client note
           </summary>
+          <div className="mt-2 space-y-2">
+            <p className="text-xs text-slate-600">
+              Linked notes: <span className="font-semibold text-slate-900">{linkedClientNotes.length}</span>
+            </p>
+            {linkedClientNotes.length ? (
+              <div className="space-y-1 rounded-md border border-slate-200 bg-white p-2">
+                {linkedClientNotes.map((note) => (
+                  <Link
+                    key={note.id}
+                    href={note.client_id ? `/clients/${note.client_id}/notes/${note.id}` : "#"}
+                    className="block rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                  >
+                    {note.title || "Untitled"} - {note.client_name}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                No linked client notes yet.
+              </p>
+            )}
+          </div>
           <form action={linkPageToClientNote} className="mt-2 grid gap-2">
             <select
               name="client_id"

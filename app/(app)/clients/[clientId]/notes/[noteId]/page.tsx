@@ -302,6 +302,11 @@ export default async function ClientNotePage(props: {
           {searchParams.success}
         </p>
       ) : null}
+      {!linkedPersonalPageId ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          This note is standalone. It is not linked to a personal page, so changes in /personal will not sync here.
+        </p>
+      ) : null}
       {linkedPersonalPageMissing ? (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           This note is linked to a personal page, but that page is not accessible. Showing cached note content.
