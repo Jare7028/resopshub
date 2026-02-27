@@ -351,7 +351,7 @@ export default async function PersonalHome(props: {
   const shareModeFilterValue = selectedShareModes[0] || "";
 
   return (
-    <div className="space-y-4 lg:grid lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start lg:gap-4 lg:space-y-0">
+    <div className="space-y-4 lg:flex lg:items-start lg:gap-4 lg:space-y-0">
       <PersonalSidebarTree
         sections={sidebarTree.sections}
         generalPages={sidebarTree.generalPages}
@@ -361,7 +361,7 @@ export default async function PersonalHome(props: {
         pageStateByPageId={pageUserStateById}
       />
 
-      <div className="space-y-4">
+      <div className="space-y-4 lg:min-w-0 lg:flex-1">
         <section className="flex flex-wrap items-start justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-4">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">Personal Workspace</h1>

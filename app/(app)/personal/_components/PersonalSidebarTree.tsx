@@ -269,7 +269,7 @@ export default function PersonalSidebarTree({
   return (
     <>
       <aside
-        className={`flex h-[calc(100vh-8.5rem)] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white transition-all ${
+        className={`shrink-0 flex h-[calc(100vh-8.5rem)] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white transition-all ${
           collapsed ? "w-16" : "w-80"
         }`}
       >
