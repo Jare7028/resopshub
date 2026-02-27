@@ -669,6 +669,16 @@ export default function EmployeeInfoTable({
   const [showTopScrollbar, setShowTopScrollbar] = useState(false);
   const [topScrollbarContentWidth, setTopScrollbarContentWidth] = useState(0);
 
+  useEffect(() => {
+    const handleAddRow = () => {
+      setIsAddingRow(true);
+    };
+    window.addEventListener("employee-info:add-row", handleAddRow as EventListener);
+    return () => {
+      window.removeEventListener("employee-info:add-row", handleAddRow as EventListener);
+    };
+  }, []);
+
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
   const visibleColumns = useMemo(
     () => columns.filter((column) => visibleColumnIdSet.has(column.id)),
@@ -1446,15 +1456,6 @@ export default function EmployeeInfoTable({
                       }}
                     >
                       <FilterIcon active={Boolean(fullNameFilter.trim())} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Add employee row"
-                      title="Add employee row"
-                      onClick={() => setIsAddingRow(true)}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                    >
-                      +
                     </button>
                   </div>
                   {openMenu === "full_name" ? (

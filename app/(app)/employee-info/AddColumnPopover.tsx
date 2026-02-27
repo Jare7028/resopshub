@@ -86,11 +86,11 @@ export default function AddColumnPopover({
       data-employee-info-popover="true"
     >
       <summary
-        className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold leading-none text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
+        className="inline-flex h-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
         aria-label="Add column"
         title="Add column"
       >
-        +
+        Add Column
       </summary>
       <div className="absolute right-0 z-10 mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
         <p className="text-xs text-slate-500">

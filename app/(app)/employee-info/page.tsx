@@ -9,6 +9,7 @@ import {
 } from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
 import AddColumnPopover from "./AddColumnPopover";
+import AddRowButton from "./AddRowButton";
 import CustomizeFieldsPopover from "./CustomizeFieldsPopover";
 import CurrencyDisplaySelect from "./CurrencyDisplaySelect";
 import RouteModalOverlay from "../_components/RouteModalOverlay";
@@ -2091,6 +2092,13 @@ export default async function EmployeeInfoPage(props: {
           <div className="flex items-center gap-2">
             <CustomizeFieldsPopover columns={columns} />
             <CurrencyDisplaySelect value={displayCurrency} />
+            <AddRowButton />
+            {canManageColumns ? (
+              <AddColumnPopover
+                formulaSuggestions={formulaSuggestions}
+                onCreateColumn={createColumn}
+              />
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             {canManageVisibilityRules ? (
@@ -2151,12 +2159,6 @@ export default async function EmployeeInfoPage(props: {
                 <path d="M5 21h14" />
               </svg>
             </a>
-            {canManageColumns ? (
-              <AddColumnPopover
-                formulaSuggestions={formulaSuggestions}
-                onCreateColumn={createColumn}
-              />
-            ) : null}
           </div>
         </div>
         <EmployeeInfoTable
