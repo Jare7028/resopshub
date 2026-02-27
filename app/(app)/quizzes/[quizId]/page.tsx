@@ -285,7 +285,8 @@ export default async function QuizManageDetailPage({
   const activeTab = normalizeQuizDetailTabKey(resolvedSearch?.tab);
 
   const errorMessage = String(resolvedSearch?.error || "").trim();
-  const successMessage = String(resolvedSearch?.success || "").trim();
+  const rawSuccessMessage = String(resolvedSearch?.success || "").trim();
+  const successMessage = /^viewing\s+/i.test(rawSuccessMessage) ? "" : rawSuccessMessage;
 
   const supabase = createSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
