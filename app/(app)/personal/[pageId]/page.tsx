@@ -1514,7 +1514,7 @@ export default async function PersonalPage(props: {
     </div>
   );
   return (
-    <div className="space-y-4 xl:grid xl:grid-cols-[20rem_minmax(0,1fr)] xl:items-start xl:gap-4 xl:space-y-0">
+    <div className="space-y-4 xl:grid xl:h-[calc(100vh-8.5rem)] xl:grid-cols-[20rem_minmax(0,1fr)] xl:items-start xl:gap-4 xl:space-y-0 xl:overflow-hidden">
       <PersonalSidebarTree
         sections={sidebarTree.sections}
         generalPages={sidebarTree.generalPages}
@@ -1524,7 +1524,7 @@ export default async function PersonalPage(props: {
         pageStateByPageId={pageUserStateById}
       />
 
-      <div className="space-y-4">
+      <div className="space-y-4 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">
         {(searchParams?.error || searchParams?.success) && (
           <div className="space-y-2">
             {searchParams?.error ? (
