@@ -2025,40 +2025,63 @@ export default async function SettingsPage(props: {
     }
 
     let error: { message: string } | null = null;
-    if (id) {
-      ({ error } = await supabase
+
+    const updateById = async (targetId: string) => {
+      let updateError: { message: string } | null = null;
+      ({ error: updateError } = await supabase
         .from("status_options")
         .update({
           is_visible: isVisible,
           counts_as_completed: countsAsCompleted,
           position: nextPosition,
         })
-        .eq("id", id));
-    } else {
-      ({ error } = await supabase
-        .from("status_options")
-        .upsert({
-          entity_type: entityType,
-          value,
-          is_visible: isVisible,
-          counts_as_completed: countsAsCompleted,
-          position: nextPosition || 1,
-        }, { onConflict: "entity_type,value" }));
-    }
+        .eq("id", targetId));
+      if (updateError && isSupabaseMissingColumnError(updateError)) {
+        ({ error: updateError } = await supabase
+          .from("status_options")
+          .update({
+            position: nextPosition,
+          })
+          .eq("id", targetId));
+      }
+      return updateError;
+    };
 
-    if (error) {
-      if (isSupabaseMissingColumnError(error)) {
-        if (id) {
-          ({ error } = await supabase
-            .from("status_options")
-            .update({
-              position: nextPosition,
-            })
-            .eq("id", id));
+    if (id) {
+      error = await updateById(id);
+    } else {
+      const existingStatus = await supabase
+        .from("status_options")
+        .select("id,value")
+        .eq("entity_type", entityType)
+        .order("position", { ascending: true })
+        .order("value", { ascending: true });
+
+      if (existingStatus.error) {
+        error = existingStatus.error;
+      } else {
+        const matched = (existingStatus.data || []).find(
+          (row) => normalizeStatusValue(String(row.value || "")) === value
+        );
+
+        if (matched?.id) {
+          error = await updateById(matched.id);
         } else {
-          ({ error } = await supabase
-            .from("status_options")
-            .upsert({ entity_type: entityType, value, position: nextPosition || 1 }, { onConflict: "entity_type,value" }));
+          ({ error } = await supabase.from("status_options").insert({
+            entity_type: entityType,
+            value,
+            is_visible: isVisible,
+            counts_as_completed: countsAsCompleted,
+            position: nextPosition || 1,
+          }));
+
+          if (error && isSupabaseMissingColumnError(error)) {
+            ({ error } = await supabase.from("status_options").insert({
+              entity_type: entityType,
+              value,
+              position: nextPosition || 1,
+            }));
+          }
         }
       }
     }
