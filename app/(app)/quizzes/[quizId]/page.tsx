@@ -1459,14 +1459,6 @@ export default async function QuizManageDetailPage({
         </p>
       ) : null}
 
-      {activeTab === "submissions" ? (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="text-sm text-slate-700">
-            {selectedVersion ? "Viewing submissions" : "No quiz data available."}
-          </div>
-        </section>
-      ) : null}
-
       {activeTab === "configure" ? (
         canManage ? (
           <>
