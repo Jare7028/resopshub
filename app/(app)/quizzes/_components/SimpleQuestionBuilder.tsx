@@ -13,7 +13,6 @@ type ChoiceOption = {
 type SimpleQuestionBuilderProps = {
   clientId: string;
   quizVersionId: string;
-  quizVersionLabel: string;
   questionCount: number;
   action: (formData: FormData) => void | Promise<void>;
 };
@@ -29,7 +28,6 @@ function createOption(index: number, label: string): ChoiceOption {
 export default function SimpleQuestionBuilder({
   clientId,
   quizVersionId,
-  quizVersionLabel,
   questionCount,
   action,
 }: SimpleQuestionBuilderProps) {
@@ -72,10 +70,6 @@ export default function SimpleQuestionBuilder({
       <input type="hidden" name="client_id" value={clientId} />
       <input type="hidden" name="quiz_version_id" value={quizVersionId} />
       <input type="hidden" name="points" value="1" />
-
-      <p className="text-sm text-slate-700">
-        Adding to <span className="font-semibold text-slate-900">{quizVersionLabel}</span> draft version.
-      </p>
 
       <label className="block text-sm text-slate-700">
         Position

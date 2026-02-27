@@ -160,7 +160,7 @@ export default async function QuizAttemptPage({
 
   if (versionError || !versionData) {
     redirect(
-      `/quizzes/assigned?error=${encodeURIComponent(versionError?.message || "Quiz version not found")}`
+      `/quizzes/assigned?error=${encodeURIComponent(versionError?.message || "Quiz not found")}`
     );
   }
   const version = versionData as VersionRow;
@@ -269,7 +269,7 @@ export default async function QuizAttemptPage({
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">{quiz.title}</h1>
           <p className="text-sm text-slate-600">
-            {version.title} - Version {version.version_number} - Attempt #{attempt.attempt_number}
+            {version.title} - Attempt #{attempt.attempt_number}
           </p>
         </div>
       </header>
@@ -320,7 +320,7 @@ export default async function QuizAttemptPage({
       <section className="space-y-3">
         {questions.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            No questions are configured for this quiz version.
+            No questions are configured for this quiz.
           </div>
         ) : (
           questions.map((question) => {

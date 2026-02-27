@@ -12,7 +12,6 @@ type QuizTableRow = {
   passingScorePercent: number;
   maxAttempts: number;
   publishedAt: string | null;
-  versions: number;
   questions: number;
   submissions: number;
   openHref: string;
@@ -100,7 +99,6 @@ export default function QuizzesTable({
           <tr>
             <th className="px-3 py-2">Quiz</th>
             <th className="px-3 py-2">Status</th>
-            <th className="px-3 py-2">Versions</th>
             <th className="px-3 py-2">Questions</th>
             <th className="px-3 py-2">Submissions</th>
             <th className="px-3 py-2">Published</th>
@@ -130,7 +128,6 @@ export default function QuizzesTable({
                     {row.status}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-slate-700">{row.versions}</td>
                 <td className="px-3 py-2 text-slate-700">{row.questions}</td>
                 <td className="px-3 py-2 text-slate-700">{row.submissions}</td>
                 <td className="px-3 py-2 text-slate-700">{formatDateTime(row.publishedAt)}</td>
@@ -138,7 +135,7 @@ export default function QuizzesTable({
             ))
           ) : (
             <tr>
-              <td className="px-3 py-6 text-sm text-slate-500" colSpan={6}>
+              <td className="px-3 py-6 text-sm text-slate-500" colSpan={5}>
                 No quizzes found.
               </td>
             </tr>

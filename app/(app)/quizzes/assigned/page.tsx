@@ -343,7 +343,6 @@ export default async function QuizzesPage({
                       {card.quiz?.title || card.version?.title || "Untitled quiz"}
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Version {card.version?.version_number ?? "?"} -{" "}
                       {card.assignment.assignment_mode === "required" ? "Required" : "Optional"}
                     </p>
                     <p className="text-xs text-slate-500">

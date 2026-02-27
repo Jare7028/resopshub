@@ -26,7 +26,6 @@ type QuizRow = {
   status: "draft" | "published" | "archived";
   passing_score_percent: number;
   max_attempts: number;
-  published_version_number: number;
   published_at: string | null;
   created_at: string;
 };
@@ -45,7 +44,6 @@ type QuizTableRow = {
   passingScorePercent: number;
   maxAttempts: number;
   publishedAt: string | null;
-  versions: number;
   questions: number;
   submissions: number;
   openHref: string;
@@ -168,7 +166,7 @@ export default async function QuizzesPage({
     const quizzesResult = await supabase
       .from("quiz_definitions")
       .select(
-        "id,title,status,passing_score_percent,max_attempts,published_version_number,published_at,created_at"
+        "id,title,status,passing_score_percent,max_attempts,published_at,created_at"
       )
       .eq("client_id", selectedClient.id)
       .order("created_at", { ascending: false });
@@ -252,7 +250,6 @@ export default async function QuizzesPage({
       passingScorePercent: quiz.passing_score_percent,
       maxAttempts: quiz.max_attempts,
       publishedAt: quiz.published_at,
-      versions: quizVersions.length,
       questions: totalQuestions,
       submissions: totalSubmissions,
       openHref,
@@ -294,7 +291,7 @@ export default async function QuizzesPage({
     if (error) {
       redirect(buildQuizzesPath({ clientId, tab: "create", error: error.message }));
     }
-    redirect(buildQuizzesPath({ clientId, tab: "list", success: "Quiz created with draft version 1" }));
+    redirect(buildQuizzesPath({ clientId, tab: "list", success: "Quiz created" }));
   }
 
   const tabUrls: Record<QuizTabKey, string> = {

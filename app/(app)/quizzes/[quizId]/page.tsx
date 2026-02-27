@@ -118,7 +118,6 @@ function buildDetailPath(args: {
   const params = new URLSearchParams();
   params.set("return_to", args.returnTo);
   params.set("tab", args.tab);
-  if (args.versionId) params.set("version_id", args.versionId);
   if (args.submissionResult) params.set("submission_result", args.submissionResult);
   if (args.error) params.set("error", args.error);
   if (args.success) params.set("success", args.success);
@@ -442,9 +441,6 @@ export default async function QuizManageDetailPage({
   const draftVersions = versions.filter((version) => version.lifecycle_status === "draft");
   const defaultDraftVersion = draftVersions[0] || null;
   const defaultDraftVersionId = defaultDraftVersion?.id || "";
-  const defaultDraftVersionLabel = defaultDraftVersion
-    ? `v${defaultDraftVersion.version_number} (${defaultDraftVersion.lifecycle_status})`
-    : "";
 
   const publishedVersions = versions.filter((version) => version.lifecycle_status === "published");
   const defaultPublishedVersion = publishedVersions[0] || null;
@@ -560,7 +556,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: "Question version mismatch",
+          error: "Question mismatch",
         })
       );
     }
@@ -578,7 +574,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: versionResult.error?.message || "Quiz version not found",
+          error: versionResult.error?.message || "Quiz not found",
         })
       );
     }
@@ -590,7 +586,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: "You can only edit questions in a draft version",
+          error: "You can only edit questions while the quiz is in draft",
         })
       );
     }
@@ -964,7 +960,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: "Invalid version selection",
+          error: "Invalid quiz selection",
         })
       );
     }
@@ -1057,7 +1053,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: versionResult.error?.message || "Quiz version not found",
+          error: versionResult.error?.message || "Quiz not found",
         })
       );
     }
@@ -1069,7 +1065,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: "You can only add questions to a draft version",
+          error: "You can only add questions while the quiz is in draft",
         })
       );
     }
@@ -1262,7 +1258,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: "Invalid version id",
+          error: "Invalid quiz selection",
         })
       );
     }
@@ -1295,7 +1291,7 @@ export default async function QuizManageDetailPage({
         returnTo,
         versionId: quizVersionId,
         submissionResult: submissionScope,
-        success: "Version published",
+        success: "Quiz published",
       })
     );
   }
@@ -1320,7 +1316,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: "Publish a version before creating assignments",
+          error: "Publish this quiz before creating assignments",
         })
       );
     }
@@ -1466,7 +1462,7 @@ export default async function QuizManageDetailPage({
       {activeTab === "submissions" ? (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="text-sm text-slate-700">
-            {selectedVersion ? `Viewing submissions for v${selectedVersion.version_number}` : "No versions available."}
+            {selectedVersion ? "Viewing submissions" : "No quiz data available."}
           </div>
         </section>
       ) : null}
@@ -1484,12 +1480,11 @@ export default async function QuizManageDetailPage({
                   action={addQuestionAction}
                   clientId={quiz.client_id}
                   quizVersionId={defaultDraftVersionId}
-                  quizVersionLabel={defaultDraftVersionLabel}
                   questionCount={questionCountByVersionId[defaultDraftVersionId] || 0}
                 />
               ) : (
                 <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                  No draft version available. Create a new draft version before adding questions.
+                  No editable draft is available yet.
                 </p>
                 )}
             </section>
@@ -1499,12 +1494,12 @@ export default async function QuizManageDetailPage({
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">Questions</h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    All versions and their current questions. Draft versions can be edited here.
+                    All current question sets. Draft quizzes can be edited here.
                   </p>
                 </div>
               </div>
               {versions.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-600">No versions found.</p>
+                <p className="mt-3 text-sm text-slate-600">No quiz data found.</p>
               ) : (
                 <div className="mt-3 space-y-2">
                   {versions.map((version) => (
@@ -1512,7 +1507,7 @@ export default async function QuizManageDetailPage({
                       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 p-3">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-slate-900">{`v${version.version_number}`}</p>
+                            <p className="text-sm font-semibold text-slate-900">Quiz copy</p>
                             <span
                               className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${versionStatusBadgeClass(version.lifecycle_status)}`}
                             >
@@ -1646,7 +1641,7 @@ export default async function QuizManageDetailPage({
                                     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
                                       {!draftVersionIds.has(version.id) ? (
                                         <p className="text-sm text-slate-600">
-                                          Published or retired versions are locked.
+                                          Published or retired quizzes are locked.
                                         </p>
                                       ) : null}
                                       {!supportsSimpleEditing ? (
@@ -1688,7 +1683,7 @@ export default async function QuizManageDetailPage({
             <h2 className="text-base font-semibold text-slate-900">Assign quiz</h2>
             {publishedVersions.length === 0 ? (
               <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                Publish a version first, then assignment appears here.
+                Publish this quiz first, then assignment appears here.
               </p>
             ) : (
               <form action={assignVersionAction} className="mt-3 grid gap-3 md:grid-cols-2">
@@ -1801,15 +1796,15 @@ export default async function QuizManageDetailPage({
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          {`Showing ${submissionCounts[submissionScope]} ${submissionScope} submission(s) for the selected version.`}
+          {`Showing ${submissionCounts[submissionScope]} ${submissionScope} submission(s) for this quiz.`}
         </p>
         {selectedVersion == null ? (
-          <p className="mt-3 text-sm text-slate-600">Select a version to view submissions.</p>
+          <p className="mt-3 text-sm text-slate-600">No quiz data available.</p>
         ) : filteredAttempts.length === 0 ? (
           <p className="mt-3 text-sm text-slate-600">
             {submissionScope === "all"
-              ? "No submissions yet for this version."
-              : "No submissions in this filter for the selected version."}
+              ? "No submissions yet for this quiz."
+              : "No submissions in this filter for this quiz."}
           </p>
         ) : (
           <div className="mt-3 overflow-x-auto">

@@ -485,8 +485,7 @@ export default async function QuizReviewPage({
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <h2 className="text-base font-semibold text-slate-900">
-                        {quiz?.title || "Quiz"} - v{version?.version_number ?? "?"} - Attempt #
-                        {attempt.attempt_number}
+                        {quiz?.title || "Quiz"} - Attempt #{attempt.attempt_number}
                       </h2>
                       <p className="text-xs text-slate-600">
                         Employee: {usersById.get(attempt.user_id) || attempt.user_id} - Status:{" "}
