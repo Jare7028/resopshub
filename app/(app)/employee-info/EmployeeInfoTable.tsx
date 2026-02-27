@@ -663,6 +663,11 @@ export default function EmployeeInfoTable({
   const openMenuRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const tableRootRef = useRef<HTMLDivElement | null>(null);
+  const tableScrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const topScrollbarRef = useRef<HTMLDivElement | null>(null);
+  const tableElementRef = useRef<HTMLTableElement | null>(null);
+  const [showTopScrollbar, setShowTopScrollbar] = useState(false);
+  const [topScrollbarContentWidth, setTopScrollbarContentWidth] = useState(0);
 
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
   const visibleColumns = useMemo(
@@ -881,6 +886,79 @@ export default function EmployeeInfoTable({
       window.removeEventListener("pointerdown", onPointerDown);
     };
   }, [openMenu]);
+
+  useEffect(() => {
+    const viewport = tableScrollViewportRef.current;
+    const topScrollbar = topScrollbarRef.current;
+    const tableElement = tableElementRef.current;
+    if (!viewport || !topScrollbar || !tableElement) {
+      setShowTopScrollbar(false);
+      setTopScrollbarContentWidth(0);
+      return;
+    }
+
+    let syncingFromViewport = false;
+    let syncingFromTopScrollbar = false;
+
+    const syncTopScrollbarMetrics = () => {
+      const nextScrollWidth = tableElement.scrollWidth;
+      const hasHorizontalOverflow = nextScrollWidth - viewport.clientWidth > 1;
+      setShowTopScrollbar(hasHorizontalOverflow);
+      setTopScrollbarContentWidth(nextScrollWidth);
+
+      if (!hasHorizontalOverflow) {
+        if (viewport.scrollLeft !== 0) viewport.scrollLeft = 0;
+        if (topScrollbar.scrollLeft !== 0) topScrollbar.scrollLeft = 0;
+        return;
+      }
+
+      if (Math.abs(topScrollbar.scrollLeft - viewport.scrollLeft) > 1) {
+        topScrollbar.scrollLeft = viewport.scrollLeft;
+      }
+    };
+
+    const onViewportScroll = () => {
+      if (syncingFromTopScrollbar) {
+        syncingFromTopScrollbar = false;
+        return;
+      }
+      syncingFromViewport = true;
+      topScrollbar.scrollLeft = viewport.scrollLeft;
+      syncingFromViewport = false;
+    };
+
+    const onTopScrollbarScroll = () => {
+      if (syncingFromViewport) {
+        syncingFromViewport = false;
+        return;
+      }
+      syncingFromTopScrollbar = true;
+      viewport.scrollLeft = topScrollbar.scrollLeft;
+      syncingFromTopScrollbar = false;
+    };
+
+    viewport.addEventListener("scroll", onViewportScroll, { passive: true });
+    topScrollbar.addEventListener("scroll", onTopScrollbarScroll, { passive: true });
+    window.addEventListener("resize", syncTopScrollbarMetrics);
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            syncTopScrollbarMetrics();
+          });
+    resizeObserver?.observe(viewport);
+    resizeObserver?.observe(tableElement);
+
+    syncTopScrollbarMetrics();
+
+    return () => {
+      viewport.removeEventListener("scroll", onViewportScroll);
+      topScrollbar.removeEventListener("scroll", onTopScrollbarScroll);
+      window.removeEventListener("resize", syncTopScrollbarMetrics);
+      resizeObserver?.disconnect();
+    };
+  }, [columns.length, records.length, showClientColumn, visibleColumns.length]);
 
   useEffect(() => {
     const knownColumnIdSet = new Set(columns.map((column) => column.id));
@@ -1321,11 +1399,28 @@ export default function EmployeeInfoTable({
       </div>
 
       <div
-        className="overflow-x-auto"
+        ref={tableScrollViewportRef}
+        className="relative max-h-[70vh] overflow-auto"
         onMouseDown={preventMiddleClickAutoscroll}
         onAuxClick={preventMiddleClickAutoscroll}
       >
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
+        <div
+          className={`sticky left-0 top-12 z-20 border-b border-slate-200 bg-slate-50/95 px-1 backdrop-blur ${
+            showTopScrollbar ? "" : "hidden"
+          }`}
+        >
+          <div
+            ref={topScrollbarRef}
+            className="h-3 overflow-x-auto overflow-y-hidden [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2"
+            aria-label="Employee info horizontal scroll"
+          >
+            <div
+              className="h-px"
+              style={{ width: `${Math.max(0, topScrollbarContentWidth)}px` }}
+            />
+          </div>
+        </div>
+        <table ref={tableElementRef} className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="sticky left-0 top-0 z-40 border-r border-slate-200 bg-slate-50 px-4 py-3">
