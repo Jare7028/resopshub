@@ -14,6 +14,7 @@ type SimpleQuestionBuilderProps = {
   clientId: string;
   quizVersionId: string;
   quizVersionLabel: string;
+  questionCount: number;
   action: (formData: FormData) => void | Promise<void>;
 };
 
@@ -29,6 +30,7 @@ export default function SimpleQuestionBuilder({
   clientId,
   quizVersionId,
   quizVersionLabel,
+  questionCount,
   action,
 }: SimpleQuestionBuilderProps) {
   const [questionType, setQuestionType] = useState<QuestionType>("free_text");
@@ -37,6 +39,8 @@ export default function SimpleQuestionBuilder({
     createOption(2, "answer 2"),
     createOption(3, "answer 3"),
   ]);
+  const normalizedQuestionCount = Number.isFinite(questionCount) ? Math.max(0, Math.floor(questionCount)) : 0;
+  const questionPositionOptions = Array.from({ length: normalizedQuestionCount + 1 }, (_, index) => index + 1);
 
   function updateOptionLabel(optionKey: string, value: string) {
     setOptions((prev) =>
@@ -72,6 +76,19 @@ export default function SimpleQuestionBuilder({
       <p className="text-sm text-slate-700">
         Adding to <span className="font-semibold text-slate-900">{quizVersionLabel}</span> draft version.
       </p>
+
+      <label className="block text-sm text-slate-700">
+        Position
+        <select
+          name="position"
+          defaultValue={String(questionPositionOptions.length)}
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+        >
+          {questionPositionOptions.map((position) => (
+            <option key={position} value={String(position)}>{`Question ${position}`}</option>
+          ))}
+        </select>
+      </label>
 
       <label className="block text-sm text-slate-700">
         Question type

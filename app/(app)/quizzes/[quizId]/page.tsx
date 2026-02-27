@@ -247,6 +247,11 @@ function buildEditableOptionRows(question: QuestionRow): EditableQuestionOption[
   return fallbackOptions;
 }
 
+function buildQuestionPositionOptions(totalQuestions: number) {
+  const normalized = Number.isFinite(totalQuestions) ? Math.max(0, Math.floor(totalQuestions)) : 0;
+  return Array.from({ length: normalized + 1 }, (_, index) => index + 1);
+}
+
 function formatSubmissionAnswer(answer: AnswerRow | null, question: QuestionRow): string {
   if (!answer) return "-";
   if (question.question_type === "true_false") {
@@ -496,6 +501,7 @@ export default async function QuizManageDetailPage({
     const questionId = String(formData.get("quiz_question_id") || "").trim();
     const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
     const prompt = String(formData.get("prompt") || "").trim();
+    const requestedPosition = Number.parseInt(String(formData.get("position") || "").trim(), 10);
     const uiQuestionType = String(formData.get("ui_question_type") || "free_text").trim();
     const requestedQuestionType = uiQuestionType === "multi_select" ? "multi_select" : "short_answer";
 
@@ -524,11 +530,23 @@ export default async function QuizManageDetailPage({
         })
       );
     }
+    if (!Number.isInteger(requestedPosition) || requestedPosition < 1) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Invalid question position",
+        })
+      );
+    }
 
     const supabase = createSupabaseServerClient();
     const questionResult = await supabase
       .from("quiz_version_questions")
-      .select("id,quiz_version_id,question_type,scoring_mode,answer_key_snapshot_json")
+      .select("id,quiz_version_id,position,question_type,scoring_mode,answer_key_snapshot_json")
       .eq("id", questionId)
       .maybeSingle();
 
@@ -619,6 +637,174 @@ export default async function QuizManageDetailPage({
           error: manageResult.error?.message || "Not authorized to edit this quiz",
         })
       );
+    }
+
+    const requestedQuestionPosition = Number(requestedPosition);
+    const currentPosition = Number(questionResult.data.position);
+    if (!Number.isInteger(currentPosition) || currentPosition < 1) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Question position is unavailable",
+        })
+      );
+    }
+
+    const { count: questionCount, error: questionCountError } = await supabase
+      .from("quiz_version_questions")
+      .select("id", { count: "exact", head: true })
+      .eq("quiz_version_id", quizVersionId);
+    if (questionCountError) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: questionCountError.message,
+        })
+      );
+    }
+    const totalQuestions = Number(questionCount || 0);
+    if (requestedQuestionPosition > totalQuestions) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Question position is out of range",
+        })
+      );
+    }
+
+    if (requestedQuestionPosition !== currentPosition) {
+      const tempPosition = totalQuestions + 1;
+      const shiftIntoPosition = async (direction: "up" | "down") => {
+        if (direction === "up") {
+          const { data: shiftCandidates, error: shiftError } = await supabase
+            .from("quiz_version_questions")
+            .select("id,position")
+            .eq("quiz_version_id", quizVersionId)
+            .gte("position", requestedQuestionPosition)
+            .lt("position", currentPosition)
+            .neq("id", questionId)
+            .order("position", { ascending: false });
+          if (shiftError) {
+            redirect(
+              buildDetailPath({
+                quizId,
+                tab: "configure",
+                returnTo,
+                versionId: selectedVersionId,
+                submissionResult: submissionScope,
+                error: shiftError.message,
+              })
+            );
+          }
+          for (const candidate of shiftCandidates || []) {
+            const nextPosition = Number(candidate.position) + 1;
+            const { error: updateError } = await supabase
+              .from("quiz_version_questions")
+              .update({ position: nextPosition })
+              .eq("id", candidate.id);
+            if (updateError) {
+              redirect(
+                buildDetailPath({
+                  quizId,
+                  tab: "configure",
+                  returnTo,
+                  versionId: selectedVersionId,
+                  submissionResult: submissionScope,
+                  error: updateError.message,
+                })
+              );
+            }
+          }
+        } else {
+          const { data: shiftCandidates, error: shiftError } = await supabase
+            .from("quiz_version_questions")
+            .select("id,position")
+            .eq("quiz_version_id", quizVersionId)
+            .gt("position", currentPosition)
+            .lte("position", requestedQuestionPosition)
+            .neq("id", questionId)
+            .order("position", { ascending: true });
+          if (shiftError) {
+            redirect(
+              buildDetailPath({
+                quizId,
+                tab: "configure",
+                returnTo,
+                versionId: selectedVersionId,
+                submissionResult: submissionScope,
+                error: shiftError.message,
+              })
+            );
+          }
+          for (const candidate of shiftCandidates || []) {
+            const nextPosition = Number(candidate.position) - 1;
+            const { error: updateError } = await supabase
+              .from("quiz_version_questions")
+              .update({ position: nextPosition })
+              .eq("id", candidate.id);
+            if (updateError) {
+              redirect(
+                buildDetailPath({
+                  quizId,
+                  tab: "configure",
+                  returnTo,
+                  versionId: selectedVersionId,
+                  submissionResult: submissionScope,
+                  error: updateError.message,
+                })
+              );
+            }
+          }
+        }
+      };
+
+      const { error: moveToTempError } = await supabase
+        .from("quiz_version_questions")
+        .update({ position: tempPosition })
+        .eq("id", questionId);
+      if (moveToTempError) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: selectedVersionId,
+            submissionResult: submissionScope,
+            error: moveToTempError.message,
+          })
+        );
+      }
+
+      await shiftIntoPosition(requestedQuestionPosition < currentPosition ? "up" : "down");
+
+      const { error: moveToRequestedError } = await supabase
+        .from("quiz_version_questions")
+        .update({ position: requestedQuestionPosition })
+        .eq("id", questionId);
+      if (moveToRequestedError) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: selectedVersionId,
+            submissionResult: submissionScope,
+            error: moveToRequestedError.message,
+          })
+        );
+      }
     }
 
     const questionType = questionResult.data.question_type;
@@ -774,6 +960,7 @@ export default async function QuizManageDetailPage({
     const clientId = String(formData.get("client_id") || "").trim();
     const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
     const prompt = String(formData.get("prompt") || "").trim();
+    const requestedPosition = Number.parseInt(String(formData.get("position") || "").trim(), 10);
     const uiQuestionType = String(formData.get("ui_question_type") || "free_text").trim();
     const points = Number.parseFloat(String(formData.get("points") || "1"));
     const questionType = uiQuestionType === "multi_select" ? "multi_select" : "short_answer";
@@ -800,6 +987,18 @@ export default async function QuizManageDetailPage({
           versionId: selectedVersionId,
           submissionResult: submissionScope,
           error: "Question text is required",
+        })
+      );
+    }
+    if (!Number.isInteger(requestedPosition) || requestedPosition < 1) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Invalid question position",
         })
       );
     }
@@ -855,7 +1054,143 @@ export default async function QuizManageDetailPage({
     }
 
     const supabase = createSupabaseServerClient();
-    const { error } = await supabase.rpc("quiz_add_version_question", {
+    const versionResult = await supabase
+      .from("quiz_versions")
+      .select("id,quiz_id,lifecycle_status")
+      .eq("id", quizVersionId)
+      .maybeSingle();
+    if (versionResult.error || !versionResult.data) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: versionResult.error?.message || "Quiz version not found",
+        })
+      );
+    }
+    if (versionResult.data.lifecycle_status !== "draft") {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "You can only add questions to a draft version",
+        })
+      );
+    }
+
+    const quizResult = await supabase
+      .from("quiz_definitions")
+      .select("id,client_id")
+      .eq("id", versionResult.data.quiz_id)
+      .maybeSingle();
+    if (quizResult.error || !quizResult.data) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: quizResult.error?.message || "Quiz not found",
+        })
+      );
+    }
+
+    const manageResult = await supabase.rpc("quiz_can_manage_client", {
+      client_uuid: quizResult.data.client_id,
+    });
+    if (manageResult.error || !manageResult.data) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: manageResult.error?.message || "Not authorized to edit this quiz",
+        })
+      );
+    }
+
+    const { count: questionCount, error: questionCountError } = await supabase
+      .from("quiz_version_questions")
+      .select("id", { count: "exact", head: true })
+      .eq("quiz_version_id", quizVersionId);
+    if (questionCountError) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: questionCountError.message,
+        })
+      );
+    }
+
+    const totalQuestions = Number(questionCount || 0);
+    if (requestedPosition > totalQuestions + 1) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "configure",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Question position is out of range",
+        })
+      );
+    }
+
+    if (requestedPosition <= totalQuestions) {
+      const { data: shiftCandidates, error: shiftCandidatesError } = await supabase
+        .from("quiz_version_questions")
+        .select("id,position")
+        .eq("quiz_version_id", quizVersionId)
+        .gte("position", requestedPosition)
+        .order("position", { ascending: false });
+
+      if (shiftCandidatesError) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: selectedVersionId,
+            submissionResult: submissionScope,
+            error: shiftCandidatesError.message,
+          })
+        );
+      }
+
+      for (const candidate of shiftCandidates || []) {
+        const { error: shiftCandidateError } = await supabase
+          .from("quiz_version_questions")
+          .update({ position: Number(candidate.position) + 1 })
+          .eq("id", candidate.id);
+        if (shiftCandidateError) {
+          redirect(
+            buildDetailPath({
+              quizId,
+              tab: "configure",
+              returnTo,
+              versionId: selectedVersionId,
+              submissionResult: submissionScope,
+              error: shiftCandidateError.message,
+            })
+          );
+        }
+      }
+    }
+
+    const { data: createdQuestionId, error } = await supabase.rpc("quiz_add_version_question", {
       p_quiz_version_id: quizVersionId,
       p_prompt: prompt,
       p_question_type: questionType,
@@ -867,7 +1202,6 @@ export default async function QuizManageDetailPage({
       p_accepted_text_answers: [],
       p_manual_review_required: manualReviewRequired,
     });
-
     revalidatePath("/quizzes");
     revalidatePath(`/quizzes/${quizId}`);
     revalidatePath("/quizzes/review");
@@ -883,6 +1217,37 @@ export default async function QuizManageDetailPage({
           error: error.message,
         })
       );
+    }
+    const createdQuestionUuid = String(createdQuestionId || "").trim();
+    if (requestedPosition <= totalQuestions) {
+      if (!uuidRegex.test(createdQuestionUuid)) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: quizVersionId,
+            submissionResult: submissionScope,
+            error: "Unable to place question",
+          })
+        );
+      }
+      const { error: repositionError } = await supabase
+        .from("quiz_version_questions")
+        .update({ position: requestedPosition })
+        .eq("id", createdQuestionUuid);
+      if (repositionError) {
+        redirect(
+          buildDetailPath({
+            quizId,
+            tab: "configure",
+            returnTo,
+            versionId: quizVersionId,
+            submissionResult: submissionScope,
+            error: repositionError.message,
+          })
+        );
+      }
     }
     redirect(
       buildDetailPath({
@@ -1142,6 +1507,7 @@ export default async function QuizManageDetailPage({
                   clientId={quiz.client_id}
                   quizVersionId={defaultDraftVersionId}
                   quizVersionLabel={defaultDraftVersionLabel}
+                  questionCount={questionCountByVersionId[defaultDraftVersionId] || 0}
                 />
               ) : (
                 <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -1222,6 +1588,24 @@ export default async function QuizManageDetailPage({
                                       <input type="hidden" name="quiz_version_id" value={version.id} />
                                       <input type="hidden" name="client_id" value={quiz.client_id} />
                                       <input type="hidden" name="ui_question_type" value={uiQuestionType} />
+
+                                      <label className="block text-sm text-slate-700">
+                                        Position
+                                        <select
+                                          name="position"
+                                          required
+                                          defaultValue={String(question.position)}
+                                          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                                        >
+                                          {buildQuestionPositionOptions(questionCountByVersionId[version.id] || 0).map(
+                                            (position) => (
+                                              <option key={position} value={String(position)}>
+                                                {`Question ${position}`}
+                                              </option>
+                                            )
+                                          )}
+                                        </select>
+                                      </label>
 
                                       <label className="block text-sm text-slate-700">
                                         Question
