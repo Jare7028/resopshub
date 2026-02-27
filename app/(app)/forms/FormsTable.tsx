@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import MultiSelect from "../_components/MultiSelect";
 import { setCsvParam } from "@/lib/queryParams";
@@ -87,7 +94,7 @@ export default function FormsTable({
 
   useEffect(() => {
     if (!openMenu) return;
-    const onKeyDown = (event: KeyboardEvent) => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") setOpenMenu(null);
     };
     const onPointerDown = (event: MouseEvent | PointerEvent) => {
@@ -167,12 +174,7 @@ export default function FormsTable({
       `/forms/${rowId}?tab=submissions&scope=all${detailQuery ? `&${detailQuery.replace(/^\?/, "")}` : ""}`
     );
   };
-  const handleRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement | HTMLDivElement>, rowId: string) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    openRow(rowId);
-  };
-  const handleRowKeyDownDiv = (event: KeyboardEvent<HTMLDivElement>, rowId: string) => {
+  const handleRowKeyDown = (event: ReactKeyboardEvent<HTMLElement>, rowId: string) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     openRow(rowId);
@@ -335,7 +337,7 @@ export default function FormsTable({
               tabIndex={0}
               className="mobile-list-card space-y-3 cursor-pointer focus-visible:ring-2 focus-visible:ring-slate-900/20"
               onClick={() => openRow(row.id)}
-              onKeyDown={(event) => handleRowKeyDownDiv(event, row.id)}
+              onKeyDown={(event) => handleRowKeyDown(event, row.id)}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-base font-semibold text-slate-900">{row.title}</h3>
