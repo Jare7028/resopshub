@@ -264,12 +264,12 @@ export default async function QuizAttemptPage({
     <div className="space-y-4">
       <header className="space-y-2">
         <Link href="/quizzes" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-          ← Back to quizzes
+          &larr; Back to quizzes
         </Link>
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">{quiz.title}</h1>
           <p className="text-sm text-slate-600">
-            {version.title} • Version {version.version_number} • Attempt #{attempt.attempt_number}
+            {version.title} - Version {version.version_number} - Attempt #{attempt.attempt_number}
           </p>
         </div>
       </header>
@@ -334,7 +334,7 @@ export default async function QuizAttemptPage({
               <article key={question.id} className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="mb-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Question {question.position} • {question.points} point{question.points === 1 ? "" : "s"}
+                    Question {question.position} - {question.points} point{question.points === 1 ? "" : "s"}
                   </p>
                   <h2 className="mt-1 text-base font-medium text-slate-900">{question.prompt}</h2>
                 </div>
@@ -427,7 +427,7 @@ export default async function QuizAttemptPage({
                     {answer ? (
                       <span className="text-xs text-slate-500">
                         Scored: {answer.points_earned}/{answer.points_possible}
-                        {answer.needs_manual_review ? " • Pending manual review" : ""}
+                        {answer.needs_manual_review ? " - Pending manual review" : ""}
                       </span>
                     ) : null}
                   </div>

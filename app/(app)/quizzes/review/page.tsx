@@ -305,6 +305,8 @@ export default async function QuizReviewPage({
     const rightDate = rightTasks[0]?.created_at || "";
     return new Date(leftDate).getTime() - new Date(rightDate).getTime();
   });
+  const pendingTaskCount = filteredTasks.length;
+  const pendingAttemptCount = orderedAttemptIds.length;
 
   async function reviewAnswerAction(formData: FormData) {
     "use server";
@@ -368,7 +370,7 @@ export default async function QuizReviewPage({
 
   return (
     <div className="space-y-5">
-      <header className="space-y-2">
+      <header className="space-y-2 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-semibold text-slate-900">Quiz Review Queue</h1>
           <div className="flex flex-wrap gap-2">
@@ -387,7 +389,7 @@ export default async function QuizReviewPage({
           </div>
         </div>
         <p className="text-sm text-slate-600">
-          Score pending manual answers and finalize attempts once all reviews are complete.
+          Review only the items that need human grading, then finalize attempts when complete.
         </p>
       </header>
 
@@ -408,29 +410,54 @@ export default async function QuizReviewPage({
       ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Client Context
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workspace</p>
         {clients.length ? (
-          <div className="flex flex-wrap gap-2">
-            {clients.map((client) => (
-              <Link
-                key={client.id}
-                href={buildReviewPath({ clientId: client.id })}
-                className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
-                  selectedClient?.id === client.id
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                }`}
+          <form method="get" className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <label className="text-sm text-slate-700">
+              Client
+              <select
+                name="client_id"
+                defaultValue={selectedClient?.id || ""}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
               >
-                {client.name}
-              </Link>
-            ))}
-          </div>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="self-end rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Switch client
+            </button>
+          </form>
         ) : (
-          <p className="text-sm text-slate-600">No accessible clients found.</p>
+          <p className="mt-2 text-sm text-slate-600">No accessible clients found.</p>
         )}
       </section>
+
+      {canReview ? (
+        <section className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending Tasks</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-900">{pendingTaskCount}</p>
+            <p className="text-xs text-slate-600">Answers needing manual scoring</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open Attempts</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-900">{pendingAttemptCount}</p>
+            <p className="text-xs text-slate-600">Attempts blocked by pending tasks</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Queue Access</p>
+            <p className="mt-2 text-sm font-semibold text-slate-900">Enabled</p>
+            <p className="text-xs text-slate-600">You can score and finalize attempts</p>
+          </div>
+        </section>
+      ) : null}
 
       {!canReview && selectedClient ? (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">

@@ -98,6 +98,13 @@ function statusLabel(status: AttemptRow["status"]) {
   return "Cancelled";
 }
 
+function resultLabel(attempt: AttemptRow) {
+  if (attempt.passed == null) {
+    return attempt.requires_manual_review ? "Pending review" : "Pending";
+  }
+  return attempt.passed ? "Pass" : "Fail";
+}
+
 export default async function QuizzesPage({
   searchParams,
 }: {
@@ -211,9 +218,52 @@ export default async function QuizzesPage({
     redirect(`/quizzes/attempts/${attemptId}?success=${encodeURIComponent("Attempt ready")}`);
   }
 
+  const assignmentCards = assignments.map((assignment) => {
+    const version = versionsById.get(assignment.quiz_version_id);
+    const quiz = version ? quizzesById.get(version.quiz_id) : null;
+    const attempts = attemptsByVersion.get(assignment.quiz_version_id) || [];
+    const inProgressAttempt = attempts.find((row) => row.status === "in_progress") || null;
+    const latestAttempt = attempts[0] || null;
+    const primaryAttempt = inProgressAttempt || latestAttempt;
+    const needsReview = latestAttempt ? resultLabel(latestAttempt) === "Pending review" : false;
+    const isComplete =
+      latestAttempt != null &&
+      latestAttempt.status !== "in_progress" &&
+      latestAttempt.status !== "submitted" &&
+      !needsReview;
+    const needsAttention = inProgressAttempt != null || latestAttempt == null || needsReview;
+
+    return {
+      assignment,
+      version,
+      quiz,
+      inProgressAttempt,
+      latestAttempt,
+      primaryAttempt,
+      needsReview,
+      isComplete,
+      needsAttention,
+    };
+  });
+
+  const attentionCards = assignmentCards.filter((card) => card.needsAttention);
+  const completedCards = assignmentCards.filter((card) => card.isComplete);
+  const pendingReviewCount = assignmentCards.filter((card) => card.needsReview).length;
+  const orderedAssignmentCards = [...assignmentCards].sort((left, right) => {
+    if (left.needsAttention !== right.needsAttention) {
+      return left.needsAttention ? -1 : 1;
+    }
+    if (left.assignment.due_at && right.assignment.due_at) {
+      return new Date(left.assignment.due_at).getTime() - new Date(right.assignment.due_at).getTime();
+    }
+    if (left.assignment.due_at) return -1;
+    if (right.assignment.due_at) return 1;
+    return new Date(right.assignment.created_at).getTime() - new Date(left.assignment.created_at).getTime();
+  });
+
   return (
     <div className="space-y-4">
-      <header className="space-y-1">
+      <header className="space-y-2 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-semibold text-slate-900">Quizzes</h1>
           <div className="flex flex-wrap gap-2">
@@ -232,7 +282,7 @@ export default async function QuizzesPage({
           </div>
         </div>
         <p className="text-sm text-slate-600">
-          Assigned quizzes, attempt status, and scoring outcomes.
+          Track assigned quizzes, continue in-progress attempts, and see scoring outcomes.
         </p>
       </header>
 
@@ -252,91 +302,106 @@ export default async function QuizzesPage({
         </p>
       ) : null}
 
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assigned</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{assignmentCards.length}</p>
+          <p className="text-xs text-slate-600">Total active assignments</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Needs Attention</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{attentionCards.length}</p>
+          <p className="text-xs text-slate-600">No attempt yet, in progress, or review pending</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending Review</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{pendingReviewCount}</p>
+          <p className="text-xs text-slate-600">Awaiting manual marking</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Completed</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{completedCards.length}</p>
+          <p className="text-xs text-slate-600">Scored attempts with final outcomes</p>
+        </div>
+      </section>
+
       <section className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Assignments (sorted by urgency)
+        </p>
         {assignments.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
             No quiz assignments yet.
           </div>
         ) : (
-          assignments.map((assignment) => {
-            const version = versionsById.get(assignment.quiz_version_id);
-            const quiz = version ? quizzesById.get(version.quiz_id) : null;
-            const attempts = attemptsByVersion.get(assignment.quiz_version_id) || [];
-            const inProgressAttempt = attempts.find((row) => row.status === "in_progress") || null;
-            const latestAttempt = attempts[0] || null;
-            const primaryAttempt = inProgressAttempt || latestAttempt;
-
+          orderedAssignmentCards.map((card) => {
             return (
-              <article key={assignment.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <article key={card.assignment.id} className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
                     <h2 className="text-base font-semibold text-slate-900">
-                      {quiz?.title || version?.title || "Untitled quiz"}
+                      {card.quiz?.title || card.version?.title || "Untitled quiz"}
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Version {version?.version_number ?? "?"} •{" "}
-                      {assignment.assignment_mode === "required" ? "Required" : "Optional"}
+                      Version {card.version?.version_number ?? "?"} -{" "}
+                      {card.assignment.assignment_mode === "required" ? "Required" : "Optional"}
                     </p>
                     <p className="text-xs text-slate-500">
-                      Available: {formatDateTime(assignment.available_from)} • Due:{" "}
-                      {formatDateTime(assignment.due_at)}
+                      Available: {formatDateTime(card.assignment.available_from)} - Due:{" "}
+                      {formatDateTime(card.assignment.due_at)}
                     </p>
-                    {assignment.expires_at ? (
+                    {card.assignment.expires_at ? (
                       <p className="text-xs text-slate-500">
-                        Expires: {formatDateTime(assignment.expires_at)}
+                        Expires: {formatDateTime(card.assignment.expires_at)}
                       </p>
                     ) : null}
-                    {quiz ? (
+                    {card.quiz ? (
                       <p className="text-xs text-slate-500">
-                        Passing score: {quiz.passing_score_percent}% • Max attempts: {quiz.max_attempts}
+                        Passing score: {card.quiz.passing_score_percent}% - Max attempts: {card.quiz.max_attempts}
                       </p>
                     ) : null}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {primaryAttempt ? (
+                    {card.primaryAttempt ? (
                       <Link
-                        href={`/quizzes/attempts/${primaryAttempt.id}`}
+                        href={`/quizzes/attempts/${card.primaryAttempt.id}`}
                         className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                       >
-                        {inProgressAttempt ? "Continue attempt" : "View attempt"}
+                        {card.inProgressAttempt ? "Continue attempt" : "View attempt"}
                       </Link>
                     ) : null}
                     <form action={startAttemptAction}>
-                      <input type="hidden" name="assignment_id" value={assignment.id} />
+                      <input type="hidden" name="assignment_id" value={card.assignment.id} />
                       <button
                         type="submit"
                         className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
                       >
-                        {primaryAttempt ? "Start another attempt" : "Start attempt"}
+                        {card.primaryAttempt ? "Start another attempt" : "Start attempt"}
                       </button>
                     </form>
                   </div>
                 </div>
 
-                {latestAttempt ? (
+                {card.latestAttempt ? (
                   <div className="mt-3 grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4">
                     <p>
                       <span className="font-semibold text-slate-700">Latest status:</span>{" "}
-                      {statusLabel(latestAttempt.status)}
+                      {statusLabel(card.latestAttempt.status)}
                     </p>
                     <p>
                       <span className="font-semibold text-slate-700">Attempt #:</span>{" "}
-                      {latestAttempt.attempt_number}
+                      {card.latestAttempt.attempt_number}
                     </p>
                     <p>
                       <span className="font-semibold text-slate-700">Score:</span>{" "}
-                      {latestAttempt.score_percent == null ? "Pending" : `${latestAttempt.score_percent}%`}
+                      {card.latestAttempt.score_percent == null
+                        ? "Pending"
+                        : `${card.latestAttempt.score_percent}%`}
                     </p>
                     <p>
                       <span className="font-semibold text-slate-700">Result:</span>{" "}
-                      {latestAttempt.passed == null
-                        ? latestAttempt.requires_manual_review
-                          ? "Pending review"
-                          : "Pending"
-                        : latestAttempt.passed
-                          ? "Pass"
-                          : "Fail"}
+                      {resultLabel(card.latestAttempt)}
                     </p>
                   </div>
                 ) : null}

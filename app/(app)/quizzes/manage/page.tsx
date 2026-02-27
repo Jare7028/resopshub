@@ -262,6 +262,14 @@ export default async function QuizManagePage({
     acc[assignment.quiz_version_id] = (acc[assignment.quiz_version_id] || 0) + 1;
     return acc;
   }, {});
+  const publishedVersions = versions.filter((version) => version.lifecycle_status === "published");
+  const readyToPublishVersions = versions.filter(
+    (version) => version.lifecycle_status === "draft" && (questionCountByVersionId[version.id] || 0) > 0
+  );
+  const totalManualReviewQuestions = Object.values(manualReviewCountByVersionId).reduce(
+    (sum, count) => sum + count,
+    0
+  );
 
   async function createQuizAction(formData: FormData) {
     "use server";
@@ -403,9 +411,14 @@ export default async function QuizManagePage({
 
   return (
     <div className="space-y-5">
-      <header className="space-y-2">
+      <header className="space-y-2 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-2xl font-semibold text-slate-900">Quiz Management</h1>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Quiz Builder
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold text-slate-900">Build, publish, assign</h1>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Link
               href="/quizzes"
@@ -422,7 +435,7 @@ export default async function QuizManagePage({
           </div>
         </div>
         <p className="text-sm text-slate-600">
-          Create quizzes, add versioned questions, publish answer keys, and assign employees.
+          Use a guided 4-step flow to create quizzes without exposing every setting upfront.
         </p>
       </header>
 
@@ -443,118 +456,162 @@ export default async function QuizManagePage({
       ) : null}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Client Context
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Workspace
         </p>
         {clients.length ? (
-          <div className="flex flex-wrap gap-2">
-            {clients.map((client) => (
-              <Link
-                key={client.id}
-                href={buildManagePath({ clientId: client.id })}
-                className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
-                  selectedClient?.id === client.id
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                }`}
+          <form method="get" className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <label className="text-sm text-slate-700">
+              Client
+              <select
+                name="client_id"
+                defaultValue={selectedClient?.id || ""}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
               >
-                {client.name}
-              </Link>
-            ))}
-          </div>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="self-end rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Switch client
+            </button>
+          </form>
         ) : (
-          <p className="text-sm text-slate-600">No accessible clients found.</p>
+          <p className="mt-2 text-sm text-slate-600">No accessible clients found.</p>
         )}
       </section>
 
       {selectedClient ? (
         <>
+          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 1</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">Create quiz shell</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{quizzes.length}</p>
+              <p className="text-xs text-slate-600">Quiz definitions</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 2</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">Add questions</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{questions.length}</p>
+              <p className="text-xs text-slate-600">Manual review items: {totalManualReviewQuestions}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 3</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">Publish ready versions</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{publishedVersions.length}</p>
+              <p className="text-xs text-slate-600">Ready to publish: {readyToPublishVersions.length}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 4</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">Assign employees</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{assignments.length}</p>
+              <p className="text-xs text-slate-600">Total assignments</p>
+            </div>
+          </section>
+
           <section className="grid gap-3 md:grid-cols-3">
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Can Manage</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{canManage ? "Yes" : "No"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Manage</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{canManage ? "Enabled" : "Not allowed"}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Can Assign</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{canAssign ? "Yes" : "No"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assign</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{canAssign ? "Enabled" : "Not allowed"}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Can Review</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{canReview ? "Yes" : "No"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Review</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{canReview ? "Enabled" : "Not allowed"}</p>
             </div>
           </section>
 
           {canManage ? (
             <section className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-base font-semibold text-slate-900">Create Quiz</h2>
-              <form action={createQuizAction} className="mt-3 grid gap-3 md:grid-cols-2">
+              <h2 className="text-base font-semibold text-slate-900">Step 1 - Create quiz shell</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Start with title and description. Keep advanced scoring hidden unless you need it.
+              </p>
+              <form action={createQuizAction} className="mt-3 grid gap-3">
                 <input type="hidden" name="client_id" value={selectedClient.id} />
-                <label className="text-sm text-slate-700 md:col-span-2">
-                  Title
+                <label className="text-sm text-slate-700">
+                  Quiz title
                   <input
                     name="title"
                     required
                     className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    placeholder="Quarterly Safety Quiz"
+                    placeholder="Quarterly Safety Check"
                   />
                 </label>
-                <label className="text-sm text-slate-700 md:col-span-2">
+                <label className="text-sm text-slate-700">
                   Description
                   <textarea
                     name="description"
                     rows={2}
                     className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    placeholder="Optional short context..."
+                    placeholder="Optional context shown to employees"
                   />
                 </label>
-                <label className="text-sm text-slate-700">
-                  Passing Score (%)
-                  <input
-                    name="passing_score_percent"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    defaultValue={70}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Max Attempts
-                  <input
-                    name="max_attempts"
-                    type="number"
-                    min={1}
-                    defaultValue={1}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Time Limit (seconds, optional)
-                  <input
-                    name="time_limit_seconds"
-                    type="number"
-                    min={1}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Multi-select Scoring
-                  <select
-                    name="multi_select_scoring_mode"
-                    defaultValue="all_or_nothing"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    <option value="all_or_nothing">All or nothing</option>
-                    <option value="partial_credit">Partial credit</option>
-                  </select>
-                </label>
-                <div className="md:col-span-2">
+                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">
+                    Advanced settings
+                  </summary>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm text-slate-700">
+                      Passing score (%)
+                      <input
+                        name="passing_score_percent"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        defaultValue={70}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      />
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      Max attempts
+                      <input
+                        name="max_attempts"
+                        type="number"
+                        min={1}
+                        defaultValue={1}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      />
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      Time limit (seconds)
+                      <input
+                        name="time_limit_seconds"
+                        type="number"
+                        min={1}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      />
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      Multi-select scoring
+                      <select
+                        name="multi_select_scoring_mode"
+                        defaultValue="all_or_nothing"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      >
+                        <option value="all_or_nothing">All or nothing</option>
+                        <option value="partial_credit">Partial credit</option>
+                      </select>
+                    </label>
+                  </div>
+                </details>
+                <div>
                   <button
                     type="submit"
                     className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
                   >
-                    Create Quiz
+                    Create draft quiz
                   </button>
                 </div>
               </form>
@@ -567,11 +624,14 @@ export default async function QuizManagePage({
 
           {canManage && versions.length > 0 ? (
             <section className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-base font-semibold text-slate-900">Add Question to Version</h2>
-              <form action={addQuestionAction} className="mt-3 grid gap-3 md:grid-cols-2">
+              <h2 className="text-base font-semibold text-slate-900">Step 2 - Add questions</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Compose one question at a time and only fill the answer key section that matches the type.
+              </p>
+              <form action={addQuestionAction} className="mt-3 grid gap-3">
                 <input type="hidden" name="client_id" value={selectedClient.id} />
-                <label className="text-sm text-slate-700 md:col-span-2">
-                  Quiz Version
+                <label className="text-sm text-slate-700">
+                  Quiz version
                   <select
                     name="quiz_version_id"
                     required
@@ -579,51 +639,57 @@ export default async function QuizManagePage({
                   >
                     {versions.map((version) => {
                       const quiz = quizzes.find((row) => row.id === version.quiz_id);
+                      const questionCount = questionCountByVersionId[version.id] || 0;
                       return (
                         <option key={version.id} value={version.id}>
-                          {(quiz?.title || version.title) + ` - v${version.version_number} (${version.lifecycle_status})`}
+                          {(quiz?.title || version.title) +
+                            ` - v${version.version_number} (${version.lifecycle_status}, ${questionCount} q)`}
                         </option>
                       );
                     })}
                   </select>
                 </label>
-                <label className="text-sm text-slate-700 md:col-span-2">
+
+                <label className="text-sm text-slate-700">
                   Prompt
                   <textarea
                     name="prompt"
                     required
                     rows={3}
                     className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    placeholder="Write the question prompt..."
+                    placeholder="Write one clear prompt"
                   />
                 </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm text-slate-700">
+                    Type
+                    <select
+                      name="question_type"
+                      defaultValue="single_choice"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    >
+                      <option value="single_choice">Single choice</option>
+                      <option value="multi_select">Multi-select</option>
+                      <option value="true_false">True/False</option>
+                      <option value="short_answer">Short answer</option>
+                      <option value="scenario">Scenario</option>
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Points
+                    <input
+                      name="points"
+                      type="number"
+                      min={0}
+                      step="0.25"
+                      defaultValue={1}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                </div>
+
                 <label className="text-sm text-slate-700">
-                  Type
-                  <select
-                    name="question_type"
-                    defaultValue="single_choice"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    <option value="single_choice">Single choice</option>
-                    <option value="multi_select">Multi-select</option>
-                    <option value="true_false">True/False</option>
-                    <option value="short_answer">Short answer</option>
-                    <option value="scenario">Scenario</option>
-                  </select>
-                </label>
-                <label className="text-sm text-slate-700">
-                  Points
-                  <input
-                    name="points"
-                    type="number"
-                    min={0}
-                    step="0.25"
-                    defaultValue={1}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Scoring Mode
+                  Scoring mode
                   <select
                     name="scoring_mode"
                     defaultValue="all_or_nothing"
@@ -633,149 +699,190 @@ export default async function QuizManagePage({
                     <option value="partial_credit">Partial credit</option>
                   </select>
                 </label>
-                <label className="text-sm text-slate-700">
-                  Correct Boolean (for True/False)
-                  <select
-                    name="correct_boolean"
-                    defaultValue=""
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    <option value="">(not set)</option>
-                    <option value="true">True</option>
-                    <option value="false">False</option>
-                  </select>
-                </label>
-                <label className="text-sm text-slate-700 md:col-span-2">
-                  Option Labels (one per line for choice questions)
-                  <textarea
-                    name="option_labels"
-                    rows={4}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    placeholder={"Option A\nOption B\nOption C"}
-                  />
-                </label>
-                <label className="text-sm text-slate-700 md:col-span-2">
-                  Correct Option Positions (1-based, comma-separated)
-                  <input
-                    name="correct_option_positions"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    placeholder="1 or 1,3"
-                  />
-                </label>
-                <label className="text-sm text-slate-700 md:col-span-2">
-                  Accepted Text Answers (one per line, optional for short answer)
-                  <textarea
-                    name="accepted_text_answers"
-                    rows={3}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    placeholder={"answer one\nanswer two"}
-                  />
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+
+                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">
+                    Choice answer key (single and multi-select)
+                  </summary>
+                  <div className="mt-3 grid gap-3">
+                    <label className="text-sm text-slate-700">
+                      Option labels (one per line)
+                      <textarea
+                        name="option_labels"
+                        rows={4}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                        placeholder={"Option A\nOption B\nOption C"}
+                      />
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      Correct option positions (1-based, comma-separated)
+                      <input
+                        name="correct_option_positions"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                        placeholder="1 or 1,3"
+                      />
+                    </label>
+                  </div>
+                </details>
+
+                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">
+                    True/False answer key
+                  </summary>
+                  <label className="mt-3 block text-sm text-slate-700">
+                    Correct boolean
+                    <select
+                      name="correct_boolean"
+                      defaultValue=""
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    >
+                      <option value="">Not set</option>
+                      <option value="true">True</option>
+                      <option value="false">False</option>
+                    </select>
+                  </label>
+                </details>
+
+                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">
+                    Short answer and scenario matching
+                  </summary>
+                  <label className="mt-3 block text-sm text-slate-700">
+                    Accepted text answers (one per line)
+                    <textarea
+                      name="accepted_text_answers"
+                      rows={3}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      placeholder={"answer one\nanswer two"}
+                    />
+                  </label>
+                </details>
+
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" name="manual_review_required" />
                   Force manual review for this question
                 </label>
-                <div className="md:col-span-2">
+                <div>
                   <button
                     type="submit"
                     className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
                   >
-                    Add Question
+                    Add question
                   </button>
                 </div>
               </form>
             </section>
           ) : null}
 
-          {canAssign && versions.length > 0 ? (
+          {canAssign ? (
             <section className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-base font-semibold text-slate-900">Assign Quiz Version</h2>
-              <form action={assignVersionAction} className="mt-3 grid gap-3 md:grid-cols-2">
-                <input type="hidden" name="client_id" value={selectedClient.id} />
-                <label className="text-sm text-slate-700">
-                  Quiz Version
-                  <select
-                    name="quiz_version_id"
-                    required
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    {versions.map((version) => {
-                      const quiz = quizzes.find((row) => row.id === version.quiz_id);
-                      return (
-                        <option key={version.id} value={version.id}>
-                          {(quiz?.title || version.title) + ` - v${version.version_number} (${version.lifecycle_status})`}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-                <label className="text-sm text-slate-700">
-                  Employee
-                  <select
-                    name="assigned_user_id"
-                    required
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    {assignableUsers.length ? (
-                      assignableUsers.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.full_name || user.email || user.id}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="">No client users found</option>
-                    )}
-                  </select>
-                </label>
-                <label className="text-sm text-slate-700">
-                  Assignment Mode
-                  <select
-                    name="assignment_mode"
-                    defaultValue="required"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    <option value="required">Required</option>
-                    <option value="optional">Optional</option>
-                  </select>
-                </label>
-                <label className="text-sm text-slate-700">
-                  Available From
-                  <input
-                    name="available_from"
-                    type="date"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Due At
-                  <input
-                    name="due_at"
-                    type="date"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Expires At
-                  <input
-                    name="expires_at"
-                    type="date"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  />
-                </label>
-                <div className="md:col-span-2">
-                  <button
-                    type="submit"
-                    className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                  >
-                    Save Assignment
-                  </button>
-                </div>
-              </form>
+              <h2 className="text-base font-semibold text-slate-900">Step 4 - Assign published versions</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Assign only published versions so employees always receive a stable answer key.
+              </p>
+
+              {publishedVersions.length === 0 ? (
+                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  Publish a version first, then assignment will appear here.
+                </p>
+              ) : (
+                <form action={assignVersionAction} className="mt-3 grid gap-3 md:grid-cols-2">
+                  <input type="hidden" name="client_id" value={selectedClient.id} />
+                  <label className="text-sm text-slate-700">
+                    Published version
+                    <select
+                      name="quiz_version_id"
+                      required
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    >
+                      {publishedVersions.map((version) => {
+                        const quiz = quizzes.find((row) => row.id === version.quiz_id);
+                        return (
+                          <option key={version.id} value={version.id}>
+                            {(quiz?.title || version.title) + ` - v${version.version_number}`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Employee
+                    <select
+                      name="assigned_user_id"
+                      required
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    >
+                      {assignableUsers.length ? (
+                        assignableUsers.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.full_name || user.email || user.id}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">No client users found</option>
+                      )}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Assignment mode
+                    <select
+                      name="assignment_mode"
+                      defaultValue="required"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    >
+                      <option value="required">Required</option>
+                      <option value="optional">Optional</option>
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Available from
+                    <input
+                      name="available_from"
+                      type="date"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Due at
+                    <input
+                      name="due_at"
+                      type="date"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    Expires at
+                    <input
+                      name="expires_at"
+                      type="date"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                  <div className="md:col-span-2">
+                    <button
+                      type="submit"
+                      className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                    >
+                      Save assignment
+                    </button>
+                  </div>
+                </form>
+              )}
+            </section>
+          ) : canManage ? (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+              Create a quiz first. A draft version is generated automatically and appears in Step 2.
             </section>
           ) : null}
 
           <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-base font-semibold text-slate-900">Existing Quizzes</h2>
+            <h2 className="text-base font-semibold text-slate-900">Step 3 - Publish ready versions</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Draft versions with at least one question can be published and assigned.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Ready drafts: {readyToPublishVersions.length} - Published: {publishedVersions.length}
+            </p>
             {quizzes.length === 0 ? (
               <p className="mt-3 text-sm text-slate-600">No quizzes created for this client yet.</p>
             ) : (
@@ -835,7 +942,8 @@ export default async function QuizManagePage({
                                       <input type="hidden" name="quiz_version_id" value={version.id} />
                                       <button
                                         type="submit"
-                                        className="rounded border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                                        disabled={(questionCountByVersionId[version.id] || 0) === 0}
+                                        className="rounded border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
                                         Publish
                                       </button>
@@ -857,8 +965,10 @@ export default async function QuizManagePage({
           </section>
 
           {assignments.length > 0 ? (
-            <section className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-base font-semibold text-slate-900">Recent Assignments</h2>
+            <details className="rounded-xl border border-slate-200 bg-white p-4">
+              <summary className="cursor-pointer text-base font-semibold text-slate-900">
+                Recent assignments
+              </summary>
               <div className="mt-3 overflow-x-auto">
                 <table className="min-w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500">
@@ -892,7 +1002,7 @@ export default async function QuizManagePage({
                   </tbody>
                 </table>
               </div>
-            </section>
+            </details>
           ) : null}
         </>
       ) : (
