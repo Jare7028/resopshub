@@ -1946,6 +1946,11 @@ export default async function SocialPageDetail(props: {
                     .filter((reaction) => reaction.user_id === currentUser.id)
                     .map((reaction) => reaction.emoji)
                 );
+                const visiblePostReactions = SOCIAL_REACTION_OPTIONS.map((emoji) => ({
+                  emoji,
+                  count: postReactionCounts[emoji] || 0,
+                  active: myPostReactionSet.has(emoji),
+                })).filter((reaction) => reaction.count > 0);
                 const viewerLabels = Array.from(
                   new Set(
                     [...postViewsForItem, { post_id: post.id, user_id: currentUser.id, viewed_at: "" }]
@@ -2079,27 +2084,59 @@ export default async function SocialPageDetail(props: {
                     ) : null}
 
                     <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      {SOCIAL_REACTION_OPTIONS.map((emoji) => {
-                        const count = postReactionCounts[emoji] || 0;
-                        const active = myPostReactionSet.has(emoji);
-                        return (
-                          <form key={`${post.id}-${emoji}`} action={togglePostReaction}>
-                            <input type="hidden" name="post_id" value={post.id} />
-                            <input type="hidden" name="emoji" value={emoji} />
-                            <button
-                              type="submit"
-                              disabled={!canPost}
-                              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                                active
-                                  ? "border-slate-400 bg-slate-100 text-slate-900"
-                                  : "border-slate-200 bg-white text-slate-700"
-                              } disabled:cursor-not-allowed disabled:opacity-50`}
-                            >
-                              {emoji} {count > 0 ? count : ""}
-                            </button>
-                          </form>
-                        );
-                      })}
+                      {visiblePostReactions.map((reaction) => (
+                        <form key={`${post.id}-${reaction.emoji}`} action={togglePostReaction}>
+                          <input type="hidden" name="post_id" value={post.id} />
+                          <input type="hidden" name="emoji" value={reaction.emoji} />
+                          <button
+                            type="submit"
+                            disabled={!canPost}
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                              reaction.active
+                                ? "border-slate-400 bg-slate-100 text-slate-900"
+                                : "border-slate-200 bg-white text-slate-700"
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                          >
+                            <span>{reaction.emoji}</span>
+                            <span>{reaction.count}</span>
+                          </button>
+                        </form>
+                      ))}
+                      <details className="relative">
+                        <summary className="list-none inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:bg-slate-100 hover:text-slate-700 [&::-webkit-details-marker]:hidden">
+                          <span className="sr-only">Add reaction</span>
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-3.5 w-3.5"
+                            aria-hidden="true"
+                          >
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M8 15s1.5 2 4 2 4-2 4-2" />
+                            <line x1="9" y1="10" x2="9.01" y2="10" />
+                            <line x1="15" y1="10" x2="15.01" y2="10" />
+                          </svg>
+                        </summary>
+                        <div className="absolute bottom-7 left-0 z-20 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                          {SOCIAL_REACTION_OPTIONS.map((emoji) => (
+                            <form key={`${post.id}-picker-${emoji}`} action={togglePostReaction}>
+                              <input type="hidden" name="post_id" value={post.id} />
+                              <input type="hidden" name="emoji" value={emoji} />
+                              <button
+                                type="submit"
+                                disabled={!canPost}
+                                className="rounded px-1 py-0.5 text-base hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {emoji}
+                              </button>
+                            </form>
+                          ))}
+                        </div>
+                      </details>
                     </div>
 
                     {canManagePost ? (

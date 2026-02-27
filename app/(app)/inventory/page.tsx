@@ -9,6 +9,7 @@ import {
 } from "@/lib/supabaseErrors";
 import InventoryTable from "./InventoryTable";
 import AddColumnPopover from "./AddColumnPopover";
+import AddRowButton from "./AddRowButton";
 import CustomizeFieldsPopover from "./CustomizeFieldsPopover";
 import CurrencyDisplaySelect from "./CurrencyDisplaySelect";
 import type { FormulaSuggestion } from "./FormulaAutocompleteInput";
@@ -1299,6 +1300,13 @@ export default async function EmployeeInfoPage(props: {
           <div className="flex items-center gap-2">
             <CustomizeFieldsPopover columns={columns} />
             <CurrencyDisplaySelect value={displayCurrency} />
+            <AddRowButton />
+            {canManageColumns ? (
+              <AddColumnPopover
+                formulaSuggestions={formulaSuggestions}
+                onCreateColumn={createColumn}
+              />
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <a
@@ -1325,14 +1333,8 @@ export default async function EmployeeInfoPage(props: {
                 <path d="M12 3v12" />
                 <path d="m7 10 5 5 5-5" />
                 <path d="M5 21h14" />
-              </svg>
-            </a>
-            {canManageColumns ? (
-              <AddColumnPopover
-                formulaSuggestions={formulaSuggestions}
-                onCreateColumn={createColumn}
-              />
-            ) : null}
+                </svg>
+              </a>
           </div>
         </div>
         <InventoryTable

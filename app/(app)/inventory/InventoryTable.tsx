@@ -783,6 +783,16 @@ export default function InventoryTable({
   const [showTopScrollbar, setShowTopScrollbar] = useState(false);
   const [topScrollbarContentWidth, setTopScrollbarContentWidth] = useState(0);
 
+  useEffect(() => {
+    const handleAddRow = () => {
+      setIsAddingRow(true);
+    };
+    window.addEventListener("inventory:add-row", handleAddRow as EventListener);
+    return () => {
+      window.removeEventListener("inventory:add-row", handleAddRow as EventListener);
+    };
+  }, []);
+
   const visibleColumnIdSet = useMemo(() => new Set(visibleColumnIds), [visibleColumnIds]);
   const visibleColumns = useMemo(
     () => columns.filter((column) => visibleColumnIdSet.has(column.id)),
@@ -1676,28 +1686,17 @@ export default function InventoryTable({
                     Inventory Item
                     {sortIndicator("full_name")}
                   </button>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      aria-label="Filter full name"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        toggleHeaderMenu("full_name", event.currentTarget);
-                      }}
-                    >
-                      <FilterIcon active={Boolean(fullNameFilter.trim())} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Add inventory row"
-                      title="Add inventory row"
-                      onClick={() => setIsAddingRow(true)}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                    >
-                      +
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    aria-label="Filter full name"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleHeaderMenu("full_name", event.currentTarget);
+                    }}
+                  >
+                    <FilterIcon active={Boolean(fullNameFilter.trim())} />
+                  </button>
                   {openMenu === "full_name" ? (
                     <div
                       ref={menuRef}

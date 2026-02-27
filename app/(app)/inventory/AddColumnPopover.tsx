@@ -135,11 +135,11 @@ export default function AddColumnPopover({
     >
       <summary
         className="inline-flex h-9 cursor-pointer list-none items-center gap-1 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
-        aria-label="New column"
-        title="New column"
+        aria-label="Add column"
+        title="Add column"
       >
         <span className="text-sm leading-none">+</span>
-        <span>New column</span>
+        <span>Add Column</span>
       </summary>
       <button
         type="button"
@@ -163,7 +163,7 @@ export default function AddColumnPopover({
               onClick={() => closePopover()}
               disabled={isPending}
             >
-              ×
+              x
             </button>
           </div>
           <form onSubmit={handleSubmit} className="grid gap-4 px-5 py-5">
