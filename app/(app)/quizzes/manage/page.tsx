@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import SimpleQuestionBuilder from "./_components/SimpleQuestionBuilder";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -74,20 +75,6 @@ function buildManagePath(args: {
   return query ? `/quizzes/manage?${query}` : "/quizzes/manage";
 }
 
-function normalizeCsvNumberList(value: string) {
-  return value
-    .split(",")
-    .map((entry) => Number.parseInt(entry.trim(), 10))
-    .filter((entry) => Number.isInteger(entry) && entry > 0);
-}
-
-function normalizeMultilineList(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "N/A";
   const date = new Date(value);
@@ -136,22 +123,19 @@ export default async function QuizManagePage({
 
   let canManage = false;
   let canAssign = false;
-  let canReview = false;
   let pageLoadError = clientsError?.message || "";
 
   if (!pageLoadError && selectedClient) {
-    const [manageResult, assignResult, reviewResult] = await Promise.all([
+    const [manageResult, assignResult] = await Promise.all([
       supabase.rpc("quiz_can_manage_client", { client_uuid: selectedClient.id }),
       supabase.rpc("quiz_can_assign_client", { client_uuid: selectedClient.id }),
-      supabase.rpc("quiz_can_review_client", { client_uuid: selectedClient.id }),
     ]);
 
-    if (manageResult.error || assignResult.error || reviewResult.error) {
-      pageLoadError = manageResult.error?.message || assignResult.error?.message || reviewResult.error?.message || "";
+    if (manageResult.error || assignResult.error) {
+      pageLoadError = manageResult.error?.message || assignResult.error?.message || "";
     } else {
       canManage = Boolean(manageResult.data);
       canAssign = Boolean(assignResult.data);
-      canReview = Boolean(reviewResult.data);
     }
   }
 
@@ -266,10 +250,16 @@ export default async function QuizManagePage({
   const readyToPublishVersions = versions.filter(
     (version) => version.lifecycle_status === "draft" && (questionCountByVersionId[version.id] || 0) > 0
   );
-  const totalManualReviewQuestions = Object.values(manualReviewCountByVersionId).reduce(
-    (sum, count) => sum + count,
-    0
-  );
+  const versionOptions = versions.map((version) => {
+    const quiz = quizzes.find((row) => row.id === version.quiz_id);
+    const questionCount = questionCountByVersionId[version.id] || 0;
+    return {
+      id: version.id,
+      label:
+        (quiz?.title || version.title) +
+        ` - v${version.version_number} (${version.lifecycle_status}, ${questionCount} q)`,
+    };
+  });
 
   async function createQuizAction(formData: FormData) {
     "use server";
@@ -311,24 +301,51 @@ export default async function QuizManagePage({
     const clientId = String(formData.get("client_id") || "").trim();
     const quizVersionId = String(formData.get("quiz_version_id") || "").trim();
     const prompt = String(formData.get("prompt") || "").trim();
-    const questionType = String(formData.get("question_type") || "").trim();
+    const uiQuestionType = String(formData.get("ui_question_type") || "free_text").trim();
     const points = Number.parseFloat(String(formData.get("points") || "1"));
-    const scoringMode = String(formData.get("scoring_mode") || "all_or_nothing").trim();
-    const optionLabelsRaw = String(formData.get("option_labels") || "");
-    const correctPositionsRaw = String(formData.get("correct_option_positions") || "");
-    const correctBooleanRaw = String(formData.get("correct_boolean") || "").trim().toLowerCase();
-    const acceptedAnswersRaw = String(formData.get("accepted_text_answers") || "");
-    const manualReviewRequired = String(formData.get("manual_review_required") || "") === "on";
+    const questionType = uiQuestionType === "multi_select" ? "multi_select" : "short_answer";
+    const manualReviewRequired = questionType === "short_answer";
+    const scoringMode = "all_or_nothing";
 
     if (!uuidRegex.test(clientId) || !uuidRegex.test(quizVersionId)) {
       redirect(buildManagePath({ clientId: selectedClient?.id, error: "Invalid client or quiz version" }));
     }
 
-    const optionLabels = normalizeMultilineList(optionLabelsRaw);
-    const correctOptionPositions = Array.from(new Set(normalizeCsvNumberList(correctPositionsRaw)));
-    const acceptedTextAnswers = normalizeMultilineList(acceptedAnswersRaw);
-    const correctBoolean =
-      correctBooleanRaw === "true" ? true : correctBooleanRaw === "false" ? false : null;
+    if (!prompt) {
+      redirect(buildManagePath({ clientId, error: "Question text is required" }));
+    }
+
+    const rawOptionLabels = formData
+      .getAll("option_label")
+      .map((value) => String(value || "").trim());
+    const selectedRawPositions = new Set(
+      formData
+        .getAll("correct_option_positions")
+        .map((value) => Number.parseInt(String(value || "").trim(), 10))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    );
+
+    const optionLabels: string[] = [];
+    const correctOptionPositions: number[] = [];
+    let compactedPosition = 0;
+    for (let idx = 0; idx < rawOptionLabels.length; idx += 1) {
+      const label = rawOptionLabels[idx] || "";
+      if (!label) continue;
+      compactedPosition += 1;
+      optionLabels.push(label);
+      if (selectedRawPositions.has(idx + 1)) {
+        correctOptionPositions.push(compactedPosition);
+      }
+    }
+
+    if (questionType === "multi_select") {
+      if (optionLabels.length < 2) {
+        redirect(buildManagePath({ clientId, error: "Multi select needs at least 2 options" }));
+      }
+      if (correctOptionPositions.length === 0) {
+        redirect(buildManagePath({ clientId, error: "Select at least one correct option" }));
+      }
+    }
 
     const supabase = createSupabaseServerClient();
     const { error } = await supabase.rpc("quiz_add_version_question", {
@@ -339,8 +356,8 @@ export default async function QuizManagePage({
       p_scoring_mode: scoringMode,
       p_option_labels: optionLabels,
       p_correct_option_positions: correctOptionPositions,
-      p_correct_boolean: correctBoolean,
-      p_accepted_text_answers: acceptedTextAnswers,
+      p_correct_boolean: null,
+      p_accepted_text_answers: [],
       p_manual_review_required: manualReviewRequired,
     });
 
@@ -489,48 +506,6 @@ export default async function QuizManagePage({
 
       {selectedClient ? (
         <>
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 1</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">Create quiz shell</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{quizzes.length}</p>
-              <p className="text-xs text-slate-600">Quiz definitions</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 2</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">Add questions</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{questions.length}</p>
-              <p className="text-xs text-slate-600">Manual review items: {totalManualReviewQuestions}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 3</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">Publish ready versions</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{publishedVersions.length}</p>
-              <p className="text-xs text-slate-600">Ready to publish: {readyToPublishVersions.length}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step 4</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">Assign employees</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{assignments.length}</p>
-              <p className="text-xs text-slate-600">Total assignments</p>
-            </div>
-          </section>
-
-          <section className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Manage</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{canManage ? "Enabled" : "Not allowed"}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assign</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{canAssign ? "Enabled" : "Not allowed"}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Review</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{canReview ? "Enabled" : "Not allowed"}</p>
-            </div>
-          </section>
-
           {canManage ? (
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="text-base font-semibold text-slate-900">Step 1 - Create quiz shell</h2>
@@ -593,19 +568,9 @@ export default async function QuizManagePage({
                         className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
                       />
                     </label>
-                    <label className="text-sm text-slate-700">
-                      Multi-select scoring
-                      <select
-                        name="multi_select_scoring_mode"
-                        defaultValue="all_or_nothing"
-                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                      >
-                        <option value="all_or_nothing">All or nothing</option>
-                        <option value="partial_credit">Partial credit</option>
-                      </select>
-                    </label>
                   </div>
                 </details>
+                <input type="hidden" name="multi_select_scoring_mode" value="all_or_nothing" />
                 <div>
                   <button
                     type="submit"
@@ -626,153 +591,95 @@ export default async function QuizManagePage({
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="text-base font-semibold text-slate-900">Step 2 - Add questions</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Compose one question at a time and only fill the answer key section that matches the type.
+                Choose Free text or Multi select. Free text is manual review. Multi select supports marking correct answers.
               </p>
-              <form action={addQuestionAction} className="mt-3 grid gap-3">
-                <input type="hidden" name="client_id" value={selectedClient.id} />
-                <label className="text-sm text-slate-700">
-                  Quiz version
-                  <select
-                    name="quiz_version_id"
-                    required
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    {versions.map((version) => {
-                      const quiz = quizzes.find((row) => row.id === version.quiz_id);
-                      const questionCount = questionCountByVersionId[version.id] || 0;
-                      return (
-                        <option key={version.id} value={version.id}>
-                          {(quiz?.title || version.title) +
-                            ` - v${version.version_number} (${version.lifecycle_status}, ${questionCount} q)`}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-
-                <label className="text-sm text-slate-700">
-                  Prompt
-                  <textarea
-                    name="prompt"
-                    required
-                    rows={3}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    placeholder="Write one clear prompt"
-                  />
-                </label>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="text-sm text-slate-700">
-                    Type
-                    <select
-                      name="question_type"
-                      defaultValue="single_choice"
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    >
-                      <option value="single_choice">Single choice</option>
-                      <option value="multi_select">Multi-select</option>
-                      <option value="true_false">True/False</option>
-                      <option value="short_answer">Short answer</option>
-                      <option value="scenario">Scenario</option>
-                    </select>
-                  </label>
-                  <label className="text-sm text-slate-700">
-                    Points
-                    <input
-                      name="points"
-                      type="number"
-                      min={0}
-                      step="0.25"
-                      defaultValue={1}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    />
-                  </label>
-                </div>
-
-                <label className="text-sm text-slate-700">
-                  Scoring mode
-                  <select
-                    name="scoring_mode"
-                    defaultValue="all_or_nothing"
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                  >
-                    <option value="all_or_nothing">All or nothing</option>
-                    <option value="partial_credit">Partial credit</option>
-                  </select>
-                </label>
-
-                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <summary className="cursor-pointer text-sm font-medium text-slate-700">
-                    Choice answer key (single and multi-select)
-                  </summary>
-                  <div className="mt-3 grid gap-3">
-                    <label className="text-sm text-slate-700">
-                      Option labels (one per line)
-                      <textarea
-                        name="option_labels"
-                        rows={4}
-                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                        placeholder={"Option A\nOption B\nOption C"}
-                      />
-                    </label>
-                    <label className="text-sm text-slate-700">
-                      Correct option positions (1-based, comma-separated)
-                      <input
-                        name="correct_option_positions"
-                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                        placeholder="1 or 1,3"
-                      />
-                    </label>
-                  </div>
-                </details>
-
-                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <summary className="cursor-pointer text-sm font-medium text-slate-700">
-                    True/False answer key
-                  </summary>
-                  <label className="mt-3 block text-sm text-slate-700">
-                    Correct boolean
-                    <select
-                      name="correct_boolean"
-                      defaultValue=""
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                    >
-                      <option value="">Not set</option>
-                      <option value="true">True</option>
-                      <option value="false">False</option>
-                    </select>
-                  </label>
-                </details>
-
-                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <summary className="cursor-pointer text-sm font-medium text-slate-700">
-                    Short answer and scenario matching
-                  </summary>
-                  <label className="mt-3 block text-sm text-slate-700">
-                    Accepted text answers (one per line)
-                    <textarea
-                      name="accepted_text_answers"
-                      rows={3}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                      placeholder={"answer one\nanswer two"}
-                    />
-                  </label>
-                </details>
-
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input type="checkbox" name="manual_review_required" />
-                  Force manual review for this question
-                </label>
-                <div>
-                  <button
-                    type="submit"
-                    className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                  >
-                    Add question
-                  </button>
-                </div>
-              </form>
+              <SimpleQuestionBuilder
+                action={addQuestionAction}
+                clientId={selectedClient.id}
+                versions={versionOptions}
+              />
+            </section>
+          ) : canManage ? (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+              Create a quiz first. A draft version is generated automatically and appears in Step 2.
             </section>
           ) : null}
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="text-base font-semibold text-slate-900">Step 3 - Publish ready versions</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Draft versions with at least one question can be published and assigned.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Ready drafts: {readyToPublishVersions.length} - Published: {publishedVersions.length}
+            </p>
+            {quizzes.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-600">No quizzes created for this client yet.</p>
+            ) : (
+              <div className="mt-3 space-y-4">
+                {quizzes.map((quiz) => {
+                  const quizVersions = (versionsByQuizId[quiz.id] || []).sort(
+                    (a, b) => b.version_number - a.version_number
+                  );
+                  return (
+                    <article key={quiz.id} className="rounded-lg border border-slate-200 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <h3 className="text-sm font-semibold text-slate-900">{quiz.title}</h3>
+                          <p className="text-xs text-slate-600">
+                            Status: {quiz.status} - Pass: {quiz.passing_score_percent}% - Max attempts:{" "}
+                            {quiz.max_attempts}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Published version: {quiz.published_version_number || 0} - Published at:{" "}
+                            {formatDateTime(quiz.published_at)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        {quizVersions.map((version) => (
+                          <div
+                            key={version.id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"
+                          >
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">
+                                v{version.version_number} - {version.lifecycle_status}
+                              </p>
+                              <p className="text-xs text-slate-600">
+                                Questions {questionCountByVersionId[version.id] || 0} - Manual review{" "}
+                                {manualReviewCountByVersionId[version.id] || 0} - Assignments{" "}
+                                {assignmentCountByVersionId[version.id] || 0}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                Published: {formatDateTime(version.published_at)}
+                              </p>
+                            </div>
+                            {canManage ? (
+                              <form action={publishVersionAction}>
+                                <input type="hidden" name="client_id" value={selectedClient.id} />
+                                <input type="hidden" name="quiz_version_id" value={version.id} />
+                                <button
+                                  type="submit"
+                                  disabled={(questionCountByVersionId[version.id] || 0) === 0}
+                                  className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Publish
+                                </button>
+                              </form>
+                            ) : (
+                              <span className="text-xs text-slate-400">View only</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
           {canAssign ? (
             <section className="rounded-xl border border-slate-200 bg-white p-4">
@@ -869,100 +776,7 @@ export default async function QuizManagePage({
                 </form>
               )}
             </section>
-          ) : canManage ? (
-            <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-              Create a quiz first. A draft version is generated automatically and appears in Step 2.
-            </section>
           ) : null}
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-base font-semibold text-slate-900">Step 3 - Publish ready versions</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Draft versions with at least one question can be published and assigned.
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Ready drafts: {readyToPublishVersions.length} - Published: {publishedVersions.length}
-            </p>
-            {quizzes.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-600">No quizzes created for this client yet.</p>
-            ) : (
-              <div className="mt-3 space-y-4">
-                {quizzes.map((quiz) => {
-                  const quizVersions = (versionsByQuizId[quiz.id] || []).sort(
-                    (a, b) => b.version_number - a.version_number
-                  );
-                  return (
-                    <article key={quiz.id} className="rounded-lg border border-slate-200 p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-sm font-semibold text-slate-900">{quiz.title}</h3>
-                          <p className="text-xs text-slate-600">
-                            Status: {quiz.status} - Pass: {quiz.passing_score_percent}% - Max attempts:{" "}
-                            {quiz.max_attempts}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            Published version: {quiz.published_version_number || 0} - Published at:{" "}
-                            {formatDateTime(quiz.published_at)}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="min-w-full text-left text-xs">
-                          <thead className="bg-slate-50 text-slate-500">
-                            <tr>
-                              <th className="px-2 py-1.5">Version</th>
-                              <th className="px-2 py-1.5">Lifecycle</th>
-                              <th className="px-2 py-1.5">Questions</th>
-                              <th className="px-2 py-1.5">Manual Review Qs</th>
-                              <th className="px-2 py-1.5">Assignments</th>
-                              <th className="px-2 py-1.5">Published</th>
-                              <th className="px-2 py-1.5">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {quizVersions.map((version) => (
-                              <tr key={version.id} className="border-t border-slate-200">
-                                <td className="px-2 py-1.5 font-semibold text-slate-800">v{version.version_number}</td>
-                                <td className="px-2 py-1.5 text-slate-700">{version.lifecycle_status}</td>
-                                <td className="px-2 py-1.5 text-slate-700">
-                                  {questionCountByVersionId[version.id] || 0}
-                                </td>
-                                <td className="px-2 py-1.5 text-slate-700">
-                                  {manualReviewCountByVersionId[version.id] || 0}
-                                </td>
-                                <td className="px-2 py-1.5 text-slate-700">
-                                  {assignmentCountByVersionId[version.id] || 0}
-                                </td>
-                                <td className="px-2 py-1.5 text-slate-700">{formatDateTime(version.published_at)}</td>
-                                <td className="px-2 py-1.5">
-                                  {canManage ? (
-                                    <form action={publishVersionAction}>
-                                      <input type="hidden" name="client_id" value={selectedClient.id} />
-                                      <input type="hidden" name="quiz_version_id" value={version.id} />
-                                      <button
-                                        type="submit"
-                                        disabled={(questionCountByVersionId[version.id] || 0) === 0}
-                                        className="rounded border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                      >
-                                        Publish
-                                      </button>
-                                    </form>
-                                  ) : (
-                                    <span className="text-slate-400">View only</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
 
           {assignments.length > 0 ? (
             <details className="rounded-xl border border-slate-200 bg-white p-4">
