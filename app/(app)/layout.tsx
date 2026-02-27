@@ -5,38 +5,16 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
 import { type PagePermissionKey } from "@/lib/pagePermissions";
+import { APP_SIDEBAR_LINKS, type SidebarNavLink } from "@/lib/appSidebarLinks";
 import NotificationBell from "./_components/NotificationBell";
-import ChatNavLink from "./_components/ChatNavLink";
 import GlobalSearchBar from "./_components/GlobalSearchBar";
 import AppResumeRefresh from "./_components/AppResumeRefresh";
 import AppNavLink from "./_components/AppNavLink";
+import SidebarNav from "./_components/SidebarNav";
 
-type NavIconName =
-  | "dashboard"
-  | "clients"
-  | "projects"
-  | "tasks"
-  | "employeeInfo"
-  | "schedules"
-  | "quizzes"
-  | "forms"
-  | "chat"
-  | "social"
-  | "personal"
-  | "notes"
-  | "featureSuggestions"
-  | "help";
-
-type NavLink = {
-  href: string;
-  label: string;
-  icon: NavIconName;
-  pageKey: PagePermissionKey;
-};
-
-type PagePermissionRow = {
-  page_key: PagePermissionKey;
-  access_level: "none" | "view" | "edit";
+type SidebarNavOrderRow = {
+  page_key: string;
+  sort_order: number | null;
 };
 
 type UserProfileRow = {
@@ -51,187 +29,52 @@ type LayoutUser = {
   user_metadata?: Record<string, unknown> | null;
 };
 
+type NavPermissionRow = {
+  page_key: PagePermissionKey;
+  access_level: "none" | "view" | "edit";
+};
+
 const MIDDLEWARE_USER_ID_HEADER = "x-resopshub-user-id";
 const MIDDLEWARE_USER_EMAIL_HEADER = "x-resopshub-user-email";
 const UUID_V4ISH_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function SidebarIcon({ name }: { name: NavIconName }) {
-  const iconClassName = "h-4 w-4 shrink-0";
+function mergeNavLinksByUserOrder(
+  links: readonly SidebarNavLink[],
+  orderRows: SidebarNavOrderRow[]
+): SidebarNavLink[] {
+  const orderedLinks: SidebarNavLink[] = [];
+  const linkByPageKey = new Map(links.map((link) => [link.pageKey, link]));
+  const seen = new Set<string>();
 
-  switch (name) {
-    case "dashboard":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M3 13h8V3H3v10Z" />
-          <path d="M13 21h8v-6h-8v6Z" />
-          <path d="M13 3h8v8h-8V3Z" />
-          <path d="M3 21h8v-4H3v4Z" />
-        </svg>
-      );
-    case "clients":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-          <circle cx="8.5" cy="7" r="4" />
-          <path d="M22 21v-2a4 4 0 0 0-3-3.9" />
-          <path d="M15.5 3.1a4 4 0 0 1 0 7.8" />
-        </svg>
-      );
-    case "projects":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
-        </svg>
-      );
-    case "tasks":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M9 11 6.5 8.5 5 10" />
-          <path d="M9 17 6.5 14.5 5 16" />
-          <path d="M11 10h8" />
-          <path d="M11 16h8" />
-          <path d="M5 4h14" />
-        </svg>
-      );
-    case "employeeInfo":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M18 8h5" />
-          <path d="M18 12h5" />
-          <path d="M18 16h5" />
-        </svg>
-      );
-    case "schedules":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <rect x="3" y="4" width="18" height="18" rx="2" />
-          <path d="M16 2v4" />
-          <path d="M8 2v4" />
-          <path d="M3 10h18" />
-          <path d="M8 14h3" />
-          <path d="M13 14h3" />
-          <path d="M8 18h3" />
-        </svg>
-      );
-    case "quizzes":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M9 11.5 11 13.5l4-4" />
-          <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" />
-          <path d="M16 4v3h3" />
-        </svg>
-      );
-    case "forms":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M6 3h9l4 4v14H6V3Z" />
-          <path d="M15 3v4h4" />
-          <path d="M9 12h6" />
-          <path d="M9 16h6" />
-        </svg>
-      );
-    case "chat":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M21 12a8.8 8.8 0 0 1-.9 3.8 9 9 0 0 1-8.1 5.2 8.8 8.8 0 0 1-3.8-.9L3 21l1.9-5.1a8.8 8.8 0 0 1-.9-3.8 9 9 0 0 1 5.2-8.1A8.8 8.8 0 0 1 13 3h.5a9 9 0 0 1 7.5 7.5V12Z" />
-        </svg>
-      );
-    case "social":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-          <circle cx="8.5" cy="7" r="4" />
-          <path d="M20 8v6" />
-          <path d="M17 11h6" />
-        </svg>
-      );
-    case "personal":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <circle cx="12" cy="7" r="4" />
-          <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
-        </svg>
-      );
-    case "notes":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M4 4h16v16H4z" />
-          <path d="M8 8h8" />
-          <path d="M8 12h8" />
-          <path d="M8 16h5" />
-        </svg>
-      );
-    case "featureSuggestions":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <path d="M9 18h6" />
-          <path d="M10 22h4" />
-          <path d="M12 2a7 7 0 0 0-4 12.7c.7.5 1 1.3 1 2.1V18h6v-1.2c0-.8.3-1.6 1-2.1A7 7 0 0 0 12 2Z" />
-        </svg>
-      );
-    case "help":
-      return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClassName}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M9.25 9.5a2.75 2.75 0 1 1 4.74 1.88c-.7.74-1.46 1.24-1.46 2.37" />
-          <path d="M12 17.5h.01" />
-        </svg>
-      );
-    default:
-      return null;
+  const sanitizedOrderRows = orderRows
+    .filter((row) => row.sort_order !== null)
+    .sort((a, b) => {
+      const aSort = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : Number.MAX_SAFE_INTEGER;
+      const bSort = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : Number.MAX_SAFE_INTEGER;
+      if (aSort !== bSort) return aSort - bSort;
+      return String(a.page_key).localeCompare(String(b.page_key));
+    });
+
+  for (const row of sanitizedOrderRows) {
+    const key = String(row.page_key || "") as PagePermissionKey;
+    const link = linkByPageKey.get(key);
+    if (!link || seen.has(link.pageKey)) {
+      continue;
+    }
+    orderedLinks.push(link);
+    seen.add(link.pageKey);
   }
-}
 
-const baseNavLinks: NavLink[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard", pageKey: "dashboard" },
-  { href: "/clients", label: "Clients", icon: "clients", pageKey: "clients" },
-  { href: "/projects", label: "Projects", icon: "projects", pageKey: "projects" },
-  { href: "/tasks", label: "Tasks", icon: "tasks", pageKey: "tasks" },
-  {
-    href: "/employee-info",
-    label: "Employee Info",
-    icon: "employeeInfo",
-    pageKey: "employee_info",
-  },
-  {
-    href: "/inventory",
-    label: "Inventory",
-    icon: "employeeInfo",
-    pageKey: "inventory",
-  },
-  {
-    href: "/schedules",
-    label: "Schedules",
-    icon: "schedules",
-    pageKey: "schedules",
-  },
-  {
-    href: "/quizzes",
-    label: "Quizzes",
-    icon: "quizzes",
-    pageKey: "quizzes",
-  },
-  { href: "/forms", label: "Forms", icon: "forms", pageKey: "forms" },
-  { href: "/chat", label: "Chat", icon: "chat", pageKey: "chat" },
-  { href: "/social", label: "Social", icon: "social", pageKey: "social" },
-  { href: "/personal", label: "Personal", icon: "personal", pageKey: "personal" },
-  { href: "/notes", label: "Notes", icon: "notes", pageKey: "notes" },
-  {
-    href: "/feature-suggestions",
-    label: "Feature Suggestions",
-    icon: "featureSuggestions",
-    pageKey: "feature_suggestions",
-  },
-  {
-    href: "/help",
-    label: "Help & Walkthrough",
-    icon: "help",
-    pageKey: "help",
-  },
-];
+  links.forEach((link) => {
+    if (!seen.has(link.pageKey)) {
+      orderedLinks.push(link);
+      seen.add(link.pageKey);
+    }
+  });
+
+  return orderedLinks;
+}
 
 export default async function AppLayout({
   children,
@@ -336,7 +179,7 @@ export default async function AppLayout({
             console.error("[layout.page_permissions]", pagePermissionsError.message);
           }
         } else {
-          const pagePermissions = (pagePermissionsData || []) as PagePermissionRow[];
+          const pagePermissions = (pagePermissionsData || []) as NavPermissionRow[];
           pagePermissionByKey = new Map(
             pagePermissions.map((row) => [row.page_key, row.access_level])
           );
@@ -353,8 +196,26 @@ export default async function AppLayout({
     return (explicitAccess || "edit") !== "none";
   };
 
-  const navLinks = baseNavLinks.filter((link) => canViewPage(link.pageKey));
-  const canViewSettings = canViewPage("settings");
+  const navBaseLinks = APP_SIDEBAR_LINKS.filter((link) => canViewPage(link.pageKey));
+
+  let navLinks: SidebarNavLink[] = navBaseLinks;
+  const { data: navOrderData, error: navOrderError } = await withPerfTiming(
+    "layout.app_nav_order",
+    () =>
+      supabase
+        .from("user_sidebar_link_order")
+        .select("page_key,sort_order")
+        .eq("user_id", user.id)
+        .order("sort_order", { ascending: true })
+        .order("page_key", { ascending: true })
+  );
+
+  if (!navOrderError) {
+    navLinks = mergeNavLinksByUserOrder(navBaseLinks, (navOrderData || []) as SidebarNavOrderRow[]);
+  } else if (!isSupabaseMissingTableError(navOrderError)) {
+    console.error("[layout.app_nav_order]", navOrderError.message);
+  }
+
   const unreadChatCount = 0;
 
   async function signOut() {
@@ -447,61 +308,7 @@ export default async function AppLayout({
             </svg>
           </label>
 
-          <nav className="min-h-0 flex-1 overflow-y-auto px-3">
-            <div className="space-y-1">
-              {navLinks.map((link) =>
-                link.href === "/chat" ? (
-                  <ChatNavLink
-                    key={link.href}
-                    initialUnreadCount={unreadChatCount}
-                    userId={user.id}
-                    className="nav-item min-h-11"
-                    labelClassName="nav-label"
-                    badgeClassName="chat-badge"
-                  />
-                ) : (
-                  <AppNavLink
-                    key={link.href}
-                    href={link.href}
-                    prefetch={false}
-                    className="nav-item relative flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-                    title={link.label}
-                    aria-label={link.label}
-                  >
-                    <SidebarIcon name={link.icon} />
-                    <span className="nav-label">{link.label}</span>
-                  </AppNavLink>
-                )
-              )}
-            </div>
-          </nav>
-
-          {canViewSettings ? (
-            <div className="px-3 pb-4">
-              <AppNavLink
-                href="/settings"
-                prefetch={false}
-                className="nav-item group flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-                aria-label="Settings"
-                title="Settings"
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4"
-                >
-                  <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-                  <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a8.8 8.8 0 0 0-1.7-1l-.4-2.7H9.1l-.4 2.7a8.8 8.8 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 13a7.9 7.9 0 0 0-.1 1 7.9 7.9 0 0 0 .1 1L2.5 16.6l2 3.4 2.5-1a8.8 8.8 0 0 0 1.7 1l.4 2.7h5.8l.4-2.7a8.8 8.8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 15Z" />
-                </svg>
-                <span className="nav-label">Settings</span>
-              </AppNavLink>
-            </div>
-          ) : null}
+          <SidebarNav links={navLinks} userId={user.id} chatUnreadCount={unreadChatCount} />
         </aside>
 
         <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-0 transition-[padding] duration-200 md:pl-64 md:peer-checked/sidebar:pl-16">
