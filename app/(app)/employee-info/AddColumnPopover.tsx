@@ -33,6 +33,7 @@ export default function AddColumnPopover({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const detailsRef = useRef<HTMLDetailsElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
   const [columnKind, setColumnKind] = useState<EmployeeInfoColumnKind>("text");
   const [currencyCode, setCurrencyCode] = useState<EmployeeInfoCurrencyCode>("USD");
   const [formulaCurrencyMode, setFormulaCurrencyMode] =
@@ -46,6 +47,28 @@ export default function AddColumnPopover({
       setIsFormulaEditorOpen(false);
     }
   }, [columnKind, isFormulaEditorOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (detailsRef.current && !detailsRef.current.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
 
   const resetState = () => {
     setColumnKind("text");
@@ -74,6 +97,7 @@ export default function AddColumnPopover({
       }
       form.reset();
       resetState();
+      setIsOpen(false);
       if (detailsRef.current) detailsRef.current.open = false;
       router.refresh();
     });
@@ -82,8 +106,10 @@ export default function AddColumnPopover({
   return (
     <details
       ref={detailsRef}
-      className="relative"
+      className="relative z-50"
       data-employee-info-popover="true"
+      open={isOpen}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
     >
       <summary
         className="inline-flex h-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
@@ -92,7 +118,17 @@ export default function AddColumnPopover({
       >
         Add Column
       </summary>
-      <div className="absolute right-0 z-10 mt-2 w-[min(92vw,36rem)] rounded-lg border border-slate-200 bg-white p-4 shadow-lg">
+      <div className="absolute right-0 z-[100] mt-2 w-[min(92vw,36rem)] rounded-xl border border-slate-200 bg-white p-4 shadow-2xl ring-1 ring-black/5">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-slate-900">Add column</p>
+          <button
+            type="button"
+            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            onClick={() => setIsOpen(false)}
+          >
+            Close
+          </button>
+        </div>
         <p className="text-xs text-slate-500">
           Formula columns support Excel-style functions (for example <code>SUM</code>,{" "}
           <code>ROUND</code>, <code>IF</code>), plus letters (A=Full Name, B=Client, C onward
