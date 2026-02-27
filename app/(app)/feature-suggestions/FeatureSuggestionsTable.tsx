@@ -16,6 +16,10 @@ import {
 } from "../_components/TableHeaderFilters";
 import FeatureSuggestionStatus from "./FeatureSuggestionStatus";
 import FeatureSuggestionType from "./FeatureSuggestionType";
+import {
+  statusBarStyle,
+  statusDotStyle,
+} from "@/lib/statusColorStyles";
 
 type SuggestionRow = {
   id: string;
@@ -48,14 +52,6 @@ type SortDir = "asc" | "desc";
 
 type HeaderMenuKey = "title" | "status" | "type";
 const FILTER_NAV_DEBOUNCE_MS = 300;
-
-const statusColors: Record<string, string> = {
-  idea: "bg-slate-400",
-  needs_checking: "bg-amber-500",
-  planned: "bg-blue-500",
-  completed: "bg-emerald-500",
-  rejected: "bg-rose-500",
-};
 
 const formatStatusLabel = (status: string) =>
   status
@@ -177,6 +173,7 @@ export default function FeatureSuggestionsTable({
   initialView = "table",
   initialFilters,
   statusOptions,
+  statusColorMap = {},
   typeOptions,
   onVote,
   onUpdateStatus,
@@ -192,6 +189,7 @@ export default function FeatureSuggestionsTable({
   initialView?: "table" | "gantt" | "board";
   initialFilters: FilterState;
   statusOptions: readonly FeatureSuggestionStatusOption[];
+  statusColorMap?: Record<string, string>;
   typeOptions: readonly string[];
   onVote: (formData: FormData) => Promise<void>;
   onUpdateStatus: (formData: FormData) => Promise<void> | void;
@@ -359,6 +357,11 @@ export default function FeatureSuggestionsTable({
   const detailQuery = currentQuery
     ? `?return_to=${encodeURIComponent(`/feature-suggestions?${currentQuery}`)}`
     : "";
+  const getStatusColor = (status: string | null | undefined) => {
+    const normalized = String(status || "").trim().toLowerCase();
+    if (!normalized) return "#64748b";
+    return statusColorMap[normalized] || statusColorMap[String(status || "")] || "#64748b";
+  };
 
   const ganttData = useMemo(() => {
     const now = new Date();
@@ -411,8 +414,10 @@ export default function FeatureSuggestionsTable({
     () => statusOptions.filter((status) => status.isVisible),
     [statusOptions]
   );
-  const statusOptionsForBoard = visibleStatusOptions.length
-    ? visibleStatusOptions
+  const statusOptionsForBoard = hideCompleted
+    ? visibleStatusOptions.length
+      ? visibleStatusOptions
+      : statusOptions
     : statusOptions;
   const statusForFilters = statusOptionsForBoard;
 
@@ -441,7 +446,7 @@ export default function FeatureSuggestionsTable({
             onClick={toggleHideCompleted}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
           >
-            {hideCompleted ? "Show completed/rejected" : "Hide completed/rejected"}
+            {hideCompleted ? "Show closed" : "Hide closed"}
           </button>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -622,6 +627,7 @@ export default function FeatureSuggestionsTable({
                                 suggestionId={suggestion.id}
                                 defaultStatus={suggestion.status}
                                 statusOptions={statusOptions}
+                                statusColorMap={statusColorMap}
                                 onUpdate={onUpdateStatus}
                                 disabled={!canEdit}
                               />
@@ -676,7 +682,7 @@ export default function FeatureSuggestionsTable({
                 const duration = Math.max(1, diffDays(suggestion.start, suggestion.end) + 1);
                 const leftPercent = (startOffset / ganttData.rangeDays) * 100;
                 const widthPercent = (duration / ganttData.rangeDays) * 100;
-                const barColor = statusColors[suggestion.status] || "bg-slate-400";
+                const barColor = getStatusColor(suggestion.status);
                 return (
                   <div key={suggestion.id} className="grid grid-cols-[320px_1fr] border-b border-slate-100">
                     <div className="space-y-1 px-6 py-3 text-sm text-slate-900">
@@ -694,8 +700,12 @@ export default function FeatureSuggestionsTable({
                     <div className="relative px-6 py-3">
                       <div className="relative h-8 rounded-md bg-slate-100">
                         <div
-                          className={`absolute top-1/2 h-3 -translate-y-1/2 rounded-full ${barColor}`}
-                          style={{ left: `${leftPercent}%`, width: `${Math.max(widthPercent, 1)}%` }}
+                          className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full"
+                          style={{
+                            left: `${leftPercent}%`,
+                            width: `${Math.max(widthPercent, 1)}%`,
+                            ...statusBarStyle(barColor),
+                          }}
                         />
                       </div>
                     </div>
@@ -716,9 +726,15 @@ export default function FeatureSuggestionsTable({
                 return (
                   <div key={status.value} className="w-[320px] rounded-lg border border-slate-200 bg-slate-50">
                     <div className="border-b border-slate-200 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        {formatStatusLabel(status.value)}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={statusDotStyle(getStatusColor(status.value))}
+                        />
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {formatStatusLabel(status.value)}
+                        </p>
+                      </div>
                       <p className="text-sm text-slate-500">{bucket.length} items</p>
                     </div>
                     <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
@@ -741,6 +757,7 @@ export default function FeatureSuggestionsTable({
                                 suggestionId={suggestion.id}
                                 defaultStatus={suggestion.status}
                                 statusOptions={statusOptions}
+                                statusColorMap={statusColorMap}
                                 onUpdate={onUpdateStatus}
                                 disabled={!canEdit}
                               />

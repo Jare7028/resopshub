@@ -8,9 +8,14 @@ create table if not exists public.status_options (
   position integer not null default 0,
   is_visible boolean not null default true,
   counts_as_completed boolean not null default false,
+  color_hex text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint status_options_value_not_blank check (length(trim(value)) > 0)
+  constraint status_options_value_not_blank check (length(trim(value)) > 0),
+  constraint status_options_color_hex_check check (
+    color_hex is null
+    or color_hex ~ '^#[0-9A-Fa-f]{6}$'
+  )
 );
 
 alter table public.status_options
@@ -75,27 +80,29 @@ insert into public.status_options (
   value,
   position,
   is_visible,
-  counts_as_completed
+  counts_as_completed,
+  color_hex
 )
 values
-  ('feature_suggestion', 'idea', 1, true, false),
-  ('feature_suggestion', 'needs_checking', 2, true, false),
-  ('feature_suggestion', 'planned', 3, true, false),
-  ('feature_suggestion', 'completed', 4, true, true),
-  ('feature_suggestion', 'rejected', 5, false, true)
+  ('feature_suggestion', 'idea', 1, true, false, '#64748b'),
+  ('feature_suggestion', 'needs_checking', 2, true, false, '#f59e0b'),
+  ('feature_suggestion', 'planned', 3, true, false, '#3b82f6'),
+  ('feature_suggestion', 'completed', 4, false, true, '#10b981'),
+  ('feature_suggestion', 'rejected', 5, false, true, '#f43f5e')
 on conflict (entity_type, lower(value)) do nothing;
 
 update public.status_options s
 set
   is_visible = v.is_visible,
-  counts_as_completed = v.counts_as_completed
+  counts_as_completed = v.counts_as_completed,
+  color_hex = v.color_hex
 from (
   values
-    ('feature_suggestion', 'idea', true, false),
-    ('feature_suggestion', 'needs_checking', true, false),
-    ('feature_suggestion', 'planned', true, false),
-    ('feature_suggestion', 'completed', true, true),
-    ('feature_suggestion', 'rejected', false, true)
-) as v(entity_type, value, is_visible, counts_as_completed)
+    ('feature_suggestion', 'idea', true, false, '#64748b'),
+    ('feature_suggestion', 'needs_checking', true, false, '#f59e0b'),
+    ('feature_suggestion', 'planned', true, false, '#3b82f6'),
+    ('feature_suggestion', 'completed', false, true, '#10b981'),
+    ('feature_suggestion', 'rejected', false, true, '#f43f5e')
+) as v(entity_type, value, is_visible, counts_as_completed, color_hex)
 where s.entity_type = v.entity_type
   and lower(s.value) = lower(v.value);

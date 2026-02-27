@@ -6,11 +6,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "@/app/(app)/tasks/TasksView";
 import {
-  TASK_STATUS_OPTIONS,
   coerceTaskStatusList,
 } from "@/lib/taskStatus";
 import {
-  buildStatusOptions,
+  buildStatusColorMap,
+  buildStatusOptionsWithMetadata,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
 import {
@@ -53,15 +53,17 @@ export default async function ProjectTasksPage(props: {
   const supabase = createSupabaseServerClient();
   const { data: statusOptionsRaw } = await supabase
     .from("status_options")
-    .select("entity_type,value,position")
+    .select("entity_type,value,position,is_visible,counts_as_completed,color_hex")
     .order("entity_type", { ascending: true })
     .order("position", { ascending: true })
     .order("value", { ascending: true });
-  const statusOptions = buildStatusOptions(
+  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
     "task",
     (statusOptionsRaw || []) as StatusOptionRow[],
-    TASK_STATUS_OPTIONS
+    []
   );
+  const statusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
+  const taskStatusColorMap = buildStatusColorMap("task", taskStatusOptionsWithMetadata);
   const sortKey = normalizeTaskSortKey(searchParams?.sort);
   const sortDir = normalizeTaskSortDir(searchParams?.dir);
   const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
@@ -372,6 +374,7 @@ export default async function ProjectTasksPage(props: {
           }}
           onUpdate={updateTaskInline}
           hideCompleted={hideCompleted}
+          statusColorMap={taskStatusColorMap}
           toggleUrl={toggleUrl}
           includeWatching={false}
           watchToggleUrl={toggleUrl}

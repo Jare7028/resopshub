@@ -8,6 +8,8 @@ import {
 } from "@/lib/supabaseErrors";
 import FeatureSuggestionsTable from "./FeatureSuggestionsTable";
 import {
+  buildStatusColorMap,
+  buildHiddenStatusValues,
   buildStatusOptionsWithMetadata,
   DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
   normalizeStatusValue,
@@ -41,6 +43,7 @@ type StatusOptionRow = {
   position: number;
   is_visible?: boolean | null;
   counts_as_completed?: boolean | null;
+  color_hex?: string | null;
 };
 
 type StatusOptionsResult = {
@@ -142,7 +145,7 @@ export default async function FeatureSuggestionsPage(props: {
 
   let statusOptionsResult: StatusOptionsResult = (await supabase
     .from("status_options")
-    .select("entity_type,value,position,is_visible,counts_as_completed")
+    .select("entity_type,value,position,is_visible,counts_as_completed,color_hex")
     .eq("entity_type", "feature_suggestion")
     .order("position", { ascending: true })
     .order("value", { ascending: true })) as StatusOptionsResult;
@@ -165,7 +168,15 @@ export default async function FeatureSuggestionsPage(props: {
     ((statusOptionsResult.data || []) as Array<StatusOptionRow>) || [],
     DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS
   );
+  const featureSuggestionStatusColorMap = buildStatusColorMap(
+    "feature_suggestion",
+    featureSuggestionStatusOptions
+  );
   const statusValues = featureSuggestionStatusOptions.map((status) => status.value);
+  const hiddenStatusValues = buildHiddenStatusValues(
+    "feature_suggestion",
+    featureSuggestionStatusOptions
+  );
 
   const selectedStatuses = parseCsvParam(searchParams?.status).filter((status) =>
     statusValues.includes(normalizeStatusValue(status))
@@ -206,12 +217,15 @@ export default async function FeatureSuggestionsPage(props: {
     if (selectedStatuses.length) {
       queryBuilder = queryBuilder.in("status", selectedStatuses);
     } else if (hideCompleted) {
-      const completedStatuses = featureSuggestionStatusOptions
-        .filter((status) => status.countsAsCompleted)
-        .map((status) => normalizeStatusValue(status.value))
+      const normalizedHiddenStatuses = hiddenStatusValues
+        .map((status) => normalizeStatusValue(status))
         .filter(Boolean);
-      if (completedStatuses.length) {
-        queryBuilder = queryBuilder.not("status", "in", `(${completedStatuses.join(",")})`);
+      if (normalizedHiddenStatuses.length) {
+        queryBuilder = queryBuilder.not(
+          "status",
+          "in",
+          `(${normalizedHiddenStatuses.join(",")})`
+        );
       }
     }
 
@@ -619,6 +633,7 @@ export default async function FeatureSuggestionsPage(props: {
           q: query,
         }}
         statusOptions={featureSuggestionStatusOptions}
+        statusColorMap={featureSuggestionStatusColorMap}
         typeOptions={typeOptions}
         onVote={toggleVote}
         onUpdateStatus={updateStatus}

@@ -1,6 +1,7 @@
 "use client";
 
 import { type ChangeEvent, useTransition } from "react";
+import { statusSelectStyle } from "@/lib/statusColorStyles";
 
 type FeatureSuggestionStatusOption = {
   value: string;
@@ -11,6 +12,7 @@ type FeatureSuggestionStatusProps = {
   suggestionId: string;
   defaultStatus: string;
   statusOptions: readonly FeatureSuggestionStatusOption[];
+  statusColorMap?: Record<string, string>;
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   disabled?: boolean;
 };
@@ -19,6 +21,7 @@ export default function FeatureSuggestionStatus({
   suggestionId,
   defaultStatus,
   statusOptions,
+  statusColorMap = {},
   onUpdate,
   disabled = false,
 }: FeatureSuggestionStatusProps) {
@@ -45,6 +48,10 @@ export default function FeatureSuggestionStatus({
     : normalizedCurrentStatus
     ? [...visibleStatusOptions, { value: normalizedCurrentStatus }]
     : visibleStatusOptions;
+  const statusColor =
+    statusColorMap[normalizedCurrentStatus] ||
+    statusColorMap[defaultStatus] ||
+    "#64748b";
 
   const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const form = event.currentTarget.form;
@@ -62,6 +69,7 @@ export default function FeatureSuggestionStatus({
         name="status"
         defaultValue={defaultStatus}
         className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+        style={statusSelectStyle(statusColor)}
         disabled={disabled}
         onChange={handleChange}
       >

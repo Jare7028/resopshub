@@ -11,16 +11,22 @@ import TaskTabs, {
 } from "./_components/TaskTabs";
 import ConfirmDelete from "../../_components/ConfirmDelete";
 import {
-  TASK_STATUS_OPTIONS,
   coerceTaskStatusList,
   expandTaskStatusFilterForQuery,
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
-import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
-import { statusSelectClasses } from "@/lib/taskIndicators";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
+import {
+  buildStatusColorMap,
+  buildStatusOptionsWithMetadata,
+  type StatusOptionRow,
+} from "@/lib/statusOptions";
+import { statusSelectStyle } from "@/lib/statusColorStyles";
 import AssigneeMultiSelect from "../_components/AssigneeMultiSelect";
 import ResilientCreateSubmitButton from "../_components/ResilientCreateSubmitButton";
 import TasksView from "../TasksView";
@@ -163,17 +169,30 @@ export default async function TaskDetailPage(props: {
   if (!authUserId) {
     redirect("/login");
   }
-  const { data: statusOptionsRaw } = await supabase
+  const statusOptionsResponse = await supabase
     .from("status_options")
-    .select("entity_type,value,position")
+    .select("entity_type,value,position,is_visible,counts_as_completed,color_hex")
     .order("entity_type", { ascending: true })
     .order("position", { ascending: true })
     .order("value", { ascending: true });
-  const statusOptions = buildStatusOptions(
+  let statusOptionsRaw = (statusOptionsResponse.data || null) as StatusOptionRow[] | null;
+  if (statusOptionsResponse.error && isSupabaseMissingColumnError(statusOptionsResponse.error)) {
+    const legacyStatusOptionsResponse = await supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .order("entity_type", { ascending: true })
+      .order("position", { ascending: true })
+      .order("value", { ascending: true });
+    statusOptionsRaw = (legacyStatusOptionsResponse.data || null) as StatusOptionRow[] | null;
+  }
+
+  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
     "task",
     (statusOptionsRaw || []) as StatusOptionRow[],
-    TASK_STATUS_OPTIONS
+    []
   );
+  const statusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
+  const taskStatusColorMap = buildStatusColorMap("task", taskStatusOptionsWithMetadata);
   const activeTab = normalizeTaskTabKey(searchParams?.tab);
   let task: TaskDetailRow | null = null;
   if (activeTab === "notes") {
@@ -1175,9 +1194,10 @@ export default async function TaskDetailPage(props: {
                 id="task-status"
                 name="status"
                 defaultValue={normalizeTaskStatusOrDefault(task.status)}
-                className={`rounded-md border px-3 py-2 text-sm ${statusSelectClasses(
-                  normalizeTaskStatusOrDefault(task.status)
-                )}`}
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                style={statusSelectStyle(
+                  taskStatusColorMap[normalizeTaskStatusOrDefault(task.status)] || "#64748b"
+                )}
               >
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>
@@ -1603,9 +1623,8 @@ export default async function TaskDetailPage(props: {
               <select
                 id="subtask-status"
                 name="status"
-                className={`rounded-md border px-3 py-2 text-sm ${statusSelectClasses(
-                  "to_do"
-                )}`}
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                style={statusSelectStyle(taskStatusColorMap.to_do || "#64748b")}
                 defaultValue="to_do"
               >
                 {statusOptions.map((status) => (
@@ -1714,6 +1733,7 @@ export default async function TaskDetailPage(props: {
             }}
             onUpdate={updateTaskInlineAction}
             hideCompleted={hideCompleted}
+            statusColorMap={taskStatusColorMap}
             toggleUrl={subtasksToggleUrl}
             includeWatching={false}
             watchToggleUrl={subtasksReturnTo}

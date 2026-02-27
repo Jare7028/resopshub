@@ -19,8 +19,18 @@ import {
   type TaskSortKey,
 } from "@/lib/taskSorting";
 import { setCsvParam } from "@/lib/queryParams";
-import { formatTaskStatusLabel, normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import {
+  formatTaskStatusLabel,
+  normalizeTaskStatus,
+  normalizeTaskStatusOrDefault,
+} from "@/lib/taskStatus";
 import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
+import { defaultStatusColorHex } from "@/lib/statusOptions";
+import {
+  statusBarStyle,
+  statusDotStyle,
+  statusPillStyle,
+} from "@/lib/statusColorStyles";
 import {
   isViewMode,
   readDefaultViewMode,
@@ -116,6 +126,8 @@ type TasksViewProps = {
   };
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   hideCompleted: boolean;
+  hiddenStatusValues?: readonly string[];
+  statusColorMap?: Record<string, string>;
   toggleUrl: string;
   includeWatching: boolean;
   watchToggleUrl: string;
@@ -132,15 +144,6 @@ type TasksViewProps = {
   filterPersistenceScope?: string;
   hasExplicitFilterParams?: boolean;
   columnPreferenceUserId?: string | null;
-};
-
-const statusColors: Record<string, string> = {
-  to_do: "bg-slate-400",
-  backlog: "bg-slate-400",
-  in_progress: "bg-blue-500",
-  blocked: "bg-yellow-500",
-  completed: "bg-green-500",
-  cancelled: "bg-red-500",
 };
 
 type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
@@ -212,6 +215,10 @@ function filterAllowedValues(values: string[], allowedValues: Set<string>) {
   return values.filter((value) => allowedValues.has(value));
 }
 
+function normalizeTaskStatusKey(value: string | null | undefined) {
+  return normalizeTaskStatus(value) || String(value || "").trim().toLowerCase();
+}
+
 function normalizeVisibleTaskColumns(
   values: string[],
   knownColumnIds: TaskTableColumnId[]
@@ -275,6 +282,8 @@ export default function TasksView({
   initialFilters,
   onUpdate,
   hideCompleted,
+  hiddenStatusValues = [],
+  statusColorMap = {},
   toggleUrl,
   includeWatching,
   watchToggleUrl,
@@ -323,6 +332,26 @@ export default function TasksView({
   const enableTaskNotesHover = basePath === "/tasks" && view === "table";
   const supportsNextSubtaskDueDateColumn = basePath === "/tasks";
   const showNextSubtaskDueDateColumn = supportsNextSubtaskDueDateColumn && view === "table";
+  const taskStatusColorLookup = useMemo(() => {
+    const lookup: Record<string, string> = {};
+    statusOptions.forEach((status) => {
+      const normalized = normalizeTaskStatusKey(status);
+      lookup[normalized] =
+        statusColorMap[normalized] ||
+        statusColorMap[status] ||
+        defaultStatusColorHex("task", normalized);
+    });
+    return lookup;
+  }, [statusColorMap, statusOptions]);
+
+  const getTaskStatusColor = useCallback(
+    (status: string | null | undefined) => {
+      const normalized = normalizeTaskStatusKey(status);
+      if (!normalized) return defaultStatusColorHex("task", "");
+      return taskStatusColorLookup[normalized] || defaultStatusColorHex("task", normalized);
+    },
+    [taskStatusColorLookup]
+  );
   const taskTableColumns = useMemo<TableColumnOption[]>(
     () => [
       { id: "task", label: "Task", required: true },
@@ -971,21 +1000,29 @@ export default function TasksView({
     );
   };
 
-  const shouldHideCompletedStatuses =
-    hideCompleted &&
-    !filters.status.includes("completed") &&
-    !filters.status.includes("cancelled");
+  const hiddenStatusSet = useMemo(() => {
+    const keys = hiddenStatusValues
+      .map((status) => normalizeTaskStatusKey(status))
+      .filter(Boolean);
+    return new Set(keys);
+  }, [hiddenStatusValues]);
+
+  const hasSelectedHiddenStatus = filters.status.some((status) =>
+    hiddenStatusSet.has(normalizeTaskStatusKey(status))
+  );
+
+  const shouldHideHiddenStatuses =
+    hideCompleted && hiddenStatusSet.size > 0 && !hasSelectedHiddenStatus;
 
   const visibleTasks = useMemo(() => {
-    if (!shouldHideCompletedStatuses) {
+    if (!shouldHideHiddenStatuses) {
       return tasks;
     }
     return tasks.filter((task) => {
-      const status =
-        optimisticStatusByTaskId[task.id] || normalizeTaskStatusOrDefault(task.status);
-      return status !== "completed" && status !== "cancelled";
+      const status = optimisticStatusByTaskId[task.id] || normalizeTaskStatusKey(task.status);
+      return !hiddenStatusSet.has(status);
     });
-  }, [optimisticStatusByTaskId, shouldHideCompletedStatuses, tasks]);
+  }, [hiddenStatusSet, optimisticStatusByTaskId, shouldHideHiddenStatuses, tasks]);
 
   useEffect(() => {
     if (!taskNotesHover.taskId) {
@@ -1212,7 +1249,7 @@ export default function TasksView({
             }}
             className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
           >
-            {hideCompleted ? "Show completed & cancelled" : "Hide completed & cancelled"}
+            {hideCompleted ? "Show closed" : "Hide closed"}
           </a>
           {showWatchToggle ? (
             <a
@@ -1643,12 +1680,12 @@ export default function TasksView({
                 visibleTasks.map((task) => {
                   const isExpanded = expandedTaskIds.has(task.id);
                   const openSubtasks = openSubtasksByParentId[task.id] || [];
-                  const visibleOpenSubtasks = shouldHideCompletedStatuses
+                  const visibleOpenSubtasks = shouldHideHiddenStatuses
                     ? openSubtasks.filter((subtask) => {
                         const subtaskStatus =
                           effectiveStatusByTaskId.get(subtask.id) ||
-                          normalizeTaskStatusOrDefault(subtask.status);
-                        return subtaskStatus !== "completed" && subtaskStatus !== "cancelled";
+                          normalizeTaskStatusKey(subtask.status);
+                        return !hiddenStatusSet.has(subtaskStatus);
                       })
                     : openSubtasks;
                   const nextSubtaskDueDateIso = nextSubtaskDueDateByTaskId[task.id] || null;
@@ -1664,6 +1701,7 @@ export default function TasksView({
                         clients={clients}
                         projects={projects}
                         statusOptions={statusOptions}
+                        statusColorMap={taskStatusColorLookup}
                         priorityOptions={priorityOptions}
                         onUpdate={onUpdate}
                         onStatusUpdate={submitStatusUpdate}
@@ -1695,6 +1733,7 @@ export default function TasksView({
                               clients={clients}
                               projects={projects}
                               statusOptions={statusOptions}
+                              statusColorMap={taskStatusColorLookup}
                               priorityOptions={priorityOptions}
                               onUpdate={onUpdate}
                               onStatusUpdate={submitStatusUpdate}
@@ -1759,7 +1798,10 @@ export default function TasksView({
                     >
                       {task.title}
                     </Link>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                    <span
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700"
+                      style={statusPillStyle(getTaskStatusColor(effectiveStatus))}
+                    >
                       {formatTaskStatusLabel(effectiveStatus)}
                     </span>
                   </div>
@@ -1874,7 +1916,7 @@ export default function TasksView({
                 const duration = Math.max(1, diffDays(task.start, task.end) + 1);
                 const leftPercent = (startOffset / ganttData.rangeDays) * 100;
                 const widthPercent = (duration / ganttData.rangeDays) * 100;
-                const barColor = statusColors[task.status || ""] || "bg-slate-400";
+                const barColor = getTaskStatusColor(task.status);
 
                 return (
                   <div
@@ -1900,8 +1942,12 @@ export default function TasksView({
                         ) : null}
                         <Link
                           href={`/tasks/${task.id}`}
-                          className={`absolute top-1/2 h-3 -translate-y-1/2 rounded-full ${barColor}`}
-                          style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+                          className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full"
+                          style={{
+                            left: `${leftPercent}%`,
+                            width: `${widthPercent}%`,
+                            ...statusBarStyle(barColor),
+                          }}
                           aria-label={`Open ${task.title}`}
                         />
                       </div>
@@ -1921,7 +1967,7 @@ export default function TasksView({
               <div className="flex min-w-max gap-4">
                 {statusOptions.map((status) => {
                   const columnTasks = boardTasksByStatus.get(status) || [];
-                  const color = statusColors[status] || "bg-slate-400";
+                  const color = getTaskStatusColor(status);
                   const isOver = dragOverStatus === status;
 
                   return (
@@ -1956,7 +2002,10 @@ export default function TasksView({
                     >
                       <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={statusDotStyle(color)}
+                          />
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                             {formatTaskStatusLabel(status)}
                           </p>

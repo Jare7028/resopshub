@@ -14,8 +14,15 @@ import {
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
 import { formatTaskStatusLabel } from "@/lib/taskStatus";
+import { defaultStatusColorHex } from "@/lib/statusOptions";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import MultiSelect from "../_components/MultiSelect";
+import {
+  statusBarStyle,
+  statusDotStyle,
+  statusPillStyle,
+  statusSelectStyle,
+} from "@/lib/statusColorStyles";
 import {
   isViewMode,
   readDefaultViewMode,
@@ -89,7 +96,9 @@ type ProjectsViewProps = {
   openTaskCountByProjectId: Record<string, number>;
   openTasksByProjectId?: Record<string, OpenProjectTaskRow[]>;
   statusOptions: readonly string[];
+  statusColorMap?: Record<string, string>;
   taskStatusOptions: readonly string[];
+  taskStatusColorMap?: Record<string, string>;
   initialView?: "table" | "gantt" | "board";
   initialFilters: {
     client: string[];
@@ -136,14 +145,6 @@ type PersistedProjectFilterState = {
   sortKey: ProjectSortKey;
   sortDir: ProjectSortDir;
   view: "table" | "gantt" | "board";
-};
-
-const statusColors: Record<string, string> = {
-  planned: "bg-slate-400",
-  active: "bg-blue-500",
-  on_hold: "bg-yellow-500",
-  completed: "bg-green-500",
-  cancelled: "bg-red-500",
 };
 
 function formatProjectStatusLabel(value: string | null | undefined) {
@@ -254,7 +255,9 @@ export default function ProjectsView({
   openTaskCountByProjectId,
   openTasksByProjectId = {},
   statusOptions,
+  statusColorMap = {},
   taskStatusOptions,
+  taskStatusColorMap = {},
   initialView = "table",
   initialFilters,
   onUpdate,
@@ -312,6 +315,46 @@ export default function ProjectsView({
   );
   const [visibleProjectColumns, setVisibleProjectColumns] = useState<ProjectTableColumnId[]>(
     projectTableColumnIds
+  );
+  const projectStatusColorLookup = useMemo(() => {
+    const lookup: Record<string, string> = {};
+    statusOptions.forEach((status) => {
+      const normalized = String(status || "").trim().toLowerCase();
+      if (!normalized) return;
+      lookup[normalized] =
+        statusColorMap[normalized] ||
+        statusColorMap[status] ||
+        defaultStatusColorHex("project", normalized);
+    });
+    return lookup;
+  }, [statusColorMap, statusOptions]);
+  const taskStatusColorLookup = useMemo(() => {
+    const lookup: Record<string, string> = {};
+    taskStatusOptions.forEach((status) => {
+      const normalized = String(status || "").trim().toLowerCase();
+      if (!normalized) return;
+      lookup[normalized] =
+        taskStatusColorMap[normalized] ||
+        taskStatusColorMap[status] ||
+        defaultStatusColorHex("task", normalized);
+    });
+    return lookup;
+  }, [taskStatusColorMap, taskStatusOptions]);
+  const getProjectStatusColor = useCallback(
+    (status: string | null | undefined) => {
+      const normalized = String(status || "").trim().toLowerCase();
+      if (!normalized) return defaultStatusColorHex("project", "");
+      return projectStatusColorLookup[normalized] || defaultStatusColorHex("project", normalized);
+    },
+    [projectStatusColorLookup]
+  );
+  const getTaskStatusColor = useCallback(
+    (status: string | null | undefined) => {
+      const normalized = String(status || "").trim().toLowerCase();
+      if (!normalized) return defaultStatusColorHex("task", "");
+      return taskStatusColorLookup[normalized] || defaultStatusColorHex("task", normalized);
+    },
+    [taskStatusColorLookup]
   );
   const visibleProjectColumnSet = useMemo(
     () => new Set<ProjectTableColumnId>(visibleProjectColumns),
@@ -954,8 +997,8 @@ export default function ProjectsView({
             className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
           >
             {hideCompleted
-              ? "Show completed & cancelled"
-              : "Hide completed & cancelled"}
+              ? "Show closed"
+              : "Hide closed"}
           </a>
           <a
             href={watchToggleUrl}
@@ -1284,6 +1327,7 @@ export default function ProjectsView({
                                 aria-label="Status"
                                 defaultValue={project.status ?? "planned"}
                                 className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                style={statusSelectStyle(getProjectStatusColor(project.status))}
                                 onChange={handleInlineChange}
                               >
                                 {statusOptions.map((status) => (
@@ -1393,6 +1437,7 @@ export default function ProjectsView({
                                       aria-label="Task status"
                                       defaultValue={task.status || "to_do"}
                                       className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                                      style={statusSelectStyle(getTaskStatusColor(task.status))}
                                       onChange={handleTaskInlineChange}
                                     >
                                       {taskStatusOptions.map((status) => (
@@ -1489,7 +1534,10 @@ export default function ProjectsView({
                     >
                       {project.name}
                     </Link>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                    <span
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700"
+                      style={statusPillStyle(getProjectStatusColor(project.status))}
+                    >
                       {formatProjectStatusLabel(project.status)}
                     </span>
                   </div>
@@ -1558,7 +1606,7 @@ export default function ProjectsView({
                 const duration = Math.max(1, diffDays(project.start, project.end) + 1);
                 const leftPercent = (startOffset / ganttData.rangeDays) * 100;
                 const widthPercent = (duration / ganttData.rangeDays) * 100;
-                const barColor = statusColors[project.status || ""] || "bg-slate-400";
+                const barColor = getProjectStatusColor(project.status);
 
                 return (
                   <div
@@ -1574,8 +1622,12 @@ export default function ProjectsView({
                       <div className="absolute inset-y-0 left-6 right-6">
                         <Link
                           href={`/projects/${project.id}`}
-                          className={`absolute top-1/2 h-3 -translate-y-1/2 rounded-full ${barColor}`}
-                          style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+                          className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full"
+                          style={{
+                            left: `${leftPercent}%`,
+                            width: `${widthPercent}%`,
+                            ...statusBarStyle(barColor),
+                          }}
                           aria-label={`Open ${project.name}`}
                         />
                       </div>
@@ -1595,7 +1647,7 @@ export default function ProjectsView({
               <div className="flex min-w-max gap-4">
                 {statusOptions.map((status) => {
                   const columnProjects = boardProjectsByStatus.get(status) || [];
-                  const color = statusColors[status] || "bg-slate-400";
+                  const color = getProjectStatusColor(status);
                   const isOver = dragOverStatus === status;
 
                   return (
@@ -1630,7 +1682,10 @@ export default function ProjectsView({
                     >
                       <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={statusDotStyle(color)}
+                          />
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                             {formatProjectStatusLabel(status)}
                           </p>

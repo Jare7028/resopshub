@@ -5,13 +5,17 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
-import { normalizeTaskStatusOrDefault, TASK_STATUS_OPTIONS } from "@/lib/taskStatus";
+import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import {
-  buildStatusOptions,
-  DEFAULT_PROJECT_STATUS_OPTIONS,
+  buildStatusColorMap,
+  buildHiddenStatusValues,
+  buildStatusOptionsWithMetadata,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import { updateTaskInlineAction } from "../tasks/actions";
 import ProjectsView, {
   type ProjectSortDir,
@@ -289,36 +293,62 @@ export default async function ProjectsPage(props: {
     createModeRaw === "template" ? "template" : "new";
   const templateProjectId = String(searchParams?.template_project_id || "").trim();
   const returnParams = new URLSearchParams();
+  const statusOptionsPromise = supabase
+    .from("status_options")
+    .select("entity_type,value,position,is_visible,counts_as_completed,color_hex")
+    .order("entity_type", { ascending: true })
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
 
   const [
     { data: currentUser },
     { data: clients },
     { data: users },
-    { data: statusOptionsRaw },
+    statusOptionsResponse,
   ] =
     await Promise.all([
       currentUserPromise,
       supabase.from("clients").select("id,name").order("name", { ascending: true }),
       supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
-      supabase
-        .from("status_options")
-        .select("entity_type,value,position")
-        .order("entity_type", { ascending: true })
-        .order("position", { ascending: true })
-        .order("value", { ascending: true }),
+      statusOptionsPromise,
     ]);
+
+  let statusOptionsRaw = (statusOptionsResponse.data || null) as StatusOptionRow[] | null;
+  if (statusOptionsResponse.error && isSupabaseMissingColumnError(statusOptionsResponse.error)) {
+    const legacyStatusOptionsResponse = await supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .order("entity_type", { ascending: true })
+      .order("position", { ascending: true })
+      .order("value", { ascending: true });
+    statusOptionsRaw = (legacyStatusOptionsResponse.data || null) as StatusOptionRow[] | null;
+  }
+
   const currentUserId = currentUser?.id;
   const isAdmin = currentUser?.role === "admin";
-  const projectStatusOptions = buildStatusOptions(
+  const projectStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
     "project",
     (statusOptionsRaw || []) as StatusOptionRow[],
-    DEFAULT_PROJECT_STATUS_OPTIONS
+    []
   );
-  const taskStatusOptions = buildStatusOptions(
+  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
     "task",
     (statusOptionsRaw || []) as StatusOptionRow[],
-    TASK_STATUS_OPTIONS
+    []
   );
+  const projectStatusOptions = projectStatusOptionsWithMetadata.map((status) => status.value);
+  const taskStatusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
+  const projectStatusColorMap = buildStatusColorMap(
+    "project",
+    projectStatusOptionsWithMetadata
+  );
+  const taskStatusColorMap = buildStatusColorMap("task", taskStatusOptionsWithMetadata);
+  const hiddenProjectStatusValues = buildHiddenStatusValues(
+    "project",
+    projectStatusOptionsWithMetadata
+  );
+  const hiddenProjectStatusSet = new Set(hiddenProjectStatusValues);
+  const hiddenTaskStatusValues = buildHiddenStatusValues("task", taskStatusOptionsWithMetadata);
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
@@ -429,7 +459,12 @@ export default async function ProjectsPage(props: {
   }
   if (selectedClientIds.length) request = request.in("client_id", selectedClientIds);
   if (selectedStatuses.length) request = request.in("status", selectedStatuses);
-  if (hideCompleted) request = request.not("status", "in", "(completed,cancelled)");
+  const wantsHiddenProjectStatuses = selectedStatuses.some((status) =>
+    hiddenProjectStatusSet.has(status)
+  );
+  if (hideCompleted && hiddenProjectStatusValues.length && !wantsHiddenProjectStatuses) {
+    request = request.not("status", "in", `(${hiddenProjectStatusValues.join(",")})`);
+  }
 
   let projects: Array<{
     id: string;
@@ -490,15 +525,24 @@ export default async function ProjectsPage(props: {
   const projectIdsForCounts = projects.map((project) => project.id).filter(Boolean) as string[];
   if (projectIdsForCounts.length) {
     if (shouldLoadOpenTaskDetails) {
-      const { data: openTaskRowsRaw, error: openTaskRowsError } = await supabase
+      let openTaskRowsQuery = supabase
         .from("tasks")
         .select(
           "id,project_id,client_id,title,status,priority,start_date,due_date,due_time,parent_task_id,assignee_user_id"
         )
         .in("project_id", projectIdsForCounts)
-        .is("parent_task_id", null)
-        .not("status", "in", "(completed,cancelled)")
-        .order("created_at", { ascending: true });
+        .is("parent_task_id", null);
+      if (hiddenTaskStatusValues.length) {
+        openTaskRowsQuery = openTaskRowsQuery.not(
+          "status",
+          "in",
+          `(${hiddenTaskStatusValues.join(",")})`
+        );
+      }
+      const { data: openTaskRowsRaw, error: openTaskRowsError } = await openTaskRowsQuery.order(
+        "created_at",
+        { ascending: true }
+      );
 
       if (!openTaskRowsError) {
         const openTaskRows = (openTaskRowsRaw || []) as Array<{
@@ -559,12 +603,20 @@ export default async function ProjectsPage(props: {
         }
       }
     } else {
-      const { data: openTaskCountRowsRaw, error: openTaskCountRowsError } = await supabase
+      let openTaskCountRowsQuery = supabase
         .from("tasks")
         .select("id,project_id")
         .in("project_id", projectIdsForCounts)
-        .is("parent_task_id", null)
-        .not("status", "in", "(completed,cancelled)");
+        .is("parent_task_id", null);
+      if (hiddenTaskStatusValues.length) {
+        openTaskCountRowsQuery = openTaskCountRowsQuery.not(
+          "status",
+          "in",
+          `(${hiddenTaskStatusValues.join(",")})`
+        );
+      }
+      const { data: openTaskCountRowsRaw, error: openTaskCountRowsError } =
+        await openTaskCountRowsQuery;
 
       if (!openTaskCountRowsError) {
         const openTaskCountRows = (openTaskCountRowsRaw || []) as Array<{
@@ -1363,7 +1415,9 @@ export default async function ProjectsPage(props: {
           openTaskCountByProjectId={openTaskCountByProjectId}
           openTasksByProjectId={openTasksByProjectId}
           statusOptions={projectStatusOptions}
+          statusColorMap={projectStatusColorMap}
           taskStatusOptions={taskStatusOptions}
+          taskStatusColorMap={taskStatusColorMap}
           initialView={selectedView}
           initialFilters={{
             client: selectedClientIds,

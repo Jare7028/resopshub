@@ -5,11 +5,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { isSupabaseMissingColumnError } from "@/lib/supabaseErrors";
 import {
+  buildStatusColorMap,
   buildStatusOptionsWithMetadata,
   DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
   type StatusOptionRow,
   normalizeStatusValue,
 } from "@/lib/statusOptions";
+import { statusSelectStyle } from "@/lib/statusColorStyles";
 
 const typeOptions = ["bug", "improvement", "new_feature"] as const;
 
@@ -76,7 +78,7 @@ export default async function FeatureSuggestionDetailPage(props: {
 
   const statusOptionsResult: StatusOptionsResponse = await supabase
     .from("status_options")
-    .select("entity_type,value,position,is_visible,counts_as_completed")
+    .select("entity_type,value,position,is_visible,counts_as_completed,color_hex")
     .eq("entity_type", "feature_suggestion")
     .order("position", { ascending: true })
     .order("value", { ascending: true });
@@ -95,6 +97,10 @@ export default async function FeatureSuggestionDetailPage(props: {
     "feature_suggestion",
     ((statusOptionsRowsResult.data || []) as Array<StatusOptionRow>) || [],
     DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS
+  );
+  const featureSuggestionStatusColorMap = buildStatusColorMap(
+    "feature_suggestion",
+    featureSuggestionStatusOptions
   );
 
   const suggestionWithClosedAt = await supabase
@@ -445,6 +451,10 @@ export default async function FeatureSuggestionDetailPage(props: {
               name="status"
               defaultValue={suggestion.status || "idea"}
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+              style={statusSelectStyle(
+                featureSuggestionStatusColorMap[String(suggestion.status || "idea").trim().toLowerCase()] ||
+                  "#64748b"
+              )}
             >
               {featureSuggestionStatusOptions.map((status) => (
                 <option key={status.value} value={status.value}>

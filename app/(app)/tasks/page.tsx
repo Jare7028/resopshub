@@ -6,17 +6,21 @@ import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import {
-  TASK_STATUS_OPTIONS,
   coerceTaskStatusList,
   expandTaskStatusFilterForQuery,
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
 import {
-  buildStatusOptions,
+  buildStatusColorMap,
+  buildHiddenStatusValues,
+  buildStatusOptionsWithMetadata,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import TasksView from "./TasksView";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
 import { normalizeTasksTabKey, type TasksTabKey } from "./_components/TasksTabs";
@@ -233,17 +237,33 @@ export default async function TasksPage(props: {
       taskTablePreferences = (data || null) as UserTaskTablePreferencesRow | null;
     }
   }
-  const { data: statusOptionsRaw } = await supabase
+  const statusOptionsResponse = await supabase
     .from("status_options")
-    .select("entity_type,value,position")
+    .select("entity_type,value,position,is_visible,counts_as_completed,color_hex")
     .order("entity_type", { ascending: true })
     .order("position", { ascending: true })
     .order("value", { ascending: true });
-  const statusOptions = buildStatusOptions(
+  let statusOptionsRaw = (statusOptionsResponse.data || null) as StatusOptionRow[] | null;
+
+  if (statusOptionsResponse.error && isSupabaseMissingColumnError(statusOptionsResponse.error)) {
+    const legacyStatusOptionsResponse = await supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .order("entity_type", { ascending: true })
+      .order("position", { ascending: true })
+      .order("value", { ascending: true });
+    statusOptionsRaw = (legacyStatusOptionsResponse.data || null) as StatusOptionRow[] | null;
+  }
+
+  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
     "task",
     (statusOptionsRaw || []) as StatusOptionRow[],
-    TASK_STATUS_OPTIONS
+    []
   );
+  const statusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
+  const taskStatusColorMap = buildStatusColorMap("task", taskStatusOptionsWithMetadata);
+  const hiddenTaskStatusValues = buildHiddenStatusValues("task", taskStatusOptionsWithMetadata);
+  const hiddenTaskStatusSet = new Set(hiddenTaskStatusValues);
 
   const createModeRaw = String(searchParams?.create_mode || "")
     .trim()
@@ -812,14 +832,15 @@ export default async function TasksPage(props: {
       request = request.in("project_id", selectedProjectIds);
     }
 
-    const wantsCompletedStatuses =
-      selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+    const wantsHiddenStatuses = selectedStatuses.some((status) =>
+      hiddenTaskStatusSet.has(status)
+    );
     const wantsTemplateStatus = selectedStatuses.includes("template");
     if (templateStatusSupported && !wantsTemplateStatus) {
       request = request.neq("status", "template");
     }
-    if (hideCompleted && !wantsCompletedStatuses) {
-      request = request.not("status", "in", "(completed,cancelled)");
+    if (hideCompleted && hiddenTaskStatusValues.length && !wantsHiddenStatuses) {
+      request = request.not("status", "in", `(${hiddenTaskStatusValues.join(",")})`);
     }
 
     const today = new Date();
@@ -878,16 +899,25 @@ export default async function TasksPage(props: {
 
     const taskIdsForSubtaskCounts = sortedTasks.map((task) => task.id).filter(Boolean) as string[];
     if (taskIdsForSubtaskCounts.length) {
+      let openExpandedSubtasksQuery = supabase
+        .from("tasks")
+        .select(
+          "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id"
+        )
+        .in("parent_task_id", taskIdsForSubtaskCounts)
+        .order("created_at", { ascending: true });
+
+      if (hiddenTaskStatusValues.length) {
+        openExpandedSubtasksQuery = openExpandedSubtasksQuery.not(
+          "status",
+          "in",
+          `(${hiddenTaskStatusValues.join(",")})`
+        );
+      }
+
       const { data: openExpandedSubtasksRaw, error: openExpandedSubtasksError } =
         await withPerfTiming("tasks.page.open_subtasks.rows", () =>
-          supabase
-            .from("tasks")
-            .select(
-              "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id"
-            )
-            .in("parent_task_id", taskIdsForSubtaskCounts)
-            .not("status", "in", "(completed,cancelled)")
-            .order("created_at", { ascending: true })
+          openExpandedSubtasksQuery
         );
 
       if (openExpandedSubtasksError) {
@@ -1855,6 +1885,8 @@ export default async function TasksPage(props: {
           }}
           onUpdate={updateTaskInlineAction}
           hideCompleted={hideCompleted}
+          hiddenStatusValues={hiddenTaskStatusValues}
+          statusColorMap={taskStatusColorMap}
           toggleUrl={toggleUrl}
           includeWatching={includeWatching}
           watchToggleUrl={watchToggleUrl}

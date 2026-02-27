@@ -15,8 +15,8 @@ import {
   dueInputClasses,
   getDueUrgency,
   prioritySelectClasses,
-  statusSelectClasses,
 } from "@/lib/taskIndicators";
+import { statusSelectStyle } from "@/lib/statusColorStyles";
 
 type UserOption = {
   id: string;
@@ -73,6 +73,7 @@ type TaskInlineRowProps = {
   clients: ClientOption[];
   projects: ProjectOption[];
   statusOptions: readonly string[];
+  statusColorMap?: Record<string, string>;
   priorityOptions: readonly string[];
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   onStatusUpdate?: (taskId: string, status: string) => void;
@@ -97,6 +98,7 @@ export default function TaskInlineRow({
   clients,
   projects,
   statusOptions,
+  statusColorMap = {},
   priorityOptions,
   onUpdate,
   onStatusUpdate,
@@ -114,6 +116,10 @@ export default function TaskInlineRow({
   const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
   const nextSubtaskDueUrgency = getDueUrgency(nextSubtaskDueDateIso, null);
   const normalizedStatus = normalizeTaskStatusOrDefault(statusValue ?? task.status);
+  const statusColorHex =
+    statusColorMap[normalizedStatus] ||
+    statusColorMap[String(statusValue || task.status || "").trim().toLowerCase()] ||
+    null;
   const isSubtaskRow = rowVariant === "subtask";
   const [, startTransition] = useTransition();
 
@@ -357,9 +363,8 @@ export default function TaskInlineRow({
               name="status"
               aria-label="Status"
               value={normalizedStatus}
-              className={`w-full rounded-md border px-2 py-1 text-sm ${statusSelectClasses(
-                normalizedStatus
-              )}`}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+              style={statusSelectStyle(statusColorHex)}
               onChange={handleChange}
             >
               {statusOptions.map((status) => (

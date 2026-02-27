@@ -11,9 +11,8 @@ import { withPerfTiming } from "@/lib/perf";
 import {
   DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
   buildStatusOptionsWithMetadata,
-  DEFAULT_PROJECT_STATUS_OPTIONS,
-  DEFAULT_TASK_STATUS_OPTIONS,
   isCoreStatus,
+  normalizeStatusColorHex,
   normalizeStatusValue,
   type StatusEntityType,
   type StatusOptionRow,
@@ -31,6 +30,7 @@ import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
   normalizeSettingsTabKey,
 } from "./_components/SettingsTabs";
+import StatusOptionAutoRow from "./_components/StatusOptionAutoRow";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +101,12 @@ function toInitials(label: string) {
 
 function checkbox(formData: FormData, key: string) {
   return String(formData.get(key) || "") === "on";
+}
+
+function statusColorValue(formData: FormData, key: string): string | null {
+  const raw = String(formData.get(key) || "").trim();
+  if (!raw) return null;
+  return normalizeStatusColorHex(raw);
 }
 
 function prefValue(value: boolean | null | undefined, fallback: boolean): boolean {
@@ -279,7 +285,7 @@ export default async function SettingsPage(props: {
   let statusOptionsResult: StatusOptionsResult = shouldLoadStatusOptions
     ? ((await supabase
         .from("status_options")
-        .select("id,entity_type,value,position,is_visible,counts_as_completed")
+        .select("id,entity_type,value,position,is_visible,counts_as_completed,color_hex")
         .order("entity_type", { ascending: true })
         .order("position", { ascending: true })
         .order("value", { ascending: true })
@@ -311,20 +317,12 @@ export default async function SettingsPage(props: {
   const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
     "task",
     statusOptions,
-    DEFAULT_TASK_STATUS_OPTIONS.map((status) => ({
-      value: status,
-      is_visible: true,
-      counts_as_completed: false,
-    }))
+    []
   );
   const projectStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
     "project",
     statusOptions,
-    DEFAULT_PROJECT_STATUS_OPTIONS.map((status) => ({
-      value: status,
-      is_visible: true,
-      counts_as_completed: false,
-    }))
+    []
   );
   const featureSuggestionStatusOptions = buildStatusOptionsWithMetadata(
     "feature_suggestion",
@@ -1927,9 +1925,14 @@ export default async function SettingsPage(props: {
     const value = normalizeStatusValue(String(formData.get("value") || ""));
     const isVisible = checkbox(formData, "is_visible");
     const countsAsCompleted = checkbox(formData, "counts_as_completed");
+    const rawColorHex = String(formData.get("color_hex") || "").trim();
+    const colorHex = statusColorValue(formData, "color_hex");
 
     if (!value) {
       redirect("/settings?tab=statuses&error=Status%20is%20required");
+    }
+    if (rawColorHex && !colorHex) {
+      redirect("/settings?tab=statuses&error=Color%20must%20be%20a%20hex%20value%20like%20%2300aaff");
     }
 
     const { data: last } = await supabase
@@ -1947,6 +1950,7 @@ export default async function SettingsPage(props: {
       position: nextPosition,
       is_visible: isVisible,
       counts_as_completed: countsAsCompleted,
+      color_hex: colorHex,
     };
 
     let { error } = await supabase.from("status_options").insert(payload);
@@ -2002,11 +2006,12 @@ export default async function SettingsPage(props: {
     redirect("/settings?tab=statuses&success=Status%20deleted");
   }
 
-  async function updateStatusOption(formData: FormData) {
+  async function updateStatusOption(formData: FormData): Promise<{ ok: boolean; error?: string } | void> {
     "use server";
     const supabase = createSupabaseServerClient();
     const { data: authData } = await supabase.auth.getUser();
     if (!authData.user) redirect("/login");
+    const autosave = String(formData.get("autosave") || "").trim() === "1";
 
     const id = String(formData.get("id") || "").trim();
     const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
@@ -2017,11 +2022,20 @@ export default async function SettingsPage(props: {
     const value = normalizeStatusValue(String(formData.get("value") || ""));
     const isVisible = checkbox(formData, "is_visible");
     const countsAsCompleted = checkbox(formData, "counts_as_completed");
+    const rawColorHex = String(formData.get("color_hex") || "").trim();
+    const colorHex = statusColorValue(formData, "color_hex");
     const position = Number(formData.get("position") || "");
     const nextPosition = Number.isFinite(position) ? position : 0;
 
     if (!value) {
+      if (autosave) return { ok: false, error: "Missing status" };
       redirect("/settings?tab=statuses&error=Missing%20status");
+    }
+    if (rawColorHex && !colorHex) {
+      if (autosave) {
+        return { ok: false, error: "Color must be a hex value like #00aaff" };
+      }
+      redirect("/settings?tab=statuses&error=Color%20must%20be%20a%20hex%20value%20like%20%2300aaff");
     }
 
     let error: { message: string } | null = null;
@@ -2033,6 +2047,7 @@ export default async function SettingsPage(props: {
         .update({
           is_visible: isVisible,
           counts_as_completed: countsAsCompleted,
+          color_hex: colorHex,
           position: nextPosition,
         })
         .eq("id", targetId));
@@ -2072,6 +2087,7 @@ export default async function SettingsPage(props: {
             value,
             is_visible: isVisible,
             counts_as_completed: countsAsCompleted,
+            color_hex: colorHex,
             position: nextPosition || 1,
           }));
 
@@ -2087,6 +2103,7 @@ export default async function SettingsPage(props: {
     }
 
     if (error) {
+      if (autosave) return { ok: false, error: error.message };
       redirect(`/settings?tab=statuses&error=${encodeURIComponent(error.message)}`);
     }
 
@@ -2094,6 +2111,9 @@ export default async function SettingsPage(props: {
     revalidatePath("/tasks");
     revalidatePath("/projects");
     revalidatePath("/feature-suggestions");
+    if (autosave) {
+      return { ok: true };
+    }
     redirect("/settings?tab=statuses&success=Status%20updated");
   }
 
@@ -2141,6 +2161,31 @@ export default async function SettingsPage(props: {
         normalizeStatusValue(option.value) === status.value
     )?.id || "",
   }));
+  const statusSections: Array<{
+    title: string;
+    entityType: StatusEntityType;
+    placeholder: string;
+    rows: typeof taskStatusRowsWithIds;
+  }> = [
+    {
+      title: "Task statuses",
+      entityType: "task",
+      placeholder: "e.g. qa_review",
+      rows: taskStatusRowsWithIds,
+    },
+    {
+      title: "Project statuses",
+      entityType: "project",
+      placeholder: "e.g. pending_review",
+      rows: projectStatusRowsWithIds,
+    },
+    {
+      title: "Feature suggestion statuses",
+      entityType: "feature_suggestion",
+      placeholder: "e.g. blocked_pending",
+      rows: featureSuggestionStatusRowsWithIds,
+    },
+  ];
 
   return (
     <div className="space-y-8">
@@ -2394,6 +2439,8 @@ export default async function SettingsPage(props: {
             <h2 className="text-lg font-semibold text-slate-900">Status options</h2>
             <p className="mt-1 text-sm text-slate-600">
               Manage task, project, and feature suggestion statuses used across forms, templates, and filters.
+              Open statuses stay visible in lists. Closed statuses are hidden unless someone chooses to show closed.
+              Existing status rows auto-save when you change any option.
             </p>
           </div>
           <div className="p-6 space-y-6">
@@ -2404,288 +2451,83 @@ export default async function SettingsPage(props: {
               </div>
             ) : null}
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-md border border-slate-200 bg-white p-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task statuses</h4>
-                <form action={createStatusOption} className="mt-2 space-y-2">
-                  <input type="hidden" name="entity_type" value="task" />
-                  <input
-                    name="value"
-                    placeholder="e.g. qa_review"
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
-                  />
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="is_visible"
-                      defaultChecked
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Visible
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="counts_as_completed"
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Counts as completed
-                  </label>
-                  <button
-                    type="submit"
-                    className="w-full rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Add
-                  </button>
-                </form>
-                <div className="mt-3 space-y-2">
-                  {taskStatusRowsWithIds.map((status) => (
-                    <div
-                      key={`task-${status.value}`}
-                      className="rounded-md border border-slate-200 bg-slate-50 p-2 text-sm"
-                    >
-                      <form action={updateStatusOption} className="grid grid-cols-2 gap-2">
-                        <input type="hidden" name="entity_type" value="task" />
-                        <input type="hidden" name="id" value={status.id} />
-                        <input type="hidden" name="value" value={status.value} />
-                        <input type="hidden" name="position" value={status.position} />
-                        <span className="col-span-2 font-semibold text-slate-800">
-                          {status.value.replace(/_/g, " ")}
-                          {isCoreStatus("task", status.value) ? (
-                            <span className="ml-2 text-xs font-semibold text-slate-500">(core)</span>
-                          ) : null}
-                        </span>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-                          <input
-                            type="checkbox"
-                            name="is_visible"
-                            defaultChecked={status.isVisible}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                          Visible
-                        </label>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-                          <input
-                            type="checkbox"
-                            name="counts_as_completed"
-                            defaultChecked={status.countsAsCompleted}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                          Completed
-                        </label>
-                        <button
-                          type="submit"
-                          className="col-span-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          Save
-                        </button>
-                      </form>
-                      {!isCoreStatus("task", status.value) ? (
-                        <form action={deleteStatusOption} className="mt-2">
-                          <input type="hidden" name="entity_type" value="task" />
-                          <input type="hidden" name="value" value={status.value} />
-                          <input type="hidden" name="id" value={status.id} />
-                          <button
-                            type="submit"
-                            className="w-full rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                          >
-                            Delete
-                          </button>
-                        </form>
-                      ) : null}
+            <div className="grid gap-4 xl:grid-cols-3">
+              {statusSections.map((section) => (
+                <div key={section.entityType} className="rounded-md border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {section.title}
+                    </h4>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                      {section.rows.length}
+                    </span>
+                  </div>
+                  <form action={createStatusOption} className="mt-2 grid gap-2">
+                    <input type="hidden" name="entity_type" value={section.entityType} />
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_88px_88px_104px_auto] sm:items-center">
+                      <input
+                        name="value"
+                        placeholder={section.placeholder}
+                        className="h-9 min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        required
+                      />
+                      <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 sm:justify-center">
+                        <input
+                          type="checkbox"
+                          name="is_visible"
+                          defaultChecked
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        Open
+                      </label>
+                      <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 sm:justify-center">
+                        <input
+                          type="checkbox"
+                          name="counts_as_completed"
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        Closed
+                      </label>
+                      <input
+                        name="color_hex"
+                        placeholder="#64748b"
+                        defaultValue="#64748b"
+                        className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-xs font-mono uppercase"
+                      />
+                      <button
+                        type="submit"
+                        className="h-9 rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
+                      >
+                        Add
+                      </button>
                     </div>
-                  ))}
+                  </form>
+                  <div className="mt-3 hidden grid-cols-[minmax(0,1fr)_88px_88px_144px_auto] px-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+                    <span>Status</span>
+                    <span className="text-center">Open</span>
+                    <span className="text-center">Closed</span>
+                    <span className="text-right">Color</span>
+                    <span className="text-right">Actions</span>
+                  </div>
+                  <div className="mt-1 space-y-1.5">
+                    {section.rows.map((status) => (
+                      <StatusOptionAutoRow
+                        key={`${section.entityType}-${status.value}`}
+                        entityType={section.entityType}
+                        id={status.id}
+                        value={status.value}
+                        position={status.position}
+                        isVisible={status.isVisible}
+                        countsAsCompleted={status.countsAsCompleted}
+                        colorHex={status.colorHex}
+                        isCore={isCoreStatus(section.entityType, status.value)}
+                        onUpdate={updateStatusOption}
+                        onDelete={deleteStatusOption}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Project statuses</h4>
-                <form action={createStatusOption} className="mt-2 space-y-2">
-                  <input type="hidden" name="entity_type" value="project" />
-                  <input
-                    name="value"
-                    placeholder="e.g. pending_review"
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
-                  />
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="is_visible"
-                      defaultChecked
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Visible
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="counts_as_completed"
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Counts as completed
-                  </label>
-                  <button
-                    type="submit"
-                    className="w-full rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Add
-                  </button>
-                </form>
-                <div className="mt-3 space-y-2">
-                  {projectStatusRowsWithIds.map((status) => (
-                    <div
-                      key={`project-${status.value}`}
-                      className="rounded-md border border-slate-200 bg-slate-50 p-2 text-sm"
-                    >
-                      <form action={updateStatusOption} className="grid grid-cols-2 gap-2">
-                        <input type="hidden" name="entity_type" value="project" />
-                        <input type="hidden" name="id" value={status.id} />
-                        <input type="hidden" name="value" value={status.value} />
-                        <input type="hidden" name="position" value={status.position} />
-                        <span className="col-span-2 font-semibold text-slate-800">
-                          {status.value.replace(/_/g, " ")}
-                          {isCoreStatus("project", status.value) ? (
-                            <span className="ml-2 text-xs font-semibold text-slate-500">(core)</span>
-                          ) : null}
-                        </span>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-                          <input
-                            type="checkbox"
-                            name="is_visible"
-                            defaultChecked={status.isVisible}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                          Visible
-                        </label>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-                          <input
-                            type="checkbox"
-                            name="counts_as_completed"
-                            defaultChecked={status.countsAsCompleted}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                          Completed
-                        </label>
-                        <button
-                          type="submit"
-                          className="col-span-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          Save
-                        </button>
-                      </form>
-                      {!isCoreStatus("project", status.value) ? (
-                        <form action={deleteStatusOption} className="mt-2">
-                          <input type="hidden" name="entity_type" value="project" />
-                          <input type="hidden" name="value" value={status.value} />
-                          <input type="hidden" name="id" value={status.id} />
-                          <button
-                            type="submit"
-                            className="w-full rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                          >
-                            Delete
-                          </button>
-                        </form>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Feature suggestion statuses
-                </h4>
-                <form action={createStatusOption} className="mt-2 space-y-2">
-                  <input type="hidden" name="entity_type" value="feature_suggestion" />
-                  <input
-                    name="value"
-                    placeholder="e.g. blocked_pending"
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
-                  />
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="is_visible"
-                      defaultChecked
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Visible
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="counts_as_completed"
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Counts as completed
-                  </label>
-                  <button
-                    type="submit"
-                    className="w-full rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                  >
-                    Add
-                  </button>
-                </form>
-                <div className="mt-3 space-y-2">
-                  {featureSuggestionStatusRowsWithIds.map((status) => (
-                    <div
-                      key={`feature-suggestion-${status.value}`}
-                      className="rounded-md border border-slate-200 bg-slate-50 p-2 text-sm"
-                    >
-                      <form action={updateStatusOption} className="grid grid-cols-2 gap-2">
-                        <input type="hidden" name="entity_type" value="feature_suggestion" />
-                        <input type="hidden" name="id" value={status.id} />
-                        <input type="hidden" name="value" value={status.value} />
-                        <input type="hidden" name="position" value={status.position} />
-                        <span className="col-span-2 font-semibold text-slate-800">
-                          {status.value.replace(/_/g, " ")}
-                          {isCoreStatus("feature_suggestion", status.value) ? (
-                            <span className="ml-2 text-xs font-semibold text-slate-500">(core)</span>
-                          ) : null}
-                        </span>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-                          <input
-                            type="checkbox"
-                            name="is_visible"
-                            defaultChecked={status.isVisible}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                          Visible
-                        </label>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-                          <input
-                            type="checkbox"
-                            name="counts_as_completed"
-                            defaultChecked={status.countsAsCompleted}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                          Completed
-                        </label>
-                        <button
-                          type="submit"
-                          className="col-span-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          Save
-                        </button>
-                      </form>
-                      {!isCoreStatus("feature_suggestion", status.value) ? (
-                        <form action={deleteStatusOption} className="mt-2">
-                          <input type="hidden" name="entity_type" value="feature_suggestion" />
-                          <input type="hidden" name="value" value={status.value} />
-                          <input type="hidden" name="id" value={status.id} />
-                          <button
-                            type="submit"
-                            className="w-full rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                          >
-                            Delete
-                          </button>
-                        </form>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </section>
