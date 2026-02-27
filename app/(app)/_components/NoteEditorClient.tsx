@@ -4622,7 +4622,7 @@ export default function NoteEditorClient({
       if (editor) {
         if (overlayContext.overlayNodePos !== null) {
           editor.commands.focus();
-        } else if (editor.state.selection.empty) {
+        } else {
           const pos = editor.view.posAtCoords({
             left: event.clientX,
             top: event.clientY,
@@ -4632,8 +4632,6 @@ export default function NoteEditorClient({
           } else {
             editor.commands.focus();
           }
-        } else {
-          editor.commands.focus();
         }
       }
 
@@ -6666,6 +6664,29 @@ export default function NoteEditorClient({
                     })}
                   </div>
                 </div>
+              ) : null}
+
+              {contextMenu.inTable ? (
+                <>
+                  <div className="my-1 border-t border-slate-200" />
+                  <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Table actions
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().deleteRow().run())}
+                    className="context-menu-item"
+                  >
+                    Delete row
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(() => editor.chain().focus().deleteColumn().run())}
+                    className="context-menu-item"
+                  >
+                    Delete column
+                  </button>
+                </>
               ) : null}
             </>
           ) : (
