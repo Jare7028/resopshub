@@ -30,7 +30,7 @@ import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
   normalizeSettingsTabKey,
 } from "./_components/SettingsTabs";
-import StatusOptionAutoRow from "./_components/StatusOptionAutoRow";
+import StatusOptionsPanel from "./_components/StatusOptionsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -2451,84 +2451,12 @@ export default async function SettingsPage(props: {
               </div>
             ) : null}
 
-            <div className="grid gap-4 xl:grid-cols-3">
-              {statusSections.map((section) => (
-                <div key={section.entityType} className="rounded-md border border-slate-200 bg-white p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {section.title}
-                    </h4>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                      {section.rows.length}
-                    </span>
-                  </div>
-                  <form action={createStatusOption} className="mt-2 grid gap-2">
-                    <input type="hidden" name="entity_type" value={section.entityType} />
-                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_88px_88px_104px_auto] sm:items-center">
-                      <input
-                        name="value"
-                        placeholder={section.placeholder}
-                        className="h-9 min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                        required
-                      />
-                      <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 sm:justify-center">
-                        <input
-                          type="checkbox"
-                          name="is_visible"
-                          defaultChecked
-                          className="h-4 w-4 rounded border-slate-300"
-                        />
-                        Open
-                      </label>
-                      <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 sm:justify-center">
-                        <input
-                          type="checkbox"
-                          name="counts_as_completed"
-                          className="h-4 w-4 rounded border-slate-300"
-                        />
-                        Closed
-                      </label>
-                      <input
-                        name="color_hex"
-                        placeholder="#64748b"
-                        defaultValue="#64748b"
-                        className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-xs font-mono uppercase"
-                      />
-                      <button
-                        type="submit"
-                        className="h-9 rounded-md btn-primary px-3 py-2 text-sm font-semibold text-white"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </form>
-                  <div className="mt-3 hidden grid-cols-[minmax(0,1fr)_88px_88px_144px_auto] px-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:grid">
-                    <span>Status</span>
-                    <span className="text-center">Open</span>
-                    <span className="text-center">Closed</span>
-                    <span className="text-right">Color</span>
-                    <span className="text-right">Actions</span>
-                  </div>
-                  <div className="mt-1 space-y-1.5">
-                    {section.rows.map((status) => (
-                      <StatusOptionAutoRow
-                        key={`${section.entityType}-${status.value}`}
-                        entityType={section.entityType}
-                        id={status.id}
-                        value={status.value}
-                        position={status.position}
-                        isVisible={status.isVisible}
-                        countsAsCompleted={status.countsAsCompleted}
-                        colorHex={status.colorHex}
-                        isCore={isCoreStatus(section.entityType, status.value)}
-                        onUpdate={updateStatusOption}
-                        onDelete={deleteStatusOption}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <StatusOptionsPanel
+              sections={statusSections}
+              onCreate={createStatusOption}
+              onUpdate={updateStatusOption}
+              onDelete={deleteStatusOption}
+            />
           </div>
         </section>
       ) : null}
