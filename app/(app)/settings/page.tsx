@@ -278,6 +278,23 @@ export default async function SettingsPage(props: {
     acc[group.id] = new Set(group.memberUserIds);
     return acc;
   }, {});
+  const assignmentGroupMemberLabelsByGroupId = assignmentGroups.reduce<
+    Record<string, string[]>
+  >((acc, group) => {
+    const labels = group.memberUserIds
+      .map((memberId) => userNameById[memberId] || "")
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right));
+    acc[group.id] = labels;
+    return acc;
+  }, {});
+  const assignmentGroupTotalMemberSlots = assignmentGroups.reduce(
+    (total, group) => total + group.memberCount,
+    0
+  );
+  const assignmentGroupUniqueMemberCount = new Set(
+    assignmentGroups.flatMap((group) => group.memberUserIds)
+  ).size;
 
   const prefsResult = shouldLoadNotificationPrefs
     ? await withPerfTiming("settings.notification_prefs", () =>
@@ -2650,153 +2667,218 @@ export default async function SettingsPage(props: {
                 {assignmentGroupsError}
               </p>
             ) : null}
+            <section className="grid gap-3 sm:grid-cols-3">
+              <article className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Groups</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{assignmentGroups.length}</p>
+              </article>
+              <article className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Members Across Groups</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{assignmentGroupTotalMemberSlots}</p>
+              </article>
+              <article className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Unique Members</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{assignmentGroupUniqueMemberCount}</p>
+              </article>
+            </section>
 
-            <section className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
-              <h3 className="text-sm font-semibold text-slate-900">Create group</h3>
-              <form action={createAssignmentGroup} className="mt-3 space-y-3">
-                <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  Group name
-                  <input
-                    name="name"
-                    required
-                    maxLength={80}
-                    placeholder="Managers"
-                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"
-                  />
-                </label>
-                <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  Description
-                  <textarea
-                    name="description"
-                    rows={2}
-                    maxLength={240}
-                    placeholder="Who belongs in this group?"
-                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"
-                  />
-                </label>
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Members
-                  </p>
-                  {users.length ? (
-                    <div className="max-h-48 overflow-auto rounded-md border border-slate-200 bg-white p-2">
-                      <div className="grid gap-1 sm:grid-cols-2">
-                        {users.map((member) => (
-                          <label key={`new-group-${member.id}`} className="flex items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
-                            <input type="checkbox" name="member_user_ids" value={member.id} />
-                            <span>{member.full_name || member.email || member.id}</span>
-                          </label>
-                        ))}
+            <section className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
+              <article className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Create group</h3>
+                <p className="mt-1 text-xs text-slate-600">
+                  Create once, then reuse everywhere assignment is available.
+                </p>
+                <form action={createAssignmentGroup} className="mt-4 space-y-3">
+                  <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Group name
+                    <input
+                      name="name"
+                      required
+                      maxLength={80}
+                      placeholder="Managers"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Description
+                    <textarea
+                      name="description"
+                      rows={2}
+                      maxLength={240}
+                      placeholder="Who belongs in this group?"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"
+                    />
+                  </label>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Members</p>
+                    {users.length ? (
+                      <div className="max-h-56 overflow-auto rounded-md border border-slate-200 bg-white p-2">
+                        <div className="space-y-1">
+                          {users.map((member) => (
+                            <label
+                              key={`new-group-${member.id}`}
+                              className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                            >
+                              <input type="checkbox" name="member_user_ids" value={member.id} />
+                              <span className="truncate">{member.full_name || member.email || member.id}</span>
+                            </label>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
-                      No users found.
-                    </p>
-                  )}
-                </div>
-                <div className="flex justify-end">
+                    ) : (
+                      <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+                        No users found.
+                      </p>
+                    )}
+                  </div>
                   <button
                     type="submit"
-                    className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                    className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
                   >
                     Create group
                   </button>
+                </form>
+              </article>
+
+              <article className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">Existing groups</h3>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                    {assignmentGroups.length}
+                  </span>
                 </div>
-              </form>
-            </section>
 
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-slate-900">Existing groups</h3>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                  {assignmentGroups.length}
-                </span>
-              </div>
+                {assignmentGroups.length ? (
+                  <div className="space-y-3">
+                    {assignmentGroups.map((group) => {
+                      const selectedMembers = assignmentGroupMemberIdsByGroupId[group.id] || new Set<string>();
+                      const selectedMemberLabels = assignmentGroupMemberLabelsByGroupId[group.id] || [];
+                      const previewLabels = selectedMemberLabels.slice(0, 3);
+                      const remainingMembersCount = Math.max(
+                        selectedMemberLabels.length - previewLabels.length,
+                        0
+                      );
 
-              {assignmentGroups.length ? (
-                <div className="space-y-3">
-                  {assignmentGroups.map((group) => {
-                    const selectedMembers = assignmentGroupMemberIdsByGroupId[group.id] || new Set<string>();
-                    return (
-                      <form key={group.id} action={updateAssignmentGroup} className="rounded-lg border border-slate-200 bg-white p-4">
-                        <input type="hidden" name="group_id" value={group.id} />
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                            Group name
-                            <input
-                              name="name"
-                              required
-                              defaultValue={group.name}
-                              maxLength={80}
-                              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
-                            />
-                          </label>
-                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                            Description
-                            <input
-                              name="description"
-                              defaultValue={group.description}
-                              maxLength={240}
-                              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
-                            />
-                          </label>
-                        </div>
-
-                        <div className="mt-3 space-y-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                            Members ({group.memberCount})
-                          </p>
-                          {users.length ? (
-                            <div className="max-h-48 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2">
-                              <div className="grid gap-1 sm:grid-cols-2">
-                                {users.map((member) => (
-                                  <label
-                                    key={`${group.id}-${member.id}`}
-                                    className="flex items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-white"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      name="member_user_ids"
-                                      value={member.id}
-                                      defaultChecked={selectedMembers.has(member.id)}
-                                    />
-                                    <span>{member.full_name || member.email || member.id}</span>
-                                  </label>
-                                ))}
+                      return (
+                        <details
+                          key={group.id}
+                          className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                        >
+                          <summary className="cursor-pointer list-none px-4 py-3 hover:bg-slate-50">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0 space-y-1">
+                                <p className="truncate text-sm font-semibold text-slate-900">{group.name}</p>
+                                <p className="line-clamp-2 text-xs text-slate-600">
+                                  {group.description || "No description"}
+                                </p>
+                                {previewLabels.length ? (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {previewLabels.map((label) => (
+                                      <span
+                                        key={`${group.id}-${label}`}
+                                        className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700"
+                                      >
+                                        {label}
+                                      </span>
+                                    ))}
+                                    {remainingMembersCount ? (
+                                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700">
+                                        +{remainingMembersCount} more
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] text-slate-500">No members assigned</p>
+                                )}
                               </div>
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                {group.memberCount} members
+                              </span>
                             </div>
-                          ) : (
-                            <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
-                              No users found.
-                            </p>
-                          )}
-                        </div>
+                          </summary>
 
-                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="submit"
-                            formAction={deleteAssignmentGroup}
-                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </form>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  No groups created yet.
-                </p>
-              )}
+                          <form action={updateAssignmentGroup} className="space-y-4 border-t border-slate-200 p-4">
+                            <input type="hidden" name="group_id" value={group.id} />
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                                Group name
+                                <input
+                                  name="name"
+                                  required
+                                  defaultValue={group.name}
+                                  maxLength={80}
+                                  className="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                                Description
+                                <input
+                                  name="description"
+                                  defaultValue={group.description}
+                                  maxLength={240}
+                                  className="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
+                                />
+                              </label>
+                            </div>
+
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                                Members ({group.memberCount})
+                              </p>
+                              {users.length ? (
+                                <div className="max-h-56 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+                                  <div className="space-y-1">
+                                    {users.map((member) => (
+                                      <label
+                                        key={`${group.id}-${member.id}`}
+                                        className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-white"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          name="member_user_ids"
+                                          value={member.id}
+                                          defaultChecked={selectedMembers.has(member.id)}
+                                        />
+                                        <span className="truncate">
+                                          {member.full_name || member.email || member.id}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+                                  No users found.
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <button
+                                type="submit"
+                                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="submit"
+                                formAction={deleteAssignmentGroup}
+                                className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </form>
+                        </details>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    No groups created yet.
+                  </p>
+                )}
+              </article>
             </section>
           </div>
         </section>
