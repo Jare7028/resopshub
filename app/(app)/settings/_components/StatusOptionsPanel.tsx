@@ -22,6 +22,14 @@ type StatusSection = {
   rows: StatusSectionRow[];
 };
 
+function formatCountLabel(count: number, singular: string) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
+function formatStatusValue(value: string) {
+  return value.replace(/_/g, " ");
+}
+
 export default function StatusOptionsPanel({
   sections,
   onCreate,
@@ -66,20 +74,40 @@ export default function StatusOptionsPanel({
         {sections.map((section) => {
           const openCount = section.rows.filter((row) => row.isVisible).length;
           const closedCount = section.rows.filter((row) => row.countsAsCompleted).length;
+          const previewStatuses = section.rows.slice(0, 3);
 
           return (
             <button
               key={section.entityType}
               type="button"
               onClick={() => setOpenEntityType(section.entityType)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50"
+              aria-haspopup="dialog"
+              aria-expanded={openEntityType === section.entityType}
+              className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-900">{section.title}</p>
                   <p className="text-xs text-slate-500">
-                    {section.rows.length} total - {openCount} open - {closedCount} closed
+                    {formatCountLabel(section.rows.length, "status")} - {formatCountLabel(openCount, "open")} -{" "}
+                    {formatCountLabel(closedCount, "closed")}
                   </p>
+                  {previewStatuses.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {previewStatuses.map((status) => (
+                        <span
+                          key={`${section.entityType}-${status.value}`}
+                          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                        >
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: status.colorHex || "#64748b" }}
+                          />
+                          {formatStatusValue(status.value)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <span className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600">
                   Configure
@@ -103,11 +131,16 @@ export default function StatusOptionsPanel({
               role="dialog"
               aria-modal="true"
               aria-label={`${activeSection.title} settings`}
-              className="w-full max-w-5xl rounded-xl border border-slate-200 bg-white shadow-2xl"
+              className="w-full max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
             >
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900">{activeSection.title}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-semibold text-slate-900">{activeSection.title}</h3>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                      {formatCountLabel(activeSection.rows.length, "status")}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-500">
                     Open statuses stay in list views. Closed statuses are hidden by default.
                   </p>
@@ -203,4 +236,3 @@ export default function StatusOptionsPanel({
     </>
   );
 }
-
