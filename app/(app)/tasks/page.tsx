@@ -35,6 +35,10 @@ import {
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
 import { withPerfTiming } from "@/lib/perf";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
 import { updateTaskInlineAction } from "./actions";
 import { randomUUID } from "node:crypto";
 
@@ -382,6 +386,7 @@ export default async function TasksPage(props: {
 
   const [
     { data: users },
+    assignmentGroupsResult,
     { data: clients },
     { data: projects },
     assignedProjectsResponse,
@@ -390,6 +395,7 @@ export default async function TasksPage(props: {
   ] = await withPerfTiming("tasks.page.lookups", () =>
     Promise.all([
       supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+      loadAssignmentGroups(supabase),
       supabase.from("clients").select("id,name").order("name", { ascending: true }),
       supabase
         .from("projects")
@@ -400,6 +406,11 @@ export default async function TasksPage(props: {
       taskTemplatesFromTablePromise,
     ])
   );
+  const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
   if (assignedProjectsResponse.error) {
     console.error("[tasks.page.project_users.select]", assignedProjectsResponse.error.message);
   }
@@ -1033,11 +1044,19 @@ export default async function TasksPage(props: {
     const title = String(formData.get("title") || "").trim();
     const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
-    const assigneeUserId = String(formData.get("assignee_user_id") || "");
-    const assigneeIds = formData
-      .getAll("assignee_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      [...formData.getAll("assignee_user_ids"), formData.get("assignee_user_id")]
+    );
+    if (assigneeResolution.error) {
+      redirect(
+        buildTasksRedirectUrl(returnTo, {
+          tab: "add",
+          error: assigneeResolution.error,
+        })
+      );
+    }
+    const assigneeIds = assigneeResolution.userIds;
     const templateTaskIdFromForm = String(formData.get("template_task_id") || "").trim();
     const clientIdRaw = String(formData.get("client_id") || "").trim();
     const projectIdRaw = String(formData.get("project_id") || "").trim();
@@ -1122,9 +1141,7 @@ export default async function TasksPage(props: {
       clientId = project?.client_id || null;
     }
 
-    const manualAssigneeIds = Array.from(
-      new Set(assigneeIds.filter((value) => value !== "unassigned"))
-    );
+    const manualAssigneeIds = Array.from(new Set(assigneeIds));
     let templateAssigneeIds: string[] = [];
     if (templateTaskIdFromForm) {
       const [templateTaskResponse, templateAssigneesResponse, templateTableAssigneesResponse] =
@@ -1186,7 +1203,7 @@ export default async function TasksPage(props: {
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
     );
     const fallbackAssigneeId = defaultAssigneeUserId || null;
-    const primaryAssignee = uniqueAssigneeIds[0] || assigneeUserId || fallbackAssigneeId || "";
+    const primaryAssignee = uniqueAssigneeIds[0] || fallbackAssigneeId || "";
     const effectiveAssigneeIds = uniqueAssigneeIds.length
       ? uniqueAssigneeIds
       : primaryAssignee
@@ -1801,6 +1818,7 @@ export default async function TasksPage(props: {
                             <div className="mt-1 relative">
                               <AssigneeMultiSelect
                                 users={users || []}
+                                groups={assignmentGroupOptions}
                                 name="assignee_user_ids"
                                 defaultSelected={
                                   createMode === "new" && defaultAssigneeUserId
@@ -1866,6 +1884,7 @@ export default async function TasksPage(props: {
         <TasksView
           tasks={sortedTasks}
           users={users || []}
+          groups={assignmentGroupOptions}
           clients={clients || []}
           projects={projects || []}
           assigneesByTask={assigneesByTask}

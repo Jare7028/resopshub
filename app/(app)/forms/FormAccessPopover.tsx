@@ -11,6 +11,12 @@ type UserOption = {
   secondaryLabel?: string;
 };
 
+type GroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
+};
+
 type SaveResult = {
   ok: boolean;
   error?: string;
@@ -18,11 +24,13 @@ type SaveResult = {
 
 export default function FormAccessPopover({
   users,
+  groups,
   initialAssignments,
   formAccessSchemaMissing,
   onSave,
 }: {
   users: UserOption[];
+  groups: GroupOption[];
   initialAssignments: FormAccessAssignment[];
   formAccessSchemaMissing: boolean;
   onSave: (formData: FormData) => Promise<SaveResult>;
@@ -138,6 +146,7 @@ export default function FormAccessPopover({
               ) : (
                 <FormAccessBuilder
                   users={users}
+                  groups={groups}
                   initialAssignments={initialAssignments}
                   name="form_access_json"
                   disabled={isSaving}

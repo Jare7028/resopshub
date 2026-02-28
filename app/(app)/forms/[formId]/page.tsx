@@ -8,6 +8,10 @@ import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
@@ -162,6 +166,33 @@ function parseFormAccessAssignmentsJson(raw: string): FormAccessAssignment[] {
       seen.add(row.user_id);
       return true;
     });
+}
+
+async function resolveFormAccessAssignments(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  assignments: FormAccessAssignment[]
+) {
+  const resolvedByUserId = new Map<string, FormAccessAssignment["access_level"]>();
+
+  for (const assignment of assignments) {
+    const resolution = await resolveAssignmentTargetsToUserIds(supabase, [assignment.user_id]);
+    if (resolution.error) {
+      return { assignments: [] as FormAccessAssignment[], error: resolution.error };
+    }
+    for (const userId of resolution.userIds) {
+      if (!resolvedByUserId.has(userId)) {
+        resolvedByUserId.set(userId, assignment.access_level);
+      }
+    }
+  }
+
+  return {
+    assignments: Array.from(resolvedByUserId.entries()).map(([user_id, access_level]) => ({
+      user_id,
+      access_level,
+    })),
+    error: null as string | null,
+  };
 }
 
 function formatDbError(
@@ -360,6 +391,12 @@ export default async function FormDetailPage(props: {
       secondaryLabel: String(user.email || "").trim(),
     }))
     .filter((user) => user.id && user.label);
+  const assignmentGroupsResult = await loadAssignmentGroups(supabase);
+  const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
 
   const submissions = (submissionsRaw || []) as Array<{
     id: string;
@@ -624,7 +661,7 @@ export default async function FormDetailPage(props: {
   async function saveFormAccess(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const formAccessAssignments = parseFormAccessAssignmentsJson(
+    const formAccessAssignmentsInput = parseFormAccessAssignmentsJson(
       String(formData.get("form_access_json") || "[]")
     );
 
@@ -647,6 +684,14 @@ export default async function FormDetailPage(props: {
       }
     }
 
+    const resolvedFormAccessAssignments = await resolveFormAccessAssignments(
+      supabase,
+      formAccessAssignmentsInput
+    );
+    if (resolvedFormAccessAssignments.error) {
+      return { ok: false as const, error: resolvedFormAccessAssignments.error };
+    }
+
     const { error: clearAccessError } = await supabase
       .from("form_user_permissions")
       .delete()
@@ -655,11 +700,11 @@ export default async function FormDetailPage(props: {
       return { ok: false as const, error: clearAccessError.message };
     }
 
-    if (formAccessAssignments.length) {
+    if (resolvedFormAccessAssignments.assignments.length) {
       const { error: upsertAccessError } = await supabase
         .from("form_user_permissions")
         .upsert(
-          formAccessAssignments.map((assignment) => ({
+          resolvedFormAccessAssignments.assignments.map((assignment) => ({
             form_id: formId,
             user_id: assignment.user_id,
             access_level: assignment.access_level,
@@ -1203,6 +1248,7 @@ export default async function FormDetailPage(props: {
             <div className="flex flex-wrap items-center gap-2">
               <FormAccessPopover
                 users={workspaceUserOptions}
+                groups={assignmentGroupOptions}
                 initialAssignments={formAccessAssignments}
                 formAccessSchemaMissing={formAccessSchemaMissing}
                 onSave={saveFormAccess}

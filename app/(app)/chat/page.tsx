@@ -4,6 +4,7 @@ import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import { loadAssignmentGroups } from "@/lib/assignmentGroups";
 import { withPerfTiming } from "@/lib/perf";
 import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
 import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
@@ -21,6 +22,12 @@ type UserRow = {
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
+};
+
+type AssignmentGroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
 };
 
 type ConversationRow = {
@@ -109,6 +116,12 @@ export default async function ChatPage(props: {
     .select("id,full_name,email,avatar_url")
     .order("full_name", { ascending: true });
   const users = (usersRaw || []) as UserRow[];
+  const assignmentGroupsResult = await loadAssignmentGroups(supabase);
+  const assignmentGroups = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  })) as AssignmentGroupOption[];
 
   const { data: myMembershipsRaw, error: myMembershipsError } = await supabase
     .from("chat_conversation_members")
@@ -385,6 +398,7 @@ export default async function ChatPage(props: {
       <ChatPageClient
         currentUserId={currentUserId}
         users={users}
+        groups={assignmentGroups}
         initialConversations={conversationsByRecentActivity}
         initialMembers={allMembers}
         initialSelectedConversationId={selectedConversationId}

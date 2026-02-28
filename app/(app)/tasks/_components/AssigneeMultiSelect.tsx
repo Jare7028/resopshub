@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  encodeAssignmentTarget,
+  parseAssignmentTarget,
+} from "@/lib/assignmentTargets";
 
 type UserOption = {
   id: string;
@@ -8,8 +12,15 @@ type UserOption = {
   email: string | null;
 };
 
+type GroupOption = {
+  id: string;
+  name: string;
+  memberCount?: number;
+};
+
 type AssigneeMultiSelectProps = {
   users: UserOption[];
+  groups?: GroupOption[];
   name: string;
   className?: string;
   defaultSelected?: string[];
@@ -19,15 +30,31 @@ type AssigneeMultiSelectProps = {
 
 export default function AssigneeMultiSelect({
   users,
+  groups = [],
   name,
   className,
   defaultSelected = [],
   form,
   onSelectionChange,
 }: AssigneeMultiSelectProps) {
+  const normalizedDefaultSelection = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          defaultSelected
+            .map((value) => parseAssignmentTarget(value)?.value || "")
+            .filter(Boolean)
+        )
+      ),
+    [defaultSelected]
+  );
   const [open, setOpen] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>(defaultSelected);
+  const [selectedIds, setSelectedIds] = useState<string[]>(normalizedDefaultSelection);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setSelectedIds(normalizedDefaultSelection);
+  }, [normalizedDefaultSelection]);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -39,22 +66,55 @@ export default function AssigneeMultiSelect({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  const usersById = useMemo(
+    () =>
+      users.reduce<Record<string, string>>((acc, user) => {
+        const id = String(user.id || "").trim();
+        if (!id) return acc;
+        acc[id] = user.full_name || user.email || "Unknown user";
+        return acc;
+      }, {}),
+    [users]
+  );
+
+  const groupOptions = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          value: encodeAssignmentTarget("group", group.id),
+          label: group.name,
+          memberCount: Number(group.memberCount || 0),
+        }))
+        .filter((group) => group.value && group.label),
+    [groups]
+  );
+
+  const optionLabelByValue = useMemo(() => {
+    const map = new Map<string, string>();
+    Object.entries(usersById).forEach(([id, label]) => {
+      map.set(id, label);
+    });
+    groupOptions.forEach((group) => {
+      map.set(group.value, group.label);
+    });
+    return map;
+  }, [groupOptions, usersById]);
+
   const label = useMemo(() => {
     if (!selectedIds.length) {
       return "Unassigned";
     }
     if (selectedIds.length > 1) {
-      return "Multiple";
+      return `${selectedIds.length} selected`;
     }
-    const user = users.find((candidate) => candidate.id === selectedIds[0]);
-    return user?.full_name || user?.email || "Assigned";
-  }, [selectedIds, users]);
+    return optionLabelByValue.get(selectedIds[0]) || "Assigned";
+  }, [optionLabelByValue, selectedIds]);
 
-  const toggle = (userId: string) => {
+  const toggle = (value: string) => {
     setSelectedIds((current) => {
-      const next = current.includes(userId)
-        ? current.filter((id) => id !== userId)
-        : [...current, userId];
+      const next = current.includes(value)
+        ? current.filter((id) => id !== value)
+        : [...current, value];
       onSelectionChange?.(next);
       return next;
     });
@@ -88,24 +148,62 @@ export default function AssigneeMultiSelect({
       {open ? (
         <div className="absolute z-10 mt-1 w-full min-w-[16rem] max-h-56 overflow-auto rounded-lg bg-white p-2 ring-1 ring-slate-200 shadow-lg">
           {users.length ? (
-            users.map((user) => (
-              <label
-                key={user.id}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <input
-                  type="checkbox"
-                  value={user.id}
-                  form={form}
-                  checked={selectedIds.includes(user.id)}
-                  onChange={() => toggle(user.id)}
-                />
-                <span>{user.full_name || user.email}</span>
-              </label>
-            ))
+            <div>
+              <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                People
+              </p>
+              {users.map((user) => (
+                <label
+                  key={user.id}
+                  className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <input
+                    type="checkbox"
+                    value={user.id}
+                    form={form}
+                    checked={selectedIds.includes(user.id)}
+                    onChange={() => toggle(user.id)}
+                  />
+                  <span>{user.full_name || user.email}</span>
+                </label>
+              ))}
+            </div>
           ) : (
             <p className="px-2 py-1 text-sm text-slate-500">No users</p>
           )}
+          {groupOptions.length ? (
+            <div className={users.length ? "mt-2 border-t border-slate-100 pt-2" : ""}>
+              <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Groups
+              </p>
+              {groupOptions.map((group) => (
+                <label
+                  key={group.value}
+                  className="flex items-start gap-2 rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <input
+                    type="checkbox"
+                    value={group.value}
+                    form={form}
+                    checked={selectedIds.includes(group.value)}
+                    onChange={() => toggle(group.value)}
+                    className="mt-0.5"
+                  />
+                  <span className="flex flex-col leading-tight">
+                    <span>{group.label}</span>
+                    <span className="text-[11px] text-slate-500">
+                      {group.memberCount === 1
+                        ? "1 member"
+                        : `${group.memberCount} members`}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : null}
+          {!users.length && !groupOptions.length ? (
+            <p className="px-2 py-1 text-sm text-slate-500">No assignees available</p>
+          ) : null}
         </div>
       ) : null}
       {selectedIds.map((id) => (

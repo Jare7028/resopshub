@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveAssignmentTargetsToUserIds } from "@/lib/assignmentGroups";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type MembersMutationBody = {
   conversation_id?: string;
   user_id?: string;
+  target_id?: string;
 };
 
 type ConversationMemberRow = {
@@ -36,23 +38,46 @@ async function loadConversationMembers(
   };
 }
 
-async function parseAndValidateBody(req: Request) {
+async function parseConversationBody(req: Request) {
   const json = (await req.json().catch(() => null)) as MembersMutationBody | null;
   if (!json) {
-    return { error: "Invalid JSON body", conversationId: "", targetUserId: "" };
+    return { error: "Invalid JSON body", conversationId: "", json: null as MembersMutationBody | null };
   }
 
   const conversationId = String(json.conversation_id || "").trim();
-  const targetUserId = String(json.user_id || "").trim();
-
   if (!uuidRegex.test(conversationId)) {
-    return { error: "Invalid conversation_id", conversationId: "", targetUserId: "" };
+    return { error: "Invalid conversation_id", conversationId: "", json };
   }
+
+  return { error: null, conversationId, json };
+}
+
+async function parseAndValidateAddBody(req: Request) {
+  const base = await parseConversationBody(req);
+  if (base.error || !base.json) {
+    return { error: base.error, conversationId: "", targetValue: "" };
+  }
+
+  const targetValue = String(base.json.target_id || base.json.user_id || "").trim();
+  if (!targetValue) {
+    return { error: "Missing target_id", conversationId: "", targetValue: "" };
+  }
+
+  return { error: null, conversationId: base.conversationId, targetValue };
+}
+
+async function parseAndValidateDeleteBody(req: Request) {
+  const base = await parseConversationBody(req);
+  if (base.error || !base.json) {
+    return { error: base.error, conversationId: "", targetUserId: "" };
+  }
+
+  const targetUserId = String(base.json.user_id || "").trim();
   if (!uuidRegex.test(targetUserId)) {
     return { error: "Invalid user_id", conversationId: "", targetUserId: "" };
   }
 
-  return { error: null, conversationId, targetUserId };
+  return { error: null, conversationId: base.conversationId, targetUserId };
 }
 
 async function loadConversationContext(
@@ -105,15 +130,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await parseAndValidateBody(req);
+  const body = await parseAndValidateAddBody(req);
   if (body.error) {
     return NextResponse.json({ error: body.error }, { status: 400 });
   }
-  const { conversationId, targetUserId } = body;
-
-  if (targetUserId === currentUserId) {
-    return NextResponse.json({ error: "You are already a member" }, { status: 400 });
-  }
+  const { conversationId, targetValue } = body;
 
   const context = await loadConversationContext(supabase, conversationId, currentUserId);
   if (context.error) {
@@ -123,28 +144,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Only group owners can add members" }, { status: 403 });
   }
 
-  const { data: targetUser } = await supabase
-    .from("users")
-    .select("id")
-    .eq("id", targetUserId)
-    .maybeSingle();
-  if (!targetUser?.id) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  const targetResolution = await resolveAssignmentTargetsToUserIds(supabase, [targetValue]);
+  if (targetResolution.error) {
+    return NextResponse.json({ error: targetResolution.error }, { status: 400 });
+  }
+  const targetUserIds = Array.from(
+    new Set(targetResolution.userIds.filter((userId) => uuidRegex.test(userId) && userId !== currentUserId))
+  );
+
+  if (!targetUserIds.length) {
+    return NextResponse.json({ error: "No members found for this selection" }, { status: 400 });
   }
 
-  const { data: existingMembership } = await supabase
+  const { data: existingMembershipRows } = await supabase
     .from("chat_conversation_members")
-    .select("conversation_id")
+    .select("user_id")
     .eq("conversation_id", conversationId)
-    .eq("user_id", targetUserId)
-    .maybeSingle();
+    .in("user_id", targetUserIds);
+  const existingUserIds = new Set(
+    (existingMembershipRows || [])
+      .map((row) => String((row as { user_id?: string }).user_id || "").trim())
+      .filter(Boolean)
+  );
 
-  if (!existingMembership) {
-    const { error: insertError } = await supabase.from("chat_conversation_members").insert({
-      conversation_id: conversationId,
-      user_id: targetUserId,
-      role: "member",
-    });
+  const missingUserIds = targetUserIds.filter((userId) => !existingUserIds.has(userId));
+
+  if (missingUserIds.length) {
+    const { error: insertError } = await supabase.from("chat_conversation_members").insert(
+      missingUserIds.map((userId) => ({
+        conversation_id: conversationId,
+        user_id: userId,
+        role: "member" as const,
+      }))
+    );
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 400 });
     }
@@ -165,7 +197,7 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await parseAndValidateBody(req);
+  const body = await parseAndValidateDeleteBody(req);
   if (body.error) {
     return NextResponse.json({ error: body.error }, { status: 400 });
   }

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import { resolveAssignmentTargetsToUserIds } from "@/lib/assignmentGroups";
 
 function safeReturnTo(value: unknown, fallback: string) {
   const next = String(value || "").trim();
@@ -24,12 +25,21 @@ export async function updateTaskInlineAction(formData: FormData) {
   const startDate = String(formData.get("start_date") || "").trim();
   const dueDate = String(formData.get("due_date") || "").trim();
   const dueTime = String(formData.get("due_time") || "").trim();
-  const assigneeIds = formData
-    .getAll("assignee_user_ids")
-    .map((value) => String(value).trim())
-    .filter((value) => Boolean(value) && value !== "unassigned");
-
   const returnTo = safeReturnTo(formData.get("return_to"), "/tasks");
+  const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+    supabase,
+    formData.getAll("assignee_user_ids")
+  );
+  if (assigneeResolution.error) {
+    redirect(
+      returnTo.includes("?")
+        ? `${returnTo}&error=${encodeURIComponent(assigneeResolution.error)}`
+        : `${returnTo}?error=${encodeURIComponent(assigneeResolution.error)}`
+    );
+  }
+  const assigneeIds = assigneeResolution.userIds.filter(
+    (value) => Boolean(value) && value !== "unassigned"
+  );
   const updates: Record<string, string | null> = {};
 
   if (!taskId) {

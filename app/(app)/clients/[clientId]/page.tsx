@@ -6,6 +6,11 @@ import ClientDetailsAutosaveForm from "./_components/ClientDetailsAutosaveForm";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import { CLIENT_PAGE_TABS, type ClientPageTabKey } from "./_components/clientPageTabs";
 import {
   ensureClientPageEditAccess,
@@ -257,6 +262,14 @@ export default async function ClientOverviewPage(props: {
   const users = isAdmin
     ? ((ownerUsers || []) as { id: string; full_name: string | null; email: string | null }[])
     : [];
+  const assignmentGroupsResult = isAdmin
+    ? await loadAssignmentGroups(supabase)
+    : { groups: [], schemaMissing: false, error: null };
+  const assignmentGroups = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
   const accountOwnerOptions = (ownerUsers || [])
     .map((user) => user.full_name || user.email || "")
     .filter(Boolean);
@@ -318,10 +331,14 @@ export default async function ClientOverviewPage(props: {
       redirect(`/clients/${clientId}?error=Not%20allowed`);
     }
 
-    const selectedIds = formData
-      .getAll("assigned_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const assignmentResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assigned_user_ids")
+    );
+    if (assignmentResolution.error) {
+      redirect(`/clients/${clientId}?error=${encodeURIComponent(assignmentResolution.error)}`);
+    }
+    const selectedIds = assignmentResolution.userIds;
 
     await supabase.from("client_users").delete().eq("client_id", clientId);
 
@@ -812,6 +829,19 @@ export default async function ClientOverviewPage(props: {
                         defaultChecked={assignedClientUserIds.has(user.id)}
                       />
                       <span>{user.full_name || user.email}</span>
+                    </label>
+                  ))}
+                  {assignmentGroups.map((group) => (
+                    <label
+                      key={`group-${group.id}`}
+                      className="flex items-center gap-2 text-sm text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        name="assigned_user_ids"
+                        value={encodeAssignmentTarget("group", group.id)}
+                      />
+                      <span>{`${group.name} (${group.memberCount} members)`}</span>
                     </label>
                   ))}
                 </div>

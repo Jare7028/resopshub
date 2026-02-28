@@ -8,6 +8,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { splitSocialInlineContent, stripSocialInlineImageTokens } from "@/lib/socialPostContent";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingFunctionError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import SocialCommentComposer from "../_components/SocialCommentComposer";
@@ -511,6 +516,18 @@ export default async function SocialPageDetail(props: {
         .sort((left, right) =>
           toUserLabel(left).toLowerCase().localeCompare(toUserLabel(right).toLowerCase())
         )
+    : [];
+
+  const assignmentGroupsResult = canManagePage
+    ? await loadAssignmentGroups(supabase)
+    : { groups: [], schemaMissing: false, error: null };
+  const availableGroups = canManagePage
+    ? assignmentGroupsResult.groups.filter((group) =>
+        group.memberUserIds.some(
+          (memberUserId) =>
+            memberUserId !== socialPage.created_by && !memberUserIds.has(memberUserId)
+        )
+      )
     : [];
 
   const imagesByPostId = new Map<string, SocialPostImageRow[]>();
@@ -1439,15 +1456,11 @@ export default async function SocialPageDetail(props: {
     "use server";
     const supabase = createSupabaseServerClient();
 
-    const userId = String(formData.get("user_id") || "").trim();
+    const targetValue = String(formData.get("assignment_target") || formData.get("user_id") || "").trim();
     const role = normalizeRole(String(formData.get("role") || "member"));
 
-    if (!userId) {
-      redirect(buildSocialDetailUrl(pageId, { error: "Select a user to add" }));
-    }
-
-    if (userId === socialPage.created_by) {
-      redirect(buildSocialDetailUrl(pageId, { error: "Owner already has full access" }));
+    if (!targetValue) {
+      redirect(buildSocialDetailUrl(pageId, { error: "Select a person or group to add" }));
     }
 
     const canManageResult = await supabase.rpc("can_manage_social_page", {
@@ -1466,17 +1479,26 @@ export default async function SocialPageDetail(props: {
       redirect("/login");
     }
 
-    const { error } = await supabase
-      .from("social_page_members")
-      .upsert(
-        {
-          page_id: pageId,
-          user_id: userId,
-          role,
-          created_by_user_id: actingUser.userId,
-        },
-        { onConflict: "page_id,user_id" }
-      );
+    const memberResolution = await resolveAssignmentTargetsToUserIds(supabase, [targetValue]);
+    if (memberResolution.error) {
+      redirect(buildSocialDetailUrl(pageId, { error: memberResolution.error }));
+    }
+    const memberUserIds = memberResolution.userIds.filter(
+      (userId) => userId && userId !== socialPage.created_by
+    );
+    if (!memberUserIds.length) {
+      redirect(buildSocialDetailUrl(pageId, { error: "No new members found for this selection" }));
+    }
+
+    const { error } = await supabase.from("social_page_members").upsert(
+      memberUserIds.map((userId) => ({
+        page_id: pageId,
+        user_id: userId,
+        role,
+        created_by_user_id: actingUser.userId,
+      })),
+      { onConflict: "page_id,user_id" }
+    );
 
     if (error) {
       redirect(buildSocialDetailUrl(pageId, { error: error.message }));
@@ -1484,7 +1506,17 @@ export default async function SocialPageDetail(props: {
 
     revalidatePath(`/social/${pageId}`);
     revalidatePath("/social");
-    redirect(buildSocialDetailUrl(pageId, { success: "Member added" }));
+    redirect(
+      buildSocialDetailUrl(
+        pageId,
+        {
+          success:
+            memberUserIds.length === 1
+              ? "Member added"
+              : `Members added (${memberUserIds.length})`,
+        }
+      )
+    );
   }
 
   async function updateMemberRole(formData: FormData) {
@@ -1687,18 +1719,31 @@ export default async function SocialPageDetail(props: {
 
                   <form action={addMember} className="space-y-2">
                     <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                      Add user
+                      Add member
                       <select
-                        name="user_id"
+                        name="assignment_target"
                         className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
                         defaultValue=""
                       >
-                        <option value="">Select user</option>
-                        {availableUsers.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {toUserLabel(user)}
-                          </option>
-                        ))}
+                        <option value="">Select person or group</option>
+                        {availableUsers.length ? (
+                          <optgroup label="People">
+                            {availableUsers.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {toUserLabel(user)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {availableGroups.length ? (
+                          <optgroup label="Groups">
+                            {availableGroups.map((group) => (
+                              <option key={group.id} value={encodeAssignmentTarget("group", group.id)}>
+                                {`${group.name} (${group.memberCount} members)`}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
                       </select>
                     </label>
                     <label className="grid gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">

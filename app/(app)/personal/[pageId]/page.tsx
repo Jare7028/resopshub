@@ -6,6 +6,11 @@ import { randomBytes } from "crypto";
 import { summarizeImageNodes } from "@/lib/imageNodeIntegrity";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
 import type { ContextMenuFavoriteActionId } from "../../_components/NoteEditorClient";
 import ConfirmDelete from "../../_components/ConfirmDelete";
@@ -291,6 +296,7 @@ export default async function PersonalPage(props: {
   const [
     { data: sections },
     { data: users },
+    assignmentGroupsResult,
     { data: clients },
     { data: linkedClientNotesRaw },
     { data: pageTemplatesRaw, error: pageTemplatesError },
@@ -300,6 +306,7 @@ export default async function PersonalPage(props: {
   ] = await Promise.all([
     supabase.from("personal_sections").select("id,title").order("sort_order", { ascending: true }),
     supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+    loadAssignmentGroups(supabase),
     supabase.from("clients").select("id,name").order("name", { ascending: true }),
     supabase
       .from("notes")
@@ -322,6 +329,11 @@ export default async function PersonalPage(props: {
       pageId
     ),
   ]);
+  const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
   const pageTemplatesTableMissing = Boolean(
     pageTemplatesError && isSupabaseMissingTableError(pageTemplatesError)
   );
@@ -701,13 +713,13 @@ export default async function PersonalPage(props: {
   async function addSectionMember(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const userId = String(formData.get("user_id") || "");
+    const targetValue = String(formData.get("target_id") || formData.get("user_id") || "").trim();
     const role = String(formData.get("role") || "view");
 
-    if (!userId) {
+    if (!targetValue) {
       redirect(
         buildSharePanelUrl(pageId, focusFromQuery, {
-          error: "Select a user to share with",
+          error: "Select a person or group to share with",
         })
       );
     }
@@ -720,12 +732,29 @@ export default async function PersonalPage(props: {
       );
     }
 
+    const resolution = await resolveAssignmentTargetsToUserIds(supabase, [targetValue]);
+    if (resolution.error) {
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: resolution.error,
+        })
+      );
+    }
+    const selectedUserIds = resolution.userIds;
+    if (!selectedUserIds.length) {
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: "No members found for this selection",
+        })
+      );
+    }
+
     const { error } = await supabase.from("personal_section_members").upsert(
-      {
+      selectedUserIds.map((userId) => ({
         section_id: sectionId,
         user_id: userId,
         role,
-      },
+      })),
       { onConflict: "section_id,user_id" }
     );
 
@@ -750,7 +779,10 @@ export default async function PersonalPage(props: {
     revalidatePath("/personal");
     redirect(
       buildSharePanelUrl(pageId, focusFromQuery, {
-        success: "Section member added",
+        success:
+          selectedUserIds.length > 1
+            ? `Section members added (${selectedUserIds.length})`
+            : "Section member added",
       })
     );
   }
@@ -837,23 +869,40 @@ export default async function PersonalPage(props: {
   async function addPageMember(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const userId = String(formData.get("user_id") || "");
+    const targetValue = String(formData.get("target_id") || formData.get("user_id") || "").trim();
     const role = String(formData.get("role") || "view");
 
-    if (!userId) {
+    if (!targetValue) {
       redirect(
         buildSharePanelUrl(pageId, focusFromQuery, {
-          error: "Select a user to share with",
+          error: "Select a person or group to share with",
+        })
+      );
+    }
+
+    const resolution = await resolveAssignmentTargetsToUserIds(supabase, [targetValue]);
+    if (resolution.error) {
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: resolution.error,
+        })
+      );
+    }
+    const selectedUserIds = resolution.userIds;
+    if (!selectedUserIds.length) {
+      redirect(
+        buildSharePanelUrl(pageId, focusFromQuery, {
+          error: "No members found for this selection",
         })
       );
     }
 
     const { error } = await supabase.from("personal_page_members").upsert(
-      {
+      selectedUserIds.map((userId) => ({
         page_id: pageId,
         user_id: userId,
         role,
-      },
+      })),
       { onConflict: "page_id,user_id" }
     );
 
@@ -877,7 +926,10 @@ export default async function PersonalPage(props: {
     revalidatePath(`/personal/${pageId}`);
     redirect(
       buildSharePanelUrl(pageId, focusFromQuery, {
-        success: "Page member added",
+        success:
+          selectedUserIds.length > 1
+            ? `Page members added (${selectedUserIds.length})`
+            : "Page member added",
       })
     );
   }
@@ -1372,15 +1424,31 @@ export default async function PersonalPage(props: {
           <h3 className="text-sm font-semibold text-slate-800">Section members</h3>
           <form action={addSectionMember} className="grid gap-2">
             <select
-              name="user_id"
+              name="target_id"
               className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             >
-              <option value="">Select user</option>
-              {users?.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.full_name || member.email}
-                </option>
-              ))}
+              <option value="">Select person or group</option>
+              {users?.length ? (
+                <optgroup label="People">
+                  {users.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.full_name || member.email}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {assignmentGroupOptions.length ? (
+                <optgroup label="Groups">
+                  {assignmentGroupOptions.map((group) => (
+                    <option
+                      key={`section-group-${group.id}`}
+                      value={encodeAssignmentTarget("group", group.id)}
+                    >
+                      {`${group.name} (${group.memberCount} members)`}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
             <select
               name="role"
@@ -1448,15 +1516,31 @@ export default async function PersonalPage(props: {
         <h3 className="text-sm font-semibold text-slate-800">Page members</h3>
         <form action={addPageMember} className="grid gap-2">
           <select
-            name="user_id"
+            name="target_id"
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
           >
-            <option value="">Select user</option>
-            {users?.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.full_name || member.email}
-              </option>
-            ))}
+            <option value="">Select person or group</option>
+            {users?.length ? (
+              <optgroup label="People">
+                {users.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.full_name || member.email}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            {assignmentGroupOptions.length ? (
+              <optgroup label="Groups">
+                {assignmentGroupOptions.map((group) => (
+                  <option
+                    key={`page-group-${group.id}`}
+                    value={encodeAssignmentTarget("group", group.id)}
+                  >
+                    {`${group.name} (${group.memberCount} members)`}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
           </select>
           <select
             name="role"

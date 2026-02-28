@@ -19,6 +19,7 @@ import {
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
 import { updateTaskInlineAction } from "../../../tasks/actions";
+import { loadAssignmentGroups } from "@/lib/assignmentGroups";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -170,6 +171,12 @@ export default async function ProjectTasksPage(props: {
     .from("users")
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
+  const assignmentGroupsResult = await loadAssignmentGroups(supabase);
+  const assignmentGroups = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
 
   const userIdSet = new Set((users || []).map((user) => user.id));
   const selectedAssignees = selectedAssigneesRaw.filter(
@@ -356,6 +363,7 @@ export default async function ProjectTasksPage(props: {
         <TasksView
           tasks={sortedTasks}
           users={users || []}
+          groups={assignmentGroups}
           clients={clients}
           projects={projects}
           assigneesByTask={assigneesByTask}

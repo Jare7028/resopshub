@@ -49,6 +49,11 @@ import {
   TaskCreateDbError,
   TaskCreateInputError,
 } from "@/lib/tasks/createTaskLikeRoot";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -321,14 +326,21 @@ export default async function TaskDetailPage(props: {
     return relation?.name ?? fallback;
   };
 
-  const [{ data: users }, { data: clients }, { data: projects }] = await Promise.all([
-    supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
-    supabase.from("clients").select("id,name").order("name", { ascending: true }),
-    supabase
-      .from("projects")
-      .select("id,name,client_id,clients(name)")
-      .order("name", { ascending: true }),
-  ]);
+  const [{ data: users }, assignmentGroupsResult, { data: clients }, { data: projects }] =
+    await Promise.all([
+      supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+      loadAssignmentGroups(supabase),
+      supabase.from("clients").select("id,name").order("name", { ascending: true }),
+      supabase
+        .from("projects")
+        .select("id,name,client_id,clients(name)")
+        .order("name", { ascending: true }),
+    ]);
+  const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
 
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
@@ -763,7 +775,15 @@ export default async function TaskDetailPage(props: {
     const dueTime = String(formData.get("due_time") || "");
     const projectIdRaw = String(formData.get("project_id") || "").trim();
     const projectId = projectIdRaw || null;
-    const assignee = String(formData.get("assignee_user_id") || "");
+    const assigneeTarget = String(
+      formData.get("assignee_target") || formData.get("assignee_user_id") || ""
+    ).trim();
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(supabase, [assigneeTarget]);
+    if (assigneeResolution.error) {
+      redirect(buildTaskUrl(taskId, "details", { error: assigneeResolution.error }));
+    }
+    const assigneeIds = assigneeResolution.userIds;
+    const assignee = assigneeIds[0] || "";
 
     if (!title) {
       redirect(buildTaskUrl(taskId, "details", { error: "Task name is required" }));
@@ -795,6 +815,21 @@ export default async function TaskDetailPage(props: {
 
     if (error) {
       redirect(buildTaskUrl(taskId, "details", { error: error.message }));
+    }
+
+    const assigneeTargetNormalized = assigneeTarget.toLowerCase();
+    const currentAssigneeNormalized = String(taskAssigneeUserId || "").trim().toLowerCase();
+    const shouldReplaceAssignees =
+      assigneeTargetNormalized.startsWith("group:") ||
+      assigneeTargetNormalized !== currentAssigneeNormalized;
+    if (shouldReplaceAssignees) {
+      const { error: replaceAssigneesError } = await supabase.rpc("replace_task_assignees", {
+        p_task_id: taskId,
+        p_assignee_user_ids: Array.from(new Set(assigneeIds)),
+      });
+      if (replaceAssigneesError) {
+        redirect(buildTaskUrl(taskId, "details", { error: replaceAssigneesError.message }));
+      }
     }
 
     const clears: string[] = [];
@@ -886,10 +921,14 @@ export default async function TaskDetailPage(props: {
   async function updateTaskAssignees(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const selectedIds = formData
-      .getAll("assignee_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assignee_user_ids")
+    );
+    if (assigneeResolution.error) {
+      redirect(buildTaskUrl(taskId, "assignees", { error: assigneeResolution.error }));
+    }
+    const selectedIds = assigneeResolution.userIds;
 
     await supabase.from("task_assignees").delete().eq("task_id", taskId);
 
@@ -923,10 +962,14 @@ export default async function TaskDetailPage(props: {
   async function updateTaskWatchers(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const selectedIds = formData
-      .getAll("watcher_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const watcherResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("watcher_user_ids")
+    );
+    if (watcherResolution.error) {
+      redirect(buildTaskUrl(taskId, "watchers", { error: watcherResolution.error }));
+    }
+    const selectedIds = watcherResolution.userIds;
 
     await supabase.from("task_watchers").delete().eq("task_id", taskId);
 
@@ -961,11 +1004,19 @@ export default async function TaskDetailPage(props: {
     const startDate = String(formData.get("start_date") || "").trim();
     const dueDate = String(formData.get("due_date") || "").trim();
     const dueTime = String(formData.get("due_time") || "").trim();
-    const assignee = String(formData.get("assignee_user_id") || "");
-    const assigneeIds = formData
-      .getAll("assignee_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      [...formData.getAll("assignee_user_ids"), formData.get("assignee_user_id")]
+    );
+    if (assigneeResolution.error) {
+      redirect(
+        buildTaskUrl(taskId, "subtasks", {
+          error: assigneeResolution.error,
+        })
+      );
+    }
+    const assigneeIds = assigneeResolution.userIds;
+    const assignee = assigneeIds[0] || "";
 
     logSubtaskDebug("info", "create_subtask_start", {
       createAttemptId,
@@ -1256,7 +1307,7 @@ export default async function TaskDetailPage(props: {
                 Primary assignee
               </label>
               <select
-                name="assignee_user_id"
+                name="assignee_target"
                 defaultValue={task.assignee_user_id || ""}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
@@ -1266,6 +1317,18 @@ export default async function TaskDetailPage(props: {
                     {user.full_name || user.email}
                   </option>
                 ))}
+                {assignmentGroupOptions.length ? (
+                  <optgroup label="Groups">
+                    {assignmentGroupOptions.map((group) => (
+                      <option
+                        key={`task-primary-group-${group.id}`}
+                        value={encodeAssignmentTarget("group", group.id)}
+                      >
+                        {`${group.name} (${group.memberCount} members)`}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </div>
             <div className="grid gap-1">
@@ -1507,23 +1570,54 @@ export default async function TaskDetailPage(props: {
             <h2 className="text-lg font-semibold text-slate-900">Task assignees</h2>
           </div>
           <div className="px-6 pb-6">
-          {users?.length ? (
+          {users?.length || assignmentGroupOptions.length ? (
             <form action={updateTaskAssignees} className="mt-4 space-y-4">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {users.map((user) => (
-                  <label
-                    key={user.id}
-                    className="flex items-center gap-2 text-sm text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      name="assignee_user_ids"
-                      value={user.id}
-                      defaultChecked={assignedUserIds.has(user.id)}
-                    />
-                    <span>{user.full_name || user.email}</span>
-                  </label>
-                ))}
+              <div className="space-y-3">
+                {users?.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      People
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {users.map((user) => (
+                        <label
+                          key={user.id}
+                          className="flex items-center gap-2 text-sm text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            name="assignee_user_ids"
+                            value={user.id}
+                            defaultChecked={assignedUserIds.has(user.id)}
+                          />
+                          <span>{user.full_name || user.email}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {assignmentGroupOptions.length ? (
+                  <div className="space-y-2 border-t border-slate-200 pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Groups
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {assignmentGroupOptions.map((group) => (
+                        <label
+                          key={`task-assignee-group-${group.id}`}
+                          className="flex items-center gap-2 text-sm text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            name="assignee_user_ids"
+                            value={encodeAssignmentTarget("group", group.id)}
+                          />
+                          <span>{`${group.name} (${group.memberCount} members)`}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <button
                 type="submit"
@@ -1548,23 +1642,54 @@ export default async function TaskDetailPage(props: {
           <p className="mt-4 text-sm text-slate-600">
             Watchers can view and edit this task without being an assignee.
           </p>
-          {users?.length ? (
+          {users?.length || assignmentGroupOptions.length ? (
             <form action={updateTaskWatchers} className="mt-4 space-y-4">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {users.map((user) => (
-                  <label
-                    key={user.id}
-                    className="flex items-center gap-2 text-sm text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      name="watcher_user_ids"
-                      value={user.id}
-                      defaultChecked={watcherUserIds.has(user.id)}
-                    />
-                    <span>{user.full_name || user.email}</span>
-                  </label>
-                ))}
+              <div className="space-y-3">
+                {users?.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      People
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {users.map((user) => (
+                        <label
+                          key={user.id}
+                          className="flex items-center gap-2 text-sm text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            name="watcher_user_ids"
+                            value={user.id}
+                            defaultChecked={watcherUserIds.has(user.id)}
+                          />
+                          <span>{user.full_name || user.email}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {assignmentGroupOptions.length ? (
+                  <div className="space-y-2 border-t border-slate-200 pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Groups
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {assignmentGroupOptions.map((group) => (
+                        <label
+                          key={`task-watcher-group-${group.id}`}
+                          className="flex items-center gap-2 text-sm text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            name="watcher_user_ids"
+                            value={encodeAssignmentTarget("group", group.id)}
+                          />
+                          <span>{`${group.name} (${group.memberCount} members)`}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <button
                 type="submit"
@@ -1608,6 +1733,7 @@ export default async function TaskDetailPage(props: {
               </label>
               <AssigneeMultiSelect
                 users={users || []}
+                groups={assignmentGroupOptions}
                 name="assignee_user_ids"
                 className="relative"
                 defaultSelected={defaultAssigneeUserId ? [defaultAssigneeUserId] : []}
@@ -1714,6 +1840,7 @@ export default async function TaskDetailPage(props: {
           <TasksView
             tasks={subtasks || []}
             users={users || []}
+            groups={assignmentGroupOptions}
             clients={clients || []}
             projects={projects || []}
             assigneesByTask={subtasksById}

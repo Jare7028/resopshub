@@ -3,6 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { computeBillableMinutes } from "@/lib/schedules/billableHours";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import ConfirmSubmitButton from "../../_components/ConfirmSubmitButton";
 import ScheduleGridDndClient from "./ScheduleGridDndClient";
@@ -458,17 +463,67 @@ export default async function ClientSchedulePage({
   async function addRosterUserAction(formData: FormData) {
     "use server";
     const state = decodeContext(formData);
-    const userId = String(formData.get("user_id") || "").trim();
+    const targetValue = String(formData.get("target_id") || formData.get("user_id") || "").trim();
     const roleToken = String(formData.get("role_token") || "agent").trim();
     const supabase = createSupabaseServerClient();
-    const { error } = await supabase.rpc("schedule_add_roster_user", {
-      p_client_id: clientId,
-      p_user_id: userId,
-      p_role_token: roleToken,
-    });
+
+    if (!targetValue) {
+      const path = buildSchedulePath({
+        ...stateFromContext(clientId, state, weekStart),
+        error: "Select a user or group",
+      });
+      await finishAction(path);
+      return;
+    }
+
+    const targetResolution = await resolveAssignmentTargetsToUserIds(supabase, [targetValue]);
+    if (targetResolution.error) {
+      const path = buildSchedulePath({
+        ...stateFromContext(clientId, state, weekStart),
+        error: targetResolution.error,
+      });
+      await finishAction(path);
+      return;
+    }
+
+    const targetUserIds = Array.from(new Set(targetResolution.userIds.filter((value) => uuidRegex.test(value))));
+    if (!targetUserIds.length) {
+      const path = buildSchedulePath({
+        ...stateFromContext(clientId, state, weekStart),
+        error: "No users found for this selection",
+      });
+      await finishAction(path);
+      return;
+    }
+
+    let addedCount = 0;
+    let firstError: string | null = null;
+
+    for (const userId of targetUserIds) {
+      const { error } = await supabase.rpc("schedule_add_roster_user", {
+        p_client_id: clientId,
+        p_user_id: userId,
+        p_role_token: roleToken,
+      });
+      if (error) {
+        if (!firstError) firstError = error.message;
+        continue;
+      }
+      addedCount += 1;
+    }
+
     const path = buildSchedulePath({
       ...stateFromContext(clientId, state, weekStart),
-      ...(error ? { error: error.message } : { success: "User added to roster" }),
+      ...(firstError && addedCount === 0
+        ? { error: firstError }
+        : {
+            success:
+              firstError && addedCount > 0
+                ? `${addedCount} users added. Some users could not be added.`
+                : addedCount > 1
+                  ? `${addedCount} users added to roster`
+                  : "User added to roster",
+          }),
     });
     await finishAction(path);
   }
@@ -720,6 +775,7 @@ export default async function ClientSchedulePage({
     { data: jobCodesData },
     { data: templatesData },
     { data: usersData },
+    assignmentGroupsResult,
     { data: auditData },
     { data: settingsData },
     { data: billableJobCodesData },
@@ -751,6 +807,9 @@ export default async function ClientSchedulePage({
             .order("full_name", { ascending: true })
             .order("email", { ascending: true })
         : Promise.resolve({ data: [], error: null }),
+      canEdit
+        ? loadAssignmentGroups(supabase)
+        : Promise.resolve({ groups: [], schemaMissing: false, error: null }),
       week && canViewAudit && actionPanel === "view_audit"
         ? supabase
             .from("schedule_audit_events")
@@ -785,6 +844,11 @@ export default async function ClientSchedulePage({
   const jobCodes = (jobCodesData || []) as JobCodeRow[];
   const templates = (templatesData || []) as TemplateRow[];
   const users = (usersData || []) as Array<{ id: string; full_name: string | null; email: string | null; status: string | null }>;
+  const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
   const audits = (auditData || []) as AuditRow[];
   const clientSettings = (settingsData || null) as ScheduleClientSettingsRow | null;
   const clientBillableJobCodeRows = (billableJobCodesData || []) as ScheduleClientBillableJobCodeRow[];
@@ -1089,16 +1153,32 @@ export default async function ClientSchedulePage({
                 <form action={addRosterUserAction} className="space-y-3">
                   {renderContextFields()}
                   <label className="block text-xs text-slate-600">
-                    User
-                    <select name="user_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-                      <option value="">Select user</option>
-                      {users.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.full_name || user.email || user.id}
-                          {user.email ? ` (${user.email})` : ""}
-                          {user.status ? ` - ${user.status}` : ""}
-                        </option>
-                      ))}
+                    User or group
+                    <select name="target_id" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+                      <option value="">Select user or group</option>
+                      {users.length ? (
+                        <optgroup label="People">
+                          {users.map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.full_name || user.email || user.id}
+                              {user.email ? ` (${user.email})` : ""}
+                              {user.status ? ` - ${user.status}` : ""}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                      {assignmentGroupOptions.length ? (
+                        <optgroup label="Groups">
+                          {assignmentGroupOptions.map((group) => (
+                            <option
+                              key={`schedule-group-${group.id}`}
+                              value={encodeAssignmentTarget("group", group.id)}
+                            >
+                              {`${group.name} (${group.memberCount} members)`}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
                     </select>
                   </label>
                   <label className="block text-xs text-slate-600">

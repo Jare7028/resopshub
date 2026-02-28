@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
 import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import ChatComposer from "./ChatComposer";
 
 type LinkEntityType =
@@ -19,6 +20,12 @@ type UserRow = {
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
+};
+
+type AssignmentGroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
 };
 
 type ConversationRow = {
@@ -240,6 +247,7 @@ function toMessageSnippet(message: MessageRow) {
 export default function ChatPageClient(props: {
   currentUserId: string;
   users: UserRow[];
+  groups: AssignmentGroupOption[];
   initialConversations: ConversationRow[];
   initialMembers: ConversationMemberRow[];
   initialSelectedConversationId: string | null;
@@ -250,6 +258,7 @@ export default function ChatPageClient(props: {
   const {
     currentUserId,
     users,
+    groups,
     initialConversations,
     initialMembers,
     initialSelectedConversationId,
@@ -443,6 +452,17 @@ export default function ChatPageClient(props: {
     selectedConversationMemberUserIds,
     users,
   ]);
+
+  const groupTargetOptions = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          value: encodeAssignmentTarget("group", group.id),
+          label: `${group.name} (${group.memberCount} members)`,
+        }))
+        .filter((group) => group.value),
+    [groups]
+  );
 
   const selectedMessagesById = useMemo(() => {
     return selectedMessages.reduce<Record<string, MessageRow>>((acc, message) => {
@@ -827,9 +847,9 @@ export default function ChatPageClient(props: {
 
   const addConversationMember = useCallback(async () => {
     if (!selectedConversationId) return;
-    const nextUserId = String(memberDraftUserId || "").trim();
-    if (!nextUserId) {
-      setMemberEditorError("Select a teammate to add.");
+    const targetId = String(memberDraftUserId || "").trim();
+    if (!targetId) {
+      setMemberEditorError("Select a teammate or group to add.");
       return;
     }
 
@@ -842,7 +862,7 @@ export default function ChatPageClient(props: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversation_id: selectedConversationId,
-          user_id: nextUserId,
+          target_id: targetId,
         }),
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -1367,13 +1387,26 @@ export default function ChatPageClient(props: {
                   size={5}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
-                  {users
-                    .filter((user) => user.id !== currentUserId)
-                    .map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {getUserDisplayName(user)}
-                      </option>
-                    ))}
+                  {users.filter((user) => user.id !== currentUserId).length ? (
+                    <optgroup label="Teammates">
+                      {users
+                        .filter((user) => user.id !== currentUserId)
+                        .map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {getUserDisplayName(user)}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                  {groupTargetOptions.length ? (
+                    <optgroup label="Groups">
+                      {groupTargetOptions.map((group) => (
+                        <option key={`create-${group.value}`} value={group.value}>
+                          {group.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                 </select>
                 <button
                   type="submit"
@@ -1681,12 +1714,25 @@ export default function ChatPageClient(props: {
                             !canManageSelectedConversationMembers || isUpdatingConversationMembers
                           }
                         >
-                          <option value="">Select teammate</option>
-                          {addableUsersForSelectedConversation.map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {getUserDisplayName(user)}
-                            </option>
-                          ))}
+                          <option value="">Select teammate or group</option>
+                          {addableUsersForSelectedConversation.length ? (
+                            <optgroup label="Teammates">
+                              {addableUsersForSelectedConversation.map((user) => (
+                                <option key={user.id} value={user.id}>
+                                  {getUserDisplayName(user)}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          {groupTargetOptions.length ? (
+                            <optgroup label="Groups">
+                              {groupTargetOptions.map((group) => (
+                                <option key={group.value} value={group.value}>
+                                  {group.label}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
                         </select>
                         <button
                           type="button"
@@ -1709,7 +1755,8 @@ export default function ChatPageClient(props: {
                         </p>
                       ) : null}
                       {canManageSelectedConversationMembers &&
-                      !addableUsersForSelectedConversation.length ? (
+                      !addableUsersForSelectedConversation.length &&
+                      !groupTargetOptions.length ? (
                         <p className="mt-2 text-[11px] text-slate-500">
                           Everyone is already in this chat.
                         </p>

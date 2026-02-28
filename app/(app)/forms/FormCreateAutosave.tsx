@@ -19,6 +19,12 @@ type UserOption = {
   secondaryLabel?: string;
 };
 
+type GroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
+};
+
 type AutoSaveResult = {
   ok: boolean;
   formId?: string;
@@ -28,6 +34,7 @@ type AutoSaveResult = {
 export default function FormCreateAutosave({
   taskTemplates,
   userOptions,
+  groupOptions,
   taskTemplatesMissing,
   formAccessSchemaMissing,
   returnTo,
@@ -35,6 +42,7 @@ export default function FormCreateAutosave({
 }: {
   taskTemplates: TaskTemplateOption[];
   userOptions: UserOption[];
+  groupOptions: GroupOption[];
   taskTemplatesMissing: boolean;
   formAccessSchemaMissing: boolean;
   returnTo: string;
@@ -257,7 +265,12 @@ export default function FormCreateAutosave({
               </button>
             </header>
             <div className="space-y-4 px-5 py-4">
-              <FormAccessBuilder users={userOptions} initialAssignments={[]} disabled={isSaving} />
+              <FormAccessBuilder
+                users={userOptions}
+                groups={groupOptions}
+                initialAssignments={[]}
+                disabled={isSaving}
+              />
               {formAccessSchemaMissing ? (
                 <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
                   Form user access is not set up yet. Run <code>sql/forms_form_permissions.sql</code>{" "}

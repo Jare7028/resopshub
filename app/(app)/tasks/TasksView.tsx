@@ -58,6 +58,12 @@ type UserOption = {
   email: string | null;
 };
 
+type AssignmentGroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
+};
+
 type ClientOption = {
   id: string;
   name: string;
@@ -106,6 +112,7 @@ type OpenSubtaskRow = {
 type TasksViewProps = {
   tasks: TaskRow[];
   users: UserOption[];
+  groups: AssignmentGroupOption[];
   clients: ClientOption[];
   projects: ProjectOption[];
   assigneesByTask: Record<string, string[]>;
@@ -269,6 +276,7 @@ function formatTick(date: Date) {
 export default function TasksView({
   tasks,
   users,
+  groups,
   clients,
   projects,
   assigneesByTask,
@@ -1698,6 +1706,7 @@ export default function TasksView({
                         onToggleSubtasks={toggleSubtasks}
                         assigneeUserIds={assigneesByTask[task.id] || []}
                         users={users}
+                        groups={groups}
                         clients={clients}
                         projects={projects}
                         statusOptions={statusOptions}
@@ -1730,6 +1739,7 @@ export default function TasksView({
                               task={subtask}
                               assigneeUserIds={subtask.assignee_user_ids}
                               users={users}
+                              groups={groups}
                               clients={clients}
                               projects={projects}
                               statusOptions={statusOptions}

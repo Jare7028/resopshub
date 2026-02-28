@@ -2,6 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ProjectTabs from "../_components/ProjectTabs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 
 export default async function ProjectAssigneesPage(props: {
   params: Promise<{ projectId: string }>;
@@ -60,6 +65,12 @@ export default async function ProjectAssigneesPage(props: {
     .from("users")
     .select("id,full_name,email")
     .order("full_name", { ascending: true });
+  const assignmentGroupsResult = await loadAssignmentGroups(supabase);
+  const assignmentGroups = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
 
   const { data: assignments } = await supabase
     .from("project_users")
@@ -80,10 +91,14 @@ export default async function ProjectAssigneesPage(props: {
   async function updateProjectAssignments(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const selectedIds = formData
-      .getAll("assigned_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const assignmentResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assigned_user_ids")
+    );
+    if (assignmentResolution.error) {
+      redirect(`/projects/${projectId}/assignees?error=${encodeURIComponent(assignmentResolution.error)}`);
+    }
+    const selectedIds = assignmentResolution.userIds;
 
     await supabase.from("project_users").delete().eq("project_id", projectId);
 
@@ -106,10 +121,14 @@ export default async function ProjectAssigneesPage(props: {
   async function updateProjectWatchers(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const selectedIds = formData
-      .getAll("watcher_user_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const watcherResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("watcher_user_ids")
+    );
+    if (watcherResolution.error) {
+      redirect(`/projects/${projectId}/assignees?error=${encodeURIComponent(watcherResolution.error)}`);
+    }
+    const selectedIds = watcherResolution.userIds;
 
     await supabase.from("project_watchers").delete().eq("project_id", projectId);
 
@@ -174,6 +193,19 @@ export default async function ProjectAssigneesPage(props: {
                   <span>{user.full_name || user.email}</span>
                 </label>
               ))}
+              {assignmentGroups.map((group) => (
+                <label
+                  key={`assignee-group-${group.id}`}
+                  className="flex items-center gap-2 text-sm text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    name="assigned_user_ids"
+                    value={encodeAssignmentTarget("group", group.id)}
+                  />
+                  <span>{`${group.name} (${group.memberCount} members)`}</span>
+                </label>
+              ))}
             </div>
             <button
               type="submit"
@@ -207,6 +239,19 @@ export default async function ProjectAssigneesPage(props: {
                     defaultChecked={watcherUserIds.has(user.id)}
                   />
                   <span>{user.full_name || user.email}</span>
+                </label>
+              ))}
+              {assignmentGroups.map((group) => (
+                <label
+                  key={`watcher-group-${group.id}`}
+                  className="flex items-center gap-2 text-sm text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    name="watcher_user_ids"
+                    value={encodeAssignmentTarget("group", group.id)}
+                  />
+                  <span>{`${group.name} (${group.memberCount} members)`}</span>
                 </label>
               ))}
             </div>

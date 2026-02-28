@@ -16,6 +16,10 @@ import {
   isSupabaseMissingColumnError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
 import { updateTaskInlineAction } from "../tasks/actions";
 import ProjectsView, {
   type ProjectSortDir,
@@ -304,14 +308,21 @@ export default async function ProjectsPage(props: {
     { data: currentUser },
     { data: clients },
     { data: users },
+    assignmentGroupsResult,
     statusOptionsResponse,
   ] =
     await Promise.all([
       currentUserPromise,
       supabase.from("clients").select("id,name").order("name", { ascending: true }),
       supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+      loadAssignmentGroups(supabase),
       statusOptionsPromise,
     ]);
+  const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
 
   let statusOptionsRaw = (statusOptionsResponse.data || null) as StatusOptionRow[] | null;
   if (statusOptionsResponse.error && isSupabaseMissingColumnError(statusOptionsResponse.error)) {
@@ -699,14 +710,16 @@ export default async function ProjectsPage(props: {
     const startDate = String(formData.get("start_date") || "").trim();
     const endDate = String(formData.get("end_date") || "").trim();
     const assigneesUpdated = String(formData.get("assignees_updated") || "").trim() === "1";
-    const assigneeUserIds = Array.from(
-      new Set(
-        formData
-          .getAll("assignee_user_ids")
-          .map((value) => String(value).trim())
-          .filter(Boolean)
-      )
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assignee_user_ids")
     );
+    if (assigneeResolution.error) {
+      redirect(
+        buildProjectsRedirectUrl(returnTo, { error: assigneeResolution.error })
+      );
+    }
+    const assigneeUserIds = Array.from(new Set(assigneeResolution.userIds));
     const updates: Record<string, string | null> = {};
 
     if (!projectId) {
@@ -1410,6 +1423,7 @@ export default async function ProjectsPage(props: {
         <ProjectsView
           projects={projects || []}
           users={users || []}
+          groups={assignmentGroupOptions}
           clients={clients || []}
           assigneesByProject={assigneesByProject}
           openTaskCountByProjectId={openTaskCountByProjectId}

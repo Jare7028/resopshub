@@ -17,11 +17,18 @@ import {
   prioritySelectClasses,
 } from "@/lib/taskIndicators";
 import { statusSelectStyle } from "@/lib/statusColorStyles";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 
 type UserOption = {
   id: string;
   full_name: string | null;
   email: string | null;
+};
+
+type AssignmentGroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
 };
 
 type ClientOption = {
@@ -70,6 +77,7 @@ type TaskInlineRowProps = {
   onToggleSubtasks?: (taskId: string) => void;
   assigneeUserIds: string[];
   users: UserOption[];
+  groups: AssignmentGroupOption[];
   clients: ClientOption[];
   projects: ProjectOption[];
   statusOptions: readonly string[];
@@ -95,6 +103,7 @@ export default function TaskInlineRow({
   onToggleSubtasks = () => {},
   assigneeUserIds,
   users,
+  groups,
   clients,
   projects,
   statusOptions,
@@ -216,7 +225,11 @@ export default function TaskInlineRow({
       return "Multiple";
     }
     const assignee = users.find((user) => user.id === assigneeUserIds[0]);
-    return assignee?.full_name || assignee?.email || "Assigned";
+    if (assignee) return assignee.full_name || assignee.email || "Assigned";
+    const group = groups.find(
+      (item) => encodeAssignmentTarget("group", item.id) === assigneeUserIds[0]
+    );
+    return group?.name || "Assigned";
   })();
 
   const toHoverAnchor = (event: ReactMouseEvent<HTMLAnchorElement>) => {
@@ -443,25 +456,56 @@ export default function TaskInlineRow({
                       }}
                     >
                       {users?.length ? (
-                        users.map((user) => (
-                          <label
-                            key={user.id}
-                            className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
-                          >
-                            <input
-                              type="checkbox"
-                              form={assigneeFormId}
-                              name="assignee_user_ids"
-                              value={user.id}
-                              defaultChecked={assigneeUserIds.includes(user.id)}
-                              onChange={handleChange}
-                            />
-                            <span>{user.full_name || user.email}</span>
-                          </label>
-                        ))
+                        <div>
+                          <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            People
+                          </p>
+                          {users.map((user) => (
+                            <label
+                              key={user.id}
+                              className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                form={assigneeFormId}
+                                name="assignee_user_ids"
+                                value={user.id}
+                                defaultChecked={assigneeUserIds.includes(user.id)}
+                                onChange={handleChange}
+                              />
+                              <span>{user.full_name || user.email}</span>
+                            </label>
+                          ))}
+                        </div>
                       ) : (
                         <p className="px-2 py-1 text-sm text-slate-500">No users</p>
                       )}
+                      {groups.length ? (
+                        <div className="mt-2 border-t border-slate-100 pt-2">
+                          <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Groups
+                          </p>
+                          {groups.map((group) => {
+                            const groupValue = encodeAssignmentTarget("group", group.id);
+                            return (
+                              <label
+                                key={`task-group-${group.id}`}
+                                className="flex items-center gap-2 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  form={assigneeFormId}
+                                  name="assignee_user_ids"
+                                  value={groupValue}
+                                  defaultChecked={assigneeUserIds.includes(groupValue)}
+                                  onChange={handleChange}
+                                />
+                                <span>{`${group.name} (${group.memberCount} members)`}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>,
                     document.body
                   )

@@ -27,6 +27,7 @@ import {
   ensureClientPageViewAccess,
   getClientPageAccessData,
 } from "../_lib/clientPageAccess";
+import { loadAssignmentGroups } from "@/lib/assignmentGroups";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -147,7 +148,7 @@ export default async function ClientTasksPage(props: {
     selectedDue = "all";
   }
 
-  const [projectsResult, usersResult] = await Promise.all([
+  const [projectsResult, usersResult, assignmentGroupsResult] = await Promise.all([
     withPerfTiming("clients.tasks.projects", () =>
       supabase
         .from("projects")
@@ -158,9 +159,17 @@ export default async function ClientTasksPage(props: {
     withPerfTiming("clients.tasks.users", () =>
       supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true })
     ),
+    withPerfTiming("clients.tasks.assignment_groups", () =>
+      loadAssignmentGroups(supabase)
+    ),
   ]);
   const projects = projectsResult.data;
   const users = usersResult.data;
+  const assignmentGroups = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
 
   const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw).filter((status) =>
     statusOptions.includes(status)
@@ -405,6 +414,7 @@ export default async function ClientTasksPage(props: {
         <TasksView
           tasks={sortedTasks || []}
           users={users || []}
+          groups={assignmentGroups}
           clients={[client]}
           projects={(projects || []).map((project) => ({
             ...project,

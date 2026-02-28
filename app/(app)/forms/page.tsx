@@ -3,6 +3,10 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
 import FormCreateAutosave from "./FormCreateAutosave";
 import FormsTable from "./FormsTable";
 import FormsTabs, {
@@ -135,6 +139,33 @@ function parseFormAccessAssignmentsJson(raw: string): FormAccessAssignment[] {
       seen.add(row.user_id);
       return true;
     });
+}
+
+async function resolveFormAccessAssignments(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  assignments: FormAccessAssignment[]
+) {
+  const resolvedByUserId = new Map<string, FormAccessAssignment["access_level"]>();
+
+  for (const assignment of assignments) {
+    const resolution = await resolveAssignmentTargetsToUserIds(supabase, [assignment.user_id]);
+    if (resolution.error) {
+      return { assignments: [] as FormAccessAssignment[], error: resolution.error };
+    }
+    for (const userId of resolution.userIds) {
+      if (!resolvedByUserId.has(userId)) {
+        resolvedByUserId.set(userId, assignment.access_level);
+      }
+    }
+  }
+
+  return {
+    assignments: Array.from(resolvedByUserId.entries()).map(([user_id, access_level]) => ({
+      user_id,
+      access_level,
+    })),
+    error: null as string | null,
+  };
 }
 
 function parseManualTasksJson(raw: string): ManualTask[] {
@@ -319,6 +350,12 @@ export default async function FormsPage(props: {
       secondaryLabel: String((row as { email?: string | null }).email || "").trim(),
     }))
     .filter((row) => row.id && row.label);
+  const assignmentGroupsResult = await loadAssignmentGroups(supabase);
+  const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
 
   const { error: formAccessSchemaError } = await supabase
     .from("form_user_permissions")
@@ -340,7 +377,7 @@ export default async function FormsPage(props: {
     const manualTasks = parseManualTasksJson(
       String(formData.get("manual_tasks_json") || "[]")
     );
-    const formAccessAssignments = parseFormAccessAssignmentsJson(
+    const formAccessAssignmentsInput = parseFormAccessAssignmentsJson(
       String(formData.get("form_access_json") || "[]")
     );
 
@@ -453,6 +490,14 @@ export default async function FormsPage(props: {
       }
     }
 
+    const resolvedFormAccessAssignments = await resolveFormAccessAssignments(
+      supabase,
+      formAccessAssignmentsInput
+    );
+    if (resolvedFormAccessAssignments.error) {
+      return { ok: false, error: resolvedFormAccessAssignments.error };
+    }
+
     const { error: clearAccessError } = await supabase
       .from("form_user_permissions")
       .delete()
@@ -461,11 +506,11 @@ export default async function FormsPage(props: {
       return { ok: false, error: clearAccessError.message };
     }
 
-    if (formAccessAssignments.length) {
+    if (resolvedFormAccessAssignments.assignments.length) {
       const { error: accessInsertError } = await supabase
         .from("form_user_permissions")
         .upsert(
-          formAccessAssignments.map((assignment) => ({
+          resolvedFormAccessAssignments.assignments.map((assignment) => ({
             form_id: targetFormId,
             user_id: assignment.user_id,
             access_level: assignment.access_level,
@@ -523,6 +568,7 @@ export default async function FormsPage(props: {
         <FormCreateAutosave
           taskTemplates={taskTemplates}
           userOptions={userOptions}
+          groupOptions={assignmentGroupOptions}
           taskTemplatesMissing={isSupabaseMissingTableError(taskTemplatesError)}
           formAccessSchemaMissing={formAccessSchemaMissing}
           returnTo={returnTo}

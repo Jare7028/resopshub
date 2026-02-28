@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveAssignmentTargetsToUserIds } from "@/lib/assignmentGroups";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,12 +27,15 @@ export async function POST(req: Request) {
   }
 
   const title = String(json.title || "").trim();
+  const memberResolution = await resolveAssignmentTargetsToUserIds(
+    supabase,
+    Array.isArray(json.member_user_ids) ? json.member_user_ids : []
+  );
+  if (memberResolution.error) {
+    return NextResponse.json({ error: memberResolution.error }, { status: 400 });
+  }
   const memberIds = Array.from(
-    new Set(
-      (Array.isArray(json.member_user_ids) ? json.member_user_ids : [])
-        .map((value) => String(value).trim())
-        .filter((value) => uuidRegex.test(value) && value !== userId)
-    )
+    new Set(memberResolution.userIds.filter((value) => uuidRegex.test(value) && value !== userId))
   );
 
   if (!title) {

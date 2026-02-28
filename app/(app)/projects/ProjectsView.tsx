@@ -44,6 +44,12 @@ type UserOption = {
   email: string | null;
 };
 
+type AssignmentGroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
+};
+
 type ClientOption = {
   id: string;
   name: string;
@@ -91,6 +97,7 @@ export type ProjectSortDir = "asc" | "desc";
 type ProjectsViewProps = {
   projects: ProjectRow[];
   users: UserOption[];
+  groups: AssignmentGroupOption[];
   clients: ClientOption[];
   assigneesByProject: Record<string, string[]>;
   openTaskCountByProjectId: Record<string, number>;
@@ -250,6 +257,7 @@ function normalizeProjectSortDir(value: string | null | undefined, fallback: Pro
 export default function ProjectsView({
   projects,
   users,
+  groups,
   clients,
   assigneesByProject,
   openTaskCountByProjectId,
@@ -1345,6 +1353,7 @@ export default function ProjectsView({
                               <input type="hidden" name="project_id" value={project.id} />
                               <AssigneeMultiSelect
                                 users={users}
+                                groups={groups}
                                 name="assignee_user_ids"
                                 defaultSelected={assigneeIds}
                                 className="w-full"
@@ -1456,6 +1465,7 @@ export default function ProjectsView({
                                     <input type="hidden" name="return_to" value={inlineReturnTo} />
                                     <AssigneeMultiSelect
                                       users={users}
+                                      groups={groups}
                                       name="assignee_user_ids"
                                       defaultSelected={task.assignee_user_ids}
                                       className="w-full"

@@ -25,6 +25,10 @@ import {
 } from "@/lib/customFields";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
@@ -231,7 +235,8 @@ export default async function SettingsPage(props: {
   }
 
   const shouldLoadTemplatesTab = activeTab === "templates";
-  const shouldLoadUsers = shouldLoadTemplatesTab;
+  const shouldLoadUsers = shouldLoadTemplatesTab || activeTab === "groups";
+  const shouldLoadAssignmentGroups = shouldLoadTemplatesTab || activeTab === "groups";
   const shouldLoadNotificationPrefs = activeTab === "notifications";
   const shouldLoadStatusOptions = activeTab === "statuses" || shouldLoadTemplatesTab;
 
@@ -247,6 +252,30 @@ export default async function SettingsPage(props: {
   }>;
   const userNameById = users.reduce<Record<string, string>>((acc, row) => {
     acc[row.id] = row.full_name || row.email || "Unknown user";
+    return acc;
+  }, {});
+
+  const assignmentGroupsResult = shouldLoadAssignmentGroups
+    ? await withPerfTiming("settings.assignment_groups", () =>
+        loadAssignmentGroups(supabase)
+      )
+    : {
+        groups: [],
+        schemaMissing: false,
+        error: null,
+      };
+  const assignmentGroups = assignmentGroupsResult.groups;
+  const assignmentGroupsSchemaMissing = assignmentGroupsResult.schemaMissing;
+  const assignmentGroupsError = assignmentGroupsResult.error;
+  const assignmentGroupOptions = assignmentGroups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
+  const assignmentGroupMemberIdsByGroupId = assignmentGroups.reduce<
+    Record<string, Set<string>>
+  >((acc, group) => {
+    acc[group.id] = new Set(group.memberUserIds);
     return acc;
   }, {});
 
@@ -780,14 +809,18 @@ export default async function SettingsPage(props: {
     const status = String(formData.get("status") || "to_do").trim();
     const priority = String(formData.get("priority") || "medium").trim();
     const dueTime = String(formData.get("due_time") || "").trim();
-    const assigneeIds = Array.from(
-      new Set(
-        formData
-          .getAll("assignee_user_ids")
-          .map((value) => String(value).trim())
-          .filter((value) => isUuid(value))
-      )
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assignee_user_ids")
     );
+    if (assigneeResolution.error) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          assigneeResolution.error
+        )}`
+      );
+    }
+    const assigneeIds = assigneeResolution.userIds.filter((value) => isUuid(value));
 
     if (!name || !title) {
       redirect("/settings?tab=templates&error=Template%20name%20and%20task%20title%20are%20required");
@@ -915,14 +948,18 @@ export default async function SettingsPage(props: {
     const status = String(formData.get("status") || "to_do").trim();
     const priority = String(formData.get("priority") || "medium").trim();
     const dueTime = String(formData.get("due_time") || "").trim();
-    const assigneeIds = Array.from(
-      new Set(
-        formData
-          .getAll("assignee_user_ids")
-          .map((value) => String(value).trim())
-          .filter((value) => isUuid(value))
-      )
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assignee_user_ids")
     );
+    if (assigneeResolution.error) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          id
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(assigneeResolution.error)}`
+      );
+    }
+    const assigneeIds = assigneeResolution.userIds.filter((value) => isUuid(value));
 
     if (!id) {
       redirect("/settings?tab=templates&templates=tasks&error=Missing%20template%20id");
@@ -1476,14 +1513,18 @@ export default async function SettingsPage(props: {
     const description = String(formData.get("description") || "").trim();
     const status = String(formData.get("status") || "to_do").trim();
     const priority = String(formData.get("priority") || "medium").trim();
-    const assigneeIds = Array.from(
-      new Set(
-        formData
-          .getAll("assignee_user_ids")
-          .map((value) => String(value).trim())
-          .filter((value) => isUuid(value))
-      )
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assignee_user_ids")
     );
+    if (assigneeResolution.error) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          taskTemplateId || selectedTaskTemplateId
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(assigneeResolution.error)}`
+      );
+    }
+    const assigneeIds = assigneeResolution.userIds.filter((value) => isUuid(value));
 
     if (!taskTemplateId || !title) {
       redirect(
@@ -1646,14 +1687,18 @@ export default async function SettingsPage(props: {
     const description = String(formData.get("description") || "").trim();
     const status = String(formData.get("status") || "to_do").trim();
     const priority = String(formData.get("priority") || "medium").trim();
-    const assigneeIds = Array.from(
-      new Set(
-        formData
-          .getAll("assignee_user_ids")
-          .map((value) => String(value).trim())
-          .filter((value) => isUuid(value))
-      )
+    const assigneeResolution = await resolveAssignmentTargetsToUserIds(
+      supabase,
+      formData.getAll("assignee_user_ids")
     );
+    if (assigneeResolution.error) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
+          taskTemplateId || selectedTaskTemplateId
+        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(assigneeResolution.error)}`
+      );
+    }
+    const assigneeIds = assigneeResolution.userIds.filter((value) => isUuid(value));
 
     if (!id || !taskTemplateId || !title) {
       redirect(
@@ -2117,6 +2162,159 @@ export default async function SettingsPage(props: {
     redirect("/settings?tab=statuses&success=Status%20updated");
   }
 
+  async function createAssignmentGroup(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const canEditResult = await supabase.rpc("can_edit_page", { p_page_key: "settings" });
+    if (canEditResult.error || !canEditResult.data) {
+      redirect("/settings?tab=groups&error=You%20do%20not%20have%20permission%20to%20manage%20groups");
+    }
+
+    const name = String(formData.get("name") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const memberUserIds = Array.from(
+      new Set(
+        formData
+          .getAll("member_user_ids")
+          .map((value) => String(value || "").trim())
+          .filter((value) => isUuid(value))
+      )
+    );
+
+    if (!name) {
+      redirect("/settings?tab=groups&error=Group%20name%20is%20required");
+    }
+
+    const { data: createdGroup, error: createGroupError } = await supabase
+      .from("assignment_groups")
+      .insert({
+        name,
+        description: description || null,
+        created_by_user_id: authData.user.id,
+      })
+      .select("id")
+      .single();
+
+    if (createGroupError || !createdGroup?.id) {
+      redirect(
+        `/settings?tab=groups&error=${encodeURIComponent(
+          createGroupError?.message || "Unable to create group"
+        )}`
+      );
+    }
+
+    if (memberUserIds.length) {
+      const { error: addMembersError } = await supabase.from("assignment_group_members").insert(
+        memberUserIds.map((userId) => ({
+          group_id: createdGroup.id,
+          user_id: userId,
+          created_by_user_id: authData.user.id,
+        }))
+      );
+      if (addMembersError) {
+        redirect(`/settings?tab=groups&error=${encodeURIComponent(addMembersError.message)}`);
+      }
+    }
+
+    revalidatePath("/settings");
+    redirect("/settings?tab=groups&success=Group%20created");
+  }
+
+  async function updateAssignmentGroup(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const canEditResult = await supabase.rpc("can_edit_page", { p_page_key: "settings" });
+    if (canEditResult.error || !canEditResult.data) {
+      redirect("/settings?tab=groups&error=You%20do%20not%20have%20permission%20to%20manage%20groups");
+    }
+
+    const groupId = String(formData.get("group_id") || "").trim();
+    const name = String(formData.get("name") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const memberUserIds = Array.from(
+      new Set(
+        formData
+          .getAll("member_user_ids")
+          .map((value) => String(value || "").trim())
+          .filter((value) => isUuid(value))
+      )
+    );
+
+    if (!isUuid(groupId)) {
+      redirect("/settings?tab=groups&error=Invalid%20group%20id");
+    }
+    if (!name) {
+      redirect("/settings?tab=groups&error=Group%20name%20is%20required");
+    }
+
+    const { error: updateGroupError } = await supabase
+      .from("assignment_groups")
+      .update({
+        name,
+        description: description || null,
+      })
+      .eq("id", groupId);
+
+    if (updateGroupError) {
+      redirect(`/settings?tab=groups&error=${encodeURIComponent(updateGroupError.message)}`);
+    }
+
+    const { error: clearMembersError } = await supabase
+      .from("assignment_group_members")
+      .delete()
+      .eq("group_id", groupId);
+    if (clearMembersError) {
+      redirect(`/settings?tab=groups&error=${encodeURIComponent(clearMembersError.message)}`);
+    }
+
+    if (memberUserIds.length) {
+      const { error: addMembersError } = await supabase.from("assignment_group_members").insert(
+        memberUserIds.map((userId) => ({
+          group_id: groupId,
+          user_id: userId,
+          created_by_user_id: authData.user.id,
+        }))
+      );
+      if (addMembersError) {
+        redirect(`/settings?tab=groups&error=${encodeURIComponent(addMembersError.message)}`);
+      }
+    }
+
+    revalidatePath("/settings");
+    redirect("/settings?tab=groups&success=Group%20saved");
+  }
+
+  async function deleteAssignmentGroup(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) redirect("/login");
+
+    const canEditResult = await supabase.rpc("can_edit_page", { p_page_key: "settings" });
+    if (canEditResult.error || !canEditResult.data) {
+      redirect("/settings?tab=groups&error=You%20do%20not%20have%20permission%20to%20manage%20groups");
+    }
+
+    const groupId = String(formData.get("group_id") || "").trim();
+    if (!isUuid(groupId)) {
+      redirect("/settings?tab=groups&error=Invalid%20group%20id");
+    }
+
+    const { error } = await supabase.from("assignment_groups").delete().eq("id", groupId);
+    if (error) {
+      redirect(`/settings?tab=groups&error=${encodeURIComponent(error.message)}`);
+    }
+
+    revalidatePath("/settings");
+    redirect("/settings?tab=groups&success=Group%20deleted");
+  }
+
   const renderMessage = (value: string | undefined, kind: "error" | "success") => {
     if (!value) return null;
     if (kind === "error") {
@@ -2433,6 +2631,177 @@ export default async function SettingsPage(props: {
         </section>
       ) : null}
 
+      {activeTab === "groups" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Assignment groups</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Create reusable groups to assign work faster across tasks, projects, forms, quizzes, chat, and social pages.
+            </p>
+          </div>
+          <div className="space-y-6 p-6">
+            {assignmentGroupsSchemaMissing ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                Assignment groups are not set up yet. Run <code>sql/20260301150000_assignment_groups.sql</code> in Supabase SQL editor.
+              </p>
+            ) : null}
+            {assignmentGroupsError ? (
+              <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                {assignmentGroupsError}
+              </p>
+            ) : null}
+
+            <section className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Create group</h3>
+              <form action={createAssignmentGroup} className="mt-3 space-y-3">
+                <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Group name
+                  <input
+                    name="name"
+                    required
+                    maxLength={80}
+                    placeholder="Managers"
+                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Description
+                  <textarea
+                    name="description"
+                    rows={2}
+                    maxLength={240}
+                    placeholder="Who belongs in this group?"
+                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800"
+                  />
+                </label>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Members
+                  </p>
+                  {users.length ? (
+                    <div className="max-h-48 overflow-auto rounded-md border border-slate-200 bg-white p-2">
+                      <div className="grid gap-1 sm:grid-cols-2">
+                        {users.map((member) => (
+                          <label key={`new-group-${member.id}`} className="flex items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
+                            <input type="checkbox" name="member_user_ids" value={member.id} />
+                            <span>{member.full_name || member.email || member.id}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+                      No users found.
+                    </p>
+                  )}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Create group
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-900">Existing groups</h3>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                  {assignmentGroups.length}
+                </span>
+              </div>
+
+              {assignmentGroups.length ? (
+                <div className="space-y-3">
+                  {assignmentGroups.map((group) => {
+                    const selectedMembers = assignmentGroupMemberIdsByGroupId[group.id] || new Set<string>();
+                    return (
+                      <form key={group.id} action={updateAssignmentGroup} className="rounded-lg border border-slate-200 bg-white p-4">
+                        <input type="hidden" name="group_id" value={group.id} />
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                            Group name
+                            <input
+                              name="name"
+                              required
+                              defaultValue={group.name}
+                              maxLength={80}
+                              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
+                            />
+                          </label>
+                          <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                            Description
+                            <input
+                              name="description"
+                              defaultValue={group.description}
+                              maxLength={240}
+                              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                            Members ({group.memberCount})
+                          </p>
+                          {users.length ? (
+                            <div className="max-h-48 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+                              <div className="grid gap-1 sm:grid-cols-2">
+                                {users.map((member) => (
+                                  <label
+                                    key={`${group.id}-${member.id}`}
+                                    className="flex items-center gap-2 rounded px-2 py-1 text-sm text-slate-700 hover:bg-white"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      name="member_user_ids"
+                                      value={member.id}
+                                      defaultChecked={selectedMembers.has(member.id)}
+                                    />
+                                    <span>{member.full_name || member.email || member.id}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+                              No users found.
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="submit"
+                            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="submit"
+                            formAction={deleteAssignmentGroup}
+                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </form>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  No groups created yet.
+                </p>
+              )}
+            </section>
+          </div>
+        </section>
+      ) : null}
+
       {activeTab === "statuses" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">
@@ -2564,7 +2933,11 @@ export default async function SettingsPage(props: {
                       defaultValue="09:00"
                     />
                     <div className="md:col-span-6 relative">
-                      <AssigneeMultiSelect users={users} name="assignee_user_ids" />
+                      <AssigneeMultiSelect
+                        users={users}
+                        groups={assignmentGroupOptions}
+                        name="assignee_user_ids"
+                      />
                     </div>
 
                     <button
@@ -2777,6 +3150,7 @@ export default async function SettingsPage(props: {
                               <div className="relative">
                                 <AssigneeMultiSelect
                                   users={users}
+                                  groups={assignmentGroupOptions}
                                   name="assignee_user_ids"
                                   defaultSelected={selectedTaskTemplateAssigneeIds}
                                 />
@@ -3151,6 +3525,7 @@ export default async function SettingsPage(props: {
                                             <div className="relative min-w-[220px]">
                                               <AssigneeMultiSelect
                                                 users={users}
+                                                groups={assignmentGroupOptions}
                                                 name="assignee_user_ids"
                                                 form={rowFormId}
                                                 defaultSelected={
@@ -3249,7 +3624,11 @@ export default async function SettingsPage(props: {
                             disabled={Boolean(taskTemplateSubtasksError)}
                           />
                           <div className="md:col-span-6 relative">
-                            <AssigneeMultiSelect users={users} name="assignee_user_ids" />
+                            <AssigneeMultiSelect
+                              users={users}
+                              groups={assignmentGroupOptions}
+                              name="assignee_user_ids"
+                            />
                           </div>
                           <button
                             type="submit"

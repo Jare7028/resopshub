@@ -2,6 +2,11 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  loadAssignmentGroups,
+  resolveAssignmentTargetsToUserIds,
+} from "@/lib/assignmentGroups";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import SimpleQuestionBuilder from "../_components/SimpleQuestionBuilder";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -353,6 +358,7 @@ export default async function QuizManageDetailPage({
   let answers: AnswerRow[] = [];
   let users: UserRow[] = [];
   let assignableUsers: UserRow[] = [];
+  let assignmentGroups: Array<{ id: string; name: string; memberCount: number }> = [];
 
   const questionVersionIds = versions.map((version) => version.id);
   if (!pageLoadError && versions.length > 0) {
@@ -406,12 +412,19 @@ export default async function QuizManageDetailPage({
   }
 
   if (!pageLoadError && canAssign) {
-    const usersResult = await supabase
-      .from("users")
-      .select("id,full_name,email")
-      .order("full_name", { ascending: true });
+    const [usersResult, groupsResult] = await Promise.all([
+      supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
+      loadAssignmentGroups(supabase),
+    ]);
     if (!usersResult.error) {
       assignableUsers = (usersResult.data || []) as UserRow[];
+    }
+    if (!groupsResult.error) {
+      assignmentGroups = groupsResult.groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        memberCount: group.memberCount,
+      }));
     }
   }
 
@@ -1257,7 +1270,9 @@ export default async function QuizManageDetailPage({
     const quizVersionId = uuidRegex.test(requestedVersionId)
       ? requestedVersionId
       : defaultPublishedVersionId;
-    const userId = String(formData.get("assigned_user_id") || "").trim();
+    const targetValue = String(
+      formData.get("assigned_target") || formData.get("assigned_user_id") || ""
+    ).trim();
     const assignmentMode = String(formData.get("assignment_mode") || "required").trim();
     const availableFromRaw = String(formData.get("available_from") || "").trim();
     const dueAtRaw = String(formData.get("due_at") || "").trim();
@@ -1276,7 +1291,9 @@ export default async function QuizManageDetailPage({
       );
     }
 
-    if (!uuidRegex.test(userId)) {
+    const supabase = createSupabaseServerClient();
+    const targetResolution = await resolveAssignmentTargetsToUserIds(supabase, [targetValue]);
+    if (targetResolution.error) {
       redirect(
         buildDetailPath({
           quizId,
@@ -1284,7 +1301,19 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: selectedVersionId,
           submissionResult: submissionScope,
-          error: "Invalid assignment request",
+          error: targetResolution.error,
+        })
+      );
+    }
+    if (!targetResolution.userIds.length) {
+      redirect(
+        buildDetailPath({
+          quizId,
+          tab: "assignments",
+          returnTo,
+          versionId: selectedVersionId,
+          submissionResult: submissionScope,
+          error: "Select an employee or group",
         })
       );
     }
@@ -1292,21 +1321,27 @@ export default async function QuizManageDetailPage({
     const toIsoDate = (value: string) =>
       /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00.000Z` : null;
 
-    const supabase = createSupabaseServerClient();
-    const { error } = await supabase.rpc("quiz_assign_version_to_user", {
-      p_quiz_version_id: quizVersionId,
-      p_assigned_user_id: userId,
-      p_assignment_mode: assignmentMode,
-      p_available_from: toIsoDate(availableFromRaw),
-      p_due_at: toIsoDate(dueAtRaw),
-      p_expires_at: toIsoDate(expiresAtRaw),
-    });
+    let assignmentError: { message: string } | null = null;
+    for (const userId of targetResolution.userIds) {
+      const { error } = await supabase.rpc("quiz_assign_version_to_user", {
+        p_quiz_version_id: quizVersionId,
+        p_assigned_user_id: userId,
+        p_assignment_mode: assignmentMode,
+        p_available_from: toIsoDate(availableFromRaw),
+        p_due_at: toIsoDate(dueAtRaw),
+        p_expires_at: toIsoDate(expiresAtRaw),
+      });
+      if (error) {
+        assignmentError = error;
+        break;
+      }
+    }
 
     revalidatePath("/quizzes");
     revalidatePath(`/quizzes/${quizId}`);
     revalidatePath("/quizzes/assigned");
 
-    if (error) {
+    if (assignmentError) {
       redirect(
         buildDetailPath({
           quizId,
@@ -1314,7 +1349,7 @@ export default async function QuizManageDetailPage({
           returnTo,
           versionId: quizVersionId,
           submissionResult: submissionScope,
-          error: error.message,
+          error: assignmentError.message,
         })
       );
     }
@@ -1325,7 +1360,10 @@ export default async function QuizManageDetailPage({
         returnTo,
         versionId: quizVersionId,
         submissionResult: submissionScope,
-        success: "Assignment saved",
+        success:
+          targetResolution.userIds.length === 1
+            ? "Assignment saved"
+            : `Assignments saved (${targetResolution.userIds.length})`,
       })
     );
   }
@@ -1645,21 +1683,34 @@ export default async function QuizManageDetailPage({
               <form action={assignVersionAction} className="mt-3 grid gap-3 md:grid-cols-2">
                 <input type="hidden" name="quiz_version_id" value={defaultPublishedVersionId} />
                 <label className="text-sm text-slate-700">
-                  Employee
+                  Employee or group
                   <select
-                    name="assigned_user_id"
+                    name="assigned_target"
                     required
                     className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800"
                   >
+                    <option value="">Select employee or group</option>
                     {assignableUsers.length ? (
-                      assignableUsers.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.full_name || user.email || user.id}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="">No employees found</option>
-                    )}
+                      <optgroup label="Employees">
+                        {assignableUsers.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.full_name || user.email || user.id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {assignmentGroups.length ? (
+                      <optgroup label="Groups">
+                        {assignmentGroups.map((group) => (
+                          <option
+                            key={group.id}
+                            value={encodeAssignmentTarget("group", group.id)}
+                          >
+                            {`${group.name} (${group.memberCount} members)`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
                   </select>
                 </label>
                 <label className="text-sm text-slate-700">

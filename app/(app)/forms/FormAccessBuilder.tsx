@@ -7,11 +7,18 @@ import {
   normalizeFormAccessLevel,
   type FormAccessAssignment,
 } from "./types";
+import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 
 type UserOption = {
   id: string;
   label: string;
   secondaryLabel?: string;
+};
+
+type GroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
 };
 
 type FormAccessRow = {
@@ -45,11 +52,13 @@ function normalizeAssignments(value: FormAccessAssignment[]) {
 
 export default function FormAccessBuilder({
   users,
+  groups = [],
   initialAssignments,
   name = "form_access_json",
   disabled = false,
 }: {
   users: UserOption[];
+  groups?: GroupOption[];
   initialAssignments: FormAccessAssignment[];
   name?: string;
   disabled?: boolean;
@@ -112,7 +121,7 @@ export default function FormAccessBuilder({
           disabled={disabled}
           className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Add person
+          Add assignee
         </button>
       </div>
 
@@ -126,12 +135,28 @@ export default function FormAccessBuilder({
                 onChange={(event) => updateRow(row.rowId, { user_id: event.currentTarget.value })}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
-                <option value="">Select user</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.secondaryLabel ? `${user.label} (${user.secondaryLabel})` : user.label}
-                  </option>
-                ))}
+                <option value="">Select person or group</option>
+                {users.length ? (
+                  <optgroup label="People">
+                    {users.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.secondaryLabel ? `${user.label} (${user.secondaryLabel})` : user.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {groups.length ? (
+                  <optgroup label="Groups">
+                    {groups.map((group) => {
+                      const value = encodeAssignmentTarget("group", group.id);
+                      return (
+                        <option key={group.id} value={value}>
+                          {`${group.name} (${group.memberCount} members)`}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                ) : null}
               </select>
 
               <select
