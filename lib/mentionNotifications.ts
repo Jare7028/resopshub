@@ -34,6 +34,18 @@ type MentionUserRow = {
   status?: string | null;
 };
 
+type MentionPrefsRow = {
+  user_id: string;
+  mentions_enabled?: boolean | null;
+  mention_task?: boolean | null;
+  mention_notes?: boolean | null;
+  mention_chat?: boolean | null;
+  mention_social?: boolean | null;
+  mention_feature_suggestion?: boolean | null;
+  mention_form_submission?: boolean | null;
+  mention_quiz?: boolean | null;
+};
+
 const MENTION_USER_CACHE_TTL_MS = 60_000;
 let mentionCandidatesCache:
   | {
@@ -62,6 +74,53 @@ function isMissingColumnError(error: unknown) {
   const code = typeof value.code === "string" ? value.code : "";
   const message = typeof value.message === "string" ? value.message : "";
   return code === "42703" || message.includes("does not exist");
+}
+
+function isMissingTableError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const value = error as { code?: unknown; message?: unknown };
+  const code = typeof value.code === "string" ? value.code : "";
+  const message = typeof value.message === "string" ? value.message : "";
+  return code === "42P01" || message.includes("does not exist");
+}
+
+function resolveMentionPrefKey(sourceType: MentionSourceType) {
+  if (sourceType === "task") return "mention_task";
+  if (sourceType === "personal_page" || sourceType === "client_note") {
+    return "mention_notes";
+  }
+  if (sourceType === "chat_message") return "mention_chat";
+  if (sourceType === "social_post" || sourceType === "social_comment") {
+    return "mention_social";
+  }
+  if (
+    sourceType === "feature_suggestion" ||
+    sourceType === "feature_suggestion_comment"
+  ) {
+    return "mention_feature_suggestion";
+  }
+  if (sourceType === "form_submission_comment") return "mention_form_submission";
+  return null;
+}
+
+function mentionPrefsAllowSource(
+  prefs: MentionPrefsRow | null | undefined,
+  sourceType: MentionSourceType
+) {
+  if (!prefs) {
+    return true;
+  }
+  if (prefs.mentions_enabled === false) {
+    return false;
+  }
+  const prefKey = resolveMentionPrefKey(sourceType);
+  if (!prefKey) {
+    return true;
+  }
+  const value = prefs[prefKey];
+  return value !== false;
 }
 
 function buildExcerpt(text: string, handles: string[]) {
@@ -133,6 +192,42 @@ async function fetchMentionCandidates() {
   return fallbackRows;
 }
 
+async function fetchMentionPreferenceMap(userIds: string[]) {
+  const normalizedIds = Array.from(
+    new Set(userIds.map((id) => String(id || "").trim()).filter(Boolean))
+  );
+  if (!normalizedIds.length) {
+    return new Map<string, MentionPrefsRow>();
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient();
+  const withExpandedColumns = await supabaseAdmin
+    .from("user_notification_preferences")
+    .select(
+      "user_id,mentions_enabled,mention_task,mention_notes,mention_chat,mention_social,mention_feature_suggestion,mention_form_submission,mention_quiz"
+    )
+    .in("user_id", normalizedIds);
+
+  if (!withExpandedColumns.error) {
+    const map = new Map<string, MentionPrefsRow>();
+    ((withExpandedColumns.data || []) as MentionPrefsRow[]).forEach((row) => {
+      if (row?.user_id) {
+        map.set(row.user_id, row);
+      }
+    });
+    return map;
+  }
+
+  if (
+    isMissingTableError(withExpandedColumns.error) ||
+    isMissingColumnError(withExpandedColumns.error)
+  ) {
+    return new Map<string, MentionPrefsRow>();
+  }
+
+  throw new Error(withExpandedColumns.error.message);
+}
+
 export async function notifyMentionedUsersFromTextChange(
   input: MentionNotificationInput
 ) {
@@ -180,11 +275,24 @@ export async function notifyMentionedUsersFromTextChange(
     return;
   }
 
+  const mentionRecipientIds = Array.from(mentionMap.keys());
+  const mentionPreferenceMap = await fetchMentionPreferenceMap(mentionRecipientIds);
+  const filteredMentionEntries = Array.from(mentionMap.entries()).filter(
+    ([recipientUserId]) =>
+      mentionPrefsAllowSource(
+        mentionPreferenceMap.get(recipientUserId),
+        input.sourceType
+      )
+  );
+  if (!filteredMentionEntries.length) {
+    return;
+  }
+
   const sourceLabel = SOURCE_LABEL[input.sourceType] || "item";
   const excerpt = buildExcerpt(input.nextText, addedHandles);
   const sourceTitle = String(input.sourceTitle || "").trim();
   const supabaseAdmin = createSupabaseAdminClient();
-  const notifications = Array.from(mentionMap.entries()).map(
+  const notifications = filteredMentionEntries.map(
     ([recipientUserId, recipientHandles]) => ({
       user_id: recipientUserId,
       actor_user_id: input.actorAuthUserId,

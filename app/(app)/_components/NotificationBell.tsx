@@ -15,10 +15,116 @@ type NotificationRow = {
   created_at: string;
 };
 
-function formatTimestamp(value: string) {
+type NotificationFilterKey =
+  | "all"
+  | "unread"
+  | "mentions"
+  | "tasks"
+  | "features"
+  | "schedule";
+
+type NotificationCategory = "mentions" | "tasks" | "features" | "schedule" | "general";
+
+const filterOrder: NotificationFilterKey[] = [
+  "all",
+  "unread",
+  "mentions",
+  "tasks",
+  "features",
+  "schedule",
+];
+
+const filterLabel: Record<NotificationFilterKey, string> = {
+  all: "All",
+  unread: "Unread",
+  mentions: "Mentions",
+  tasks: "Tasks",
+  features: "Ideas",
+  schedule: "Schedule",
+};
+
+function toCategory(type: string): NotificationCategory {
+  const normalized = String(type || "").trim().toLowerCase();
+  if (normalized === "user_mentioned") return "mentions";
+  if (
+    normalized === "task_assigned" ||
+    normalized === "task_updated" ||
+    normalized === "task_due_today" ||
+    normalized === "task_overdue"
+  ) {
+    return "tasks";
+  }
+  if (normalized.startsWith("feature_suggestion")) return "features";
+  if (normalized.startsWith("schedule_")) return "schedule";
+  return "general";
+}
+
+function matchesFilter(
+  notification: NotificationRow,
+  filter: NotificationFilterKey
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "unread") return !notification.read_at;
+  const category = toCategory(notification.type);
+  if (filter === "mentions") return category === "mentions";
+  if (filter === "tasks") return category === "tasks";
+  if (filter === "features") return category === "features";
+  if (filter === "schedule") return category === "schedule";
+  return true;
+}
+
+function formatRelativeTimestamp(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("en-US", { month: "short", day: "numeric" });
+
+  const now = Date.now();
+  const diffMs = Math.max(0, now - date.getTime());
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) return "Now";
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)}m`;
+  if (diffMs < day) return `${Math.floor(diffMs / hour)}h`;
+  if (diffMs < 7 * day) return `${Math.floor(diffMs / day)}d`;
+
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatExactTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function categoryBadgeClass(category: NotificationCategory) {
+  if (category === "mentions") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (category === "tasks") return "bg-blue-50 text-blue-700 border-blue-200";
+  if (category === "features") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (category === "schedule") return "bg-violet-50 text-violet-700 border-violet-200";
+  return "bg-slate-50 text-slate-700 border-slate-200";
+}
+
+function categoryLabel(category: NotificationCategory) {
+  if (category === "mentions") return "Mention";
+  if (category === "tasks") return "Task";
+  if (category === "features") return "Feature";
+  if (category === "schedule") return "Schedule";
+  return "Update";
+}
+
+function iconForCategory(category: NotificationCategory) {
+  if (category === "mentions") return "@";
+  if (category === "tasks") return "T";
+  if (category === "features") return "F";
+  if (category === "schedule") return "S";
+  return "U";
 }
 
 export default function NotificationBell({ userId }: { userId: string }) {
@@ -28,11 +134,29 @@ export default function NotificationBell({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [items, setItems] = useState<NotificationRow[]>([]);
+  const [activeFilter, setActiveFilter] = useState<NotificationFilterKey>("all");
 
   const unreadLabel = useMemo(() => {
     if (!unreadCount) return "";
     return unreadCount > 99 ? "99+" : unreadCount.toString();
   }, [unreadCount]);
+
+  const filteredItems = useMemo(
+    () => items.filter((item) => matchesFilter(item, activeFilter)),
+    [activeFilter, items]
+  );
+
+  const filterCounts = useMemo(() => {
+    const counts: Record<NotificationFilterKey, number> = {
+      all: items.length,
+      unread: items.filter((item) => !item.read_at).length,
+      mentions: items.filter((item) => toCategory(item.type) === "mentions").length,
+      tasks: items.filter((item) => toCategory(item.type) === "tasks").length,
+      features: items.filter((item) => toCategory(item.type) === "features").length,
+      schedule: items.filter((item) => toCategory(item.type) === "schedule").length,
+    };
+    return counts;
+  }, [items]);
 
   const loadUnreadCount = useCallback(async () => {
     const countResult = await supabase
@@ -53,7 +177,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
       .select("id,type,title,body,task_id,metadata,read_at,created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(12);
+      .limit(30);
 
     if (!listResult.error) {
       const rows = (listResult.data || []) as NotificationRow[];
@@ -162,7 +286,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
           ? metadata.feature_suggestion_id
           : null;
       if (suggestionId) {
-        router.push(`/feature-suggestions?open=${encodeURIComponent(suggestionId)}`);
+        router.push(`/feature-suggestions/${encodeURIComponent(suggestionId)}`);
       }
     },
     [markRead, router]
@@ -206,68 +330,134 @@ export default function NotificationBell({ userId }: { userId: string }) {
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+          className="absolute right-0 z-50 mt-2 w-[24rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
         >
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <p className="text-sm font-semibold text-slate-900">Notifications</p>
-            <button
-              type="button"
-              onClick={() => void markAllRead()}
-              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
-              disabled={!unreadCount}
-            >
-              Mark all read
-            </button>
+          <div className="border-b border-slate-200 px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-slate-900">Notifications</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push("/settings?tab=notifications");
+                  }}
+                  className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                >
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void markAllRead()}
+                  className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                  disabled={!unreadCount}
+                >
+                  Mark all read
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {filterOrder.map((filterKey) => {
+                const isActive = activeFilter === filterKey;
+                const count = filterCounts[filterKey];
+                return (
+                  <button
+                    key={filterKey}
+                    type="button"
+                    onClick={() => setActiveFilter(filterKey)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                      isActive
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {filterLabel[filterKey]} ({count})
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {loading ? (
-            <div className="px-4 py-4 text-sm text-slate-500">Loading...</div>
-          ) : items.length ? (
+            <div className="px-4 py-6 text-sm text-slate-500">Loading...</div>
+          ) : filteredItems.length ? (
             <div className="max-h-96 overflow-y-auto">
-              {items.map((notification) => {
+              {filteredItems.map((notification) => {
                 const isUnread = !notification.read_at;
+                const category = toCategory(notification.type);
+                const createdAtLabel = formatExactTimestamp(notification.created_at);
                 return (
                   <button
                     key={notification.id}
                     type="button"
                     onClick={() => void handleItemClick(notification)}
-                    className={`flex w-full flex-col gap-1 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${
-                      isUnread ? "bg-slate-50" : "bg-white"
+                    className={`flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${
+                      isUnread ? "bg-slate-50/70" : "bg-white"
                     }`}
                     role="menuitem"
+                    title={createdAtLabel}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {notification.title}
-                      </p>
-                      <span className="shrink-0 text-xs text-slate-500">
-                        {formatTimestamp(notification.created_at)}
+                    <span
+                      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${categoryBadgeClass(
+                        category
+                      )}`}
+                    >
+                      {iconForCategory(category)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-start justify-between gap-2">
+                        <span className="line-clamp-2 text-sm font-semibold text-slate-900">
+                          {notification.title}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-slate-500">
+                          {formatRelativeTimestamp(notification.created_at)}
+                        </span>
                       </span>
-                    </div>
-                    {notification.body ? (
-                      <p className="text-sm text-slate-600">{notification.body}</p>
-                    ) : null}
-                    {isUnread ? (
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-rose-600">
-                        Unread
+                      {notification.body ? (
+                        <span className="mt-0.5 block line-clamp-2 text-sm text-slate-600">
+                          {notification.body}
+                        </span>
+                      ) : null}
+                      <span className="mt-1.5 flex items-center gap-2">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${categoryBadgeClass(
+                            category
+                          )}`}
+                        >
+                          {categoryLabel(category)}
+                        </span>
+                        {isUnread ? (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-600">
+                            Unread
+                          </span>
+                        ) : null}
                       </span>
-                    ) : null}
+                    </span>
                   </button>
                 );
               })}
             </div>
           ) : (
             <div className="px-4 py-6 text-sm text-slate-500">
-              No notifications yet.
+              No notifications in this view.
             </div>
           )}
 
-          <div className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500">
-            Reminders are generated daily for due and overdue tasks.
+          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2 text-xs text-slate-500">
+            <span>Task reminder alerts run daily.</span>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                router.push("/settings?tab=notifications");
+              }}
+              className="font-semibold text-slate-600 hover:text-slate-900"
+            >
+              Open notification settings
+            </button>
           </div>
         </div>
       ) : null}
     </div>
   );
 }
-

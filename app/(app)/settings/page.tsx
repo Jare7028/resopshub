@@ -46,6 +46,15 @@ type NotificationPrefsDbRow = {
   task_overdue: boolean | null;
   feature_suggestion_comment: boolean | null;
   feature_suggestion_status: boolean | null;
+  mentions_enabled: boolean | null;
+  mention_task: boolean | null;
+  mention_notes: boolean | null;
+  mention_chat: boolean | null;
+  mention_social: boolean | null;
+  mention_feature_suggestion: boolean | null;
+  mention_form_submission: boolean | null;
+  mention_quiz: boolean | null;
+  schedule_updates: boolean | null;
 };
 
 type NotificationPrefs = {
@@ -56,6 +65,15 @@ type NotificationPrefs = {
   task_overdue: boolean;
   feature_suggestion_comment: boolean;
   feature_suggestion_status: boolean;
+  mentions_enabled: boolean;
+  mention_task: boolean;
+  mention_notes: boolean;
+  mention_chat: boolean;
+  mention_social: boolean;
+  mention_feature_suggestion: boolean;
+  mention_form_submission: boolean;
+  mention_quiz: boolean;
+  schedule_updates: boolean;
 };
 
 type StatusOptionsResult = {
@@ -75,6 +93,15 @@ const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
   task_overdue: true,
   feature_suggestion_comment: true,
   feature_suggestion_status: true,
+  mentions_enabled: true,
+  mention_task: true,
+  mention_notes: true,
+  mention_chat: true,
+  mention_social: true,
+  mention_feature_suggestion: true,
+  mention_form_submission: true,
+  mention_quiz: true,
+  schedule_updates: true,
 };
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const USER_AVATARS_BUCKET = "user-avatars";
@@ -296,20 +323,60 @@ export default async function SettingsPage(props: {
     assignmentGroups.flatMap((group) => group.memberUserIds)
   ).size;
 
-  const prefsResult = shouldLoadNotificationPrefs
-    ? await withPerfTiming("settings.notification_prefs", () =>
+  let prefsResult = shouldLoadNotificationPrefs
+    ? ((await withPerfTiming("settings.notification_prefs", () =>
         supabase
           .from("user_notification_preferences")
           .select(
-            "user_id,task_assigned,task_updated,task_due_today,task_overdue,feature_suggestion_comment,feature_suggestion_status"
+            "user_id,task_assigned,task_updated,task_due_today,task_overdue,feature_suggestion_comment,feature_suggestion_status,mentions_enabled,mention_task,mention_notes,mention_chat,mention_social,mention_feature_suggestion,mention_form_submission,mention_quiz,schedule_updates"
           )
           .eq("user_id", user.id)
           .maybeSingle()
-      )
-    : ({ data: null, error: null } as {
+      )) as {
         data: NotificationPrefsDbRow | null;
-        error: null;
+        error: {
+          message: string;
+          code?: string;
+          details?: string | null;
+          hint?: string | null;
+        } | null;
+      })
+    : ({
+        data: null,
+        error: null,
+      } as {
+        data: NotificationPrefsDbRow | null;
+        error: {
+          message: string;
+          code?: string;
+          details?: string | null;
+          hint?: string | null;
+        } | null;
       });
+  if (
+    shouldLoadNotificationPrefs &&
+    prefsResult.error &&
+    isSupabaseMissingColumnError(prefsResult.error)
+  ) {
+    const legacyPrefs = await withPerfTiming("settings.notification_prefs.legacy", () =>
+      supabase
+        .from("user_notification_preferences")
+        .select(
+          "user_id,task_assigned,task_updated,task_due_today,task_overdue,feature_suggestion_comment,feature_suggestion_status"
+        )
+        .eq("user_id", user.id)
+        .maybeSingle()
+    );
+    prefsResult = {
+      data: (legacyPrefs.data as NotificationPrefsDbRow | null) || null,
+      error: legacyPrefs.error as {
+        message: string;
+        code?: string;
+        details?: string | null;
+        hint?: string | null;
+      } | null,
+    };
+  }
 
   const prefsDb = (prefsResult.data || null) as NotificationPrefsDbRow | null;
   const prefs: NotificationPrefs = {
@@ -326,6 +393,21 @@ export default async function SettingsPage(props: {
       prefsDb?.feature_suggestion_status,
       defaultPrefs.feature_suggestion_status
     ),
+    mentions_enabled: prefValue(prefsDb?.mentions_enabled, defaultPrefs.mentions_enabled),
+    mention_task: prefValue(prefsDb?.mention_task, defaultPrefs.mention_task),
+    mention_notes: prefValue(prefsDb?.mention_notes, defaultPrefs.mention_notes),
+    mention_chat: prefValue(prefsDb?.mention_chat, defaultPrefs.mention_chat),
+    mention_social: prefValue(prefsDb?.mention_social, defaultPrefs.mention_social),
+    mention_feature_suggestion: prefValue(
+      prefsDb?.mention_feature_suggestion,
+      defaultPrefs.mention_feature_suggestion
+    ),
+    mention_form_submission: prefValue(
+      prefsDb?.mention_form_submission,
+      defaultPrefs.mention_form_submission
+    ),
+    mention_quiz: prefValue(prefsDb?.mention_quiz, defaultPrefs.mention_quiz),
+    schedule_updates: prefValue(prefsDb?.schedule_updates, defaultPrefs.schedule_updates),
   };
 
   let statusOptionsResult: StatusOptionsResult = shouldLoadStatusOptions
@@ -797,12 +879,37 @@ export default async function SettingsPage(props: {
       task_overdue: checkbox(formData, "task_overdue"),
       feature_suggestion_comment: checkbox(formData, "feature_suggestion_comment"),
       feature_suggestion_status: checkbox(formData, "feature_suggestion_status"),
+      mentions_enabled: checkbox(formData, "mentions_enabled"),
+      mention_task: checkbox(formData, "mention_task"),
+      mention_notes: checkbox(formData, "mention_notes"),
+      mention_chat: checkbox(formData, "mention_chat"),
+      mention_social: checkbox(formData, "mention_social"),
+      mention_feature_suggestion: checkbox(formData, "mention_feature_suggestion"),
+      mention_form_submission: checkbox(formData, "mention_form_submission"),
+      mention_quiz: checkbox(formData, "mention_quiz"),
+      schedule_updates: checkbox(formData, "schedule_updates"),
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from("user_notification_preferences")
       .upsert(next, { onConflict: "user_id" });
+    if (error && isSupabaseMissingColumnError(error)) {
+      const legacyNext = {
+        user_id: user.id,
+        task_assigned: next.task_assigned,
+        task_updated: next.task_updated,
+        task_due_today: next.task_due_today,
+        task_overdue: next.task_overdue,
+        feature_suggestion_comment: next.feature_suggestion_comment,
+        feature_suggestion_status: next.feature_suggestion_status,
+        updated_at: next.updated_at,
+      };
+      const retry = await supabase
+        .from("user_notification_preferences")
+        .upsert(legacyNext, { onConflict: "user_id" });
+      error = retry.error;
+    }
 
     if (error) {
       redirect(
@@ -2516,11 +2623,49 @@ export default async function SettingsPage(props: {
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-slate-900">Notifications</h2>
             <p className="mt-1 text-sm text-slate-600">
-              In-app alerts only. You won’t receive emails.
+              Configure in-app alerts by source. Email delivery is not enabled yet.
             </p>
           </div>
           <div className="p-6">
             <form action={updateNotificationPrefs} className="space-y-8">
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold text-slate-900">Global controls</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="mentions_enabled"
+                      defaultChecked={prefs.mentions_enabled}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">
+                        Allow @mentions
+                      </span>
+                      <span className="block text-slate-600">
+                        Master switch for all mention notifications.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="schedule_updates"
+                      defaultChecked={prefs.schedule_updates}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">
+                        Schedule updates
+                      </span>
+                      <span className="block text-slate-600">
+                        Alerts for rostering and schedule publishing activity.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </section>
+
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-900">Tasks</h3>
                 <div className="grid gap-3 md:grid-cols-2">
@@ -2595,6 +2740,122 @@ export default async function SettingsPage(props: {
               </section>
 
               <section className="space-y-3">
+                <h3 className="text-sm font-semibold text-slate-900">Mentions by area</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="mention_task"
+                      defaultChecked={prefs.mention_task}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">Tasks</span>
+                      <span className="block text-slate-600">
+                        Mentions in task pages and updates.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="mention_notes"
+                      defaultChecked={prefs.mention_notes}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">Notes</span>
+                      <span className="block text-slate-600">
+                        Mentions in personal and client notes.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="mention_chat"
+                      defaultChecked={prefs.mention_chat}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">Chat</span>
+                      <span className="block text-slate-600">
+                        Mentions in direct and group chat messages.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="mention_social"
+                      defaultChecked={prefs.mention_social}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">Social</span>
+                      <span className="block text-slate-600">
+                        Mentions in social posts, comments, and replies.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="mention_feature_suggestion"
+                      defaultChecked={prefs.mention_feature_suggestion}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">
+                        Feature suggestions
+                      </span>
+                      <span className="block text-slate-600">
+                        Mentions in ideas, idea updates, and idea comments.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      name="mention_form_submission"
+                      defaultChecked={prefs.mention_form_submission}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">
+                        Form submissions
+                      </span>
+                      <span className="block text-slate-600">
+                        Mentions in form submission comments.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-md border border-slate-200 px-4 py-3 text-sm md:col-span-2">
+                    <input
+                      type="checkbox"
+                      name="mention_quiz"
+                      defaultChecked={prefs.mention_quiz}
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="block font-semibold text-slate-900">
+                        Quizzes (forward-compatible)
+                      </span>
+                      <span className="block text-slate-600">
+                        Reserved for quiz mentions as quiz collaboration expands.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </section>
+
+              <section className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-900">
                   Feature suggestions
                 </h3>
@@ -2635,6 +2896,10 @@ export default async function SettingsPage(props: {
                 </div>
               </section>
 
+              <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Tip: keep @mentions enabled globally, then tune noisy areas individually.
+              </p>
+
               <div className="flex items-center justify-end">
                 <button
                   type="submit"
@@ -2647,7 +2912,6 @@ export default async function SettingsPage(props: {
           </div>
         </section>
       ) : null}
-
       {activeTab === "groups" ? (
         <section className="rounded-lg border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">

@@ -14,6 +14,19 @@ create table if not exists public.user_notification_preferences (
   feature_suggestion_comment boolean not null default true,
   feature_suggestion_status boolean not null default true,
 
+  -- Mention notifications (recipient).
+  mentions_enabled boolean not null default true,
+  mention_task boolean not null default true,
+  mention_notes boolean not null default true,
+  mention_chat boolean not null default true,
+  mention_social boolean not null default true,
+  mention_feature_suggestion boolean not null default true,
+  mention_form_submission boolean not null default true,
+  mention_quiz boolean not null default true,
+
+  -- Schedule updates.
+  schedule_updates boolean not null default true,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -57,4 +70,3 @@ create trigger set_user_notification_preferences_updated_at
 before update on public.user_notification_preferences
 for each row
 execute function public.set_updated_at();
-
