@@ -1,15 +1,17 @@
 import Image from "next/image";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
 import { type PagePermissionKey } from "@/lib/pagePermissions";
 import { APP_SIDEBAR_LINKS, type SidebarNavLink } from "@/lib/appSidebarLinks";
+import { LOGIN_QUICK_READ_COOKIE } from "@/lib/loginQuickRead";
 import NotificationBell from "./_components/NotificationBell";
 import GlobalSearchBar from "./_components/GlobalSearchBar";
 import AppResumeRefresh from "./_components/AppResumeRefresh";
 import AppNavLink from "./_components/AppNavLink";
+import LoginQuickReadPrompt from "./_components/LoginQuickReadPrompt";
 import SidebarNav from "./_components/SidebarNav";
 
 type SidebarNavOrderRow = {
@@ -216,6 +218,10 @@ export default async function AppLayout({
     console.error("[layout.app_nav_order]", navOrderError.message);
   }
 
+  const cookieStore = await cookies();
+  const shouldCheckQuickReadOnLoad =
+    String(cookieStore.get(LOGIN_QUICK_READ_COOKIE)?.value || "").trim() === "1";
+
   const unreadChatCount = 0;
 
   async function signOut() {
@@ -228,6 +234,7 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen overflow-x-hidden app-bg text-slate-900">
       <AppResumeRefresh />
+      <LoginQuickReadPrompt shouldCheckOnLoad={shouldCheckQuickReadOnLoad} />
       <div className="relative min-h-screen overflow-x-hidden">
         <input
           id="app-sidebar-collapsed"

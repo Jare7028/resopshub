@@ -1,6 +1,7 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { LOGIN_QUICK_READ_COOKIE } from "@/lib/loginQuickRead";
 
 function normalizeReturnTo(value: string | null | undefined) {
   const normalized = String(value || "").trim();
@@ -51,6 +52,16 @@ export default async function LoginPage(props: {
         )}`
       );
     }
+
+    const cookieStore = await cookies();
+    cookieStore.set({
+      name: LOGIN_QUICK_READ_COOKIE,
+      value: "1",
+      path: "/",
+      maxAge: 60 * 30,
+      httpOnly: true,
+      sameSite: "lax",
+    });
 
     redirect(returnTo || "/clients");
   }
