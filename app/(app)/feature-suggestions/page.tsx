@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import MentionTextareaField from "@/app/(app)/_components/MentionTextareaField";
+import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -337,6 +339,7 @@ export default async function FeatureSuggestionsPage(props: {
 
     const { data: authData } = await supabase.auth.getUser();
     const authEmail = authData.user?.email;
+    const authUserId = authData.user?.id || null;
 
     if (!authEmail) {
       redirect("/login");
@@ -352,15 +355,38 @@ export default async function FeatureSuggestionsPage(props: {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20user%20profile`);
     }
 
-    const { error } = await supabase.from("feature_suggestions").insert({
-      title,
-      details: details || null,
-      type,
-      created_by: user.id,
-    });
+    const { data: insertedSuggestion, error } = await supabase
+      .from("feature_suggestions")
+      .insert({
+        title,
+        details: details || null,
+        type,
+        created_by: user.id,
+      })
+      .select("id,title")
+      .single();
 
     if (error) {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(error.message)}`);
+    }
+
+    if (insertedSuggestion?.id) {
+      const nextMentionText = [title, details].filter(Boolean).join("\n\n");
+      try {
+        await notifyMentionedUsersFromTextChange({
+          actorAuthUserId: authUserId,
+          previousText: null,
+          nextText: nextMentionText,
+          sourceType: "feature_suggestion",
+          sourceId: insertedSuggestion.id,
+          sourceUrl: `/feature-suggestions/${insertedSuggestion.id}`,
+          sourceTitle: String(insertedSuggestion?.title || title || "Feature suggestion"),
+        });
+      } catch (notifyError) {
+        const message =
+          notifyError instanceof Error ? notifyError.message : String(notifyError);
+        console.error("[featureSuggestions.create.mentions.notify]", message);
+      }
     }
 
     revalidatePath("/feature-suggestions");
@@ -604,7 +630,7 @@ export default async function FeatureSuggestionsPage(props: {
             <option value="improvement">Improvement</option>
             <option value="new_feature">New feature</option>
           </select>
-          <textarea
+          <MentionTextareaField
             name="details"
             rows={4}
             placeholder="Describe the problem and ideal outcome."

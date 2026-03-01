@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import MentionCommentForm from "@/app/(app)/_components/MentionCommentForm";
+import MentionTextareaField from "@/app/(app)/_components/MentionTextareaField";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { isSupabaseMissingColumnError } from "@/lib/supabaseErrors";
@@ -198,6 +199,8 @@ export default async function FeatureSuggestionDetailPage(props: {
   async function updateSuggestion(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const { data: authData } = await supabase.auth.getUser();
+    const authUserId = authData.user?.id || null;
 
     const title = String(formData.get("title") || "").trim();
     const details = String(formData.get("details") || "").trim();
@@ -251,6 +254,29 @@ export default async function FeatureSuggestionDetailPage(props: {
     if (error) {
       detailParams.set("error", error.message);
       redirect(`${detailPath}?${detailParams.toString()}`);
+    }
+
+    const previousMentionText = [
+      String(suggestion?.title || "").trim(),
+      String(suggestion?.details || "").trim(),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const nextMentionText = [title, details].filter(Boolean).join("\n\n");
+    try {
+      await notifyMentionedUsersFromTextChange({
+        actorAuthUserId: authUserId,
+        previousText: previousMentionText,
+        nextText: nextMentionText,
+        sourceType: "feature_suggestion",
+        sourceId: suggestionId,
+        sourceUrl: detailPath,
+        sourceTitle: title,
+      });
+    } catch (notifyError) {
+      const message =
+        notifyError instanceof Error ? notifyError.message : String(notifyError);
+      console.error("[featureSuggestion.update.mentions.notify]", message);
     }
 
     revalidatePath("/feature-suggestions");
@@ -480,7 +506,7 @@ export default async function FeatureSuggestionDetailPage(props: {
           </label>
           <label className="md:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
             Description
-            <textarea
+            <MentionTextareaField
               name="details"
               rows={8}
               defaultValue={suggestion.details || ""}

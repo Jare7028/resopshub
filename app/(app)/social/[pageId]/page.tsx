@@ -14,6 +14,7 @@ import {
 } from "@/lib/assignmentGroups";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+import MentionTextareaField from "../../_components/MentionTextareaField";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import SocialCommentComposer from "../_components/SocialCommentComposer";
 import SocialPostComposer from "../_components/SocialPostComposer";
@@ -2192,7 +2193,7 @@ export default async function SocialPageDetail(props: {
                         <div className="space-y-2 border-t border-slate-200 px-3 py-3">
                           <form action={updatePost} className="space-y-2">
                             <input type="hidden" name="post_id" value={post.id} />
-                            <textarea
+                            <MentionTextareaField
                               name="body"
                               defaultValue={post.body}
                               rows={4}
@@ -2374,7 +2375,7 @@ export default async function SocialPageDetail(props: {
                                       <div className="space-y-2 border-t border-slate-200 px-2.5 py-2">
                                         <form action={updateComment} className="space-y-2">
                                           <input type="hidden" name="comment_id" value={comment.id} />
-                                          <textarea
+                                          <MentionTextareaField
                                             name="body"
                                             defaultValue={comment.body}
                                             rows={3}
@@ -2581,7 +2582,7 @@ export default async function SocialPageDetail(props: {
                                                     <div className="space-y-2 border-t border-slate-200 px-2.5 py-2">
                                                       <form action={updateComment} className="space-y-2">
                                                         <input type="hidden" name="comment_id" value={reply.id} />
-                                                        <textarea
+                                                        <MentionTextareaField
                                                           name="body"
                                                           defaultValue={reply.body}
                                                           rows={3}

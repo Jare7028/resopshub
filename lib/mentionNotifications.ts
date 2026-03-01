@@ -12,6 +12,7 @@ type MentionSourceType =
   | "social_post"
   | "social_comment"
   | "chat_message"
+  | "feature_suggestion"
   | "feature_suggestion_comment"
   | "form_submission_comment";
 
@@ -48,6 +49,7 @@ const SOURCE_LABEL: Record<MentionSourceType, string> = {
   social_post: "social post",
   social_comment: "social comment",
   chat_message: "chat message",
+  feature_suggestion: "feature suggestion",
   feature_suggestion_comment: "feature suggestion comment",
   form_submission_comment: "form submission comment",
 };
