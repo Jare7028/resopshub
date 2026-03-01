@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
+import MentionTextarea from "@/app/(app)/_components/MentionTextarea";
 import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import ChatComposer from "./ChatComposer";
@@ -1988,9 +1989,9 @@ export default function ChatPageClient(props: {
 
                               {isEditing ? (
                                 <div className="space-y-2">
-                                  <textarea
+                                  <MentionTextarea
                                     value={editingDraft}
-                                    onChange={(event) => setEditingDraft(event.target.value)}
+                                    onValueChange={setEditingDraft}
                                     rows={3}
                                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
                                   />

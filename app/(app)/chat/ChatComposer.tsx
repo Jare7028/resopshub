@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
+import MentionTextarea from "@/app/(app)/_components/MentionTextarea";
 import { insertTextAtSelection } from "@/lib/emoji";
 
 export type LinkEntityType =
@@ -308,10 +309,10 @@ export default function ChatComposer(props: {
             </button>
           </div>
         ) : null}
-        <textarea
+        <MentionTextarea
           ref={bodyTextareaRef}
           value={body}
-          onChange={(event) => setBody(event.target.value)}
+          onValueChange={setBody}
           onPaste={async (event) => {
             const items = Array.from(event.clipboardData?.items || []);
             const imageItems = items.filter((item) => item.type.startsWith("image/"));

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
+import MentionTextarea from "@/app/(app)/_components/MentionTextarea";
 import { insertTextAtSelection } from "@/lib/emoji";
 
 function SubmitButton({
@@ -71,13 +72,13 @@ export default function SocialCommentComposer({
       {parentCommentId ? (
         <input type="hidden" name="parent_comment_id" value={parentCommentId} />
       ) : null}
-      <textarea
+      <MentionTextarea
         ref={bodyTextareaRef}
         name="body"
         rows={2}
         placeholder={placeholder}
         value={body}
-        onChange={(event) => setBody(event.target.value)}
+        onValueChange={setBody}
         className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
         disabled={!canPost}
         required

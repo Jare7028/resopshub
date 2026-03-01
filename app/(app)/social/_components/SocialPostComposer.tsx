@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
+import MentionTextarea from "@/app/(app)/_components/MentionTextarea";
 import { insertTextAtSelection } from "@/lib/emoji";
 import { buildSocialInlineImageToken } from "@/lib/socialPostContent";
 
@@ -167,11 +168,11 @@ export default function SocialPostComposer({
         )}
       />
 
-      <textarea
+      <MentionTextarea
         ref={bodyTextareaRef}
         name="body"
         value={body}
-        onChange={(event) => setBody(event.target.value)}
+        onValueChange={setBody}
         onPaste={async (event) => {
           const items = Array.from(event.clipboardData?.items || []);
           const imageItems = items.filter((item) => item.type.startsWith("image/"));

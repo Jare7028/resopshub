@@ -1,6 +1,7 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
+import MentionCommentForm from "@/app/(app)/_components/MentionCommentForm";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { isSupabaseMissingColumnError } from "@/lib/supabaseErrors";
@@ -549,21 +550,10 @@ export default async function FeatureSuggestionDetailPage(props: {
           <h2 className="text-lg font-semibold text-slate-900">Comments</h2>
         </div>
         <div className="space-y-4 px-6 py-4">
-          <form action={addComment} className="space-y-3">
-            <textarea
-              name="body"
-              rows={3}
-              placeholder="Add a comment (use @name to mention)"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              required
-            />
-            <button
-              type="submit"
-              className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
-            >
-              Add comment
-            </button>
-          </form>
+          <MentionCommentForm
+            action={addComment}
+            placeholder="Add a comment (use @name to mention)"
+          />
 
           <div className="space-y-3">
             {comments.length ? (
