@@ -10,6 +10,7 @@ type StatusOptionAutoRowProps = {
   id: string;
   value: string;
   position: number;
+  maxPosition: number;
   isVisible: boolean;
   countsAsCompleted: boolean;
   colorHex: string | null;
@@ -27,6 +28,7 @@ export default function StatusOptionAutoRow({
   id,
   value,
   position,
+  maxPosition,
   isVisible,
   countsAsCompleted,
   colorHex,
@@ -112,14 +114,18 @@ export default function StatusOptionAutoRow({
     }, 260);
   };
 
+  const positionOptions = Array.from(
+    { length: Math.max(1, maxPosition) },
+    (_, index) => index + 1
+  );
+
   return (
     <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_88px_88px_144px_auto] sm:items-center">
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_88px_88px_88px_144px_auto] sm:items-center">
         <form ref={formRef} className="contents">
           <input type="hidden" name="entity_type" value={entityType} />
           <input type="hidden" name="id" value={id} />
           <input type="hidden" name="value" value={value} />
-          <input type="hidden" name="position" value={position} />
           <input type="hidden" name="autosave" value="1" />
 
           <span className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-800">
@@ -132,6 +138,23 @@ export default function StatusOptionAutoRow({
               <span className="shrink-0 text-[11px] font-semibold text-slate-500">(core)</span>
             ) : null}
           </span>
+
+          <label className="inline-flex items-center gap-2 text-xs text-slate-700 sm:justify-center">
+            <span className="sm:hidden">Order</span>
+            <select
+              key={`${id}-position-${position}`}
+              name="position"
+              defaultValue={String(position)}
+              onChange={() => submitUpdate()}
+              className="h-7 rounded-md border border-slate-300 bg-white px-2 text-xs"
+            >
+              {positionOptions.map((optionPosition) => (
+                <option key={`${id}-position-${optionPosition}`} value={optionPosition}>
+                  {optionPosition}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 sm:justify-center">
             <input

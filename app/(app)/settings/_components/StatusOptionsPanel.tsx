@@ -197,8 +197,9 @@ export default function StatusOptionsPanel({
                   </div>
                 </form>
 
-                <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_144px_auto] px-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+                <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_88px_144px_auto] px-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:grid">
                   <span>Status</span>
+                  <span className="text-center">Order</span>
                   <span className="text-center">Open</span>
                   <span className="text-center">Closed</span>
                   <span className="text-right">Color</span>
@@ -214,6 +215,7 @@ export default function StatusOptionsPanel({
                         id={status.id}
                         value={status.value}
                         position={status.position}
+                        maxPosition={activeSection.rows.length}
                         isVisible={status.isVisible}
                         countsAsCompleted={status.countsAsCompleted}
                         colorHex={status.colorHex}

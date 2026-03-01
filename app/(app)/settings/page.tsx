@@ -2193,8 +2193,11 @@ export default async function SettingsPage(props: {
     const countsAsCompleted = checkbox(formData, "counts_as_completed");
     const rawColorHex = String(formData.get("color_hex") || "").trim();
     const colorHex = statusColorValue(formData, "color_hex");
-    const position = Number(formData.get("position") || "");
-    const nextPosition = Number.isFinite(position) ? position : 0;
+    const requestedPositionRaw = Number(formData.get("position") || "");
+    const requestedPosition =
+      Number.isFinite(requestedPositionRaw) && requestedPositionRaw > 0
+        ? Math.floor(requestedPositionRaw)
+        : 1;
 
     if (!value) {
       if (autosave) return { ok: false, error: "Missing status" };
@@ -2207,7 +2210,85 @@ export default async function SettingsPage(props: {
       redirect("/settings?tab=statuses&error=Color%20must%20be%20a%20hex%20value%20like%20%2300aaff");
     }
 
-    let error: { message: string } | null = null;
+    type StatusOptionDbRow = {
+      id: string;
+      value: string;
+      position: number;
+      is_visible: boolean | null;
+      counts_as_completed: boolean | null;
+      color_hex: string | null;
+    };
+
+    const loadStatusRows = async (): Promise<{
+      data: StatusOptionDbRow[] | null;
+      error: { message: string } | null;
+    }> => {
+      const withMetadata = await supabase
+        .from("status_options")
+        .select("id,value,position,is_visible,counts_as_completed,color_hex")
+        .eq("entity_type", entityType)
+        .order("position", { ascending: true })
+        .order("value", { ascending: true });
+
+      if (!withMetadata.error) {
+        return {
+          data: (withMetadata.data || []) as StatusOptionDbRow[],
+          error: null,
+        };
+      }
+
+      if (!isSupabaseMissingColumnError(withMetadata.error)) {
+        return { data: null, error: withMetadata.error };
+      }
+
+      const legacy = await supabase
+        .from("status_options")
+        .select("id,value,position")
+        .eq("entity_type", entityType)
+        .order("position", { ascending: true })
+        .order("value", { ascending: true });
+      if (legacy.error) {
+        return { data: null, error: legacy.error };
+      }
+
+      return {
+        data: ((legacy.data || []) as Array<{ id: string; value: string; position: number }>).map((row) => ({
+          id: row.id,
+          value: row.value,
+          position: row.position,
+          is_visible: null,
+          counts_as_completed: null,
+          color_hex: null,
+        })),
+        error: null,
+      };
+    };
+
+    const insertStatus = async (
+      statusValue: string,
+      position: number,
+      visible: boolean,
+      completed: boolean,
+      statusColor: string | null
+    ) => {
+      let insertError: { message: string } | null = null;
+      ({ error: insertError } = await supabase.from("status_options").insert({
+        entity_type: entityType,
+        value: statusValue,
+        position,
+        is_visible: visible,
+        counts_as_completed: completed,
+        color_hex: statusColor,
+      }));
+      if (insertError && isSupabaseMissingColumnError(insertError)) {
+        ({ error: insertError } = await supabase.from("status_options").insert({
+          entity_type: entityType,
+          value: statusValue,
+          position,
+        }));
+      }
+      return insertError;
+    };
 
     const updateById = async (targetId: string) => {
       let updateError: { message: string } | null = null;
@@ -2217,55 +2298,143 @@ export default async function SettingsPage(props: {
           is_visible: isVisible,
           counts_as_completed: countsAsCompleted,
           color_hex: colorHex,
-          position: nextPosition,
+          position: requestedPosition,
         })
         .eq("id", targetId));
       if (updateError && isSupabaseMissingColumnError(updateError)) {
         ({ error: updateError } = await supabase
           .from("status_options")
           .update({
-            position: nextPosition,
+            position: requestedPosition,
           })
           .eq("id", targetId));
       }
       return updateError;
     };
 
+    let error: { message: string } | null = null;
+
     if (id) {
       error = await updateById(id);
     } else {
-      const existingStatus = await supabase
-        .from("status_options")
-        .select("id,value")
-        .eq("entity_type", entityType)
-        .order("position", { ascending: true })
-        .order("value", { ascending: true });
-
+      const existingStatus = await loadStatusRows();
       if (existingStatus.error) {
         error = existingStatus.error;
       } else {
         const matched = (existingStatus.data || []).find(
           (row) => normalizeStatusValue(String(row.value || "")) === value
         );
-
         if (matched?.id) {
           error = await updateById(matched.id);
         } else {
-          ({ error } = await supabase.from("status_options").insert({
-            entity_type: entityType,
+          error = await insertStatus(
             value,
-            is_visible: isVisible,
-            counts_as_completed: countsAsCompleted,
-            color_hex: colorHex,
-            position: nextPosition || 1,
-          }));
+            requestedPosition,
+            isVisible,
+            countsAsCompleted,
+            colorHex
+          );
+        }
+      }
+    }
 
-          if (error && isSupabaseMissingColumnError(error)) {
-            ({ error } = await supabase.from("status_options").insert({
+    if (!error) {
+      let statusRowsResult = await loadStatusRows();
+      if (statusRowsResult.error) {
+        error = statusRowsResult.error;
+      } else {
+        let statusRows = statusRowsResult.data || [];
+        const targetRowExists = statusRows.some(
+          (row) => normalizeStatusValue(String(row.value || "")) === value
+        );
+
+        if (!targetRowExists) {
+          error = await insertStatus(
+            value,
+            requestedPosition,
+            isVisible,
+            countsAsCompleted,
+            colorHex
+          );
+          if (!error) {
+            statusRowsResult = await loadStatusRows();
+            if (statusRowsResult.error) {
+              error = statusRowsResult.error;
+            } else {
+              statusRows = statusRowsResult.data || [];
+            }
+          }
+        }
+
+        if (!error) {
+          const orderedStatuses = buildStatusOptionsWithMetadata(
+            entityType,
+            statusRows.map((row) => ({
               entity_type: entityType,
+              value: row.value,
+              position: row.position,
+              is_visible: row.is_visible,
+              counts_as_completed: row.counts_as_completed,
+              color_hex: row.color_hex,
+            })),
+            []
+          );
+          let currentIndex = orderedStatuses.findIndex((status) => status.value === value);
+          if (currentIndex === -1) {
+            orderedStatuses.push({
               value,
-              position: nextPosition || 1,
-            }));
+              position: orderedStatuses.length + 1,
+              isVisible,
+              countsAsCompleted,
+              colorHex,
+            });
+            currentIndex = orderedStatuses.length - 1;
+          }
+          const targetIndex = Math.min(
+            Math.max(requestedPosition - 1, 0),
+            Math.max(orderedStatuses.length - 1, 0)
+          );
+          if (currentIndex !== targetIndex) {
+            const [moved] = orderedStatuses.splice(currentIndex, 1);
+            if (moved) {
+              orderedStatuses.splice(targetIndex, 0, moved);
+            }
+          }
+
+          const statusRowByValue = new Map(
+            statusRows.map((row) => [normalizeStatusValue(String(row.value || "")), row] as const)
+          );
+
+          for (let index = 0; index < orderedStatuses.length; index += 1) {
+            const status = orderedStatuses[index];
+            const nextPosition = index + 1;
+            const existing = statusRowByValue.get(status.value);
+
+            if (existing?.id) {
+              const currentPosition = Number(existing.position);
+              if (Number.isFinite(currentPosition) && currentPosition === nextPosition) {
+                continue;
+              }
+              const { error: positionError } = await supabase
+                .from("status_options")
+                .update({ position: nextPosition })
+                .eq("id", existing.id);
+              if (positionError) {
+                error = positionError;
+                break;
+              }
+            } else {
+              error = await insertStatus(
+                status.value,
+                nextPosition,
+                status.isVisible,
+                status.countsAsCompleted,
+                status.colorHex
+              );
+              if (error) {
+                break;
+              }
+            }
           }
         }
       }
