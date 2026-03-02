@@ -95,6 +95,16 @@ type AuditRow = {
   created_at: string;
 };
 
+type TimeOffDayRow = {
+  target_user_id: string;
+  day: string;
+  code_id: string;
+  code: string;
+  label: string;
+  pay_source: "carryover" | "entitlement" | "unpaid";
+  request_id: string;
+};
+
 type JobHoursTally = {
   key: string;
   label: string;
@@ -898,6 +908,31 @@ export default async function ClientSchedulePage({
   const scheduledWeekBillableMinutes = shifts.reduce((sum, shift) => sum + shiftBillableMinutes(shift), 0);
   const billableGapMinutes = scheduledWeekBillableMinutes - effectiveWeeklyBillableMinutes;
 
+  const rosterUserIds = Array.from(
+    new Set(
+      roster
+        .map((row) => row.user_id)
+        .filter((value): value is string => typeof value === "string" && uuidRegex.test(value))
+    )
+  );
+  const timeOffRangeStart = visibleDays[0] || weekStart;
+  const timeOffRangeEnd = visibleDays[visibleDays.length - 1] || weekStart;
+  let timeOffDays: TimeOffDayRow[] = [];
+  if (rosterUserIds.length) {
+    const { data: timeOffData } = await supabase.rpc("schedule_time_off_list_days", {
+      p_user_ids: rosterUserIds,
+      p_start_date: timeOffRangeStart,
+      p_end_date: timeOffRangeEnd,
+    });
+    timeOffDays = (timeOffData || []) as TimeOffDayRow[];
+  }
+  const timeOffByUserDay = timeOffDays.reduce<Record<string, TimeOffDayRow[]>>((acc, row) => {
+    const key = `${row.target_user_id}:${row.day}`;
+    acc[key] ||= [];
+    acc[key].push(row);
+    return acc;
+  }, {});
+
   const jobCodeById = new Map(jobCodes.map((row) => [row.id, row]));
   const visibleDaySet = new Set(visibleDays);
   const filteredRoster = roster.filter((row) => {
@@ -1457,6 +1492,10 @@ export default async function ClientSchedulePage({
                         <Link href={scheduleActionPath("view_audit")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">View audit log</Link>
                       ) : null}
 
+                      <Link href="/schedules/time-off" className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                        Manage time off
+                      </Link>
+
                       {canEdit && week ? (
                         <Link href={scheduleActionPath("create_shift")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</Link>
                       ) : null}
@@ -1708,6 +1747,8 @@ export default async function ClientSchedulePage({
                     </td>
                     {visibleDays.map((day) => {
                       const dayShifts = shiftsByRosterDay[`${row.id}:${day}`] || [];
+                      const dayTimeOff = row.user_id ? timeOffByUserDay[`${row.user_id}:${day}`] || [] : [];
+                      const hasTimeOffConflict = dayTimeOff.length > 0 && dayShifts.length > 0;
                       return (
                         <td
                           key={day}
@@ -1725,6 +1766,26 @@ export default async function ClientSchedulePage({
                             />
                           ) : null}
                           <div className="relative z-10 space-y-1.5">
+                            {dayTimeOff.length ? (
+                              <div className="space-y-1">
+                                {dayTimeOff.map((entry) => (
+                                  <div
+                                    key={`${entry.request_id}:${entry.day}:${entry.code_id}`}
+                                    className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] text-sky-800"
+                                  >
+                                    <span className="font-semibold">Time off:</span> {entry.label}
+                                    <span className="ml-1 uppercase tracking-wide text-[10px] text-sky-700/80">
+                                      {entry.pay_source}
+                                    </span>
+                                  </div>
+                                ))}
+                                {hasTimeOffConflict ? (
+                                  <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
+                                    Conflicts with scheduled shift
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {dayShifts.map((shift) => {
                               const jobCode = shift.job_code_id ? jobCodeById.get(shift.job_code_id) : null;
                               const jobCodeText = jobCode ? jobCode.code : "No Job Code";

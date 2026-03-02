@@ -320,10 +320,20 @@ export default async function SchedulesPage({
   return (
     <div className="space-y-6">
       <section className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Schedules</h1>
-        <p className="text-sm text-slate-600">
-          Select a client to open weekly schedule management and billable settings.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-2">
+            <h1 className="text-2xl font-semibold text-slate-900">Schedules</h1>
+            <p className="text-sm text-slate-600">
+              Select a client to open weekly schedule management and billable settings.
+            </p>
+          </div>
+          <Link
+            href="/schedules/time-off"
+            className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Time off suite
+          </Link>
+        </div>
       </section>
 
       {resolvedSearch?.error ? (
