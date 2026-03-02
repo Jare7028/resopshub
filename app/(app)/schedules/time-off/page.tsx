@@ -127,6 +127,14 @@ function toNonNegative(value: number | string | null | undefined) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+function toTimeOffCodeKey(value: string) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 function parseIntInput(
   rawValue: FormDataEntryValue | null,
   label: string,
@@ -281,8 +289,17 @@ export default async function ScheduleTimeOffPage({
     const tab = normalizeTimeOffTab(String(formData.get("tab") || ""));
     const codeIdRaw = String(formData.get("code_id") || "").trim();
     const codeId = uuidRegex.test(codeIdRaw) ? codeIdRaw : null;
-    const code = String(formData.get("code") || "").trim();
     const label = String(formData.get("label") || "").trim();
+    if (!label) {
+      await finish(buildTimeOffPath({ year, status, tab, error: "Code name is required", ...(codeId ? { editCodeId: codeId } : {}) }));
+      return;
+    }
+    const existingCode = String(formData.get("code") || "").trim();
+    const code = existingCode || toTimeOffCodeKey(label);
+    if (!code) {
+      await finish(buildTimeOffPath({ year, status, tab, error: "Code name must include letters or numbers", ...(codeId ? { editCodeId: codeId } : {}) }));
+      return;
+    }
     const defaultPaid = parseIntInput(formData.get("default_paid_days_per_year"), "Default paid days", { min: 0 });
     if (!defaultPaid.ok) {
       await finish(buildTimeOffPath({ year, status, tab, error: defaultPaid.error, ...(codeId ? { editCodeId: codeId } : {}) }));
@@ -756,8 +773,7 @@ export default async function ScheduleTimeOffPage({
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Label</th>
+                  <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">Paid/year</th>
                   <th className="px-3 py-2">Carryover</th>
                   <th className="px-3 py-2">Status</th>
@@ -771,8 +787,7 @@ export default async function ScheduleTimeOffPage({
                       key={code.id}
                       className={`border-t border-slate-200 ${editingCode?.id === code.id ? "bg-sky-50/50" : "bg-white"}`}
                     >
-                      <td className="px-3 py-2 font-semibold text-slate-900">{code.code}</td>
-                      <td className="px-3 py-2">{code.label}</td>
+                      <td className="px-3 py-2 font-semibold text-slate-900">{code.label}</td>
                       <td className="px-3 py-2">{toNonNegative(code.default_paid_days_per_year)}</td>
                       <td className="px-3 py-2">
                         {code.carryover_enabled ? `Cap ${toNonNegative(code.carryover_cap_days)}` : "Disabled"}
@@ -820,7 +835,7 @@ export default async function ScheduleTimeOffPage({
                   ))
                 ) : (
                   <tr>
-                    <td className="px-3 py-3 text-slate-500" colSpan={6}>
+                    <td className="px-3 py-3 text-slate-500" colSpan={5}>
                       No codes found.
                     </td>
                   </tr>
@@ -839,17 +854,9 @@ export default async function ScheduleTimeOffPage({
                 <input type="hidden" name="status" value={selectedStatus} />
                 <input type="hidden" name="tab" value={selectedTab} />
                 <input type="hidden" name="code_id" value={editingCode?.id || ""} />
+                <input type="hidden" name="code" value={editingCode?.code || ""} />
                 <label className="text-sm text-slate-700">
-                  Code
-                  <input
-                    name="code"
-                    defaultValue={editingCode?.code || ""}
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                    required
-                  />
-                </label>
-                <label className="text-sm text-slate-700">
-                  Label
+                  Name
                   <input
                     name="label"
                     defaultValue={editingCode?.label || ""}
