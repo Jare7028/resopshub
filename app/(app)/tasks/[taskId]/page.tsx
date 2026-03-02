@@ -80,6 +80,15 @@ type TaskDetailRow = {
   clients?: { name?: string | null } | { name?: string | null }[] | null;
 };
 
+type TaskAuditRow = {
+  id: number;
+  action: string;
+  change_summary: string;
+  changed_columns: string[] | null;
+  changed_by_user_id: string | null;
+  changed_at: string;
+};
+
 function buildTaskUrl(
   taskId: string,
   tab: TaskTabKey,
@@ -267,6 +276,23 @@ export default async function TaskDetailPage(props: {
   );
 
   const taskId = task.id;
+  let auditRows: TaskAuditRow[] = [];
+  let auditLoadError: string | null = null;
+  if (activeTab === "audit") {
+    const { data: auditRowsRaw, error: auditRowsError } = await supabase
+      .from("task_audit_events")
+      .select("id,action,change_summary,changed_columns,changed_by_user_id,changed_at")
+      .eq("task_id", taskId)
+      .order("changed_at", { ascending: false })
+      .limit(200);
+    if (auditRowsError) {
+      auditLoadError = isSupabaseMissingTableError(auditRowsError)
+        ? "Audit log is not set up yet. Run the latest Supabase migrations and refresh."
+        : auditRowsError.message;
+    } else {
+      auditRows = (auditRowsRaw || []) as TaskAuditRow[];
+    }
+  }
   const showAddFieldModal = searchParams?.add_field === "1";
   const taskStatus = task.status;
   const taskPriority = task.priority;
@@ -418,6 +444,10 @@ export default async function TaskDetailPage(props: {
   const lastEditedByLabel = task.last_edited_by_user_id
     ? assigneeMap.get(task.last_edited_by_user_id) || "Unknown user"
     : null;
+  const getUserDisplayName = (userId: string | null) => {
+    if (!userId) return "System";
+    return assigneeMap.get(userId) || "Unknown user";
+  };
 
   const subtasksById: Record<string, string[]> = {};
   const openSubtaskCountByTaskId: Record<string, number> = {};
@@ -933,6 +963,11 @@ export default async function TaskDetailPage(props: {
     await supabase.from("task_assignees").delete().eq("task_id", taskId);
 
     const uniqueIds = Array.from(new Set(selectedIds));
+    const currentAssigneeIds = Array.from(assignedUserIds).sort();
+    const nextAssigneeIds = [...uniqueIds].sort();
+    const assigneesChanged =
+      currentAssigneeIds.length !== nextAssigneeIds.length ||
+      currentAssigneeIds.some((id, index) => id !== nextAssigneeIds[index]);
     if (uniqueIds.length) {
       const inserts = uniqueIds.map((userId) => ({
         task_id: taskId,
@@ -952,6 +987,17 @@ export default async function TaskDetailPage(props: {
         .eq("id", taskId);
       if (updateError) {
         redirect(buildTaskUrl(taskId, "assignees", { error: updateError.message }));
+      }
+    } else if (assigneesChanged) {
+      const { error: auditError } = await supabase.rpc("task_log_audit_event", {
+        p_task_id: taskId,
+        p_action: "task.assignees.updated",
+        p_change_summary: "Assignees changed",
+        p_changed_columns: ["assignees"],
+        p_details: { assignee_count: uniqueIds.length },
+      });
+      if (auditError) {
+        console.error("[tasks.updateTaskAssignees.audit]", auditError.message);
       }
     }
 
@@ -974,6 +1020,11 @@ export default async function TaskDetailPage(props: {
     await supabase.from("task_watchers").delete().eq("task_id", taskId);
 
     const uniqueIds = Array.from(new Set(selectedIds));
+    const currentWatcherIds = Array.from(watcherUserIds).sort();
+    const nextWatcherIds = [...uniqueIds].sort();
+    const watchersChanged =
+      currentWatcherIds.length !== nextWatcherIds.length ||
+      currentWatcherIds.some((id, index) => id !== nextWatcherIds[index]);
     if (uniqueIds.length) {
       const inserts = uniqueIds.map((userId) => ({
         task_id: taskId,
@@ -982,6 +1033,18 @@ export default async function TaskDetailPage(props: {
       const { error } = await supabase.from("task_watchers").insert(inserts);
       if (error) {
         redirect(buildTaskUrl(taskId, "watchers", { error: error.message }));
+      }
+    }
+    if (watchersChanged) {
+      const { error: auditError } = await supabase.rpc("task_log_audit_event", {
+        p_task_id: taskId,
+        p_action: "task.watchers.updated",
+        p_change_summary: "Watchers changed",
+        p_changed_columns: ["watchers"],
+        p_details: { watcher_count: uniqueIds.length },
+      });
+      if (auditError) {
+        console.error("[tasks.updateTaskWatchers.audit]", auditError.message);
       }
     }
 
@@ -1881,6 +1944,47 @@ export default async function TaskDetailPage(props: {
           lastEditedAtLabel={lastEditedAtLabel}
           lastEditedByLabel={lastEditedByLabel}
         />
+      ) : null}
+      {activeTab === "audit" ? (
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-900">Task audit log</h2>
+          </div>
+          {auditLoadError ? (
+            <div className="px-6 py-6">
+              <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                {auditLoadError}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              {auditRows.length ? (
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3">What changed</th>
+                      <th className="px-6 py-3">Who changed it</th>
+                      <th className="px-6 py-3">When</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {auditRows.map((row) => (
+                      <tr key={row.id}>
+                        <td className="px-6 py-3">{row.change_summary}</td>
+                        <td className="px-6 py-3">{getUserDisplayName(row.changed_by_user_id)}</td>
+                        <td className="px-6 py-3">
+                          {row.changed_at ? new Date(row.changed_at).toLocaleString("en-US") : "--"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="px-6 py-6 text-sm text-slate-500">No audit events yet.</p>
+              )}
+            </div>
+          )}
+        </section>
       ) : null}
     </div>
   );

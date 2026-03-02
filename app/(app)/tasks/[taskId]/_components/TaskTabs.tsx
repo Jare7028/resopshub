@@ -6,6 +6,7 @@ const tabs = [
   { key: "watchers", label: "Watchers", suffix: "?tab=watchers" },
   { key: "subtasks", label: "Subtasks", suffix: "?tab=subtasks" },
   { key: "notes", label: "Notes", suffix: "?tab=notes" },
+  { key: "audit", label: "Audit log", suffix: "?tab=audit" },
 ] as const;
 
 export type TaskTabKey = (typeof tabs)[number]["key"];
