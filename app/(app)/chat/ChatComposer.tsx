@@ -68,6 +68,7 @@ export default function ChatComposer(props: {
       filename: string;
       mime_type: string;
       size_bytes: number;
+      url?: string | null;
     }>;
     replyToMessageId?: string;
   }) => Promise<void>;
@@ -281,6 +282,7 @@ export default function ChatComposer(props: {
             filename: image.filename,
             mime_type: image.mime_type,
             size_bytes: image.size_bytes,
+            url: image.url,
           })),
           replyToMessageId: activeReply?.messageId,
         });

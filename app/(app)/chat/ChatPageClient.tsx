@@ -72,6 +72,26 @@ type MessageReactionRow = {
   created_at: string;
 };
 
+type OutgoingMessageLinkInput = {
+  entity_type: LinkEntityType;
+  entity_id: string;
+  label: string;
+};
+
+type OutgoingMessageAttachmentInput = {
+  storage_path: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  url?: string | null;
+};
+
+type PendingMessagePayload = {
+  body: string;
+  links: OutgoingMessageLinkInput[];
+  attachments: OutgoingMessageAttachmentInput[];
+};
+
 type MessageRow = {
   id: string;
   conversation_id: string;
@@ -83,6 +103,16 @@ type MessageRow = {
   links: MessageLinkRow[];
   attachments: MessageAttachmentRow[];
   reactions: MessageReactionRow[];
+  client_status?: "sending" | "failed";
+  client_retry_payload?: PendingMessagePayload | null;
+};
+
+type MessageReadReceipt = {
+  userId: string;
+  name: string;
+  avatarUrl: string;
+  hasRead: boolean;
+  lastReadAt: string | null;
 };
 
 type LatestPreview = {
@@ -245,6 +275,16 @@ function toMessageSnippet(message: MessageRow) {
   return preview.length > 120 ? `${preview.slice(0, 117)}...` : preview;
 }
 
+function messageLinkHref(entityType: LinkEntityType, entityId: string) {
+  if (entityType === "task") return `/tasks/${entityId}`;
+  if (entityType === "project") return `/projects/${entityId}`;
+  if (entityType === "feature_suggestion") {
+    return `/feature-suggestions?open=${encodeURIComponent(entityId)}`;
+  }
+  if (entityType === "client") return `/clients/${entityId}`;
+  return "/notes";
+}
+
 export default function ChatPageClient(props: {
   currentUserId: string;
   users: UserRow[];
@@ -308,9 +348,11 @@ export default function ChatPageClient(props: {
 
   const [searchChats, setSearchChats] = useState("");
   const [addMode, setAddMode] = useState<"direct" | "group">("direct");
+  const [directTargetUserId, setDirectTargetUserId] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
   const [editingReplyToMessageId, setEditingReplyToMessageId] = useState<string | null>(null);
+  const [seenByMessageId, setSeenByMessageId] = useState<string | null>(null);
   const [composerInsertRequest, setComposerInsertRequest] =
     useState<ComposerDraftInsertRequest | null>(null);
 
@@ -425,6 +467,26 @@ export default function ChatPageClient(props: {
     );
   }, [conversationsByPriority, searchChats, searchableConversationTextById]);
 
+  const existingDirectConversationIdByUserId = useMemo(() => {
+    return conversationsByRecentActivity.reduce<Record<string, string>>((acc, conversation) => {
+      if (conversation.type !== "direct") {
+        return acc;
+      }
+      const rowMembers = membersByConversationId[conversation.id] || [];
+      const otherMember = rowMembers.find((member) => member.user_id !== currentUserId);
+      const otherUserId = String(otherMember?.user_id || "").trim();
+      if (!otherUserId || acc[otherUserId]) {
+        return acc;
+      }
+      acc[otherUserId] = conversation.id;
+      return acc;
+    }, {});
+  }, [conversationsByRecentActivity, currentUserId, membersByConversationId]);
+
+  const selectedDirectExistingConversationId = directTargetUserId
+    ? existingDirectConversationIdByUserId[directTargetUserId] || null
+    : null;
+
   const selectedConversationMembers = useMemo(() => {
     if (!selectedConversationId) return [];
     return membersByConversationId[selectedConversationId] || [];
@@ -491,26 +553,16 @@ export default function ChatPageClient(props: {
     unreadAnchorByConversationId,
   ]);
 
-  const latestOwnMessageId = useMemo(() => {
-    for (let index = selectedMessages.length - 1; index >= 0; index -= 1) {
-      const message = selectedMessages[index];
-      if (message.sender_id === currentUserId) {
-        return message.id;
-      }
-    }
-    return null;
-  }, [currentUserId, selectedMessages]);
-
-  const readByMessageId = useMemo(() => {
+  const readReceiptsByMessageId = useMemo(() => {
     if (!selectedConversationId) {
-      return {} as Record<string, string[]>;
+      return {} as Record<string, MessageReadReceipt[]>;
     }
 
     const rows = membersByConversationId[selectedConversationId] || [];
-    const result: Record<string, string[]> = {};
+    const result: Record<string, MessageReadReceipt[]> = {};
 
     selectedMessages.forEach((message) => {
-      if (message.sender_id !== currentUserId || message.deleted_at) {
+      if (message.sender_id !== currentUserId || message.deleted_at || message.client_status) {
         return;
       }
       const createdMs = toMs(message.created_at);
@@ -518,15 +570,23 @@ export default function ChatPageClient(props: {
         return;
       }
 
-      const readNames = rows
+      const receipts = rows
         .filter((member) => member.user_id !== message.sender_id)
-        .filter((member) => toMs(member.last_read_at) >= createdMs)
-        .map((member) => getUserDisplayName(userById[member.user_id]))
-        .sort((left, right) => left.localeCompare(right));
+        .map((member) => {
+          const memberLastReadAt = member.last_read_at;
+          const memberLastReadMs = toMs(memberLastReadAt);
+          const user = userById[member.user_id] || null;
+          return {
+            userId: member.user_id,
+            name: getUserDisplayName(user),
+            avatarUrl: getUserAvatarUrl(user),
+            hasRead: memberLastReadMs >= createdMs,
+            lastReadAt: memberLastReadAt,
+          };
+        })
+        .sort((left, right) => left.name.localeCompare(right.name));
 
-      if (readNames.length) {
-        result[message.id] = readNames;
-      }
+      result[message.id] = receipts;
     });
 
     return result;
@@ -537,6 +597,11 @@ export default function ChatPageClient(props: {
     selectedMessages,
     userById,
   ]);
+
+  const seenByMessage = seenByMessageId ? selectedMessagesById[seenByMessageId] || null : null;
+  const seenByReceipts = seenByMessageId ? readReceiptsByMessageId[seenByMessageId] || [] : [];
+  const seenByReadReceipts = seenByReceipts.filter((receipt) => receipt.hasRead);
+  const seenByUnreadReceipts = seenByReceipts.filter((receipt) => !receipt.hasRead);
 
   function getConversationTitle(conversation: ConversationRow) {
     if (conversation.type === "group") {
@@ -768,6 +833,88 @@ export default function ChatPageClient(props: {
       [conversation.id]: 0,
     }));
   };
+
+  const sendMessageToApi = useCallback(async (conversationId: string, payload: PendingMessagePayload) => {
+    const res = await fetch("/api/chat/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        body: payload.body,
+        attachments: payload.attachments.map((attachment) => ({
+          storage_path: attachment.storage_path,
+          filename: attachment.filename,
+          mime_type: attachment.mime_type,
+          size_bytes: attachment.size_bytes,
+        })),
+        links: payload.links,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      message?: MessageRow;
+    };
+    if (!res.ok || !json.message) {
+      throw new Error(json.error || "Unable to send message");
+    }
+    return json.message;
+  }, []);
+
+  const retryFailedMessage = useCallback(
+    async (message: MessageRow) => {
+      const payload = message.client_retry_payload;
+      if (!payload) return;
+
+      const conversationId = message.conversation_id;
+      setError("");
+      setSuccess("");
+      setMessagesByConversation((prev) => {
+        const current = prev[conversationId] || [];
+        const next = current.map((row) =>
+          row.id === message.id ? { ...row, client_status: "sending" as const } : row
+        );
+        return {
+          ...prev,
+          [conversationId]: next,
+        };
+      });
+
+      try {
+        const sentMessage = await sendMessageToApi(conversationId, payload);
+        setMessagesByConversation((prev) => {
+          const current = prev[conversationId] || [];
+          const withoutFailed = current.filter((row) => row.id !== message.id);
+          const next = mergeMessages(withoutFailed, [sentMessage]);
+          return {
+            ...prev,
+            [conversationId]: next,
+          };
+        });
+        setLatestByConversationId((prev) => ({
+          ...prev,
+          [conversationId]: sentMessage,
+        }));
+        setUnreadByConversationId((prev) => ({
+          ...prev,
+          [conversationId]: 0,
+        }));
+        await markConversationRead(conversationId, sentMessage.created_at);
+      } catch (err) {
+        setMessagesByConversation((prev) => {
+          const current = prev[conversationId] || [];
+          const next = current.map((row) =>
+            row.id === message.id ? { ...row, client_status: "failed" as const } : row
+          );
+          return {
+            ...prev,
+            [conversationId]: next,
+          };
+        });
+        setError(err instanceof Error ? err.message : "Unable to send message");
+      }
+    },
+    [markConversationRead, sendMessageToApi]
+  );
 
   const updateConversationPreferences = useCallback(
     async (
@@ -1185,7 +1332,21 @@ export default function ChatPageClient(props: {
     setMemberDraftUserId("");
     setMemberEditorError("");
     setMemberEditorSuccess("");
+    setSeenByMessageId(null);
   }, [selectedConversationId]);
+
+  useEffect(() => {
+    if (!seenByMessageId) return;
+    const message = selectedMessagesById[seenByMessageId];
+    if (
+      !message ||
+      message.sender_id !== currentUserId ||
+      message.deleted_at ||
+      message.client_status
+    ) {
+      setSeenByMessageId(null);
+    }
+  }, [currentUserId, seenByMessageId, selectedMessagesById]);
 
   useEffect(() => {
     if (!selectedConversationId || !selectedMessages.length) return;
@@ -1275,11 +1436,14 @@ export default function ChatPageClient(props: {
                   event.preventDefault();
                   setError("");
                   setSuccess("");
-                  const formEl = event.currentTarget;
-                  const formData = new FormData(formEl);
-                  const otherUserId = String(formData.get("other_user_id") || "").trim();
+                  const otherUserId = directTargetUserId.trim();
                   if (!otherUserId) {
                     setError("Select a teammate");
+                    return;
+                  }
+                  if (selectedDirectExistingConversationId) {
+                    await selectConversation(selectedDirectExistingConversationId);
+                    setSuccess("Opened existing direct chat");
                     return;
                   }
                   try {
@@ -1293,13 +1457,14 @@ export default function ChatPageClient(props: {
                       error?: string;
                       conversation?: ConversationRow;
                       members?: ConversationMemberRow[];
+                      existing?: boolean;
                     };
                     if (!res.ok || !json.conversation) {
                       throw new Error(json.error || "Unable to create chat");
                     }
                     upsertConversationState(json.conversation, json.members || []);
-                    setSuccess("Direct chat ready");
-                    formEl.reset();
+                    setSuccess(json.existing ? "Opened existing direct chat" : "Direct chat ready");
+                    setDirectTargetUserId("");
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Unable to create chat");
                   } finally {
@@ -1310,7 +1475,8 @@ export default function ChatPageClient(props: {
                 <select
                   name="other_user_id"
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                  defaultValue=""
+                  value={directTargetUserId}
+                  onChange={(event) => setDirectTargetUserId(event.target.value)}
                   required
                 >
                   <option value="">Select teammate</option>
@@ -1319,15 +1485,26 @@ export default function ChatPageClient(props: {
                     .map((user) => (
                       <option key={user.id} value={user.id}>
                         {getUserDisplayName(user)}
+                        {existingDirectConversationIdByUserId[user.id] ? " (existing chat)" : ""}
                       </option>
                     ))}
                 </select>
+                {selectedDirectExistingConversationId ? (
+                  <p className="text-[11px] text-slate-500">
+                    Existing direct chat found. Selecting this will open it instead of creating a
+                    duplicate.
+                  </p>
+                ) : null}
                 <button
                   type="submit"
-                  disabled={isCreatingDirect}
+                  disabled={isCreatingDirect || !directTargetUserId}
                   className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isCreatingDirect ? "Starting..." : "Start direct chat"}
+                  {isCreatingDirect
+                    ? "Starting..."
+                    : selectedDirectExistingConversationId
+                      ? "Open chat"
+                      : "Start direct chat"}
                 </button>
               </form>
             ) : (
@@ -1850,8 +2027,10 @@ export default function ChatPageClient(props: {
                     const isMine = message.sender_id === currentUserId;
                     const isDeleted = Boolean(message.deleted_at);
                     const isEditing = editingMessageId === message.id;
-                    const readNames = readByMessageId[message.id] || [];
-                    const isLatestOwn = latestOwnMessageId === message.id;
+                    const messageClientStatus = message.client_status || null;
+                    const isSendingMessage = messageClientStatus === "sending";
+                    const isFailedMessage = messageClientStatus === "failed";
+                    const isTransientLocalMessage = Boolean(messageClientStatus);
                     const { replyToMessageId, cleanBody } = parseReplyBody(message.body);
                     const replyTarget = replyToMessageId ? selectedMessagesById[replyToMessageId] || null : null;
                     const replySenderName = replyTarget ? getUserDisplayName(userById[replyTarget.sender_id] || null) : "Original message";
@@ -1929,7 +2108,7 @@ export default function ChatPageClient(props: {
                             )
                           ) : null}
                           <article className="relative max-w-[min(760px,92%)]">
-                            {!isEditing && !isDeleted ? (
+                            {!isEditing && !isDeleted && !isTransientLocalMessage ? (
                               <div
                                 className={`absolute -top-3 z-20 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm transition-opacity duration-150 ${
                                   isMine ? "right-2" : "left-2"
@@ -1957,6 +2136,13 @@ export default function ChatPageClient(props: {
                                       className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                                     >
                                       Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSeenByMessageId(message.id)}
+                                      className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                                    >
+                                      Seen by
                                     </button>
                                     <button
                                       type="button"
@@ -2102,7 +2288,7 @@ export default function ChatPageClient(props: {
                               ) : null}
                             </div>
 
-                            {!isEditing ? (
+                            {!isEditing && !isTransientLocalMessage ? (
                               <div
                                 className={`mt-1 flex flex-wrap items-center gap-1 ${
                                   isMine ? "justify-end" : "justify-start"
@@ -2130,14 +2316,28 @@ export default function ChatPageClient(props: {
                               </div>
                             ) : null}
 
-                            {isMine && isLatestOwn && readNames.length ? (
-                              <p className="mt-1 text-right text-[11px] text-slate-500">
-                                Seen by{" "}
-                                {readNames.length <= 2
-                                  ? readNames.join(", ")
-                                  : `${readNames[0]} +${readNames.length - 1}`}
-                              </p>
+                            {isMine && !isEditing && isTransientLocalMessage ? (
+                              <div className="mt-1 flex items-center justify-end gap-2 text-[11px]">
+                                {isSendingMessage ? (
+                                  <span className="text-slate-500">Sending...</span>
+                                ) : null}
+                                {isFailedMessage ? (
+                                  <>
+                                    <span className="text-rose-600">Failed to send</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void retryFailedMessage(message);
+                                      }}
+                                      className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 font-semibold text-rose-700 hover:bg-rose-100"
+                                    >
+                                      Retry
+                                    </button>
+                                  </>
+                                ) : null}
+                              </div>
                             ) : null}
+
                           </article>
                           {isMine ? (
                             groupedWithPrev ? (
@@ -2168,48 +2368,215 @@ export default function ChatPageClient(props: {
                 )}
               </div>
 
+              {seenByMessage ? (
+                <div
+                  className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/45 px-4"
+                  onClick={() => setSeenByMessageId(null)}
+                  role="presentation"
+                >
+                  <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Seen by details"
+                    onClick={(event) => event.stopPropagation()}
+                    className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">Seen by</h3>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Message sent {formatMessageTime(seenByMessage.created_at)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSeenByMessageId(null)}
+                        className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                          Read ({seenByReadReceipts.length})
+                        </p>
+                        {seenByReadReceipts.length ? (
+                          <div className="mt-2 max-h-44 overflow-y-auto">
+                            {seenByReadReceipts.map((receipt) => (
+                              <div
+                                key={`${seenByMessage.id}-read-${receipt.userId}`}
+                                className="flex items-center justify-between gap-2 border-b border-slate-100 py-2 last:border-b-0"
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[10px] font-semibold text-slate-700">
+                                    {receipt.avatarUrl ? (
+                                      <Image
+                                        src={receipt.avatarUrl}
+                                        alt={`${receipt.name} avatar`}
+                                        fill
+                                        unoptimized
+                                        sizes="28px"
+                                        className="object-cover"
+                                      />
+                                    ) : (
+                                      getInitials(receipt.name)
+                                    )}
+                                  </span>
+                                  <span className="truncate text-xs font-medium text-slate-800">
+                                    {receipt.name}
+                                  </span>
+                                </div>
+                                <span className="shrink-0 text-[11px] text-slate-500">
+                                  {receipt.lastReadAt ? formatMessageTime(receipt.lastReadAt) : "Read"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-slate-500">No one has read this yet.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                          Not read ({seenByUnreadReceipts.length})
+                        </p>
+                        {seenByUnreadReceipts.length ? (
+                          <div className="mt-2 max-h-44 overflow-y-auto">
+                            {seenByUnreadReceipts.map((receipt) => (
+                              <div
+                                key={`${seenByMessage.id}-unread-${receipt.userId}`}
+                                className="flex items-center justify-between gap-2 border-b border-slate-200 py-2 last:border-b-0"
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[10px] font-semibold text-slate-700">
+                                    {receipt.avatarUrl ? (
+                                      <Image
+                                        src={receipt.avatarUrl}
+                                        alt={`${receipt.name} avatar`}
+                                        fill
+                                        unoptimized
+                                        sizes="28px"
+                                        className="object-cover"
+                                      />
+                                    ) : (
+                                      getInitials(receipt.name)
+                                    )}
+                                  </span>
+                                  <span className="truncate text-xs font-medium text-slate-800">
+                                    {receipt.name}
+                                  </span>
+                                </div>
+                                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                                  Pending
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-slate-500">Everyone has read this message.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className={composerDisabled ? "opacity-70" : ""}>
                 <ChatComposer
                   conversationId={selectedConversationId}
                   isSending={isSending || composerDisabled}
                   insertDraftRequest={composerInsertRequest}
                   onSend={async ({ body, links, attachments, replyToMessageId }) => {
+                    if (!selectedConversationId) {
+                      return;
+                    }
+
                     setError("");
                     setSuccess("");
+                    const normalizedBody = String(body || "").trim();
+                    const payloadBody = replyToMessageId
+                      ? `[[reply:${replyToMessageId}]]\n${normalizedBody}`
+                      : normalizedBody;
+                    const payload: PendingMessagePayload = {
+                      body: payloadBody,
+                      attachments: attachments.map((attachment) => ({
+                        storage_path: attachment.storage_path,
+                        filename: attachment.filename,
+                        mime_type: attachment.mime_type,
+                        size_bytes: attachment.size_bytes,
+                        url: attachment.url || null,
+                      })),
+                      links: links.map((link) => ({
+                        entity_type: link.entityType,
+                        entity_id: link.entityId,
+                        label: link.label,
+                      })),
+                    };
+
+                    const optimisticId = `local-${Date.now()}-${Math.random()
+                      .toString(36)
+                      .slice(2, 8)}`;
+                    const optimisticCreatedAt = new Date().toISOString();
+                    const optimisticMessage: MessageRow = {
+                      id: optimisticId,
+                      conversation_id: selectedConversationId,
+                      sender_id: currentUserId,
+                      body: payload.body,
+                      created_at: optimisticCreatedAt,
+                      edited_at: null,
+                      deleted_at: null,
+                      links: payload.links.map((link, index) => ({
+                        id: `${optimisticId}-link-${index}`,
+                        message_id: optimisticId,
+                        entity_type: link.entity_type,
+                        entity_id: link.entity_id,
+                        label: link.label || `${typeLabel[link.entity_type]} link`,
+                        href: messageLinkHref(link.entity_type, link.entity_id),
+                      })),
+                      attachments: payload.attachments.map((attachment, index) => ({
+                        id: `${optimisticId}-attachment-${index}`,
+                        message_id: optimisticId,
+                        storage_path: attachment.storage_path,
+                        filename: attachment.filename,
+                        mime_type: attachment.mime_type,
+                        size_bytes: attachment.size_bytes,
+                        url: attachment.url || null,
+                      })),
+                      reactions: [],
+                      client_status: "sending",
+                      client_retry_payload: payload,
+                    };
+
+                    setMessagesByConversation((prev) => {
+                      const current = prev[selectedConversationId] || [];
+                      return {
+                        ...prev,
+                        [selectedConversationId]: mergeMessages(current, [optimisticMessage]),
+                      };
+                    });
+                    setLatestByConversationId((prev) => ({
+                      ...prev,
+                      [selectedConversationId]: optimisticMessage,
+                    }));
+                    setUnreadByConversationId((prev) => ({
+                      ...prev,
+                      [selectedConversationId]: 0,
+                    }));
+                    setComposerInsertRequest(null);
+
                     try {
                       setIsSending(true);
-                      const normalizedBody = String(body || "").trim();
-                      const payloadBody = replyToMessageId
-                        ? `[[reply:${replyToMessageId}]]\n${normalizedBody}`
-                        : normalizedBody;
-                      const res = await fetch("/api/chat/messages", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          conversation_id: selectedConversationId,
-                          body: payloadBody,
-                          attachments,
-                          links: links.map((link) => ({
-                            entity_type: link.entityType,
-                            entity_id: link.entityId,
-                            label: link.label,
-                          })),
-                        }),
-                      });
-                      const json = (await res.json().catch(() => ({}))) as {
-                        error?: string;
-                        message?: MessageRow;
-                      };
-                      if (!res.ok || !json.message) {
-                        throw new Error(json.error || "Unable to send message");
-                      }
-
-                      const message = json.message;
+                      const message = await sendMessageToApi(selectedConversationId, payload);
                       setMessagesByConversation((prev) => {
                         const current = prev[selectedConversationId] || [];
+                        const withoutOptimistic = current.filter((row) => row.id !== optimisticId);
+                        const next = mergeMessages(withoutOptimistic, [message]);
                         return {
                           ...prev,
-                          [selectedConversationId]: mergeMessages(current, [message]),
+                          [selectedConversationId]: next,
                         };
                       });
                       setLatestByConversationId((prev) => ({
@@ -2220,11 +2587,34 @@ export default function ChatPageClient(props: {
                         ...prev,
                         [selectedConversationId]: 0,
                       }));
-                      setComposerInsertRequest(null);
                       await markConversationRead(selectedConversationId, message.created_at);
                     } catch (err) {
+                      setMessagesByConversation((prev) => {
+                        const current = prev[selectedConversationId] || [];
+                        const next = current.map((row) =>
+                          row.id === optimisticId
+                            ? { ...row, client_status: "failed" as const }
+                            : row
+                        );
+                        return {
+                          ...prev,
+                          [selectedConversationId]: next,
+                        };
+                      });
+                      setLatestByConversationId((prev) => {
+                        const latest = prev[selectedConversationId];
+                        if (!latest || latest.id !== optimisticId) {
+                          return prev;
+                        }
+                        return {
+                          ...prev,
+                          [selectedConversationId]: {
+                            ...optimisticMessage,
+                            client_status: "failed",
+                          },
+                        };
+                      });
                       setError(err instanceof Error ? err.message : "Unable to send message");
-                      throw err;
                     } finally {
                       setIsSending(false);
                     }
