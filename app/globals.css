@@ -172,6 +172,28 @@
     }
   }
 
+  .mention-highlight {
+    border-radius: 0.32rem;
+    background: #e8efff;
+    color: #1e3a8a;
+    padding: 0 0.22rem;
+    font-weight: 600;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .mention-highlight-on-brand {
+    background: rgba(255, 255, 255, 0.24);
+    color: #ffffff;
+  }
+
+  .mention-highlight-editor {
+    border-radius: 0.26rem;
+    background: #e8efff;
+    color: inherit;
+    padding: 0 0.14rem;
+  }
+
   .context-menu-item {
     display: block;
     width: 100%;

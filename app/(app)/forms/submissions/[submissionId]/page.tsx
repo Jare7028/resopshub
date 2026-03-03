@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import MentionCommentForm from "@/app/(app)/_components/MentionCommentForm";
+import MentionText from "@/app/(app)/_components/MentionText";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import ConfirmSubmitButton from "../../../_components/ConfirmSubmitButton";
@@ -359,7 +360,11 @@ export default async function FormSubmissionDetailPage(props: {
                     {userMap.get(comment.user_id) || "Unknown user"} -{" "}
                     {new Date(comment.created_at).toLocaleString()}
                   </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+                  <MentionText
+                    as="p"
+                    text={comment.body}
+                    className="mt-1 whitespace-pre-wrap text-sm text-slate-800"
+                  />
                 </article>
               ))
             ) : (

@@ -290,8 +290,7 @@ export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLi
   return (
     <nav className="min-h-0 flex-1 overflow-y-auto px-3">
       <div className="px-3 pt-2 pb-3 text-xs uppercase text-slate-500">
-        <div className="flex items-center justify-between gap-2">
-          <span>Main menu</span>
+        <div className="flex items-center justify-end gap-2">
           {canReorder ? (
             isEditing ? (
               <div className="flex items-center gap-2">

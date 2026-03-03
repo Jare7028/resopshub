@@ -5,6 +5,23 @@ type MentionableUser = {
 };
 
 const MENTION_REGEX = /(^|[^a-zA-Z0-9_])@([a-zA-Z0-9][a-zA-Z0-9._@-]{0,127})/g;
+const TRAILING_MENTION_PUNCTUATION_REGEX = /[.,;:!?]+$/;
+
+export type MentionRange = {
+  start: number;
+  end: number;
+  handle: string;
+  text: string;
+};
+
+export type MentionTextSegment = {
+  type: "text" | "mention";
+  value: string;
+};
+
+function createMentionRegex() {
+  return new RegExp(MENTION_REGEX.source, "g");
+}
 
 function normalizeWhitespace(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -55,7 +72,7 @@ export function extractMentionHandles(text: string) {
   const seen = new Set<string>();
   const handles: string[] = [];
 
-  for (const match of normalized.matchAll(MENTION_REGEX)) {
+  for (const match of normalized.matchAll(createMentionRegex())) {
     const token = normalizeMentionToken(match[2] || "");
     if (!token || token.length < 2 || seen.has(token)) {
       continue;
@@ -65,6 +82,68 @@ export function extractMentionHandles(text: string) {
   }
 
   return handles;
+}
+
+export function getMentionRanges(text: string): MentionRange[] {
+  const normalized = String(text || "");
+  const ranges: MentionRange[] = [];
+  for (const match of normalized.matchAll(createMentionRegex())) {
+    const matchIndex = Number(match.index);
+    if (!Number.isFinite(matchIndex) || matchIndex < 0) {
+      continue;
+    }
+    const prefix = String(match[1] || "");
+    const rawHandle = String(match[2] || "");
+    if (!rawHandle) {
+      continue;
+    }
+    const handleWithoutTrailingPunctuation = rawHandle.replace(TRAILING_MENTION_PUNCTUATION_REGEX, "");
+    const normalizedHandle = normalizeMentionToken(handleWithoutTrailingPunctuation);
+    if (!normalizedHandle || normalizedHandle.length < 2) {
+      continue;
+    }
+    const mentionText = `@${handleWithoutTrailingPunctuation}`;
+    ranges.push({
+      start: matchIndex + prefix.length,
+      end: matchIndex + prefix.length + mentionText.length,
+      handle: normalizedHandle,
+      text: mentionText,
+    });
+  }
+  return ranges;
+}
+
+export function splitTextWithMentions(text: string): MentionTextSegment[] {
+  const normalized = String(text || "");
+  if (!normalized) {
+    return [{ type: "text", value: "" }];
+  }
+  const ranges = getMentionRanges(normalized);
+  if (!ranges.length) {
+    return [{ type: "text", value: normalized }];
+  }
+  const segments: MentionTextSegment[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      segments.push({
+        type: "text",
+        value: normalized.slice(cursor, range.start),
+      });
+    }
+    segments.push({
+      type: "mention",
+      value: normalized.slice(range.start, range.end),
+    });
+    cursor = range.end;
+  }
+  if (cursor < normalized.length) {
+    segments.push({
+      type: "text",
+      value: normalized.slice(cursor),
+    });
+  }
+  return segments;
 }
 
 export function resolveMentionHandlesToRecipients(
@@ -107,4 +186,3 @@ export function resolveMentionHandlesToRecipients(
     ])
   );
 }
-

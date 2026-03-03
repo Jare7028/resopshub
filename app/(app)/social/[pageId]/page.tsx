@@ -14,6 +14,7 @@ import {
 } from "@/lib/assignmentGroups";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+import MentionText from "../../_components/MentionText";
 import MentionTextareaField from "../../_components/MentionTextareaField";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import SocialCommentComposer from "../_components/SocialCommentComposer";
@@ -2075,9 +2076,12 @@ export default async function SocialPageDetail(props: {
                         if (segment.type === "text") {
                           if (!segment.text.trim()) return null;
                           return (
-                            <p key={segment.key} className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                              {segment.text}
-                            </p>
+                            <MentionText
+                              key={segment.key}
+                              as="p"
+                              text={segment.text}
+                              className="whitespace-pre-wrap text-sm leading-6 text-slate-800"
+                            />
                           );
                         }
 
@@ -2300,7 +2304,11 @@ export default async function SocialPageDetail(props: {
                                         {toDateTimeLabel(comment.created_at)}
                                         {toTime(comment.updated_at) > toTime(comment.created_at) ? " (edited)" : ""}
                                       </p>
-                                      <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+                                      <MentionText
+                                        as="p"
+                                        text={comment.body}
+                                        className="mt-1 whitespace-pre-wrap text-sm text-slate-800"
+                                      />
                                       <div className="mt-2 flex flex-wrap items-center gap-1">
                                         {visibleCommentReactions.map((reaction) => (
                                           <form
@@ -2485,9 +2493,11 @@ export default async function SocialPageDetail(props: {
                                                         ? " (edited)"
                                                         : ""}
                                                     </p>
-                                                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
-                                                      {reply.body}
-                                                    </p>
+                                                    <MentionText
+                                                      as="p"
+                                                      text={reply.body}
+                                                      className="mt-1 whitespace-pre-wrap text-sm text-slate-800"
+                                                    />
                                                     <div className="mt-2 flex flex-wrap items-center gap-1">
                                                       {visibleReplyReactions.map((reaction) => (
                                                         <form

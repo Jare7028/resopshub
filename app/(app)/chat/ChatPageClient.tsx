@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
+import MentionText from "@/app/(app)/_components/MentionText";
 import MentionTextarea from "@/app/(app)/_components/MentionTextarea";
 import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
@@ -2361,7 +2362,16 @@ export default function ChatPageClient(props: {
                                   ) : null}
 
                                   {cleanBody ? (
-                                    <p className="whitespace-pre-wrap text-sm">{cleanBody}</p>
+                                    <MentionText
+                                      as="p"
+                                      text={cleanBody}
+                                      className="whitespace-pre-wrap text-sm"
+                                      mentionClassName={
+                                        isMine
+                                          ? "mention-highlight mention-highlight-on-brand"
+                                          : "mention-highlight"
+                                      }
+                                    />
                                   ) : null}
 
                                   {message.links.length ? (

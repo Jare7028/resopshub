@@ -3,12 +3,15 @@
 import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
+  Extension,
   mergeAttributes,
   Node as TiptapNode,
   type Editor,
   type JSONContent,
 } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { createPortal } from "react-dom";
@@ -26,6 +29,7 @@ import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table
 import Placeholder from "@tiptap/extension-placeholder";
 import { selectedRect } from "prosemirror-tables";
 import { createEmptyDoc } from "@/lib/editorContent";
+import { getMentionRanges } from "@/lib/mentions";
 import {
   countImageNodesBySrc,
   fillMissingImageSrcFromQueue,
@@ -1895,6 +1899,60 @@ const NoteTextBox = TiptapNode.create({
         },
       };
     };
+  },
+});
+
+const mentionHighlightPluginKey = new PluginKey<DecorationSet>("noteMentionHighlight");
+const MENTION_DECORATION_CLASS = "mention-highlight mention-highlight-editor";
+
+function buildMentionDecorationSet(doc: ProseMirrorNode) {
+  const decorations: Decoration[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isText) {
+      return true;
+    }
+    const text = String(node.text || "");
+    if (!text || !text.includes("@")) {
+      return true;
+    }
+    const mentionRanges = getMentionRanges(text);
+    for (const range of mentionRanges) {
+      if (range.end <= range.start) {
+        continue;
+      }
+      decorations.push(
+        Decoration.inline(pos + range.start, pos + range.end, {
+          class: MENTION_DECORATION_CLASS,
+        })
+      );
+    }
+    return true;
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+const MentionHighlightExtension = Extension.create({
+  name: "mentionHighlight",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: mentionHighlightPluginKey,
+        state: {
+          init: (_, state) => buildMentionDecorationSet(state.doc),
+          apply: (transaction, previousDecorations, _, state) => {
+            if (transaction.docChanged) {
+              return buildMentionDecorationSet(state.doc);
+            }
+            return previousDecorations.map(transaction.mapping, transaction.doc);
+          },
+        },
+        props: {
+          decorations(state) {
+            return mentionHighlightPluginKey.getState(state) || null;
+          },
+        },
+      }),
+    ];
   },
 });
 
@@ -4100,6 +4158,7 @@ export default function NoteEditorClient({
         types: ["heading", "paragraph", "blockquote"],
         alignments: ["left", "center", "right", "justify"],
       }),
+      MentionHighlightExtension,
       TaskList,
       TaskItem.configure({ nested: true }),
       NoteShape,

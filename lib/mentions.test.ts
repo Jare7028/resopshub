@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   extractMentionHandles,
+  getMentionRanges,
   resolveMentionHandlesToRecipients,
+  splitTextWithMentions,
 } from "./mentions";
 
 describe("extractMentionHandles", () => {
@@ -62,3 +64,24 @@ describe("resolveMentionHandlesToRecipients", () => {
   });
 });
 
+describe("getMentionRanges", () => {
+  it("captures ranges for valid mentions and ignores email addresses", () => {
+    const text = "Ping @Jared, support@company.com and (@amy_b)! plus @x";
+    const ranges = getMentionRanges(text);
+
+    expect(ranges.map((range) => range.text)).toEqual(["@Jared", "@amy_b"]);
+    expect(ranges.map((range) => range.handle)).toEqual(["jared", "amy_b"]);
+  });
+});
+
+describe("splitTextWithMentions", () => {
+  it("splits text into plain and mention segments while preserving punctuation", () => {
+    const segments = splitTextWithMentions("Hi @jared, thanks.");
+
+    expect(segments).toEqual([
+      { type: "text", value: "Hi " },
+      { type: "mention", value: "@jared" },
+      { type: "text", value: ", thanks." },
+    ]);
+  });
+});

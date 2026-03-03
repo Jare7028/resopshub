@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import MentionText from "@/app/(app)/_components/MentionText";
 import {
   LOGIN_QUICK_READ_SNOOZE_KEY,
   buildEndOfLocalDayTimestamp,
@@ -249,7 +250,11 @@ export default function LoginQuickReadPrompt({
                           </span>
                         </div>
                         {mention.body ? (
-                          <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">{mention.body}</p>
+                          <MentionText
+                            as="p"
+                            text={mention.body}
+                            className="mt-0.5 line-clamp-2 text-xs text-slate-600"
+                          />
                         ) : null}
                       </Link>
                     </li>

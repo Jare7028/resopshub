@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import MentionCommentForm from "@/app/(app)/_components/MentionCommentForm";
+import MentionText from "@/app/(app)/_components/MentionText";
 import MentionTextareaField from "@/app/(app)/_components/MentionTextareaField";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
@@ -588,7 +589,11 @@ export default async function FeatureSuggestionDetailPage(props: {
                   <p className="text-xs text-slate-500">
                     {userMap.get(comment.user_id) || "Unknown user"} - {new Date(comment.created_at).toLocaleString()}
                   </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+                  <MentionText
+                    as="p"
+                    text={comment.body}
+                    className="mt-1 whitespace-pre-wrap text-sm text-slate-800"
+                  />
                 </article>
               ))
             ) : (

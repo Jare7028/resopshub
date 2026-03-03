@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import MentionText from "@/app/(app)/_components/MentionText";
 import { supabase } from "@/lib/supabaseClient";
 
 type NotificationRow = {
@@ -414,9 +415,11 @@ export default function NotificationBell({ userId }: { userId: string }) {
                         </span>
                       </span>
                       {notification.body ? (
-                        <span className="mt-0.5 block line-clamp-2 text-sm text-slate-600">
-                          {notification.body}
-                        </span>
+                        <MentionText
+                          as="span"
+                          text={notification.body}
+                          className="mt-0.5 block line-clamp-2 text-sm text-slate-600"
+                        />
                       ) : null}
                       <span className="mt-1.5 flex items-center gap-2">
                         <span
