@@ -2055,6 +2055,14 @@ export default function ChatPageClient(props: {
                       return acc;
                     }, []);
 
+                    const hoverActionButtonClass =
+                      "inline-flex h-[26px] w-[26px] items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100/80 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300";
+                    const hoverActionDangerButtonClass =
+                      "inline-flex h-[26px] w-[26px] items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-red-100/80 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300";
+                    const hoverActionTooltipClass =
+                      "pointer-events-none absolute -top-8 left-1/2 z-30 hidden -translate-x-1/2 whitespace-nowrap rounded-sm bg-slate-800/95 px-1.5 py-0.5 text-[9px] font-medium text-white opacity-0 shadow-sm transition-opacity duration-150 md:block md:group-hover/action-icon:opacity-100 md:group-focus-within/action-icon:opacity-100";
+                    const hoverActionIconClass = "h-[15px] w-[15px]";
+
                     return (
                       <div key={message.id}>
                         {startsNewDay ? (
@@ -2110,47 +2118,131 @@ export default function ChatPageClient(props: {
                           <article className="relative max-w-[min(760px,92%)]">
                             {!isEditing && !isDeleted && !isTransientLocalMessage ? (
                               <div
-                                className={`absolute -top-3 z-20 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm transition-opacity duration-150 ${
+                                className={`absolute -top-3 z-20 flex items-center gap-px rounded-[10px] border border-slate-200/90 bg-white/95 px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.12)] transition-opacity duration-150 ${
                                   isMine ? "right-2" : "left-2"
                                 } opacity-100 md:pointer-events-none md:opacity-0 md:group-hover/message:pointer-events-auto md:group-hover/message:opacity-100 md:group-focus-within/message:pointer-events-auto md:group-focus-within/message:opacity-100`}
                               >
-                                <EmojiPickerButton
-                                  onSelect={(emoji) => {
-                                    void applyReaction(message, emoji);
-                                  }}
-                                  panelAlign={isMine ? "right" : "left"}
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => startReplyToMessage(message, senderName)}
-                                  className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
-                                >
-                                  Reply
-                                </button>
+                                <div className="group/action-icon relative">
+                                  <EmojiPickerButton
+                                    onSelect={(emoji) => {
+                                      void applyReaction(message, emoji);
+                                    }}
+                                    panelAlign={isMine ? "right" : "left"}
+                                    className={hoverActionButtonClass}
+                                  />
+                                  <span className={hoverActionTooltipClass}>
+                                    Add reaction
+                                  </span>
+                                </div>
+                                <div className="group/action-icon relative">
+                                  <button
+                                    type="button"
+                                    aria-label="Reply"
+                                    title="Reply"
+                                    onClick={() => startReplyToMessage(message, senderName)}
+                                    className={hoverActionButtonClass}
+                                  >
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="1.7"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className={hoverActionIconClass}
+                                      aria-hidden="true"
+                                    >
+                                      <path d="m9 14-5-5 5-5" />
+                                      <path d="M20 20v-2a7 7 0 0 0-7-7H4" />
+                                    </svg>
+                                  </button>
+                                  <span className={hoverActionTooltipClass}>
+                                    Reply
+                                  </span>
+                                </div>
                                 {isMine ? (
                                   <>
-                                    <button
-                                      type="button"
-                                      onClick={() => startEditingMessage(message)}
-                                      className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setSeenByMessageId(message.id)}
-                                      className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
-                                    >
-                                      Seen by
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => void deleteMessage(message)}
-                                      className="inline-flex h-7 items-center rounded-md border border-red-200 bg-white px-2 text-[11px] font-medium text-red-700 hover:bg-red-50"
-                                    >
-                                      Delete
-                                    </button>
+                                    <div className="group/action-icon relative">
+                                      <button
+                                        type="button"
+                                        aria-label="Edit"
+                                        title="Edit"
+                                        onClick={() => startEditingMessage(message)}
+                                        className={hoverActionButtonClass}
+                                      >
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.7"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          className={hoverActionIconClass}
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M12 20h9" />
+                                          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                        </svg>
+                                      </button>
+                                      <span className={hoverActionTooltipClass}>
+                                        Edit
+                                      </span>
+                                    </div>
+                                    <div className="group/action-icon relative">
+                                      <button
+                                        type="button"
+                                        aria-label="Seen by"
+                                        title="Seen by"
+                                        onClick={() => setSeenByMessageId(message.id)}
+                                        className={hoverActionButtonClass}
+                                      >
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.7"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          className={hoverActionIconClass}
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+                                          <circle cx="12" cy="12" r="3" />
+                                        </svg>
+                                      </button>
+                                      <span className={hoverActionTooltipClass}>
+                                        Seen by
+                                      </span>
+                                    </div>
+                                    <div className="group/action-icon relative">
+                                      <button
+                                        type="button"
+                                        aria-label="Delete"
+                                        title="Delete"
+                                        onClick={() => void deleteMessage(message)}
+                                        className={hoverActionDangerButtonClass}
+                                      >
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.7"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          className={hoverActionIconClass}
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M3 6h18" />
+                                          <path d="M8 6V4h8v2" />
+                                          <path d="M19 6l-1 14H6L5 6" />
+                                          <path d="M10 11v6" />
+                                          <path d="M14 11v6" />
+                                        </svg>
+                                      </button>
+                                      <span className={hoverActionTooltipClass}>
+                                        Delete
+                                      </span>
+                                    </div>
                                   </>
                                 ) : null}
                               </div>
