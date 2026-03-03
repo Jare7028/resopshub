@@ -129,6 +129,25 @@ function isLeaveDateColumn(column: { key: string; label: string; column_kind: st
   );
 }
 
+function statusBarClass(status: string) {
+  const normalized = normalizeTaskStatus(status) || String(status || "").trim().toLowerCase();
+  if (normalized === "blocked") return "bg-rose-500";
+  if (normalized === "completed") return "bg-emerald-500";
+  if (normalized === "cancelled") return "bg-slate-400";
+  if (normalized === "in_progress" || normalized === "in_review") return "bg-amber-500";
+  if (normalized === "not_started" || normalized === "planned") return "bg-sky-500";
+  return "bg-indigo-500";
+}
+
+function priorityBarClass(priority: string) {
+  const normalized = String(priority || "").trim().toLowerCase();
+  if (normalized === "critical") return "bg-rose-500";
+  if (normalized === "high") return "bg-orange-500";
+  if (normalized === "medium") return "bg-amber-500";
+  if (normalized === "low") return "bg-emerald-500";
+  return "bg-indigo-500";
+}
+
 export default async function DashboardPage(props: {
   searchParams?: Promise<{
     range?: string;
@@ -609,6 +628,7 @@ export default async function DashboardPage(props: {
   const totalOpen = openTasks.length || 1;
   const statusDistribution = taskStatuses
     .map((status) => ({
+      status,
       label: formatTaskStatusLabel(status),
       value: statusCounts.get(status) || 0,
       percent: Math.round(((statusCounts.get(status) || 0) / totalOpen) * 100),
@@ -617,6 +637,7 @@ export default async function DashboardPage(props: {
 
   const priorityDistribution = taskPriorities
     .map((priority) => ({
+      priority,
       label: priority,
       value: priorityCounts.get(priority) || 0,
       percent: Math.round(((priorityCounts.get(priority) || 0) / totalOpen) * 100),
@@ -626,6 +647,7 @@ export default async function DashboardPage(props: {
   const totalAllTasks = (tasks || []).length || 1;
   const allStatusDistribution = taskStatuses
     .map((status) => ({
+      status,
       label: formatTaskStatusLabel(status),
       value: allStatusCounts.get(status) || 0,
       percent: Math.round(((allStatusCounts.get(status) || 0) / totalAllTasks) * 100),
@@ -1510,7 +1532,7 @@ export default async function DashboardPage(props: {
                   href={buildDashboardViewHref(view.key)}
                   className={`block rounded-lg border px-3 py-2 transition-colors ${
                     active
-                      ? "border-slate-900 bg-slate-900 text-white"
+                      ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white shadow-sm"
                       : "border-slate-200 text-slate-700 hover:bg-slate-50"
                   }`}
                 >
@@ -1648,7 +1670,7 @@ export default async function DashboardPage(props: {
                     </div>
                     <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
                       <div
-                        className="h-2 rounded-full bg-slate-700"
+                        className={`h-2 rounded-full ${statusBarClass(item.status)}`}
                         style={{ width: `${item.percent}%` }}
                       />
                     </div>
@@ -1671,7 +1693,7 @@ export default async function DashboardPage(props: {
                     </div>
                     <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
                       <div
-                        className="h-2 rounded-full bg-slate-700"
+                        className={`h-2 rounded-full ${priorityBarClass(item.priority)}`}
                         style={{ width: `${item.percent}%` }}
                       />
                     </div>
@@ -1787,7 +1809,7 @@ export default async function DashboardPage(props: {
                   </div>
                   <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
                     <div
-                      className="h-2 rounded-full bg-slate-700"
+                      className={`h-2 rounded-full ${statusBarClass(item.status)}`}
                       style={{ width: `${item.percent}%` }}
                     />
                   </div>
@@ -1802,19 +1824,19 @@ export default async function DashboardPage(props: {
         <div className="rounded-lg border border-slate-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-slate-900">Feature suggestions</h2>
           <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-sky-700">
               Idea: {ideasCount}
             </span>
-            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
               Needs checking: {needsCheckingCount}
             </span>
-            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-700">
               Planned: {plannedCount}
             </span>
-            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">
               Completed: {completedCount}
             </span>
-            <span className="rounded-full border border-slate-200 px-2 py-1 text-slate-600">
+            <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-rose-700">
               Rejected: {rejectedCount}
             </span>
           </div>

@@ -180,6 +180,7 @@ type NoteEditorClientProps = {
     zoomPercent: number;
     focusMode: boolean;
   }) => Promise<void>;
+  onFocusModeChange?: (focusMode: boolean) => void;
   debugImagePersistence?: boolean;
   enforceImageNodeIntegrity?: boolean;
 };
@@ -2595,6 +2596,7 @@ export default function NoteEditorClient({
   initialFocusMode = false,
   editorHeightMode = "default",
   onViewStateChange,
+  onFocusModeChange,
   debugImagePersistence = false,
   enforceImageNodeIntegrity = false,
 }: NoteEditorClientProps) {
@@ -4371,6 +4373,13 @@ export default function NoteEditorClient({
       }
     };
   }, [activeRibbonTab, focusMode, onViewStateChange, startTransition, zoomPercent]);
+
+  useEffect(() => {
+    if (!onFocusModeChange) {
+      return;
+    }
+    onFocusModeChange(focusMode);
+  }, [focusMode, onFocusModeChange]);
 
   useEffect(() => {
     if (!editor) {

@@ -1676,163 +1676,167 @@ export default async function PersonalPage(props: {
     </div>
   );
   return (
-    <div className="space-y-4 xl:flex xl:h-[calc(100vh-8.5rem)] xl:items-start xl:gap-4 xl:space-y-0 xl:overflow-hidden">
-      <PersonalSidebarTree
-        sections={sidebarTree.sections}
-        generalPages={sidebarTree.generalPages}
-        currentPageId={pageId}
-        persistPageId={pageId}
-        initialCollapsed={sidebarInitiallyCollapsed}
-        pageStateByPageId={pageUserStateById}
-      />
+    <div className="personal-page-layout space-y-4 xl:flex xl:h-[calc(100vh-8.5rem)] xl:items-start xl:gap-4 xl:space-y-0 xl:overflow-hidden">
+      <div className="personal-page-sidebar">
+        <PersonalSidebarTree
+          sections={sidebarTree.sections}
+          generalPages={sidebarTree.generalPages}
+          currentPageId={pageId}
+          persistPageId={pageId}
+          initialCollapsed={sidebarInitiallyCollapsed}
+          pageStateByPageId={pageUserStateById}
+        />
+      </div>
 
-      <div className="space-y-4 xl:h-full xl:min-h-0 xl:min-w-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
-        {(searchParams?.error || searchParams?.success) && (
-          <div className="space-y-2">
-            {searchParams?.error ? (
-              <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-                {searchParams.error}
-              </p>
-            ) : null}
-            {searchParams?.success ? (
-              <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-                {searchParams.success}
-              </p>
-            ) : null}
-          </div>
-        )}
-
-        {workspaceStateTableMissing ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-            Favorites and per-page workspace state need
-            <span className="font-mono"> sql/personal_workspace_user_state.sql</span>.
-          </p>
-        ) : null}
-
-        <section className="rounded-lg border border-slate-200 bg-white px-4 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <Link href="/personal" className="hover:text-slate-700">
-                  Personal
-                </Link>
-                {" / "}
-                {sectionTitle || "General"}
-                {" / "}
-                {pageTitle}
-              </p>
-              <form action={updatePageDetails} className="mt-2 flex flex-wrap items-center gap-2">
-                <input
-                  name="title"
-                  defaultValue={page.title}
-                  aria-label="Page title"
-                  className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                />
-                <select
-                  name="section_id"
-                  defaultValue={page.section_id || ""}
-                  aria-label="Section"
-                  className="w-56 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                >
-                  <option value="">General</option>
-                  {sections?.map((section) => (
-                    <option key={section.id} value={section.id}>
-                      {section.title}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="submit"
-                  className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
-                >
-                  Save title
-                </button>
-              </form>
-              <p className="mt-2 text-xs text-slate-500">
-                {lastEditedAtLabel ? `Last edited ${lastEditedAtLabel}` : "No edit history yet"}
-                {lastEditedByLabel ? ` by ${lastEditedByLabel}` : ""}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <form action={toggleFavorite}>
-                <button
-                  type="submit"
-                  className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
-                    pageIsFavorite
-                      ? "border-amber-300 bg-amber-50 text-amber-700"
-                      : "border-slate-300 text-slate-700 hover:border-slate-400"
-                  }`}
-                >
-                  {pageIsFavorite ? "Favorited" : "Favorite"}
-                </button>
-              </form>
-
-              <details className="relative" open={activePanel === "share"}>
-                <summary
-                  className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
-                    activePanel === "share"
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-300 text-slate-700 hover:border-slate-400"
-                  }`}
-                >
-                  Share
-                </summary>
-                <div className="absolute right-0 z-40 mt-2 w-[34rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                  <div className="max-h-[70vh] overflow-auto p-3">{sharePanelContent}</div>
-                </div>
-              </details>
-
-              <details className="relative" open={activePanel === "history"}>
-                <summary
-                  className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
-                    activePanel === "history"
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-300 text-slate-700 hover:border-slate-400"
-                  }`}
-                >
-                  History
-                </summary>
-                <div className="absolute right-0 z-40 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                  <div className="max-h-[70vh] overflow-auto p-3">{historyPanelContent}</div>
-                </div>
-              </details>
-
-              <details className="relative" open={activePanel === "templates"}>
-                <summary
-                  className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
-                    activePanel === "templates"
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-300 text-slate-700 hover:border-slate-400"
-                  }`}
-                >
-                  Templates
-                </summary>
-                <div className="absolute right-0 z-40 mt-2 w-[24rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                  <div className="max-h-[70vh] overflow-auto p-3">{templatesPanelContent}</div>
-                </div>
-              </details>
-
-              {isOwner ? (
-                <form action={deletePersonalPage}>
-                  <ConfirmDelete
-                    name={pageTitle}
-                    itemType="Personal page"
-                    triggerLabel={
-                      <span className="inline-flex rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700">
-                        Delete
-                      </span>
-                    }
-                    confirmLabel="Confirm delete page"
-                    pendingRedirectHref="/personal"
-                  />
-                </form>
+      <div className="personal-page-main space-y-4 xl:h-full xl:min-h-0 xl:min-w-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
+        <div className="personal-page-chrome space-y-4">
+          {(searchParams?.error || searchParams?.success) && (
+            <div className="space-y-2">
+              {searchParams?.error ? (
+                <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                  {searchParams.error}
+                </p>
+              ) : null}
+              {searchParams?.success ? (
+                <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+                  {searchParams.success}
+                </p>
               ) : null}
             </div>
-          </div>
-        </section>
+          )}
 
-        <div className="space-y-3">
+          {workspaceStateTableMissing ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+              Favorites and per-page workspace state need
+              <span className="font-mono"> sql/personal_workspace_user_state.sql</span>.
+            </p>
+          ) : null}
+
+          <section className="rounded-lg border border-slate-200 bg-white px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <Link href="/personal" className="hover:text-slate-700">
+                    Personal
+                  </Link>
+                  {" / "}
+                  {sectionTitle || "General"}
+                  {" / "}
+                  {pageTitle}
+                </p>
+                <form action={updatePageDetails} className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    name="title"
+                    defaultValue={page.title}
+                    aria-label="Page title"
+                    className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                  />
+                  <select
+                    name="section_id"
+                    defaultValue={page.section_id || ""}
+                    aria-label="Section"
+                    className="w-56 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                  >
+                    <option value="">General</option>
+                    {sections?.map((section) => (
+                      <option key={section.id} value={section.id}>
+                        {section.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
+                  >
+                    Save title
+                  </button>
+                </form>
+                <p className="mt-2 text-xs text-slate-500">
+                  {lastEditedAtLabel ? `Last edited ${lastEditedAtLabel}` : "No edit history yet"}
+                  {lastEditedByLabel ? ` by ${lastEditedByLabel}` : ""}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <form action={toggleFavorite}>
+                  <button
+                    type="submit"
+                    className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
+                      pageIsFavorite
+                        ? "border-amber-300 bg-amber-50 text-amber-700"
+                        : "border-slate-300 text-slate-700 hover:border-slate-400"
+                    }`}
+                  >
+                    {pageIsFavorite ? "Favorited" : "Favorite"}
+                  </button>
+                </form>
+
+                <details className="relative" open={activePanel === "share"}>
+                  <summary
+                    className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
+                      activePanel === "share"
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-300 text-slate-700 hover:border-slate-400"
+                    }`}
+                  >
+                    Share
+                  </summary>
+                  <div className="absolute right-0 z-40 mt-2 w-[34rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                    <div className="max-h-[70vh] overflow-auto p-3">{sharePanelContent}</div>
+                  </div>
+                </details>
+
+                <details className="relative" open={activePanel === "history"}>
+                  <summary
+                    className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
+                      activePanel === "history"
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-300 text-slate-700 hover:border-slate-400"
+                    }`}
+                  >
+                    History
+                  </summary>
+                  <div className="absolute right-0 z-40 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                    <div className="max-h-[70vh] overflow-auto p-3">{historyPanelContent}</div>
+                  </div>
+                </details>
+
+                <details className="relative" open={activePanel === "templates"}>
+                  <summary
+                    className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
+                      activePanel === "templates"
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-300 text-slate-700 hover:border-slate-400"
+                    }`}
+                  >
+                    Templates
+                  </summary>
+                  <div className="absolute right-0 z-40 mt-2 w-[24rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                    <div className="max-h-[70vh] overflow-auto p-3">{templatesPanelContent}</div>
+                  </div>
+                </details>
+
+                {isOwner ? (
+                  <form action={deletePersonalPage}>
+                    <ConfirmDelete
+                      name={pageTitle}
+                      itemType="Personal page"
+                      triggerLabel={
+                        <span className="inline-flex rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700">
+                          Delete
+                        </span>
+                      }
+                      confirmLabel="Confirm delete page"
+                      pendingRedirectHref="/personal"
+                    />
+                  </form>
+                ) : null}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div className="personal-page-editor-wrap space-y-3">
           <PersonalPageEditorClient
             pageId={page.id}
             initialContent={page.content ?? null}

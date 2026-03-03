@@ -125,13 +125,16 @@ export default function ChatNavLink({
     return unreadCount > 99 ? "99+" : String(unreadCount);
   }, [unreadCount]);
 
-  const showBadge = pathname !== "/chat" && unreadCount > 0;
+  const isActive = pathname === "/chat" || pathname.startsWith("/chat/");
+  const showBadge = !isActive && unreadCount > 0;
 
   return (
     <AppNavLink
       href="/chat"
       prefetch={false}
-      className={`flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 ${className || ""}`}
+      className={`app-nav-item flex min-h-11 items-center border px-3 py-2 text-sm font-semibold ${
+        isActive ? "app-nav-item-active" : "text-slate-700"
+      } ${className || ""}`}
       title="Chat"
       aria-label="Chat"
     >

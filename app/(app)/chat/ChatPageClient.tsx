@@ -1409,7 +1409,7 @@ export default function ChatPageClient(props: {
                   onClick={() => setAddMode("direct")}
                   className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
                     addMode === "direct"
-                      ? "bg-slate-900 text-white"
+                      ? "bg-[var(--brand-primary)] text-white shadow-sm"
                       : "text-slate-600 hover:bg-slate-100"
                   }`}
                 >
@@ -1420,7 +1420,7 @@ export default function ChatPageClient(props: {
                   onClick={() => setAddMode("group")}
                   className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
                     addMode === "group"
-                      ? "bg-slate-900 text-white"
+                      ? "bg-[var(--brand-primary)] text-white shadow-sm"
                       : "text-slate-600 hover:bg-slate-100"
                   }`}
                 >
@@ -1498,7 +1498,7 @@ export default function ChatPageClient(props: {
                 <button
                   type="submit"
                   disabled={isCreatingDirect || !directTargetUserId}
-                  className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded-lg btn-primary px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isCreatingDirect
                     ? "Starting..."
@@ -1589,7 +1589,7 @@ export default function ChatPageClient(props: {
                 <button
                   type="submit"
                   disabled={isCreatingGroup}
-                  className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded-lg btn-primary px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isCreatingGroup ? "Creating..." : "Create group chat"}
                 </button>
@@ -1640,7 +1640,7 @@ export default function ChatPageClient(props: {
                     <div
                       key={conversation.id}
                       className={`group relative border-b border-slate-100 ${
-                        isActive ? "bg-blue-50/80" : "hover:bg-slate-50"
+                        isActive ? "bg-[var(--brand-primary-soft)]/90" : "hover:bg-slate-50"
                       }`}
                     >
                       <button
@@ -1648,7 +1648,7 @@ export default function ChatPageClient(props: {
                         onClick={() => void selectConversation(conversation.id)}
                         className={`block w-full py-3 pr-16 text-left transition-colors ${
                           isActive
-                            ? "border-l-2 border-l-blue-500 pl-3"
+                            ? "border-l-2 border-l-[var(--brand-primary)] pl-3"
                             : "border-l-2 border-l-transparent pl-4"
                         }`}
                       >
@@ -1657,7 +1657,7 @@ export default function ChatPageClient(props: {
                             <span
                               className={`relative mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border text-[11px] font-semibold ${
                                 isActive
-                                  ? "border-blue-200 bg-blue-100 text-blue-700"
+                                  ? "border-indigo-200 bg-indigo-100 text-indigo-700"
                                   : "border-slate-200 bg-white text-slate-700"
                               }`}
                             >
@@ -1678,7 +1678,7 @@ export default function ChatPageClient(props: {
                               <div className="flex items-center gap-1.5">
                                 <p
                                   className={`truncate text-sm font-semibold ${
-                                    isActive ? "text-blue-900" : "text-slate-900"
+                                    isActive ? "text-indigo-900" : "text-slate-900"
                                   }`}
                                 >
                                   {title}
@@ -1696,7 +1696,7 @@ export default function ChatPageClient(props: {
                               </div>
                               <p
                                 className={`mt-1 line-clamp-1 text-xs ${
-                                  isActive ? "text-blue-900/75" : "text-slate-600"
+                                  isActive ? "text-indigo-900/75" : "text-slate-600"
                                 }`}
                               >
                                 {latestSender ? `${latestSender}: ` : ""}
@@ -1707,7 +1707,7 @@ export default function ChatPageClient(props: {
                           <div className="flex min-w-[56px] flex-col items-end gap-1">
                             <span
                               className={`text-[10px] font-medium ${
-                                isActive ? "text-blue-800/80" : "text-slate-500"
+                                isActive ? "text-indigo-800/80" : "text-slate-500"
                               }`}
                             >
                               {formatConversationTime(latest?.created_at || conversation.created_at)}
@@ -1717,7 +1717,7 @@ export default function ChatPageClient(props: {
                                 className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
                                   isMuted
                                     ? "bg-slate-300 text-slate-700"
-                                    : "bg-blue-600 text-white"
+                                    : "bg-[var(--brand-primary)] text-white"
                                 }`}
                               >
                                 {unreadLabel}
@@ -1728,30 +1728,74 @@ export default function ChatPageClient(props: {
                       </button>
 
                       <div className="absolute right-2 top-2 z-10 flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                        <button
-                          type="button"
-                          disabled={isSavingPreferences}
-                          onClick={() => {
-                            void updateConversationPreferences(conversation.id, {
-                              is_pinned: !isPinned,
-                            });
-                          }}
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isPinned ? "Unpin" : "Pin"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isSavingPreferences}
-                          onClick={() => {
-                            void updateConversationPreferences(conversation.id, {
-                              is_muted: !isMuted,
-                            });
-                          }}
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isMuted ? "Unmute" : "Mute"}
-                        </button>
+                        <div className="group/action-icon relative">
+                          <button
+                            type="button"
+                            disabled={isSavingPreferences}
+                            onClick={() => {
+                              void updateConversationPreferences(conversation.id, {
+                                is_pinned: !isPinned,
+                              });
+                            }}
+                            className="app-icon-action focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary-ring)] disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label={isPinned ? "Unpin conversation" : "Pin conversation"}
+                            title={isPinned ? "Unpin" : "Pin"}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="h-[15px] w-[15px]"
+                              aria-hidden="true"
+                            >
+                              <path d="M8 3h8" />
+                              <path d="M9 3v5l-3 3h12l-3-3V3" />
+                              <path d="M12 11v10" />
+                            </svg>
+                          </button>
+                          <span className="app-icon-tooltip">{isPinned ? "Unpin" : "Pin"}</span>
+                        </div>
+                        <div className="group/action-icon relative">
+                          <button
+                            type="button"
+                            disabled={isSavingPreferences}
+                            onClick={() => {
+                              void updateConversationPreferences(conversation.id, {
+                                is_muted: !isMuted,
+                              });
+                            }}
+                            className="app-icon-action focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary-ring)] disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label={isMuted ? "Unmute conversation" : "Mute conversation"}
+                            title={isMuted ? "Unmute" : "Mute"}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="h-[15px] w-[15px]"
+                              aria-hidden="true"
+                            >
+                              <path d="M18 8a6 6 0 0 0-9-5.2" />
+                              <path d="M6.3 6.3A6 6 0 0 0 6 8c0 7-3 7-3 7h12" />
+                              <path d="M14 21a2 2 0 0 1-3.46 0" />
+                              {isMuted ? (
+                                <path d="m3 3 18 18" />
+                              ) : (
+                                <>
+                                  <path d="M18 8c0 7 3 7 3 7" />
+                                  <path d="M15 6a6 6 0 0 1 3 5" />
+                                </>
+                              )}
+                            </svg>
+                          </button>
+                          <span className="app-icon-tooltip">{isMuted ? "Unmute" : "Mute"}</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1785,7 +1829,7 @@ export default function ChatPageClient(props: {
                         [selectedConversationId]: null,
                       }));
                     }}
-                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
+                    className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100"
                   >
                     Jump to unread
                   </button>
@@ -2056,11 +2100,10 @@ export default function ChatPageClient(props: {
                     }, []);
 
                     const hoverActionButtonClass =
-                      "inline-flex h-[26px] w-[26px] items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100/80 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300";
+                      "app-icon-action focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary-ring)]";
                     const hoverActionDangerButtonClass =
-                      "inline-flex h-[26px] w-[26px] items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-red-100/80 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300";
-                    const hoverActionTooltipClass =
-                      "pointer-events-none absolute -top-8 left-1/2 z-30 hidden -translate-x-1/2 whitespace-nowrap rounded-sm bg-slate-800/95 px-1.5 py-0.5 text-[9px] font-medium text-white opacity-0 shadow-sm transition-opacity duration-150 md:block md:group-hover/action-icon:opacity-100 md:group-focus-within/action-icon:opacity-100";
+                      "app-icon-action app-icon-action-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300";
+                    const hoverActionTooltipClass = "app-icon-tooltip";
                     const hoverActionIconClass = "h-[15px] w-[15px]";
 
                     return (
@@ -2077,11 +2120,11 @@ export default function ChatPageClient(props: {
 
                         {firstUnreadMessageId === message.id ? (
                           <div className="my-2 flex items-center gap-3">
-                            <span className="h-px flex-1 bg-blue-200" />
-                            <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                            <span className="h-px flex-1 bg-indigo-200" />
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
                               Unread messages
                             </span>
-                            <span className="h-px flex-1 bg-blue-200" />
+                            <span className="h-px flex-1 bg-indigo-200" />
                           </div>
                         ) : null}
 
@@ -2118,7 +2161,7 @@ export default function ChatPageClient(props: {
                           <article className="relative max-w-[min(760px,92%)]">
                             {!isEditing && !isDeleted && !isTransientLocalMessage ? (
                               <div
-                                className={`absolute -top-3 z-20 flex items-center gap-px rounded-[10px] border border-slate-200/90 bg-white/95 px-1.5 py-1 shadow-[0_2px_10px_rgba(15,23,42,0.12)] transition-opacity duration-150 ${
+                                className={`absolute -top-3 z-20 flex items-center gap-1 rounded-xl border border-slate-200/90 bg-white/95 px-1.5 py-1.5 shadow-[0_8px_22px_rgba(15,23,42,0.16)] transition-opacity duration-150 ${
                                   isMine ? "right-2" : "left-2"
                                 } opacity-100 md:pointer-events-none md:opacity-0 md:group-hover/message:pointer-events-auto md:group-hover/message:opacity-100 md:group-focus-within/message:pointer-events-auto md:group-focus-within/message:opacity-100`}
                               >
@@ -2250,14 +2293,14 @@ export default function ChatPageClient(props: {
                             <div
                               className={`rounded-2xl border px-3 py-2 shadow-sm ${
                                 isMine
-                                  ? "border-blue-600 bg-blue-600 text-white"
+                                  ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
                                   : "border-slate-200 bg-white text-slate-900"
                               }`}
                             >
                               {!groupedWithPrev ? (
                                 <div
                                   className={`mb-1 flex items-center justify-between gap-3 text-[11px] ${
-                                    isMine ? "text-blue-100" : "text-slate-500"
+                                    isMine ? "text-indigo-100" : "text-slate-500"
                                   }`}
                                 >
                                   <span className="font-semibold">{senderName}</span>
@@ -2292,7 +2335,7 @@ export default function ChatPageClient(props: {
                                   </div>
                                 </div>
                               ) : isDeleted ? (
-                                <p className={`text-sm italic ${isMine ? "text-blue-100" : "text-slate-500"}`}>
+                                <p className={`text-sm italic ${isMine ? "text-indigo-100" : "text-slate-500"}`}>
                                   Message deleted
                                 </p>
                               ) : (
@@ -2306,11 +2349,11 @@ export default function ChatPageClient(props: {
                                       }}
                                       className={`mb-2 w-full rounded-lg border px-2.5 py-2 text-left text-xs ${
                                         isMine
-                                          ? "border-blue-300 bg-blue-500/30 text-blue-50 hover:bg-blue-500/40"
+                                          ? "border-indigo-300 bg-indigo-500/30 text-indigo-50 hover:bg-indigo-500/40"
                                           : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
                                       } ${replyTarget ? "" : "cursor-not-allowed opacity-70"}`}
                                     >
-                                      <p className={`font-semibold ${isMine ? "text-blue-100" : "text-slate-600"}`}>
+                                      <p className={`font-semibold ${isMine ? "text-indigo-100" : "text-slate-600"}`}>
                                         Reply to {replySenderName}
                                       </p>
                                       <p className="line-clamp-2">{replyPreview}</p>
@@ -2329,7 +2372,7 @@ export default function ChatPageClient(props: {
                                           href={link.href}
                                           className={`rounded-full border px-3 py-1 text-xs font-medium ${
                                             isMine
-                                              ? "border-blue-300 bg-blue-500/30 text-white hover:bg-blue-500/40"
+                                              ? "border-indigo-300 bg-indigo-500/30 text-white hover:bg-indigo-500/40"
                                               : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100"
                                           }`}
                                         >
@@ -2374,7 +2417,7 @@ export default function ChatPageClient(props: {
                               )}
 
                               {message.edited_at && !isDeleted && !isEditing ? (
-                                <p className={`mt-2 text-[11px] ${isMine ? "text-blue-100" : "text-slate-500"}`}>
+                                <p className={`mt-2 text-[11px] ${isMine ? "text-indigo-100" : "text-slate-500"}`}>
                                   Edited
                                 </p>
                               ) : null}
@@ -2393,7 +2436,7 @@ export default function ChatPageClient(props: {
                                         type="button"
                                         className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
                                           item.reactedByMe
-                                            ? "border-blue-300 bg-blue-50 text-blue-700"
+                                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
                                             : "border-slate-200 bg-white text-slate-600"
                                         }`}
                                         onClick={() => {

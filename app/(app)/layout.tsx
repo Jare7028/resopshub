@@ -235,25 +235,25 @@ export default async function AppLayout({
     <div className="min-h-screen overflow-x-hidden app-bg text-slate-900">
       <AppResumeRefresh />
       <LoginQuickReadPrompt shouldCheckOnLoad={shouldCheckQuickReadOnLoad} />
-      <div className="relative min-h-screen overflow-x-hidden">
+      <div className="app-shell-root relative min-h-screen overflow-x-hidden">
         <input
           id="app-sidebar-collapsed"
           type="checkbox"
-          className="peer/sidebar sr-only hidden md:block"
+          className="app-shell-sidebar-toggle peer/sidebar sr-only hidden md:block"
         />
         <input
           id="app-sidebar-open"
           type="checkbox"
-          className="peer/drawer sr-only md:hidden"
+          className="app-shell-sidebar-toggle peer/drawer sr-only md:hidden"
         />
 
         <label
           htmlFor="app-sidebar-open"
-          className="fixed inset-0 z-30 hidden bg-slate-900/35 backdrop-blur-[1px] peer-checked/drawer:block md:hidden"
+          className="app-shell-drawer-scrim fixed inset-0 z-30 hidden bg-slate-900/35 backdrop-blur-[1px] peer-checked/drawer:block md:hidden"
           aria-label="Close navigation drawer"
         />
 
-        <aside className="fixed inset-y-0 left-0 z-40 flex h-screen w-[17.5rem] max-w-[85vw] -translate-x-full flex-col overflow-x-hidden border-r app-border app-surface transition-transform duration-200 peer-checked/drawer:translate-x-0 md:w-64 md:translate-x-0 md:transition-[width] md:duration-200 md:peer-checked/sidebar:w-16 md:peer-checked/sidebar:[&_.nav-label]:hidden md:peer-checked/sidebar:[&_.sidebar-logo]:hidden md:peer-checked/sidebar:[&_.sidebar-mini-logo]:inline-flex md:peer-checked/sidebar:[&_.nav-item]:justify-center md:peer-checked/sidebar:[&_.chat-badge]:absolute md:peer-checked/sidebar:[&_.chat-badge]:right-1 md:peer-checked/sidebar:[&_.chat-badge]:top-1">
+        <aside className="app-shell-sidebar fixed inset-y-0 left-0 z-40 flex h-screen w-[17.5rem] max-w-[85vw] -translate-x-full flex-col overflow-x-hidden border-r app-border app-surface transition-transform duration-200 peer-checked/drawer:translate-x-0 md:w-64 md:translate-x-0 md:transition-[width] md:duration-200 md:peer-checked/sidebar:w-16 md:peer-checked/sidebar:[&_.nav-label]:hidden md:peer-checked/sidebar:[&_.sidebar-logo]:hidden md:peer-checked/sidebar:[&_.sidebar-mini-logo]:inline-flex md:peer-checked/sidebar:[&_.nav-item]:justify-center md:peer-checked/sidebar:[&_.chat-badge]:absolute md:peer-checked/sidebar:[&_.chat-badge]:right-1 md:peer-checked/sidebar:[&_.chat-badge]:top-1">
           <div className="px-4 py-4 md:py-5">
             <div className="flex items-center justify-between gap-2">
               <AppNavLink href="/clients" prefetch={false} className="flex items-center gap-2">
@@ -318,8 +318,8 @@ export default async function AppLayout({
           <SidebarNav links={navLinks} userId={user.id} chatUnreadCount={unreadChatCount} />
         </aside>
 
-        <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-0 transition-[padding] duration-200 md:pl-64 md:peer-checked/sidebar:pl-16">
-          <header className="border-b app-border app-header px-3 py-3 sm:px-4 md:px-6 md:py-4">
+        <div className="app-shell-content flex min-h-screen min-w-0 flex-col overflow-x-hidden pl-0 transition-[padding] duration-200 md:pl-64 md:peer-checked/sidebar:pl-16">
+          <header className="app-shell-header border-b app-border app-header px-3 py-3 sm:px-4 md:px-6 md:py-4">
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
               <label
                 htmlFor="app-sidebar-open"
@@ -372,7 +372,7 @@ export default async function AppLayout({
               </div>
             </div>
           </header>
-          <main className="flex-1 min-w-0 overflow-x-hidden px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-8">
+          <main className="app-shell-main flex-1 min-w-0 overflow-x-hidden px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-8">
             {children}
           </main>
         </div>

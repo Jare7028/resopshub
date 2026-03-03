@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { SidebarNavIcon, SidebarNavLink } from "@/lib/appSidebarLinks";
 import AppNavLink from "./AppNavLink";
 import ChatNavLink from "./ChatNavLink";
@@ -11,6 +11,20 @@ type SidebarLinkData = {
   userId: string;
   chatUnreadCount: number;
 };
+
+function isNavLinkActive(pathname: string | null, href: string) {
+  const currentPath = String(pathname || "").trim();
+  if (!currentPath || !href.startsWith("/")) {
+    return false;
+  }
+  if (currentPath === href) {
+    return true;
+  }
+  if (href === "/") {
+    return currentPath === "/";
+  }
+  return currentPath.startsWith(`${href}/`);
+}
 
 function SidebarIcon({ name }: { name: SidebarNavIcon }) {
   const iconClassName = "h-4 w-4 shrink-0";
@@ -177,6 +191,7 @@ function ArrowIcon({ direction }: { direction: "up" | "down" }) {
 
 export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLinkData) {
   const router = useRouter();
+  const pathname = usePathname();
   const [editableLinks, setEditableLinks] = useState<SidebarNavLink[]>(() => [...links]);
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -314,6 +329,7 @@ export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLi
 
       <div className="space-y-1">
         {(isEditing ? editableLinks : currentLinks).map((link, index, renderedLinks) => {
+          const isActive = isNavLinkActive(pathname, link.href);
           const isFirst = index === 0;
           const isLast = index === renderedLinks.length - 1;
           const canMoveUp = isEditing && !isFirst;
@@ -363,7 +379,9 @@ export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLi
               <AppNavLink
                 href={link.href}
                 prefetch={false}
-                className="nav-item relative flex min-h-11 flex-1 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                className={`nav-item app-nav-item relative flex min-h-11 flex-1 items-center gap-2 border px-3 py-2 text-sm font-semibold ${
+                  isActive ? "app-nav-item-active" : "text-slate-700"
+                }`}
                 title={link.label}
                 aria-label={link.label}
               >

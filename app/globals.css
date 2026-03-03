@@ -3,13 +3,17 @@
 :root {
   --background: #f1f5fb;
   --foreground: #171717;
-  --brand-bg: #f8fafc;
+  --brand-bg: #f5f7ff;
   --brand-surface: #ffffff;
-  --brand-border: #e2e8f0;
+  --brand-border: #dbe4f3;
   --brand-text: #30266b;
-  --brand-muted: #64748b;
-  --brand-primary: #30266b;
-  --brand-primary-hover: #1e293b;
+  --brand-muted: #5d6a84;
+  --brand-primary: #2f3ea9;
+  --brand-primary-hover: #25338d;
+  --brand-primary-soft: #e7ebff;
+  --brand-primary-ring: #c7d2fe;
+  --brand-accent: #0f766e;
+  --brand-accent-soft: #e6f8f4;
   --brand-header-bg: #ffffff;
   --brand-header-text: #0f172a;
 }
@@ -32,7 +36,7 @@
   body {
     background: var(--brand-bg);
     color: var(--brand-text);
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
   }
 }
 
@@ -85,6 +89,87 @@
   .tab-active {
     background: var(--brand-primary);
     color: #ffffff;
+  }
+
+  .app-nav-item {
+    color: #334155;
+    border-radius: 0.6rem;
+    border: 1px solid transparent;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .app-nav-item:hover {
+    background: #eef3ff;
+    border-color: #d9e4fb;
+    color: #1e293b;
+  }
+
+  .app-nav-item-active {
+    background: linear-gradient(135deg, var(--brand-primary-soft) 0%, #eef8ff 100%);
+    border-color: #c6d5f3;
+    color: #1f2a66;
+    box-shadow: inset 0 0 0 1px rgba(47, 62, 169, 0.08);
+  }
+
+  .app-nav-item-active:hover {
+    background: linear-gradient(135deg, #dde6ff 0%, #e5f4ff 100%);
+    border-color: #b7c7ea;
+    color: #1c2558;
+  }
+
+  .app-icon-action {
+    display: inline-flex;
+    height: 1.7rem;
+    width: 1.7rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    color: #475569;
+    transition: background-color 130ms ease, color 130ms ease, box-shadow 130ms ease;
+  }
+
+  .app-icon-action:hover {
+    background: #eaf0ff;
+    color: #1e293b;
+    box-shadow: inset 0 0 0 1px rgba(47, 62, 169, 0.14);
+  }
+
+  .app-icon-action-danger:hover {
+    background: #fee2e2;
+    color: #b91c1c;
+    box-shadow: inset 0 0 0 1px rgba(185, 28, 28, 0.14);
+  }
+
+  .app-icon-tooltip {
+    pointer-events: none;
+    position: absolute;
+    left: 50%;
+    top: -2rem;
+    z-index: 30;
+    display: none;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    border-radius: 0.35rem;
+    background: #1e293b;
+    padding: 0.22rem 0.45rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #ffffff;
+    opacity: 0;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2);
+    transition: opacity 130ms ease;
+  }
+
+  .group\/action-icon:hover .app-icon-tooltip,
+  .group\/action-icon:focus-within .app-icon-tooltip {
+    opacity: 1;
+  }
+
+  @media (min-width: 768px) {
+    .app-icon-tooltip {
+      display: block;
+    }
   }
 
   .context-menu-item {
@@ -149,6 +234,55 @@
     font-size: 0.875rem;
     color: #64748b;
   }
+}
+
+body.personal-focus-mode {
+  overflow: hidden;
+}
+
+body.personal-focus-mode .app-shell-sidebar,
+body.personal-focus-mode .app-shell-header,
+body.personal-focus-mode .app-shell-drawer-scrim,
+body.personal-focus-mode .app-shell-sidebar-toggle,
+body.personal-focus-mode .personal-page-sidebar,
+body.personal-focus-mode .personal-page-chrome {
+  display: none !important;
+}
+
+body.personal-focus-mode .app-shell-content {
+  padding-left: 0 !important;
+}
+
+body.personal-focus-mode .app-shell-main {
+  padding: 0 !important;
+  height: 100dvh;
+}
+
+body.personal-focus-mode .personal-page-layout {
+  height: 100dvh;
+  gap: 0;
+  overflow: hidden;
+}
+
+body.personal-focus-mode .personal-page-main {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow-y: auto !important;
+  padding-right: 0 !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.personal-focus-mode .personal-page-editor-wrap {
+  min-height: 100dvh;
+  height: auto;
+  margin-top: 0 !important;
+}
+
+body.personal-focus-mode .personal-page-editor-wrap > section {
+  min-height: 100dvh;
+  height: auto;
+  border: 0;
+  border-radius: 0;
 }
 
 .note-editor {

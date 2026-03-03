@@ -46,6 +46,7 @@ export default function PersonalPageEditorClient({
   const [liveContentSnapshot, setLiveContentSnapshot] = useState<NoteLiveContentSnapshot | null>(
     null
   );
+  const [shellFocusModeActive, setShellFocusModeActive] = useState(Boolean(initialFocusMode));
 
   useEffect(() => {
     void recordPersonalPageOpened({ pageId }).catch(() => undefined);
@@ -54,6 +55,22 @@ export default function PersonalPageEditorClient({
   useEffect(() => {
     expectedUpdatedAtRef.current = initialUpdatedAt ?? null;
   }, [initialUpdatedAt, pageId]);
+
+  useEffect(() => {
+    setShellFocusModeActive(Boolean(initialFocusMode));
+  }, [initialFocusMode, pageId]);
+
+  useEffect(() => {
+    const bodyClassName = "personal-focus-mode";
+    if (shellFocusModeActive) {
+      document.body.classList.add(bodyClassName);
+    } else {
+      document.body.classList.remove(bodyClassName);
+    }
+    return () => {
+      document.body.classList.remove(bodyClassName);
+    };
+  }, [shellFocusModeActive]);
 
   useEffect(() => {
     setLiveContentSnapshot(null);
@@ -119,15 +136,20 @@ export default function PersonalPageEditorClient({
     []
   );
   const handleViewStateChange = useCallback(
-    (state: { ribbonTab: PersonalWorkspaceRibbonTab; zoomPercent: number; focusMode: boolean }) =>
-      upsertPersonalPageUserState({
+    (state: { ribbonTab: PersonalWorkspaceRibbonTab; zoomPercent: number; focusMode: boolean }) => {
+      setShellFocusModeActive(state.focusMode);
+      return upsertPersonalPageUserState({
         pageId,
         ribbonTab: state.ribbonTab,
         zoomPercent: state.zoomPercent,
         focusMode: state.focusMode,
-      }).then(() => undefined),
+      }).then(() => undefined);
+    },
     [pageId]
   );
+  const handleFocusModeChange = useCallback((nextFocusMode: boolean) => {
+    setShellFocusModeActive(nextFocusMode);
+  }, []);
   const handleLiveSnapshotApplied = useCallback((updatedAt: string | null) => {
     expectedUpdatedAtRef.current = updatedAt;
   }, []);
@@ -159,6 +181,7 @@ export default function PersonalPageEditorClient({
       initialFocusMode={initialFocusMode}
       editorHeightMode="fill"
       onViewStateChange={handleViewStateChange}
+      onFocusModeChange={handleFocusModeChange}
       debugImagePersistence
       enforceImageNodeIntegrity
     />
