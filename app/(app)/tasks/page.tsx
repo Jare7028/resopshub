@@ -355,6 +355,9 @@ export default async function TasksPage(props: {
   const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw).filter((status) =>
     statusOptions.includes(status)
   );
+  const effectiveSelectedStatuses = areSameValueSets(selectedStatuses, [...statusOptions])
+    ? []
+    : selectedStatuses;
   const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );
@@ -564,7 +567,10 @@ export default async function TasksPage(props: {
   if (currentAppUserId && taskPreferencesAvailable) {
     const shouldSavePreferences =
       !taskTablePreferences ||
-      !areSameValueSets(normalizePreferenceValues(taskTablePreferences.status), selectedStatuses) ||
+      !areSameValueSets(
+        normalizePreferenceValues(taskTablePreferences.status),
+        effectiveSelectedStatuses
+      ) ||
       !areSameValueSets(
         normalizePreferenceValues(taskTablePreferences.priority),
         selectedPriorities
@@ -591,7 +597,7 @@ export default async function TasksPage(props: {
         .upsert(
         {
           user_id: currentAppUserId,
-          status: selectedStatuses,
+          status: effectiveSelectedStatuses,
           priority: selectedPriorities,
           assignee: selectedAssignees,
           due: selectedDue,
@@ -611,9 +617,7 @@ export default async function TasksPage(props: {
     }
   }
 
-  const statusValuesForQueryParam = areSameValueSets(selectedStatuses, [...statusOptions])
-    ? []
-    : selectedStatuses;
+  const statusValuesForQueryParam = effectiveSelectedStatuses;
   const priorityValuesForQueryParam = areSameValueSets(selectedPriorities, [...priorityOptions])
     ? []
     : selectedPriorities;
@@ -773,8 +777,8 @@ export default async function TasksPage(props: {
       }
     }
 
-    if (selectedStatuses.length) {
-      request = request.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
+    if (effectiveSelectedStatuses.length) {
+      request = request.in("status", expandTaskStatusFilterForQuery(effectiveSelectedStatuses));
     }
 
     if (selectedPriorities.length) {
@@ -843,10 +847,10 @@ export default async function TasksPage(props: {
       request = request.in("project_id", selectedProjectIds);
     }
 
-    const wantsHiddenStatuses = selectedStatuses.some((status) =>
+    const wantsHiddenStatuses = effectiveSelectedStatuses.some((status) =>
       hiddenTaskStatusSet.has(status)
     );
-    const wantsTemplateStatus = selectedStatuses.includes("template");
+    const wantsTemplateStatus = effectiveSelectedStatuses.includes("template");
     if (templateStatusSupported && !wantsTemplateStatus) {
       request = request.neq("status", "template");
     }
@@ -1895,7 +1899,7 @@ export default async function TasksPage(props: {
           dueOptions={dueDateFilters}
           returnTo={returnTo}
           initialFilters={{
-            status: selectedStatuses,
+            status: effectiveSelectedStatuses,
             priority: selectedPriorities,
             assignee: selectedAssignees,
             due: selectedDue,
