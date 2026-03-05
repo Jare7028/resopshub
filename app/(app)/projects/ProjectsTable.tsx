@@ -43,7 +43,11 @@ export default function ProjectsTable({
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
+  const [openMenuPosition, setOpenMenuPosition] = useState<{ left: number; top: number } | null>(
+    null
+  );
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const openMenuAnchorRef = useRef<HTMLElement | null>(null);
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
@@ -51,25 +55,79 @@ export default function ProjectsTable({
   }, [initialKey, initialFilters]);
 
   useEffect(() => {
-    if (!openMenu) return;
+    if (!openMenu) {
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+      return;
+    }
+
+    const closeOpenMenu = () => {
+      setOpenMenu(null);
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+    };
+
+    const syncOpenMenuPosition = () => {
+      if (!openMenuAnchorRef.current || typeof window === "undefined") return;
+      const rect = openMenuAnchorRef.current.getBoundingClientRect();
+      const panelWidth = 288;
+      const viewportPadding = 8;
+      const left = Math.min(
+        Math.max(viewportPadding, rect.right - panelWidth),
+        Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+      );
+      const top = Math.max(viewportPadding, rect.bottom + 8);
+      setOpenMenuPosition({ left, top });
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenMenu(null);
+      if (event.key === "Escape") closeOpenMenu();
     };
 
     const onPointerDown = (event: MouseEvent | PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
-      if (menuRef.current && !menuRef.current.contains(target)) setOpenMenu(null);
+      if (menuRef.current && !menuRef.current.contains(target)) closeOpenMenu();
     };
 
+    syncOpenMenuPosition();
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("scroll", syncOpenMenuPosition, true);
+    window.addEventListener("resize", syncOpenMenuPosition);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", syncOpenMenuPosition, true);
+      window.removeEventListener("resize", syncOpenMenuPosition);
     };
   }, [openMenu]);
+
+  const computeHeaderMenuPosition = (trigger: HTMLElement) => {
+    if (typeof window === "undefined") return null;
+    const rect = trigger.getBoundingClientRect();
+    const panelWidth = 288;
+    const viewportPadding = 8;
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - panelWidth),
+      Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+    );
+    const top = Math.max(viewportPadding, rect.bottom + 8);
+    return { left, top };
+  };
+
+  const toggleHeaderMenu = (menuKey: HeaderMenuKey, trigger: HTMLElement) => {
+    if (openMenu === menuKey) {
+      setOpenMenu(null);
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+      return;
+    }
+    openMenuAnchorRef.current = trigger;
+    const nextPosition = computeHeaderMenuPosition(trigger);
+    setOpenMenuPosition(nextPosition);
+    setOpenMenu(menuKey);
+  };
 
   const buildQuery = (next: typeof filters) => {
     const params = new URLSearchParams();
@@ -101,14 +159,24 @@ export default function ProjectsTable({
                 <button
                   type="button"
                   aria-label="Filter client"
-                  onClick={() =>
-                    setOpenMenu((current) => (current === "client" ? null : "client"))
-                  }
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleHeaderMenu("client", event.currentTarget);
+                  }}
                 >
                   <FilterIcon active={filters.client.length > 0} />
                 </button>
                 {openMenu === "client" ? (
-                  <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                  <div
+                    ref={menuRef}
+                    className="fixed z-[260]"
+                    style={
+                      openMenuPosition
+                        ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                        : { left: 8, top: 8 }
+                    }
+                  >
                     <FilterMenuMulti
                       title="Client"
                       options={clients.map((client) => ({
@@ -129,14 +197,24 @@ export default function ProjectsTable({
                 <button
                   type="button"
                   aria-label="Filter status"
-                  onClick={() =>
-                    setOpenMenu((current) => (current === "status" ? null : "status"))
-                  }
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleHeaderMenu("status", event.currentTarget);
+                  }}
                 >
                   <FilterIcon active={filters.status.length > 0} />
                 </button>
                 {openMenu === "status" ? (
-                  <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                  <div
+                    ref={menuRef}
+                    className="fixed z-[260]"
+                    style={
+                      openMenuPosition
+                        ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                        : { left: 8, top: 8 }
+                    }
+                  >
                     <FilterMenuMulti
                       title="Status"
                       options={statusOptions.map((status) => ({

@@ -315,7 +315,11 @@ export default function TasksView({
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
+  const [openMenuPosition, setOpenMenuPosition] = useState<{ left: number; top: number } | null>(
+    null
+  );
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const openMenuAnchorRef = useRef<HTMLElement | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [optimisticStatusByTaskId, setOptimisticStatusByTaskId] = useState<
@@ -504,11 +508,36 @@ export default function TasksView({
   }, [tasks]);
 
   useEffect(() => {
-    if (!openMenu) return;
+    if (!openMenu) {
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+      return;
+    }
+
+    const getMenuPanelWidth = (menuKey: HeaderMenuKey) => (menuKey === "due" ? 256 : 288);
+
+    const closeOpenMenu = () => {
+      setOpenMenu(null);
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+    };
+
+    const syncOpenMenuPosition = () => {
+      if (!openMenuAnchorRef.current || typeof window === "undefined") return;
+      const rect = openMenuAnchorRef.current.getBoundingClientRect();
+      const panelWidth = getMenuPanelWidth(openMenu);
+      const viewportPadding = 8;
+      const left = Math.min(
+        Math.max(viewportPadding, rect.right - panelWidth),
+        Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+      );
+      const top = Math.max(viewportPadding, rect.bottom + 8);
+      setOpenMenuPosition({ left, top });
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpenMenu(null);
+        closeOpenMenu();
       }
     };
 
@@ -516,16 +545,21 @@ export default function TasksView({
       const target = event.target as Node | null;
       if (!target) return;
       if (menuRef.current && !menuRef.current.contains(target)) {
-        setOpenMenu(null);
+        closeOpenMenu();
       }
     };
 
+    syncOpenMenuPosition();
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("scroll", syncOpenMenuPosition, true);
+    window.addEventListener("resize", syncOpenMenuPosition);
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", syncOpenMenuPosition, true);
+      window.removeEventListener("resize", syncOpenMenuPosition);
     };
   }, [openMenu]);
 
@@ -1210,6 +1244,43 @@ export default function TasksView({
     }
     return usersById[userIds[0]] || "Assigned";
   };
+
+  const getMenuPanelWidth = useCallback(
+    (menuKey: HeaderMenuKey) => (menuKey === "due" ? 256 : 288),
+    []
+  );
+
+  const computeHeaderMenuPosition = useCallback(
+    (trigger: HTMLElement, menuKey: HeaderMenuKey) => {
+      if (typeof window === "undefined") return null;
+      const rect = trigger.getBoundingClientRect();
+      const panelWidth = getMenuPanelWidth(menuKey);
+      const viewportPadding = 8;
+      const left = Math.min(
+        Math.max(viewportPadding, rect.right - panelWidth),
+        Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+      );
+      const top = Math.max(viewportPadding, rect.bottom + 8);
+      return { left, top };
+    },
+    [getMenuPanelWidth]
+  );
+
+  const toggleHeaderMenu = useCallback(
+    (menuKey: HeaderMenuKey, trigger: HTMLElement) => {
+      if (openMenu === menuKey) {
+        setOpenMenu(null);
+        setOpenMenuPosition(null);
+        openMenuAnchorRef.current = null;
+        return;
+      }
+      openMenuAnchorRef.current = trigger;
+      const nextPosition = computeHeaderMenuPosition(trigger, menuKey);
+      setOpenMenuPosition(nextPosition);
+      setOpenMenu(menuKey);
+    },
+    [computeHeaderMenuPosition, openMenu]
+  );
   const tableColSpan = taskTableColumnIds.reduce((count, columnId) => {
     return isTaskColumnVisible(columnId) ? count + 1 : count;
   }, 0);
@@ -1435,7 +1506,7 @@ export default function TasksView({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setOpenMenu((current) => (current === "client" ? null : "client"));
+                          toggleHeaderMenu("client", event.currentTarget);
                         }}
                       >
                         <FilterIcon active={filters.client.length > 0} />
@@ -1443,7 +1514,12 @@ export default function TasksView({
                       {openMenu === "client" ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-30 mt-2"
+                          className="fixed z-[260]"
+                          style={
+                            openMenuPosition
+                              ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                              : { left: 8, top: 8 }
+                          }
                         >
                           <FilterMenuMulti
                             title="Client"
@@ -1473,7 +1549,7 @@ export default function TasksView({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setOpenMenu((current) => (current === "project" ? null : "project"));
+                          toggleHeaderMenu("project", event.currentTarget);
                         }}
                       >
                         <FilterIcon active={filters.project.length > 0} />
@@ -1481,7 +1557,12 @@ export default function TasksView({
                       {openMenu === "project" ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-30 mt-2"
+                          className="fixed z-[260]"
+                          style={
+                            openMenuPosition
+                              ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                              : { left: 8, top: 8 }
+                          }
                         >
                           <FilterMenuMulti
                             title="Project"
@@ -1516,7 +1597,7 @@ export default function TasksView({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setOpenMenu((current) => (current === "status" ? null : "status"));
+                          toggleHeaderMenu("status", event.currentTarget);
                         }}
                       >
                         <FilterIcon active={filters.status.length > 0} />
@@ -1524,7 +1605,12 @@ export default function TasksView({
                       {openMenu === "status" ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-30 mt-2"
+                          className="fixed z-[260]"
+                          style={
+                            openMenuPosition
+                              ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                              : { left: 8, top: 8 }
+                          }
                         >
                           <FilterMenuMulti
                             title="Status"
@@ -1557,9 +1643,7 @@ export default function TasksView({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setOpenMenu((current) =>
-                            current === "priority" ? null : "priority"
-                          );
+                          toggleHeaderMenu("priority", event.currentTarget);
                         }}
                       >
                         <FilterIcon active={filters.priority.length > 0} />
@@ -1567,7 +1651,12 @@ export default function TasksView({
                       {openMenu === "priority" ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-30 mt-2"
+                          className="fixed z-[260]"
+                          style={
+                            openMenuPosition
+                              ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                              : { left: 8, top: 8 }
+                          }
                         >
                           <FilterMenuMulti
                             title="Priority"
@@ -1600,9 +1689,7 @@ export default function TasksView({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setOpenMenu((current) =>
-                            current === "assignees" ? null : "assignees"
-                          );
+                          toggleHeaderMenu("assignees", event.currentTarget);
                         }}
                       >
                         <FilterIcon active={filters.assignee.length > 0} />
@@ -1610,7 +1697,12 @@ export default function TasksView({
                       {openMenu === "assignees" ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-30 mt-2"
+                          className="fixed z-[260]"
+                          style={
+                            openMenuPosition
+                              ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                              : { left: 8, top: 8 }
+                          }
                         >
                           <FilterMenuMulti
                             title="Assignees"
@@ -1656,7 +1748,7 @@ export default function TasksView({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setOpenMenu((current) => (current === "due" ? null : "due"));
+                          toggleHeaderMenu("due", event.currentTarget);
                         }}
                       >
                         <FilterIcon active={filters.due !== "all"} />
@@ -1664,7 +1756,12 @@ export default function TasksView({
                       {openMenu === "due" ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-0 top-full z-30 mt-2"
+                          className="fixed z-[260]"
+                          style={
+                            openMenuPosition
+                              ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                              : { left: 8, top: 8 }
+                          }
                         >
                           <FilterMenuSingle
                             title="Due"

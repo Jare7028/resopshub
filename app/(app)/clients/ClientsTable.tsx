@@ -195,8 +195,12 @@ export default function ClientsTable({
   const [filters, setFilters] = useState(initialFilters);
   const [mobileSearchInput, setMobileSearchInput] = useState(initialFilters.q);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
+  const [openMenuPosition, setOpenMenuPosition] = useState<{ left: number; top: number } | null>(
+    null
+  );
   const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const openMenuAnchorRef = useRef<HTMLElement | null>(null);
   const filtersRef = useRef(filters);
   const searchDebounceTimerRef = useRef<number | null>(null);
   const clientTableColumns = useMemo<TableColumnOption[]>(
@@ -291,11 +295,34 @@ export default function ClientsTable({
   }, [initialView]);
 
   useEffect(() => {
-    if (!openMenu) return;
+    if (!openMenu) {
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+      return;
+    }
+
+    const closeOpenMenu = () => {
+      setOpenMenu(null);
+      setOpenMenuPosition(null);
+      openMenuAnchorRef.current = null;
+    };
+
+    const syncOpenMenuPosition = () => {
+      if (!openMenuAnchorRef.current || typeof window === "undefined") return;
+      const rect = openMenuAnchorRef.current.getBoundingClientRect();
+      const panelWidth = 288;
+      const viewportPadding = 8;
+      const left = Math.min(
+        Math.max(viewportPadding, rect.right - panelWidth),
+        Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+      );
+      const top = Math.max(viewportPadding, rect.bottom + 8);
+      setOpenMenuPosition({ left, top });
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpenMenu(null);
+        closeOpenMenu();
       }
     };
 
@@ -303,16 +330,21 @@ export default function ClientsTable({
       const target = event.target as Node | null;
       if (!target) return;
       if (menuRef.current && !menuRef.current.contains(target)) {
-        setOpenMenu(null);
+        closeOpenMenu();
       }
     };
 
+    syncOpenMenuPosition();
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("scroll", syncOpenMenuPosition, true);
+    window.addEventListener("resize", syncOpenMenuPosition);
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", syncOpenMenuPosition, true);
+      window.removeEventListener("resize", syncOpenMenuPosition);
     };
   }, [openMenu]);
 
@@ -458,6 +490,35 @@ export default function ClientsTable({
     if (sortKey !== key) return null;
     return <span className="ml-1 text-[10px]">{sortDir === "asc" ? "^" : "v"}</span>;
   };
+
+  const computeHeaderMenuPosition = useCallback((trigger: HTMLElement) => {
+    if (typeof window === "undefined") return null;
+    const rect = trigger.getBoundingClientRect();
+    const panelWidth = 288;
+    const viewportPadding = 8;
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - panelWidth),
+      Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+    );
+    const top = Math.max(viewportPadding, rect.bottom + 8);
+    return { left, top };
+  }, []);
+
+  const toggleHeaderMenu = useCallback(
+    (menuKey: HeaderMenuKey, trigger: HTMLElement) => {
+      if (openMenu === menuKey) {
+        setOpenMenu(null);
+        setOpenMenuPosition(null);
+        openMenuAnchorRef.current = null;
+        return;
+      }
+      openMenuAnchorRef.current = trigger;
+      const nextPosition = computeHeaderMenuPosition(trigger);
+      setOpenMenuPosition(nextPosition);
+      setOpenMenu(menuKey);
+    },
+    [computeHeaderMenuPosition, openMenu]
+  );
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);
@@ -782,14 +843,24 @@ export default function ClientsTable({
                   <button
                     type="button"
                     aria-label="Filter client name"
-                    onClick={() =>
-                      setOpenMenu((current) => (current === "name" ? null : "name"))
-                    }
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleHeaderMenu("name", event.currentTarget);
+                    }}
                   >
                     <FilterIcon active={Boolean(filters.q.trim())} />
                   </button>
                   {openMenu === "name" ? (
-                    <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                    <div
+                      ref={menuRef}
+                      className="fixed z-[260]"
+                      style={
+                        openMenuPosition
+                          ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                          : { left: 8, top: 8 }
+                      }
+                    >
                       <FilterMenuText
                         title="Client"
                         value={filters.q}
@@ -822,14 +893,24 @@ export default function ClientsTable({
                   <button
                     type="button"
                     aria-label="Filter status"
-                    onClick={() =>
-                      setOpenMenu((current) => (current === "status" ? null : "status"))
-                    }
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleHeaderMenu("status", event.currentTarget);
+                    }}
                   >
                     <FilterIcon active={filters.status.length > 0} />
                   </button>
                   {openMenu === "status" ? (
-                    <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                    <div
+                      ref={menuRef}
+                      className="fixed z-[260]"
+                      style={
+                        openMenuPosition
+                          ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                          : { left: 8, top: 8 }
+                      }
+                    >
                       <FilterMenuMulti
                         title="Status"
                         options={statusOptions.map((status) => ({
@@ -854,16 +935,24 @@ export default function ClientsTable({
                   <button
                     type="button"
                     aria-label="Filter industry"
-                    onClick={() =>
-                      setOpenMenu((current) =>
-                        current === "industry" ? null : "industry"
-                      )
-                    }
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleHeaderMenu("industry", event.currentTarget);
+                    }}
                   >
                     <FilterIcon active={filters.industry.length > 0} />
                   </button>
                   {openMenu === "industry" ? (
-                    <div ref={menuRef} className="absolute right-0 top-full z-30 mt-2">
+                    <div
+                      ref={menuRef}
+                      className="fixed z-[260]"
+                      style={
+                        openMenuPosition
+                          ? { left: openMenuPosition.left, top: openMenuPosition.top }
+                          : { left: 8, top: 8 }
+                      }
+                    >
                       <FilterMenuMulti
                         title="Industry"
                         options={industryOptions}
