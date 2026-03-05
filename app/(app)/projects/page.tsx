@@ -5,7 +5,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
-import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
+import {
+  filterTaskStatusOptionsWithMetadata,
+  normalizeTaskStatusOrDefault,
+} from "@/lib/taskStatus";
 import {
   buildStatusColorMap,
   buildHiddenStatusValues,
@@ -342,10 +345,12 @@ export default async function ProjectsPage(props: {
     (statusOptionsRaw || []) as StatusOptionRow[],
     []
   );
-  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
-    "task",
-    (statusOptionsRaw || []) as StatusOptionRow[],
-    []
+  const taskStatusOptionsWithMetadata = filterTaskStatusOptionsWithMetadata(
+    buildStatusOptionsWithMetadata(
+      "task",
+      (statusOptionsRaw || []) as StatusOptionRow[],
+      []
+    )
   );
   const projectStatusOptions = projectStatusOptionsWithMetadata.map((status) => status.value);
   const taskStatusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);

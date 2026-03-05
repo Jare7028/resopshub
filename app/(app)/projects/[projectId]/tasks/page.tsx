@@ -7,6 +7,7 @@ import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "@/app/(app)/tasks/TasksView";
 import {
   coerceTaskStatusList,
+  filterTaskStatusOptionsWithMetadata,
 } from "@/lib/taskStatus";
 import {
   buildStatusColorMap,
@@ -58,10 +59,12 @@ export default async function ProjectTasksPage(props: {
     .order("entity_type", { ascending: true })
     .order("position", { ascending: true })
     .order("value", { ascending: true });
-  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
-    "task",
-    (statusOptionsRaw || []) as StatusOptionRow[],
-    []
+  const taskStatusOptionsWithMetadata = filterTaskStatusOptionsWithMetadata(
+    buildStatusOptionsWithMetadata(
+      "task",
+      (statusOptionsRaw || []) as StatusOptionRow[],
+      []
+    )
   );
   const statusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
   const taskStatusColorMap = buildStatusColorMap("task", taskStatusOptionsWithMetadata);

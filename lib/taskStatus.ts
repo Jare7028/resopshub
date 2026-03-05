@@ -1,27 +1,52 @@
-import { DEFAULT_TASK_STATUS_OPTIONS, normalizeStatusValue } from "@/lib/statusOptions";
+import {
+  DEFAULT_TASK_STATUS_OPTIONS,
+  normalizeStatusValue,
+  type StatusOptionMetadata,
+} from "@/lib/statusOptions";
 
 export const TASK_STATUS_OPTIONS = DEFAULT_TASK_STATUS_OPTIONS;
 
-export type TaskStatus = string;
+export const SUPPORTED_TASK_STATUS_VALUES = [
+  "to_do",
+  "in_progress",
+  "blocked",
+  "completed",
+  "cancelled",
+  "template",
+] as const;
+
+export type TaskStatus = (typeof SUPPORTED_TASK_STATUS_VALUES)[number];
+
+const SUPPORTED_TASK_STATUS_SET = new Set<string>(SUPPORTED_TASK_STATUS_VALUES);
 
 const LEGACY_TASK_STATUS_ALIASES: Record<string, TaskStatus> = {
   backlog: "to_do",
 };
+
+function isSupportedTaskStatusValue(value: string): value is TaskStatus {
+  return SUPPORTED_TASK_STATUS_SET.has(value);
+}
 
 export function normalizeTaskStatus(value: string | null | undefined): TaskStatus | null {
   if (!value) return null;
   const trimmed = normalizeStatusValue(value);
   if (!trimmed) return null;
   const legacy = LEGACY_TASK_STATUS_ALIASES[trimmed];
-  if (legacy) return legacy;
-  return trimmed;
+  const normalized = legacy || trimmed;
+  if (!isSupportedTaskStatusValue(normalized)) return null;
+  return normalized;
 }
 
 export function normalizeTaskStatusOrDefault(
   value: string | null | undefined,
-  fallback: TaskStatus = DEFAULT_TASK_STATUS_OPTIONS[0]
+  fallback: TaskStatus = "to_do"
 ): TaskStatus {
-  return normalizeTaskStatus(value) ?? fallback;
+  const normalizedFallback = normalizeTaskStatus(fallback);
+  return normalizeTaskStatus(value) ?? normalizedFallback ?? "to_do";
+}
+
+export function isSupportedTaskStatus(value: string | null | undefined): boolean {
+  return normalizeTaskStatus(value) !== null;
 }
 
 export function coerceTaskStatusList(values: string[]): TaskStatus[] {
@@ -33,6 +58,12 @@ export function coerceTaskStatusList(values: string[]): TaskStatus[] {
     }
   });
   return Array.from(seen);
+}
+
+export function filterTaskStatusOptionsWithMetadata(
+  statusOptions: readonly StatusOptionMetadata[]
+): StatusOptionMetadata[] {
+  return statusOptions.filter((status) => isSupportedTaskStatus(status.value));
 }
 
 // While legacy rows still exist in Postgres with status = "backlog", we need

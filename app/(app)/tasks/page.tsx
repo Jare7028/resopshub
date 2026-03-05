@@ -8,6 +8,7 @@ import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import {
   coerceTaskStatusList,
   expandTaskStatusFilterForQuery,
+  filterTaskStatusOptionsWithMetadata,
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
@@ -259,10 +260,12 @@ export default async function TasksPage(props: {
     statusOptionsRaw = (legacyStatusOptionsResponse.data || null) as StatusOptionRow[] | null;
   }
 
-  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
-    "task",
-    (statusOptionsRaw || []) as StatusOptionRow[],
-    []
+  const taskStatusOptionsWithMetadata = filterTaskStatusOptionsWithMetadata(
+    buildStatusOptionsWithMetadata(
+      "task",
+      (statusOptionsRaw || []) as StatusOptionRow[],
+      []
+    )
   );
   const statusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
   const taskStatusColorMap = buildStatusColorMap("task", taskStatusOptionsWithMetadata);

@@ -29,6 +29,10 @@ import {
   loadAssignmentGroups,
   resolveAssignmentTargetsToUserIds,
 } from "@/lib/assignmentGroups";
+import {
+  isSupportedTaskStatus,
+  SUPPORTED_TASK_STATUS_VALUES,
+} from "@/lib/taskStatus";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
 import SettingsTabs, {
@@ -106,6 +110,7 @@ const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const USER_AVATARS_BUCKET = "user-avatars";
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
+const TASK_STATUS_OPTION_VALIDATION_MESSAGE = `Task statuses must use supported values: ${SUPPORTED_TASK_STATUS_VALUES.join(", ")}.`;
 
 function getImageExtension(file: File) {
   const fromName = file.name.split(".").pop()?.trim().toLowerCase();
@@ -2103,6 +2108,11 @@ export default async function SettingsPage(props: {
     if (rawColorHex && !colorHex) {
       redirect("/settings?tab=statuses&error=Color%20must%20be%20a%20hex%20value%20like%20%2300aaff");
     }
+    if (entityType === "task" && !isSupportedTaskStatus(value)) {
+      redirect(
+        `/settings?tab=statuses&error=${encodeURIComponent(TASK_STATUS_OPTION_VALIDATION_MESSAGE)}`
+      );
+    }
 
     const { data: last } = await supabase
       .from("status_options")
@@ -2208,6 +2218,12 @@ export default async function SettingsPage(props: {
         return { ok: false, error: "Color must be a hex value like #00aaff" };
       }
       redirect("/settings?tab=statuses&error=Color%20must%20be%20a%20hex%20value%20like%20%2300aaff");
+    }
+    if (entityType === "task" && !isSupportedTaskStatus(value)) {
+      if (autosave) return { ok: false, error: TASK_STATUS_OPTION_VALIDATION_MESSAGE };
+      redirect(
+        `/settings?tab=statuses&error=${encodeURIComponent(TASK_STATUS_OPTION_VALIDATION_MESSAGE)}`
+      );
     }
 
     type StatusOptionDbRow = {
