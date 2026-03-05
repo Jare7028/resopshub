@@ -107,6 +107,17 @@ export default async function AppLayout({
     redirect("/login");
   }
 
+  const navOrderPromise = withPerfTiming(
+    "layout.app_nav_order",
+    () =>
+      supabase
+        .from("user_sidebar_link_order")
+        .select("page_key,sort_order")
+        .eq("user_id", user.id)
+        .order("sort_order", { ascending: true })
+        .order("page_key", { ascending: true })
+  );
+
   const email = user.email || "";
   let currentProfile: { id: string; role: string; status: string } | null = null;
   let pagePermissionByKey = new Map<PagePermissionKey, "none" | "view" | "edit">();
@@ -201,16 +212,7 @@ export default async function AppLayout({
   const navBaseLinks = APP_SIDEBAR_LINKS.filter((link) => canViewPage(link.pageKey));
 
   let navLinks: SidebarNavLink[] = navBaseLinks;
-  const { data: navOrderData, error: navOrderError } = await withPerfTiming(
-    "layout.app_nav_order",
-    () =>
-      supabase
-        .from("user_sidebar_link_order")
-        .select("page_key,sort_order")
-        .eq("user_id", user.id)
-        .order("sort_order", { ascending: true })
-        .order("page_key", { ascending: true })
-  );
+  const { data: navOrderData, error: navOrderError } = await navOrderPromise;
 
   if (!navOrderError) {
     navLinks = mergeNavLinksByUserOrder(navBaseLinks, (navOrderData || []) as SidebarNavOrderRow[]);
