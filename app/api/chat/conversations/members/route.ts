@@ -25,7 +25,7 @@ async function loadConversationMembers(
 ) {
   const { data: membersRaw, error } = await supabase
     .from("chat_conversation_members")
-    .select("*")
+    .select("conversation_id,user_id,role,last_read_at,is_pinned,is_muted")
     .eq("conversation_id", conversationId);
 
   if (error) {

@@ -729,63 +729,10 @@ export default async function DashboardPage(props: {
     scopedClientIds = filteredClientIds;
   } else if (!hasClientScopeFilter && hasProjectScopeFilter && !hasTaskMetaScopeFilter) {
     scopedClientIds = projectScopedClientIds;
-  } else if (!rangeStart) {
-    // Reuse the already-loaded task result set when range is "all" to avoid an extra scan.
-    scopedClientIds = scopedClientIdsFromLoadedTasks;
   } else {
-    let scopedTasksQuery = supabase
-      .from("tasks")
-      .select("client_id")
-      .is("parent_task_id", null);
-
-    if (filteredClientIds.length) {
-      scopedTasksQuery = scopedTasksQuery.in("client_id", filteredClientIds);
-    }
-
-    if (filteredProjectIds.length) {
-      scopedTasksQuery = scopedTasksQuery.in("project_id", filteredProjectIds);
-    }
-
-    if (filteredUserIds.length) {
-      scopedTasksQuery = scopedTasksQuery.in("assignee_user_id", filteredUserIds);
-    }
-
-    if (selectedStatuses.length) {
-      scopedTasksQuery = scopedTasksQuery.in(
-        "status",
-        expandTaskStatusFilterForQuery(selectedStatuses)
-      );
-    }
-
-    if (selectedPriorities.length) {
-      scopedTasksQuery = scopedTasksQuery.in("priority", selectedPriorities);
-    }
-
-    if (!isAdmin) {
-      const scopedOrParts: string[] = [`assignee_user_id.eq.${currentUserId}`];
-
-      if (explicitTaskIds.length) {
-        scopedOrParts.push(`id.in.(${explicitTaskIds.join(",")})`);
-      }
-
-      if (watchedProjectIds.length) {
-        scopedOrParts.push(`project_id.in.(${watchedProjectIds.join(",")})`);
-      }
-
-      scopedTasksQuery = scopedTasksQuery.or(scopedOrParts.join(","));
-    }
-
-    const { data: scopedTasksRaw } = await withPerfTiming(
-      "dashboard.scoped_tasks",
-      () => scopedTasksQuery
-    );
-    scopedClientIds = Array.from(
-      new Set(
-        ((scopedTasksRaw || []) as Array<{ client_id: string | null }>)
-          .map((row) => String(row.client_id || "").trim())
-          .filter(Boolean)
-      )
-    );
+    // Task meta filters (user/status/priority/range) are already applied to `tasksQuery`,
+    // so the loaded task rows are the canonical scope.
+    scopedClientIds = scopedClientIdsFromLoadedTasks;
   }
 
   const financeWarnings: string[] = [];

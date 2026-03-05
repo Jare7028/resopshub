@@ -83,7 +83,7 @@ export async function POST(req: Request) {
 
   const { data: membersRaw } = await supabase
     .from("chat_conversation_members")
-    .select("*")
+    .select("conversation_id,user_id,role,last_read_at,is_pinned,is_muted")
     .eq("conversation_id", created.id);
 
   return NextResponse.json({

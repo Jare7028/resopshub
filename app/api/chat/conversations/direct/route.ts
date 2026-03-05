@@ -73,7 +73,7 @@ async function loadConversationWithMembers(
 
   const { data: membersRaw, error: membersError } = await supabase
     .from("chat_conversation_members")
-    .select("*")
+    .select("conversation_id,user_id,role,last_read_at,is_pinned,is_muted")
     .eq("conversation_id", conversationId);
 
   if (membersError) {
@@ -226,7 +226,7 @@ async function findExistingDirectConversation(
 
   const { data: membersRaw, error: membersError } = await supabase
     .from("chat_conversation_members")
-    .select("*")
+    .select("conversation_id,user_id,role,last_read_at,is_pinned,is_muted")
     .eq("conversation_id", existingConversation.id);
 
   if (membersError) {
@@ -356,7 +356,7 @@ export async function POST(req: Request) {
 
   const { data: membersRaw } = await supabase
     .from("chat_conversation_members")
-    .select("*")
+    .select("conversation_id,user_id,role,last_read_at,is_pinned,is_muted")
     .eq("conversation_id", created.id);
 
   return NextResponse.json({
