@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const conversationMemberSelect =
+  "conversation_id,user_id,role,last_read_at,is_pinned,is_muted";
 
 type PreferenceUpdateBody = {
   conversation_id?: string;
@@ -63,7 +65,7 @@ export async function PATCH(req: Request) {
     .update(updatePayload)
     .eq("conversation_id", conversationId)
     .eq("user_id", userId)
-    .select("*")
+    .select(conversationMemberSelect)
     .maybeSingle();
 
   if (updateError) {

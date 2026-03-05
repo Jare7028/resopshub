@@ -6,6 +6,8 @@ import { extractMentionHandles } from "@/lib/mentions";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const conversationMemberSelect =
+  "conversation_id,user_id,role,last_read_at,is_pinned,is_muted";
 
 type LinkEntityType =
   | "task"
@@ -261,7 +263,7 @@ export async function GET(req: Request) {
       messagesQuery,
       supabase
         .from("chat_conversation_members")
-        .select("*")
+        .select(conversationMemberSelect)
         .eq("conversation_id", conversationId),
     ]);
 
