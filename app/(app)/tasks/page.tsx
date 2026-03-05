@@ -405,7 +405,7 @@ export default async function TasksPage(props: {
       supabase.from("clients").select("id,name").order("name", { ascending: true }),
       supabase
         .from("projects")
-        .select("id,name,client_id,clients(name)")
+        .select("id,name,client_id")
         .order("name", { ascending: true }),
       assignedProjectsPromise,
       taskTemplatesFromTasksPromise,
@@ -424,6 +424,13 @@ export default async function TasksPage(props: {
     (assignedProjectsResponse.data || [])
       .map((row) => row.project_id)
       .filter((projectId): projectId is string => Boolean(projectId))
+  );
+  const clientNameByClientId = new Map((clients || []).map((client) => [client.id, client.name]));
+  const projectClientNameByProjectId = new Map(
+    (projects || []).map((project) => [
+      project.id,
+      project.client_id ? clientNameByClientId.get(project.client_id) || "" : "",
+    ])
   );
   const addTaskProjects = isAdminUser
     ? (projects || [])
@@ -1008,20 +1015,6 @@ export default async function TasksPage(props: {
       }
     }
   }
-
-  const getRelationName = (
-    relation:
-      | { name?: string | null }
-      | { name?: string | null }[]
-      | null
-      | undefined,
-    fallback = ""
-  ) => {
-    if (Array.isArray(relation)) {
-      return relation[0]?.name ?? fallback;
-    }
-    return relation?.name ?? fallback;
-  };
 
   async function createTask(formData: FormData) {
     "use server";
@@ -1810,7 +1803,8 @@ export default async function TasksPage(props: {
                             >
                               <option value="">Project (N/A)</option>
                               {addTaskProjects?.map((project) => {
-                                const projectClientName = getRelationName(project.clients, "");
+                                const projectClientName =
+                                  projectClientNameByProjectId.get(project.id) || "";
                                 return (
                                   <option key={project.id} value={project.id}>
                                     {project.name}

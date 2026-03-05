@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { randomBytes } from "crypto";
-import { summarizeImageNodes } from "@/lib/imageNodeIntegrity";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
@@ -18,7 +17,6 @@ import { extractPlainText } from "@/lib/tiptapText";
 import PersonalSidebarTree from "../_components/PersonalSidebarTree";
 import {
   loadPersonalPageUserStateMap,
-  loadPersonalSinglePageUserState,
   loadPersonalWorkspaceTree,
 } from "../_lib/workspaceData";
 import { togglePersonalPageFavorite } from "../workspaceActions";
@@ -270,11 +268,6 @@ export default async function PersonalPage(props: {
   const pageId = page.id;
   const pageTitle = page.title || "Personal page";
   const pageContent = page.content ?? null;
-  const imageSummary = summarizeImageNodes(pageContent);
-  console.error("[personal.image.debug] page_load_content", {
-    pageId,
-    imageSummary,
-  });
   const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
   const panelParam = String(searchParams?.panel || "")
     .trim()
@@ -294,7 +287,6 @@ export default async function PersonalPage(props: {
   const isOwner = pageOwnerId === user.id;
 
   const [
-    { data: sections },
     { data: users },
     assignmentGroupsResult,
     { data: clients },
@@ -302,9 +294,7 @@ export default async function PersonalPage(props: {
     { data: pageTemplatesRaw, error: pageTemplatesError },
     sidebarTree,
     { map: pageUserStateById, missingTable: pageUserStateTableMissing },
-    { state: pageUserState, missingTable: singlePageStateTableMissing },
   ] = await Promise.all([
-    supabase.from("personal_sections").select("id,title").order("sort_order", { ascending: true }),
     supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
     loadAssignmentGroups(supabase),
     supabase.from("clients").select("id,name").order("name", { ascending: true }),
@@ -324,11 +314,9 @@ export default async function PersonalPage(props: {
     loadPersonalPageUserStateMap(
       supabase as unknown as Parameters<typeof loadPersonalPageUserStateMap>[0]
     ),
-    loadPersonalSinglePageUserState(
-      supabase as unknown as Parameters<typeof loadPersonalSinglePageUserState>[0],
-      pageId
-    ),
   ]);
+  const sections = sidebarTree.sections;
+  const pageUserState = pageUserStateById[pageId] || null;
   const assignmentGroupOptions = assignmentGroupsResult.groups.map((group) => ({
     id: group.id,
     name: group.name,
@@ -487,7 +475,7 @@ export default async function PersonalPage(props: {
       : defaultZoomPercentPreference;
   const initialFocusMode = focusFromQuery ? true : Boolean(pageUserState?.focus_mode);
   const sidebarInitiallyCollapsed = Boolean(pageUserState?.sidebar_collapsed);
-  const workspaceStateTableMissing = pageUserStateTableMissing || singlePageStateTableMissing;
+  const workspaceStateTableMissing = pageUserStateTableMissing;
 
   async function updatePageDetails(formData: FormData) {
     "use server";

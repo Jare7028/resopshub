@@ -125,16 +125,10 @@ export default async function PersonalHome(props: {
   const baseQuery = baseParams.toString();
 
   const [
-    { data: sections },
     { data: pageTemplatesRaw, error: pageTemplatesError },
     sidebarTree,
     { map: pageUserStateById, missingTable: pageUserStateTableMissing },
   ] = await Promise.all([
-    supabase
-      .from("personal_sections")
-      .select("id,title,owner_id,sort_order,created_at")
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true }),
     supabase
       .from("personal_page_templates")
       .select("id,name")
@@ -147,6 +141,7 @@ export default async function PersonalHome(props: {
       supabase as unknown as Parameters<typeof loadPersonalPageUserStateMap>[0]
     ),
   ]);
+  const sections = sidebarTree.sections;
 
   const pageTemplatesTableMissing = Boolean(
     pageTemplatesError && isSupabaseMissingTableError(pageTemplatesError)

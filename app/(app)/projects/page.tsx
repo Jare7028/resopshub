@@ -458,7 +458,7 @@ export default async function ProjectsPage(props: {
 
   let request = supabase
     .from("projects")
-    .select("id,name,status,start_date,end_date,created_at,client_id,clients(name)")
+    .select("id,name,status,start_date,end_date,created_at,client_id")
     .order("created_at", { ascending: false });
 
   if (!currentUserId) {
@@ -493,7 +493,19 @@ export default async function ProjectsPage(props: {
     clients?: { name?: string | null } | { name?: string | null }[] | null;
   }> = [];
   const { data: projectsRaw } = await request;
-  projects = (projectsRaw || []) as typeof projects;
+  const clientNameById = new Map((clients || []).map((client) => [client.id, client.name]));
+  projects = ((projectsRaw || []) as Array<{
+    id: string;
+    name: string;
+    status: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    created_at: string | null;
+    client_id: string | null;
+  }>).map((project) => ({
+    ...project,
+    clients: project.client_id ? { name: clientNameById.get(project.client_id) || "" } : null,
+  }));
 
   const assigneesByProject: Record<string, string[]> = {};
   const projectIds = projects.map((project) => project.id).filter(Boolean) as string[];
@@ -621,7 +633,7 @@ export default async function ProjectsPage(props: {
     } else {
       let openTaskCountRowsQuery = supabase
         .from("tasks")
-        .select("id,project_id")
+        .select("project_id")
         .in("project_id", projectIdsForCounts)
         .is("parent_task_id", null);
       if (hiddenTaskStatusValues.length) {
@@ -636,7 +648,6 @@ export default async function ProjectsPage(props: {
 
       if (!openTaskCountRowsError) {
         const openTaskCountRows = (openTaskCountRowsRaw || []) as Array<{
-          id: string;
           project_id: string | null;
         }>;
         openTaskCountRows.forEach((row) => {
