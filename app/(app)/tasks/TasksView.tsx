@@ -118,6 +118,7 @@ type TasksViewProps = {
   assigneesByTask: Record<string, string[]>;
   openSubtaskCountByTaskId: Record<string, number>;
   openSubtasksByParentId?: Record<string, OpenSubtaskRow[]>;
+  initialNextSubtaskDueDateByTaskId?: Record<string, string | null>;
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   dueOptions: readonly { value: string; label: string }[];
@@ -282,6 +283,7 @@ export default function TasksView({
   assigneesByTask,
   openSubtaskCountByTaskId,
   openSubtasksByParentId = {},
+  initialNextSubtaskDueDateByTaskId = {},
   statusOptions,
   priorityOptions,
   dueOptions,
@@ -327,6 +329,14 @@ export default function TasksView({
   >({});
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+  const [loadedSubtasksByParentId, setLoadedSubtasksByParentId] = useState<
+    Record<string, OpenSubtaskRow[]>
+  >(openSubtasksByParentId);
+  const [subtasksLoadingByTaskId, setSubtasksLoadingByTaskId] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [subtasksErrorByTaskId, setSubtasksErrorByTaskId] = useState<Record<string, string>>({});
+  const subtasksRequestInFlightRef = useRef<Set<string>>(new Set());
   const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
   const [taskNotesHover, setTaskNotesHover] = useState<TaskNotesHoverState>({
     open: false,
@@ -442,6 +452,13 @@ export default function TasksView({
       }, {}),
     [projects]
   );
+
+  useEffect(() => {
+    setLoadedSubtasksByParentId(openSubtasksByParentId);
+    setSubtasksLoadingByTaskId({});
+    setSubtasksErrorByTaskId({});
+    subtasksRequestInFlightRef.current.clear();
+  }, [openSubtasksByParentId]);
 
   useEffect(() => {
     setVisibleTaskColumns((current) =>
@@ -1154,17 +1171,23 @@ export default function TasksView({
     if (!showNextSubtaskDueDateColumn) {
       return {} as Record<string, string | null>;
     }
-    const nextDueByTaskId: Record<string, string | null> = {};
+    const nextDueByTaskId: Record<string, string | null> = {
+      ...initialNextSubtaskDueDateByTaskId,
+    };
     visibleTasks.forEach((task) => {
+      if (!Object.prototype.hasOwnProperty.call(loadedSubtasksByParentId, task.id)) {
+        return;
+      }
       nextDueByTaskId[task.id] = getNextSubtaskDueDate({
-        subtasks: openSubtasksByParentId[task.id] || [],
+        subtasks: loadedSubtasksByParentId[task.id] || [],
         effectiveStatusByTaskId,
       });
     });
     return nextDueByTaskId;
   }, [
     effectiveStatusByTaskId,
-    openSubtasksByParentId,
+    initialNextSubtaskDueDateByTaskId,
+    loadedSubtasksByParentId,
     showNextSubtaskDueDateColumn,
     visibleTasks,
   ]);
@@ -1223,7 +1246,59 @@ export default function TasksView({
     });
   };
 
+  const loadSubtasksForTask = useCallback(
+    async (taskId: string) => {
+      if (!taskId) return;
+      if (Object.prototype.hasOwnProperty.call(loadedSubtasksByParentId, taskId)) return;
+      if (subtasksRequestInFlightRef.current.has(taskId)) return;
+
+      subtasksRequestInFlightRef.current.add(taskId);
+      setSubtasksLoadingByTaskId((current) => ({ ...current, [taskId]: true }));
+      setSubtasksErrorByTaskId((current) => {
+        if (!(taskId in current)) return current;
+        const next = { ...current };
+        delete next[taskId];
+        return next;
+      });
+
+      try {
+        const response = await fetch(`/api/tasks/${taskId}/subtasks`, { cache: "no-store" });
+        const payload = (await response.json().catch(() => ({}))) as {
+          subtasks?: OpenSubtaskRow[];
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(
+            typeof payload.error === "string" && payload.error.trim()
+              ? payload.error
+              : "Unable to load subtasks"
+          );
+        }
+        const subtasks = Array.isArray(payload.subtasks) ? payload.subtasks : [];
+        setLoadedSubtasksByParentId((current) => ({
+          ...current,
+          [taskId]: subtasks,
+        }));
+      } catch (error) {
+        setSubtasksErrorByTaskId((current) => ({
+          ...current,
+          [taskId]: error instanceof Error ? error.message : "Unable to load subtasks",
+        }));
+      } finally {
+        subtasksRequestInFlightRef.current.delete(taskId);
+        setSubtasksLoadingByTaskId((current) => {
+          if (!(taskId in current)) return current;
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
+      }
+    },
+    [loadedSubtasksByParentId]
+  );
+
   const toggleSubtasks = (taskId: string) => {
+    const isExpanded = expandedTaskIds.has(taskId);
     setExpandedTaskIds((current) => {
       const nextExpandedTaskIds = new Set(current);
       if (nextExpandedTaskIds.has(taskId)) {
@@ -1233,6 +1308,14 @@ export default function TasksView({
       }
       return nextExpandedTaskIds;
     });
+
+    if (
+      !isExpanded &&
+      (openSubtaskCountByTaskId[taskId] ?? 0) > 0 &&
+      !Object.prototype.hasOwnProperty.call(loadedSubtasksByParentId, taskId)
+    ) {
+      void loadSubtasksForTask(taskId);
+    }
   };
 
   const getAssigneeLabel = (userIds: string[]) => {
@@ -1784,7 +1867,7 @@ export default function TasksView({
               {visibleTasks.length ? (
                 visibleTasks.map((task) => {
                   const isExpanded = expandedTaskIds.has(task.id);
-                  const openSubtasks = openSubtasksByParentId[task.id] || [];
+                  const openSubtasks = loadedSubtasksByParentId[task.id] || [];
                   const visibleOpenSubtasks = shouldHideHiddenStatuses
                     ? openSubtasks.filter((subtask) => {
                         const subtaskStatus =
@@ -1793,6 +1876,8 @@ export default function TasksView({
                         return !hiddenStatusSet.has(subtaskStatus);
                       })
                     : openSubtasks;
+                  const isSubtasksLoading = Boolean(subtasksLoadingByTaskId[task.id]);
+                  const subtaskLoadError = subtasksErrorByTaskId[task.id] || "";
                   const nextSubtaskDueDateIso = nextSubtaskDueDateByTaskId[task.id] || null;
                   return (
                     <Fragment key={task.id}>
@@ -1829,8 +1914,35 @@ export default function TasksView({
                         showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
                         nextSubtaskDueDateIso={nextSubtaskDueDateIso}
                       />
-                      {isExpanded
-                        ? visibleOpenSubtasks.map((subtask) => (
+                      {isExpanded ? (
+                        <>
+                          {isSubtasksLoading ? (
+                            <tr className="border-t border-slate-100 bg-slate-50/60">
+                              <td className="px-6 py-3 text-sm text-slate-500" colSpan={tableColSpan}>
+                                Loading subtasks...
+                              </td>
+                            </tr>
+                          ) : null}
+                          {!isSubtasksLoading && subtaskLoadError ? (
+                            <tr className="border-t border-slate-100 bg-rose-50/50">
+                              <td className="px-6 py-3 text-sm text-rose-700" colSpan={tableColSpan}>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>{subtaskLoadError}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void loadSubtasksForTask(task.id);
+                                    }}
+                                    className="rounded-md border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                                  >
+                                    Retry
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : null}
+                          {!isSubtasksLoading && !subtaskLoadError
+                            ? visibleOpenSubtasks.map((subtask) => (
                             <TaskInlineRow
                               key={subtask.id}
                               task={subtask}
@@ -1863,8 +1975,10 @@ export default function TasksView({
                               showNextSubtaskDueDateColumn={showNextSubtaskDueDateColumn}
                               nextSubtaskDueDateIso={null}
                             />
-                          ))
-                        : null}
+                              ))
+                            : null}
+                        </>
+                      ) : null}
                     </Fragment>
                   );
                 })

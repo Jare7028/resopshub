@@ -737,6 +737,7 @@ export default async function TasksPage(props: {
   const assigneesByTask: Record<string, string[]> = {};
   const openSubtaskCountByTaskId: Record<string, number> = {};
   const openSubtasksByParentId: Record<string, OpenSubtaskTaskRow[]> = {};
+  const initialNextSubtaskDueDateByTaskId: Record<string, string | null> = {};
 
   if (activeTab === "list") {
     let request = supabase
@@ -924,93 +925,46 @@ export default async function TasksPage(props: {
 
     const taskIdsForSubtaskCounts = sortedTasks.map((task) => task.id).filter(Boolean) as string[];
     if (taskIdsForSubtaskCounts.length) {
-      let openExpandedSubtasksQuery = supabase
+      let openSubtaskMetaQuery = supabase
         .from("tasks")
-        .select(
-          "id,parent_task_id,title,status,priority,start_date,due_date,due_time,assignee_user_id,client_id,project_id"
-        )
+        .select("parent_task_id,due_date,status")
         .in("parent_task_id", taskIdsForSubtaskCounts)
         .order("created_at", { ascending: true });
 
       if (hiddenTaskStatusValues.length) {
-        openExpandedSubtasksQuery = openExpandedSubtasksQuery.not(
+        openSubtaskMetaQuery = openSubtaskMetaQuery.not(
           "status",
           "in",
           `(${hiddenTaskStatusValues.join(",")})`
         );
       }
 
-      const { data: openExpandedSubtasksRaw, error: openExpandedSubtasksError } =
-        await withPerfTiming("tasks.page.open_subtasks.rows", () =>
-          openExpandedSubtasksQuery
-        );
+      const { data: openSubtaskMetaRaw, error: openSubtaskMetaError } = await withPerfTiming(
+        "tasks.page.open_subtasks.meta",
+        () => openSubtaskMetaQuery
+      );
 
-      if (openExpandedSubtasksError) {
+      if (openSubtaskMetaError) {
         console.error(
-          "[tasks.page.open_subtasks.rows]",
-          openExpandedSubtasksError.message
+          "[tasks.page.open_subtasks.meta]",
+          openSubtaskMetaError.message
         );
       } else {
-        const openExpandedSubtasks = (openExpandedSubtasksRaw || []) as Array<{
-          id: string;
+        const openSubtaskMetaRows = (openSubtaskMetaRaw || []) as Array<{
           parent_task_id: string | null;
-          title: string;
-          status: string | null;
-          priority: string | null;
-          start_date: string | null;
           due_date: string | null;
-          due_time: string | null;
-          assignee_user_id: string | null;
-          client_id: string | null;
-          project_id: string | null;
         }>;
 
-        const expandedSubtaskIds = openExpandedSubtasks
-          .map((subtask) => subtask.id)
-          .filter(Boolean);
-        const assigneeIdsBySubtaskId: Record<string, string[]> = {};
-        if (expandedSubtaskIds.length) {
-          const { data: subtaskAssigneeRows } = await supabase
-            .from("task_assignees")
-            .select("task_id,user_id")
-            .in("task_id", expandedSubtaskIds);
-          (subtaskAssigneeRows || []).forEach((row) => {
-            if (!assigneeIdsBySubtaskId[row.task_id]) {
-              assigneeIdsBySubtaskId[row.task_id] = [];
-            }
-            assigneeIdsBySubtaskId[row.task_id].push(row.user_id);
-          });
-        }
-
-        openExpandedSubtasks.forEach((subtask) => {
-          if (!subtask.parent_task_id) return;
-          openSubtaskCountByTaskId[subtask.parent_task_id] =
-            (openSubtaskCountByTaskId[subtask.parent_task_id] || 0) + 1;
-          if (!openSubtasksByParentId[subtask.parent_task_id]) {
-            openSubtasksByParentId[subtask.parent_task_id] = [];
+        openSubtaskMetaRows.forEach((row) => {
+          const parentId = String(row.parent_task_id || "").trim();
+          if (!parentId) return;
+          openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
+          const dueDate = String(row.due_date || "").trim();
+          if (!dueDate) return;
+          const currentNextDueDate = initialNextSubtaskDueDateByTaskId[parentId];
+          if (!currentNextDueDate || dueDate < currentNextDueDate) {
+            initialNextSubtaskDueDateByTaskId[parentId] = dueDate;
           }
-          const assigneeIds = Array.from(
-            new Set([
-              ...(assigneeIdsBySubtaskId[subtask.id] || []),
-              ...(subtask.assignee_user_id ? [subtask.assignee_user_id] : []),
-            ])
-          );
-          openSubtasksByParentId[subtask.parent_task_id].push({
-            id: subtask.id,
-            parent_task_id: subtask.parent_task_id,
-            title: subtask.title,
-            status: subtask.status,
-            priority: subtask.priority,
-            start_date: subtask.start_date,
-            due_date: subtask.due_date,
-            due_time: subtask.due_time,
-            assignee_user_id: subtask.assignee_user_id,
-            client_id: subtask.client_id,
-            project_id: subtask.project_id,
-            projects: null,
-            clients: null,
-            assignee_user_ids: assigneeIds,
-          });
         });
       }
     }
@@ -1891,6 +1845,7 @@ export default async function TasksPage(props: {
           assigneesByTask={assigneesByTask}
           openSubtaskCountByTaskId={openSubtaskCountByTaskId}
           openSubtasksByParentId={openSubtasksByParentId}
+          initialNextSubtaskDueDateByTaskId={initialNextSubtaskDueDateByTaskId}
           statusOptions={statusOptions}
           priorityOptions={priorityOptions}
           dueOptions={dueDateFilters}
