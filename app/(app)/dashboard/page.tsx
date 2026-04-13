@@ -167,6 +167,8 @@ export default async function DashboardPage(props: {
     ? (selectedFocusRaw as DashboardFocusKey)
     : null;
   const selectedView = normalizeDashboardViewKey(searchParams?.view);
+  const shouldLoadFinanceSection = selectedView === "overview" || selectedView === "finance";
+  const shouldLoadRequestsSection = selectedView === "overview" || selectedView === "requests";
   const supabase = createSupabaseServerClient();
 
   const { data: authData } = await withPerfTiming("dashboard.auth", () =>
@@ -381,6 +383,7 @@ export default async function DashboardPage(props: {
   }
 
   let tasks: Array<{
+    id: string;
     title: string;
     status: string | null;
     priority: string | null;
@@ -393,7 +396,7 @@ export default async function DashboardPage(props: {
 
   let tasksQuery = supabase
     .from("tasks")
-    .select("title,status,priority,due_date,assignee_user_id,project_id,client_id,created_at")
+    .select("id,title,status,priority,due_date,assignee_user_id,project_id,client_id,created_at")
     .is("parent_task_id", null)
     .order("created_at", { ascending: false });
 
@@ -403,10 +406,6 @@ export default async function DashboardPage(props: {
 
   if (filteredProjectIds.length) {
     tasksQuery = tasksQuery.in("project_id", filteredProjectIds);
-  }
-
-  if (filteredUserIds.length) {
-    tasksQuery = tasksQuery.in("assignee_user_id", filteredUserIds);
   }
 
   if (selectedStatuses.length) {
@@ -438,6 +437,42 @@ export default async function DashboardPage(props: {
 
   const { data: taskData } = await withPerfTiming("dashboard.tasks", () => tasksQuery);
   tasks = (taskData || []) as typeof tasks;
+
+  const taskIds = tasks.map((task) => task.id).filter(Boolean);
+  const assigneeUserIdsByTaskId = new Map<string, string[]>();
+
+  if (taskIds.length) {
+    const { data: taskAssigneeRows } = await withPerfTiming("dashboard.task_assignees", () =>
+      supabase.from("task_assignees").select("task_id,user_id").in("task_id", taskIds)
+    );
+
+    ((taskAssigneeRows || []) as Array<{ task_id: string | null; user_id: string | null }>).forEach(
+      (row) => {
+        const taskId = String(row.task_id || "").trim();
+        const userId = String(row.user_id || "").trim();
+        if (!taskId || !userId) return;
+        assigneeUserIdsByTaskId.set(taskId, [
+          ...(assigneeUserIdsByTaskId.get(taskId) || []),
+          userId,
+        ]);
+      }
+    );
+  }
+
+  tasks.forEach((task) => {
+    const existing = assigneeUserIdsByTaskId.get(task.id) || [];
+    if (task.assignee_user_id && !existing.includes(task.assignee_user_id)) {
+      existing.push(task.assignee_user_id);
+    }
+    assigneeUserIdsByTaskId.set(task.id, existing);
+  });
+
+  if (filteredUserIds.length) {
+    const selectedUserIdSet = new Set(filteredUserIds);
+    tasks = tasks.filter((task) =>
+      (assigneeUserIdsByTaskId.get(task.id) || []).some((userId) => selectedUserIdSet.has(userId))
+    );
+  }
 
   const openTasks = (tasks || []).filter(
     (task) => task.status !== "completed" && task.status !== "cancelled"
@@ -565,38 +600,41 @@ export default async function DashboardPage(props: {
   const projectIdsByUserId = new Map<string, Set<string>>();
 
   openTasks.forEach((task) => {
-    const userId = task.assignee_user_id || "unassigned";
-    const userName = task.assignee_user_id
-      ? userNameById.get(task.assignee_user_id) || "Unknown"
-      : "Unassigned";
+    const assigneeIds = assigneeUserIdsByTaskId.get(task.id) || [];
+    const effectiveAssigneeIds = assigneeIds.length ? assigneeIds : ["unassigned"];
 
-    if (!userWorkloadMap.has(userId)) {
-      userWorkloadMap.set(userId, {
-        userId,
-        userName,
-        open: 0,
-        blocked: 0,
-        overdue: 0,
-        projects: 0,
-      });
-    }
-    const entry = userWorkloadMap.get(userId);
-    if (!entry) {
-      return;
-    }
-    entry.open += 1;
-    if (task.status === "blocked") {
-      entry.blocked += 1;
-    }
-    if (task.due_date && task.due_date < todayIso) {
-      entry.overdue += 1;
-    }
-    if (task.project_id) {
-      if (!projectIdsByUserId.has(userId)) {
-        projectIdsByUserId.set(userId, new Set<string>());
+    effectiveAssigneeIds.forEach((userId) => {
+      const userName =
+        userId === "unassigned" ? "Unassigned" : userNameById.get(userId) || "Unknown";
+
+      if (!userWorkloadMap.has(userId)) {
+        userWorkloadMap.set(userId, {
+          userId,
+          userName,
+          open: 0,
+          blocked: 0,
+          overdue: 0,
+          projects: 0,
+        });
       }
-      projectIdsByUserId.get(userId)?.add(task.project_id);
-    }
+      const entry = userWorkloadMap.get(userId);
+      if (!entry) {
+        return;
+      }
+      entry.open += 1;
+      if (task.status === "blocked") {
+        entry.blocked += 1;
+      }
+      if (task.due_date && task.due_date < todayIso) {
+        entry.overdue += 1;
+      }
+      if (task.project_id) {
+        if (!projectIdsByUserId.has(userId)) {
+          projectIdsByUserId.set(userId, new Set<string>());
+        }
+        projectIdsByUserId.get(userId)?.add(task.project_id);
+      }
+    });
   });
 
   userWorkloadMap.forEach((entry, key) => {
@@ -752,7 +790,7 @@ export default async function DashboardPage(props: {
     isEmptyScope: scopedClientIds.length === 0,
   };
 
-  if (scopedClientIds.length) {
+  if (shouldLoadFinanceSection && scopedClientIds.length) {
     const monthStart = `${new Date().toISOString().slice(0, 7)}-01`;
     let billingRows: Array<BillingProfileRevenueRow & { client_id: string }> = [];
     const [
@@ -1059,15 +1097,17 @@ export default async function DashboardPage(props: {
       ? "Total tasks"
       : `New tasks (${rangeOptions.find((option) => option.value === selectedRange)?.label ?? ""})`;
 
-  const [{ data: suggestionRows }, { data: suggestionVotes }] = await Promise.all([
-    supabase
-      .from("feature_suggestions")
-      .select("id,title,status,created_at")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("feature_suggestion_votes")
-      .select("suggestion_id"),
-  ]);
+  const [{ data: suggestionRows }, { data: suggestionVotes }] = shouldLoadRequestsSection
+    ? await Promise.all([
+        supabase
+          .from("feature_suggestions")
+          .select("id,title,status,created_at")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("feature_suggestion_votes")
+          .select("suggestion_id"),
+      ])
+    : [{ data: [] }, { data: [] }];
 
   const suggestionVoteCounts = new Map<string, number>();
   (suggestionVotes || []).forEach((vote) => {

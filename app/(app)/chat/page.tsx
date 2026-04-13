@@ -86,8 +86,45 @@ type DbMessageAttachmentWithUrlRow = DbMessageAttachmentRow & {
   url: string | null;
 };
 
-const LATEST_MESSAGES_SCAN_LIMIT = 250;
 const INITIAL_CONVERSATION_MESSAGES_LIMIT = 150;
+
+async function fetchLatestMessageByConversationId(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  conversationIds: string[]
+) {
+  const latestByConversationId: Record<string, DbMessageRow | null> = {};
+
+  await Promise.all(
+    conversationIds.map(async (conversationId) => {
+      const { data } = await supabase
+        .from("chat_messages")
+        .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      latestByConversationId[conversationId] = (data as DbMessageRow | null) || null;
+    })
+  );
+
+  return latestByConversationId;
+}
+
+async function fetchRecentConversationMessages(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  conversationId: string,
+  limit: number
+) {
+  const { data } = await supabase
+    .from("chat_messages")
+    .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  return ((data || []) as DbMessageRow[]).reverse();
+}
 
 function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string | null>) {
   if (link.entity_type === "task") return `/tasks/${link.entity_id}`;
@@ -191,33 +228,27 @@ export default async function ChatPage(props: {
     : Promise.resolve({ data: [] as ConversationMemberRow[] });
 
   const latestMessagesPromise = myConversationIds.length
-    ? supabase
-        .from("chat_messages")
-        .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
-        .in("conversation_id", myConversationIds)
-        .order("created_at", { ascending: false })
-        .limit(LATEST_MESSAGES_SCAN_LIMIT)
-    : Promise.resolve({ data: [] as DbMessageRow[] });
+    ? fetchLatestMessageByConversationId(supabase, myConversationIds)
+    : Promise.resolve({} as Record<string, DbMessageRow | null>);
 
   const unreadRowsPromise = withPerfTiming("chat.page.unread.rpc", () =>
     supabase.rpc("chat_unread_counts")
   );
 
   const preselectedMessagesPromise = preselectedConversationId
-    ? supabase
-        .from("chat_messages")
-        .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
-        .eq("conversation_id", preselectedConversationId)
-        .order("created_at", { ascending: true })
-        .limit(INITIAL_CONVERSATION_MESSAGES_LIMIT)
-    : Promise.resolve({ data: [] as DbMessageRow[] });
+    ? fetchRecentConversationMessages(
+        supabase,
+        preselectedConversationId,
+        INITIAL_CONVERSATION_MESSAGES_LIMIT
+      )
+    : Promise.resolve([] as DbMessageRow[]);
 
   const [
     { data: conversationsRaw },
     { data: allMembersRaw },
-    { data: latestMessagesRaw },
+    latestMessageByConversationId,
     { data: unreadRowsRaw, error: unreadRowsError },
-    { data: preselectedMessagesRaw },
+    preselectedMessagesRaw,
   ] = await Promise.all([
     conversationsPromise,
     allMembersPromise,
@@ -228,14 +259,6 @@ export default async function ChatPage(props: {
 
   const conversations = (conversationsRaw || []) as ConversationRow[];
   const allMembers = (allMembersRaw || []) as ConversationMemberRow[];
-  const latestMessageByConversationId = ((latestMessagesRaw || []) as DbMessageRow[]).reduce<
-    Record<string, DbMessageRow | null>
-  >((acc, row) => {
-    if (!acc[row.conversation_id]) {
-      acc[row.conversation_id] = row;
-    }
-    return acc;
-  }, {});
   const conversationsByRecentActivity = sortConversationsByRecentActivity(
     conversations,
     latestMessageByConversationId
@@ -248,14 +271,11 @@ export default async function ChatPage(props: {
     selectedConversationId === preselectedConversationId
       ? preselectedMessagesRaw
       : selectedConversationId
-        ? (
-            await supabase
-              .from("chat_messages")
-              .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
-              .eq("conversation_id", selectedConversationId)
-              .order("created_at", { ascending: true })
-              .limit(INITIAL_CONVERSATION_MESSAGES_LIMIT)
-          ).data
+        ? await fetchRecentConversationMessages(
+            supabase,
+            selectedConversationId,
+            INITIAL_CONVERSATION_MESSAGES_LIMIT
+          )
         : [];
   const selectedMessages = (selectedMessagesRaw || []) as DbMessageRow[];
   const selectedMessageIds = selectedMessages.map((row) => row.id).filter(Boolean);

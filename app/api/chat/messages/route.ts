@@ -249,14 +249,16 @@ export async function GET(req: Request) {
   let messagesQuery = supabase
     .from("chat_messages")
     .select("id,conversation_id,sender_id,body,created_at,edited_at,deleted_at")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
+    .eq("conversation_id", conversationId);
   if (after) {
     messagesQuery = messagesQuery
+      .order("created_at", { ascending: true })
       .or(`created_at.gt.${after},edited_at.gt.${after},deleted_at.gt.${after}`)
       .limit(200);
   } else {
-    messagesQuery = messagesQuery.limit(300);
+    messagesQuery = messagesQuery
+      .order("created_at", { ascending: false })
+      .limit(300);
   }
   const [{ data: messagesRaw, error: messagesError }, { data: membersRaw, error: membersError }] =
     await Promise.all([
@@ -274,7 +276,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: membersError.message }, { status: 400 });
   }
 
-  const messages = (messagesRaw || []) as DbMessageRow[];
+  const messages = after
+    ? ((messagesRaw || []) as DbMessageRow[])
+    : ((messagesRaw || []) as DbMessageRow[]).reverse();
   const payload = await buildMessagePayloads(supabase, messages);
   return NextResponse.json({
     messages: payload,

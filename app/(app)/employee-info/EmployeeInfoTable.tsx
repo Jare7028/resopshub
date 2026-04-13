@@ -85,6 +85,9 @@ const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
 };
 const NONE_FILTER_VALUE = "__none__";
 const CURRENCY_SWITCH_INTENT_WINDOW_MS = 1500;
+const INITIAL_VISIBLE_ROW_COUNT = 100;
+const VISIBLE_ROW_INCREMENT = 100;
+const LOAD_MORE_ROWS_THRESHOLD_PX = 240;
 
 function parseOptionsJson(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -668,6 +671,7 @@ export default function EmployeeInfoTable({
   const tableElementRef = useRef<HTMLTableElement | null>(null);
   const [showTopScrollbar, setShowTopScrollbar] = useState(false);
   const [topScrollbarContentWidth, setTopScrollbarContentWidth] = useState(0);
+  const [visibleRowCount, setVisibleRowCount] = useState(INITIAL_VISIBLE_ROW_COUNT);
 
   useEffect(() => {
     const handleAddRow = () => {
@@ -1007,6 +1011,19 @@ export default function EmployeeInfoTable({
       }
     }
   }, [columns, sortKey, visibleColumns]);
+
+  useEffect(() => {
+    setVisibleRowCount(INITIAL_VISIBLE_ROW_COUNT);
+  }, [
+    clientFilters,
+    columnOptionFilters,
+    columnTextFilters,
+    fullNameFilter,
+    showClientColumn,
+    sortDir,
+    sortKey,
+    visibleColumns.length,
+  ]);
 
   const getHighlightPolicyForControl = (control: HTMLInputElement | HTMLSelectElement) => {
     const form = control.form;
@@ -1359,6 +1376,42 @@ export default function EmployeeInfoTable({
     getColumnTextValue,
   ]);
 
+  const renderedRecords = useMemo(
+    () => filteredAndSortedRecords.slice(0, visibleRowCount),
+    [filteredAndSortedRecords, visibleRowCount]
+  );
+  const hasMoreRows = renderedRecords.length < filteredAndSortedRecords.length;
+
+  const loadMoreRows = useCallback(() => {
+    setVisibleRowCount((current) => {
+      if (current >= filteredAndSortedRecords.length) {
+        return current;
+      }
+      return Math.min(current + VISIBLE_ROW_INCREMENT, filteredAndSortedRecords.length);
+    });
+  }, [filteredAndSortedRecords.length]);
+
+  useEffect(() => {
+    const viewport = tableScrollViewportRef.current;
+    if (!viewport || !hasMoreRows) {
+      return;
+    }
+
+    const maybeLoadMoreRows = () => {
+      const remainingScroll = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      if (remainingScroll <= LOAD_MORE_ROWS_THRESHOLD_PX) {
+        loadMoreRows();
+      }
+    };
+
+    viewport.addEventListener("scroll", maybeLoadMoreRows, { passive: true });
+    maybeLoadMoreRows();
+
+    return () => {
+      viewport.removeEventListener("scroll", maybeLoadMoreRows);
+    };
+  }, [hasMoreRows, loadMoreRows, renderedRecords.length]);
+
   const hasAnyFilters = activeFilterCount > 0;
   const clientFilterOptions = useMemo(
     () => [
@@ -1405,6 +1458,22 @@ export default function EmployeeInfoTable({
             placeholder="All clients"
             onChange={setClientFilters}
           />
+        ) : null}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+        <span>
+          Showing {Math.min(renderedRecords.length, filteredAndSortedRecords.length)} of{" "}
+          {filteredAndSortedRecords.length} records
+        </span>
+        {hasMoreRows ? (
+          <button
+            type="button"
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-100"
+            onClick={loadMoreRows}
+          >
+            Load {Math.min(VISIBLE_ROW_INCREMENT, filteredAndSortedRecords.length - renderedRecords.length)} more
+          </button>
         ) : null}
       </div>
 
@@ -1662,7 +1731,7 @@ export default function EmployeeInfoTable({
             ) : null}
 
             {filteredAndSortedRecords.length ? (
-              filteredAndSortedRecords.map((record) => {
+              renderedRecords.map((record) => {
                 const valuesByColumnId = valuesByRecordId[record.id] || {};
                 const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
                 const rowHasLeaveDate = recordIdsWithLeaveDate.has(record.id);
