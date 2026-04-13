@@ -82,6 +82,13 @@ type OpenProjectTaskRow = {
   assignee_user_ids: string[];
 };
 
+type OpenProjectTasksPayload = {
+  tasks?: OpenProjectTaskRow[];
+  error?: string;
+};
+
+const EMPTY_OPEN_TASKS_BY_PROJECT_ID: Record<string, OpenProjectTaskRow[]> = {};
+
 export type ProjectSortKey =
   | "name"
   | "client"
@@ -261,7 +268,7 @@ export default function ProjectsView({
   clients,
   assigneesByProject,
   openTaskCountByProjectId,
-  openTasksByProjectId = {},
+  openTasksByProjectId = EMPTY_OPEN_TASKS_BY_PROJECT_ID,
   statusOptions,
   statusColorMap = {},
   taskStatusOptions,
@@ -302,6 +309,15 @@ export default function ProjectsView({
   >({});
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
+  const [loadedOpenTasksByProjectId, setLoadedOpenTasksByProjectId] =
+    useState<Record<string, OpenProjectTaskRow[]>>(openTasksByProjectId);
+  const [openTasksLoadingByProjectId, setOpenTasksLoadingByProjectId] = useState<
+    Record<string, boolean>
+  >({});
+  const [openTasksErrorByProjectId, setOpenTasksErrorByProjectId] = useState<
+    Record<string, string>
+  >({});
+  const openTasksRequestInFlightRef = useRef<Set<string>>(new Set());
   const [hasLoadedPersistedFilters, setHasLoadedPersistedFilters] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const openMenuAnchorRef = useRef<HTMLElement | null>(null);
@@ -390,6 +406,10 @@ export default function ProjectsView({
   useEffect(() => {
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
+
+  useEffect(() => {
+    setLoadedOpenTasksByProjectId(openTasksByProjectId);
+  }, [openTasksByProjectId]);
 
   useEffect(() => {
     setVisibleProjectColumns((current) =>
@@ -995,7 +1015,55 @@ export default function ProjectsView({
     });
   };
 
+  const loadOpenTasksForProject = useCallback(
+    async (projectId: string) => {
+      if (!projectId) return;
+      if (Object.prototype.hasOwnProperty.call(loadedOpenTasksByProjectId, projectId)) return;
+      if (openTasksRequestInFlightRef.current.has(projectId)) return;
+
+      openTasksRequestInFlightRef.current.add(projectId);
+      setOpenTasksLoadingByProjectId((current) => ({ ...current, [projectId]: true }));
+      setOpenTasksErrorByProjectId((current) => {
+        if (!(projectId in current)) return current;
+        const next = { ...current };
+        delete next[projectId];
+        return next;
+      });
+
+      try {
+        const response = await fetch(`/api/projects/${projectId}/tasks`, { cache: "no-store" });
+        const payload = (await response.json().catch(() => ({}))) as OpenProjectTasksPayload;
+        if (!response.ok) {
+          throw new Error(
+            typeof payload.error === "string" && payload.error.trim()
+              ? payload.error
+              : "Unable to load project tasks"
+          );
+        }
+        setLoadedOpenTasksByProjectId((current) => ({
+          ...current,
+          [projectId]: Array.isArray(payload.tasks) ? payload.tasks : [],
+        }));
+      } catch (error) {
+        setOpenTasksErrorByProjectId((current) => ({
+          ...current,
+          [projectId]: error instanceof Error ? error.message : "Unable to load project tasks",
+        }));
+      } finally {
+        openTasksRequestInFlightRef.current.delete(projectId);
+        setOpenTasksLoadingByProjectId((current) => {
+          if (!(projectId in current)) return current;
+          const next = { ...current };
+          delete next[projectId];
+          return next;
+        });
+      }
+    },
+    [loadedOpenTasksByProjectId]
+  );
+
   const toggleProjectTasks = (projectId: string) => {
+    const isExpanded = expandedProjectIds.has(projectId);
     setExpandedProjectIds((current) => {
       const next = new Set(current);
       if (next.has(projectId)) {
@@ -1005,6 +1073,14 @@ export default function ProjectsView({
       }
       return next;
     });
+
+    if (
+      !isExpanded &&
+      (openTaskCountByProjectId[projectId] ?? 0) > 0 &&
+      !Object.prototype.hasOwnProperty.call(loadedOpenTasksByProjectId, projectId)
+    ) {
+      void loadOpenTasksForProject(projectId);
+    }
   };
 
   const getAssigneeLabel = (userIds: string[]) => {
@@ -1483,7 +1559,28 @@ export default function ProjectsView({
                         ) : null}
                       </tr>
                       {expandedProjectIds.has(project.id)
-                        ? (openTasksByProjectId[project.id] || []).map((task) => (
+                        ? openTasksLoadingByProjectId[project.id] ? (
+                            <tr className="border-t border-slate-100 bg-slate-50/60">
+                              <td colSpan={tableColSpan} className="px-6 py-3 text-sm text-slate-500">
+                                Loading open tasks...
+                              </td>
+                            </tr>
+                          ) : openTasksErrorByProjectId[project.id] ? (
+                            <tr className="border-t border-slate-100 bg-slate-50/60">
+                              <td colSpan={tableColSpan} className="px-6 py-3 text-sm text-red-700">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>{openTasksErrorByProjectId[project.id]}</span>
+                                  <button
+                                    type="button"
+                                    className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+                                    onClick={() => void loadOpenTasksForProject(project.id)}
+                                  >
+                                    Retry
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (loadedOpenTasksByProjectId[project.id] || []).map((task) => (
                             <tr key={task.id} className="border-t border-slate-100 bg-slate-50/60">
                               {isProjectColumnVisible("project") ? (
                                 <td className="px-6 py-2 text-slate-700">

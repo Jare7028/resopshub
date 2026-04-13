@@ -746,8 +746,11 @@ export default async function TasksPage(props: {
         "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id"
       )
       .is("parent_task_id", null)
-      .order("created_at", { ascending: false })
-      .limit(MAX_TASK_ROWS);
+      .order("created_at", { ascending: sortKey === "created" && sortDir === "asc" });
+
+    if (sortKey === "created") {
+      request = request.limit(MAX_TASK_ROWS);
+    }
 
     if (!isAdminUser) {
       const { data: visibleTaskIdRows, error: visibleTaskIdsError } = await withPerfTiming(

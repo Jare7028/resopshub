@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import ProjectTabs from "./_components/ProjectTabs";
 import ConfirmDelete from "../../_components/ConfirmDelete";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingColumnError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import {
   normalizeCustomFieldKind,
   toCustomFieldKey,
@@ -12,8 +15,14 @@ import {
   type CustomFieldRow,
   type CustomFieldValueRow,
 } from "@/lib/customFields";
+import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
 
-const statusOptions = ["planned", "active", "on_hold", "completed", "cancelled"] as const;
+function formatProjectStatusLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 export default async function ProjectOverviewPage(props: {
   params: Promise<{ projectId: string }>;
@@ -46,6 +55,36 @@ export default async function ProjectOverviewPage(props: {
   if (!project) {
     notFound();
   }
+
+  let projectStatusRows: StatusOptionRow[] = [];
+  const projectStatusResponse = await supabase
+    .from("status_options")
+    .select("entity_type,value,position,is_visible,counts_as_completed,color_hex")
+    .eq("entity_type", "project")
+    .order("position", { ascending: true })
+    .order("value", { ascending: true });
+
+  if (!projectStatusResponse.error) {
+    projectStatusRows = (projectStatusResponse.data || []) as StatusOptionRow[];
+  } else if (isSupabaseMissingColumnError(projectStatusResponse.error)) {
+    const legacyProjectStatusResponse = await supabase
+      .from("status_options")
+      .select("entity_type,value,position")
+      .eq("entity_type", "project")
+      .order("position", { ascending: true })
+      .order("value", { ascending: true });
+    projectStatusRows = (legacyProjectStatusResponse.data || []) as StatusOptionRow[];
+  } else if (!isSupabaseMissingTableError(projectStatusResponse.error)) {
+    console.error("[projects.overview.status_options]", projectStatusResponse.error.message);
+  }
+
+  const projectStatusOptions = buildStatusOptions(
+    "project",
+    projectStatusRows,
+    project.status ? [project.status] : []
+  );
+  const projectStatusSet = new Set(projectStatusOptions);
+  const currentProjectStatus = project.status || projectStatusOptions[0] || "planned";
 
   const { data: customFieldsRaw, error: customFieldsError } = await supabase
     .from("custom_fields")
@@ -133,7 +172,7 @@ export default async function ProjectOverviewPage(props: {
     const supabase = createSupabaseServerClient();
     const name = String(formData.get("name") || "").trim();
     const code = String(formData.get("code") || projectCode).trim();
-    const status = String(formData.get("status") || "planned");
+    const status = String(formData.get("status") || currentProjectStatus).trim();
     const description = String(formData.get("description") || "").trim();
     const startDate = String(formData.get("start_date") || "");
     const endDate = String(formData.get("end_date") || "");
@@ -141,6 +180,9 @@ export default async function ProjectOverviewPage(props: {
 
     if (!name) {
       redirect(`/projects/${projectId}?error=Name%20is%20required`);
+    }
+    if (!projectStatusSet.has(status)) {
+      redirect(`/projects/${projectId}?error=Invalid%20project%20status`);
     }
 
     const { error } = await supabase
@@ -385,12 +427,12 @@ export default async function ProjectOverviewPage(props: {
             <select
               id="status"
               name="status"
-              defaultValue={project.status || "planned"}
+              defaultValue={currentProjectStatus}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
-              {statusOptions.map((status) => (
+              {projectStatusOptions.map((status) => (
                 <option key={status} value={status}>
-                  {status.replace("_", " ")}
+                  {formatProjectStatusLabel(status)}
                 </option>
               ))}
             </select>

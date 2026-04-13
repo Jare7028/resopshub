@@ -14,6 +14,12 @@ function safeReturnTo(value: unknown, fallback: string) {
   return next;
 }
 
+function buildReturnToErrorUrl(returnTo: string, message: string) {
+  return returnTo.includes("?")
+    ? `${returnTo}&error=${encodeURIComponent(message)}`
+    : `${returnTo}?error=${encodeURIComponent(message)}`;
+}
+
 export async function updateTaskInlineAction(formData: FormData) {
   const supabase = createSupabaseServerClient();
   const taskId = String(formData.get("task_id") || "").trim();
@@ -41,9 +47,23 @@ export async function updateTaskInlineAction(formData: FormData) {
     (value) => Boolean(value) && value !== "unassigned"
   );
   const updates: Record<string, string | null> = {};
+  const assigneesUpdated = formData.has("assignee_user_ids");
+  let rollbackTaskSnapshot:
+    | {
+        status: string | null;
+        client_id: string | null;
+        project_id: string | null;
+        priority: string | null;
+        assignee_user_id: string | null;
+        start_date: string | null;
+        due_date: string | null;
+        due_time: string | null;
+      }
+    | null = null;
+  let taskUpdated = false;
 
   if (!taskId) {
-    redirect(returnTo.includes("?") ? `${returnTo}&error=Missing%20task%20id` : `${returnTo}?error=Missing%20task%20id`);
+    redirect(buildReturnToErrorUrl(returnTo, "Missing task id"));
   }
 
   if (formData.has("status")) {
@@ -71,29 +91,45 @@ export async function updateTaskInlineAction(formData: FormData) {
     updates.due_time = dueTime || null;
   }
 
+  if (Object.keys(updates).length && assigneesUpdated) {
+    const { data: taskSnapshot, error: taskSnapshotError } = await supabase
+      .from("tasks")
+      .select(
+        "status,client_id,project_id,priority,assignee_user_id,start_date,due_date,due_time"
+      )
+      .eq("id", taskId)
+      .maybeSingle();
+    if (taskSnapshotError) {
+      redirect(buildReturnToErrorUrl(returnTo, taskSnapshotError.message));
+    }
+    rollbackTaskSnapshot = taskSnapshot || null;
+  }
+
   if (Object.keys(updates).length) {
     const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
     if (error) {
-      redirect(
-        returnTo.includes("?")
-          ? `${returnTo}&error=${encodeURIComponent(error.message)}`
-          : `${returnTo}?error=${encodeURIComponent(error.message)}`
-      );
+      redirect(buildReturnToErrorUrl(returnTo, error.message));
     }
+    taskUpdated = true;
   }
 
-  if (formData.has("assignee_user_ids")) {
+  if (assigneesUpdated) {
     const uniqueIds = Array.from(new Set(assigneeIds));
     const { error: replaceAssigneesError } = await supabase.rpc("replace_task_assignees", {
       p_task_id: taskId,
       p_assignee_user_ids: uniqueIds,
     });
     if (replaceAssigneesError) {
-      redirect(
-        returnTo.includes("?")
-          ? `${returnTo}&error=${encodeURIComponent(replaceAssigneesError.message)}`
-          : `${returnTo}?error=${encodeURIComponent(replaceAssigneesError.message)}`
-      );
+      if (taskUpdated && rollbackTaskSnapshot) {
+        const { error: rollbackError } = await supabase
+          .from("tasks")
+          .update(rollbackTaskSnapshot)
+          .eq("id", taskId);
+        if (rollbackError) {
+          console.error("[tasks.inline.rollback]", rollbackError.message);
+        }
+      }
+      redirect(buildReturnToErrorUrl(returnTo, replaceAssigneesError.message));
     }
   }
 

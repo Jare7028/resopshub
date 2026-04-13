@@ -6,10 +6,12 @@ import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "@/app/(app)/tasks/TasksView";
 import {
   coerceTaskStatusList,
+  expandTaskStatusFilterForQuery,
   filterTaskStatusOptionsWithMetadata,
 } from "@/lib/taskStatus";
 import {
   buildStatusColorMap,
+  buildHiddenStatusValues,
   buildStatusOptionsWithMetadata,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
@@ -67,6 +69,8 @@ export default async function ProjectTasksPage(props: {
   );
   const statusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
   const taskStatusColorMap = buildStatusColorMap("task", taskStatusOptionsWithMetadata);
+  const hiddenTaskStatusValues = buildHiddenStatusValues("task", taskStatusOptionsWithMetadata);
+  const hiddenTaskStatusSet = new Set(hiddenTaskStatusValues);
   const sortKey = normalizeTaskSortKey(searchParams?.sort);
   const sortDir = normalizeTaskSortDir(searchParams?.dir);
   const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
@@ -232,7 +236,7 @@ export default async function ProjectTasksPage(props: {
     .order("created_at", { ascending: false });
 
   if (selectedStatuses.length) {
-    request = request.in("status", selectedStatuses);
+    request = request.in("status", expandTaskStatusFilterForQuery(selectedStatuses));
   }
 
   if (selectedPriorities.length) {
@@ -241,24 +245,50 @@ export default async function ProjectTasksPage(props: {
 
   const wantsUnassigned = selectedAssignees.includes("unassigned");
   const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
-  if (wantsUnassigned && selectedAssigneeIds.length) {
-    request = request.or(
-      `assignee_user_id.is.null,assignee_user_id.in.(${selectedAssigneeIds.join(",")})`
+  let selectedAssigneeTaskIds: string[] = [];
+  if (selectedAssigneeIds.length) {
+    const { data: selectedAssigneeTaskRows } = await supabase
+      .from("task_assignees")
+      .select("task_id")
+      .in("user_id", selectedAssigneeIds);
+    selectedAssigneeTaskIds = Array.from(
+      new Set(
+        ((selectedAssigneeTaskRows || []) as Array<{ task_id: string | null }>)
+          .map((row) => row.task_id)
+          .filter((taskId): taskId is string => Boolean(taskId))
+      )
     );
+  }
+  if (wantsUnassigned && selectedAssigneeIds.length) {
+    const assigneeOrFilters = [
+      "assignee_user_id.is.null",
+      `assignee_user_id.in.(${selectedAssigneeIds.join(",")})`,
+    ];
+    if (selectedAssigneeTaskIds.length) {
+      assigneeOrFilters.push(`id.in.(${selectedAssigneeTaskIds.join(",")})`);
+    }
+    request = request.or(assigneeOrFilters.join(","));
   } else if (wantsUnassigned) {
     request = request.is("assignee_user_id", null);
   } else if (selectedAssigneeIds.length) {
-    request = request.in("assignee_user_id", selectedAssigneeIds);
+    if (selectedAssigneeTaskIds.length) {
+      request = request.or(
+        `assignee_user_id.in.(${selectedAssigneeIds.join(",")}),id.in.(${selectedAssigneeTaskIds.join(",")})`
+      );
+    } else {
+      request = request.in("assignee_user_id", selectedAssigneeIds);
+    }
   }
 
-  const wantsCompletedStatuses =
-    selectedStatuses.includes("completed") || selectedStatuses.includes("cancelled");
+  const wantsHiddenStatuses = selectedStatuses.some((status) =>
+    hiddenTaskStatusSet.has(status)
+  );
   const wantsTemplateStatus = selectedStatuses.includes("template");
   if (!wantsTemplateStatus && statusOptions.includes("template")) {
     request = request.neq("status", "template");
   }
-  if (hideCompleted && !wantsCompletedStatuses) {
-    request = request.not("status", "in", "(completed,cancelled)");
+  if (hideCompleted && hiddenTaskStatusValues.length && !wantsHiddenStatuses) {
+    request = request.not("status", "in", `(${hiddenTaskStatusValues.join(",")})`);
   }
 
   const today = new Date();
@@ -311,11 +341,21 @@ export default async function ProjectTasksPage(props: {
   const openSubtaskCountByTaskId: Record<string, number> = {};
   const taskIdsForSubtaskCounts = (sortedTasks || []).map((t) => t.id).filter(Boolean) as string[];
   if (taskIdsForSubtaskCounts.length) {
-    const { data: subtasksForCountsRaw, error: subtasksForCountsError } = await supabase
+    let subtasksForCountsQuery = supabase
       .from("tasks")
       .select("parent_task_id")
-      .in("parent_task_id", taskIdsForSubtaskCounts)
-      .not("status", "in", "(completed,cancelled)");
+      .in("parent_task_id", taskIdsForSubtaskCounts);
+
+    if (hiddenTaskStatusValues.length) {
+      subtasksForCountsQuery = subtasksForCountsQuery.not(
+        "status",
+        "in",
+        `(${hiddenTaskStatusValues.join(",")})`
+      );
+    }
+
+    const { data: subtasksForCountsRaw, error: subtasksForCountsError } =
+      await subtasksForCountsQuery;
 
     if (!subtasksForCountsError) {
       const subtasksForCounts = (subtasksForCountsRaw || []) as Array<{
