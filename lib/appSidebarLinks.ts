@@ -7,6 +7,7 @@ export type SidebarNavIcon =
   | "clients"
   | "projects"
   | "tasks"
+  | "scout"
   | "employeeInfo"
   | "schedules"
   | "quizzes"
@@ -32,6 +33,7 @@ export const APP_SIDEBAR_LINKS: readonly SidebarNavLink[] = [
   { href: "/clients", label: "Clients", icon: "clients", pageKey: "clients" },
   { href: "/projects", label: "Projects", icon: "projects", pageKey: "projects" },
   { href: "/tasks", label: "Tasks", icon: "tasks", pageKey: "tasks" },
+  { href: "/scout", label: "Scout", icon: "scout", pageKey: "scout" },
   {
     href: "/employee-info",
     label: "Employee Info",
