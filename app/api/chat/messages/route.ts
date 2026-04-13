@@ -2,8 +2,13 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
+import {
+  isConnecteamChatMirrorConfigured,
+  mirrorChatMessageToConnecteam,
+} from "@/lib/connecteamChatMirror";
 import { extractMentionHandles } from "@/lib/mentions";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
+import { logError } from "@/lib/vercelLogger";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const conversationMemberSelect =
@@ -429,18 +434,100 @@ export async function POST(req: Request) {
     href: linkHref(link, noteClientById),
   }));
 
-  if (mentionHandles.length) {
-    const { data: conversationMembersRaw, error: conversationMembersError } = await supabase
-      .from("chat_conversation_members")
-      .select("user_id")
-      .eq("conversation_id", conversationId);
-    if (conversationMembersError) {
-      return NextResponse.json({ error: conversationMembersError.message }, { status: 400 });
-    }
-    const conversationMemberUserIds = ((conversationMembersRaw || []) as Array<{ user_id: string | null }>)
-      .map((row) => String(row.user_id || "").trim())
-      .filter(Boolean);
+  const shouldMirrorToConnecteam = isConnecteamChatMirrorConfigured();
+  let conversationMemberUserIds: string[] = [];
+  let conversationType: "direct" | "group" = "group";
+  let conversationTitle: string | null = null;
+  let senderMirrorUser = {
+    id: userId,
+    full_name:
+      typeof authData.user?.user_metadata?.full_name === "string"
+        ? authData.user.user_metadata.full_name
+        : null,
+    email: authData.user?.email || null,
+  };
+  let recipientMirrorUsers: Array<{ id: string; full_name: string | null; email: string | null }> = [];
 
+  if (mentionHandles.length || shouldMirrorToConnecteam) {
+    try {
+      const { data: conversationMembersRaw, error: conversationMembersError } = await supabase
+        .from("chat_conversation_members")
+        .select("user_id")
+        .eq("conversation_id", conversationId);
+
+      if (conversationMembersError) {
+        throw conversationMembersError;
+      }
+
+      conversationMemberUserIds = ((conversationMembersRaw || []) as Array<{ user_id: string | null }>)
+        .map((row) => String(row.user_id || "").trim())
+        .filter(Boolean);
+
+      if (shouldMirrorToConnecteam) {
+        const memberIdsForLookup = Array.from(new Set(conversationMemberUserIds));
+        const [{ data: conversationRaw, error: conversationError }, { data: conversationUsersRaw, error: conversationUsersError }] =
+          await Promise.all([
+            supabase
+              .from("chat_conversations")
+              .select("id,type,title")
+              .eq("id", conversationId)
+              .maybeSingle(),
+            memberIdsForLookup.length
+              ? supabase
+                  .from("users")
+                  .select("id,full_name,email")
+                  .in("id", memberIdsForLookup)
+              : Promise.resolve({
+                  data: [] as Array<{ id: string; full_name: string | null; email: string | null }>,
+                  error: null,
+                }),
+          ]);
+
+        if (conversationError) {
+          throw conversationError;
+        }
+        if (conversationUsersError) {
+          throw conversationUsersError;
+        }
+
+        const conversation = conversationRaw as
+          | { id: string; type: "direct" | "group"; title: string | null }
+          | null;
+        if (conversation?.type) {
+          conversationType = conversation.type;
+          conversationTitle = conversation.title || null;
+        }
+
+        const conversationUsers = (conversationUsersRaw || []) as Array<{
+          id: string;
+          full_name: string | null;
+          email: string | null;
+        }>;
+        const usersById = new Map(conversationUsers.map((row) => [row.id, row]));
+        const senderUser = usersById.get(userId);
+        if (senderUser) {
+          senderMirrorUser = senderUser;
+        }
+        recipientMirrorUsers = conversationMemberUserIds
+          .filter((memberUserId) => memberUserId !== userId)
+          .map((memberUserId) =>
+            usersById.get(memberUserId) || {
+              id: memberUserId,
+              full_name: null,
+              email: null,
+            }
+          );
+      }
+    } catch (error) {
+      logError("chat.messages.post.context_load_failed", {
+        conversation_id: conversationId,
+        message_id: createdMessage.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (mentionHandles.length && conversationMemberUserIds.length) {
     try {
       await notifyMentionedUsersFromTextChange({
         actorAuthUserId: userId,
@@ -455,6 +542,34 @@ export async function POST(req: Request) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[chat.messages.post.mentions.notify]", message);
+    }
+  }
+
+  if (shouldMirrorToConnecteam && recipientMirrorUsers.length) {
+    try {
+      await mirrorChatMessageToConnecteam({
+        conversation: {
+          id: conversationId,
+          type: conversationType,
+          title: conversationTitle,
+        },
+        sender: senderMirrorUser,
+        recipients: recipientMirrorUsers,
+        body: body || "",
+        links: links.map((link) => ({
+          label: link.label,
+          href: link.href,
+        })),
+        attachments: createdAttachments.map((attachment) => ({
+          filename: attachment.filename,
+        })),
+      });
+    } catch (error) {
+      logError("chat.messages.post.connecteam_mirror_failed", {
+        conversation_id: conversationId,
+        message_id: createdMessage.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
