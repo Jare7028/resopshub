@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import ProjectTabs from "../_components/ProjectTabs";
@@ -354,12 +353,12 @@ export default async function ProjectTasksPage(props: {
       ) : null}
 
       <div className="flex justify-start">
-        <Link
+        <a
           href={sharedAddTaskUrl}
           className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
         >
           Add task
-        </Link>
+        </a>
       </div>
 
       <section className="rounded-lg border border-slate-200 bg-white">
@@ -407,6 +406,3 @@ export default async function ProjectTasksPage(props: {
     </div>
   );
 }
-
-
-
