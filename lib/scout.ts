@@ -6,6 +6,26 @@ export const SCOUT_STATUSES = ["active", "watchlist", "contacted", "ignore"] as 
 
 export type ScoutStatus = (typeof SCOUT_STATUSES)[number];
 
+export type ScoutContact = {
+  name?: string | null;
+  title?: string | null;
+  profile?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  contact_page?: string | null;
+};
+
+export type ScoutJobMetadata = {
+  posted_text?: string | null;
+  company_size?: string | null;
+  revenue_estimate?: string | null;
+  company_summary?: string | null;
+  remote_type?: string | null;
+  search_url?: string | null;
+  contacts?: ScoutContact[];
+  [key: string]: unknown;
+};
+
 export type ScoutJob = {
   id: string;
   external_job_key: string | null;
@@ -17,6 +37,7 @@ export type ScoutJob = {
   source_name: string | null;
   source_url: string | null;
   role_summary: string | null;
+  metadata_json: ScoutJobMetadata | null;
   status: ScoutStatus;
   ignore_reason: string | null;
   ignored_at: string | null;
@@ -43,7 +64,7 @@ export async function listScoutJobs(filters?: { query?: string; status?: string 
   let request = supabase
     .from("role_scout_jobs")
     .select(
-      "id,external_job_key,company_name,role_title,location_text,employment_type,compensation_text,source_name,source_url,role_summary,status,ignore_reason,ignored_at,contacted_at,first_seen_at,status_updated_at,created_at,updated_at"
+      "id,external_job_key,company_name,role_title,location_text,employment_type,compensation_text,source_name,source_url,role_summary,metadata_json,status,ignore_reason,ignored_at,contacted_at,first_seen_at,status_updated_at,created_at,updated_at"
     )
     .order("status_updated_at", { ascending: false });
 
