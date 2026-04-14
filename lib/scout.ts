@@ -17,6 +17,7 @@ export type ScoutContact = {
 
 export type ScoutJobMetadata = {
   posted_text?: string | null;
+  posted_at?: string | null;
   company_size?: string | null;
   revenue_estimate?: string | null;
   company_summary?: string | null;

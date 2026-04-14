@@ -79,6 +79,45 @@ function nullable(value) {
   return text ? text : null;
 }
 
+function parsePostedAgeHours(postedText) {
+  const text = compact(postedText).toLowerCase();
+  if (!text) return null;
+  const match = text.match(/(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks|month|months)/i);
+  if (!match) return null;
+
+  const value = Number(match[1]);
+  const unit = String(match[2] || "").toLowerCase();
+  if (!Number.isFinite(value)) return null;
+
+  if (["m", "min", "mins", "minute", "minutes"].includes(unit)) return value / 60;
+  if (["h", "hr", "hrs", "hour", "hours"].includes(unit)) return value;
+  if (["d", "day", "days"].includes(unit)) return value * 24;
+  if (["w", "week", "weeks"].includes(unit)) return value * 24 * 7;
+  if (["month", "months"].includes(unit)) return value * 24 * 30;
+  return null;
+}
+
+function parseTimestampMs(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1e12 ? value : value * 1000;
+  }
+  const text = compact(value);
+  if (!text) return null;
+  const numeric = Number(text);
+  if (Number.isFinite(numeric)) {
+    return numeric > 1e12 ? numeric : numeric * 1000;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function derivePostedAt(postedText, observedAt) {
+  const ageHours = parsePostedAgeHours(postedText);
+  const observedAtMs = parseTimestampMs(observedAt);
+  if (ageHours === null || observedAtMs === null) return null;
+  return new Date(observedAtMs - ageHours * 60 * 60 * 1000).toISOString();
+}
+
 function extractLinkedInJobId(url) {
   const text = compact(url);
   const match = text.match(/linkedin\.com\/jobs\/view\/(\d+)/i);
@@ -205,6 +244,7 @@ function normalizeSqliteRows(dbPath) {
       j.source AS source_name,
       j.job_url AS source_url,
       j.posted_text,
+      j.posted_at,
       j.first_seen_at,
       j.last_seen_at,
       c.name AS company_name,
@@ -242,9 +282,13 @@ function normalizeSqliteRows(dbPath) {
       if (!companyName || !roleTitle || !sourceUrl) return null;
       const rawPayload = safeJsonParse(row.raw_payload, null);
       const payloadPostedText = rawPayload && typeof rawPayload === "object" ? rawPayload.postedText ?? rawPayload.time : null;
+      const payloadPostedAt = rawPayload && typeof rawPayload === "object" ? rawPayload.postedAt : null;
+      const payloadObservedLastAt = rawPayload && typeof rawPayload === "object" ? rawPayload.observedLastAt ?? rawPayload.importedAt : null;
       const payloadCompanySize = rawPayload && typeof rawPayload === "object" ? rawPayload.sizeBand ?? rawPayload.size : null;
       const payloadRevenueEstimate = rawPayload && typeof rawPayload === "object" ? rawPayload.revenueEstimate ?? rawPayload.revenue : null;
       const payloadSummary = rawPayload && typeof rawPayload === "object" ? rawPayload.summary : null;
+      const postedText = nullable(row.posted_text) || nullable(payloadPostedText);
+      const postedAt = nullable(row.posted_at) || nullable(payloadPostedAt) || derivePostedAt(postedText, row.last_seen_at || payloadObservedLastAt);
       return {
         external_job_key: deriveExternalJobKey(sourceUrl, row.external_key),
         company_name: companyName,
@@ -260,7 +304,8 @@ function normalizeSqliteRows(dbPath) {
         status_updated_at: nullable(row.last_seen_at),
         metadata_json: buildMetadata({}, {
           imported_from: "legacy-scout-v2-sqlite",
-          posted_text: nullable(row.posted_text) || nullable(payloadPostedText),
+          posted_text: postedText,
+          posted_at: postedAt,
           company_size: nullable(row.company_size) || nullable(payloadCompanySize),
           revenue_estimate: nullable(row.revenue_estimate) || nullable(payloadRevenueEstimate),
           company_summary: nullable(row.company_summary) || nullable(payloadSummary),
