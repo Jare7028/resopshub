@@ -186,20 +186,23 @@ export default async function ScoutPage({ searchParams }: ScoutPageProps) {
                 </tr>
               </thead>
               <tbody>
-                {jobs.map((job) => {
+                {jobs.map((job, index) => {
                   const metadata = readJobMetadata(job);
                   const contacts = getJobContacts(metadata);
                   const postedText = typeof metadata.posted_text === "string" ? metadata.posted_text : null;
                   const remoteType = typeof metadata.remote_type === "string" ? metadata.remote_type : null;
+                  const rowBgClass = index % 2 === 0 ? "bg-white" : "bg-zinc-50/40";
                   return (
-                    <tr key={job.id} className="border-b border-zinc-100 align-top odd:bg-zinc-50/40">
-                      <td className="sticky left-0 z-10 w-56 min-w-[14rem] bg-inherit px-3 py-3 font-medium text-zinc-900">
+                    <tr key={job.id} className={`border-b border-zinc-100 align-top ${rowBgClass}`}>
+                      <td className={`sticky left-0 z-20 w-56 min-w-[14rem] border-r border-zinc-100 px-3 py-3 font-medium text-zinc-900 ${rowBgClass}`}>
                         <div>{job.role_title}</div>
                         <div className="mt-1 text-xs font-normal text-zinc-500">
                           Updated {formatDateTime(job.status_updated_at) || "-"}
                         </div>
                       </td>
-                      <td className="sticky left-56 z-10 min-w-[12rem] bg-inherit px-3 py-3 text-zinc-700">{job.company_name}</td>
+                      <td className={`sticky left-56 z-20 min-w-[12rem] border-r border-zinc-100 px-3 py-3 text-zinc-700 shadow-[10px_0_18px_-14px_rgba(0,0,0,0.35)] ${rowBgClass}`}>
+                        {job.company_name}
+                      </td>
                       <td className="px-3 py-3 text-zinc-700">{job.location_text || "-"}</td>
                       <td className="px-3 py-3 text-zinc-700">{postedText || "Unverified"}</td>
                       <td className="px-3 py-3">
