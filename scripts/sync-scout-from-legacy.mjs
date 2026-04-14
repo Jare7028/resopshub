@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, "..");
 
 const DEFAULT_V2_DIR = "/Users/jared/.openclaw/workspace-cs-role-scout/v2";
 const DEFAULT_SQLITE_DB = "/Users/jared/.openclaw/workspace-cs-role-scout/v2/data/cs-role-scout-v2.sqlite";
+const DEFAULT_EXPORT_FILE = "/Users/jared/.openclaw/workspace/tmp/resopshub-scout-normalized.json";
 const DEFAULT_SEED_FILE = "/Users/jared/.openclaw/workspace/tmp/resopshub-scout-seed-from-zendesk-20260413.json";
 
 function parseArgs(argv) {
@@ -19,6 +20,7 @@ function parseArgs(argv) {
     dryRun: false,
     v2Dir: DEFAULT_V2_DIR,
     sqliteDb: DEFAULT_SQLITE_DB,
+    exportFile: DEFAULT_EXPORT_FILE,
     seedFile: DEFAULT_SEED_FILE,
   };
 
@@ -39,6 +41,11 @@ function parseArgs(argv) {
     }
     if (arg === "--sqlite-db" && argv[i + 1]) {
       args.sqliteDb = path.resolve(argv[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (arg === "--export-file" && argv[i + 1]) {
+      args.exportFile = path.resolve(argv[i + 1]);
       i += 1;
       continue;
     }
@@ -220,6 +227,38 @@ function normalizeSeedRows(filePath) {
           imported_from: "legacy-scout-seed",
           legacy_record_id: nullable(row.id),
         }),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeExportRows(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Expected an array in ${filePath}`);
+  }
+
+  return parsed
+    .map((row) => {
+      const companyName = nullable(row.company_name);
+      const roleTitle = nullable(row.role_title);
+      const sourceUrl = nullable(row.source_url);
+      if (!companyName || !roleTitle || !sourceUrl) return null;
+      return {
+        external_job_key: deriveExternalJobKey(sourceUrl, row.external_job_key),
+        company_name: companyName,
+        role_title: roleTitle,
+        location_text: nullable(row.location_text),
+        employment_type: nullable(row.employment_type),
+        compensation_text: nullable(row.compensation_text),
+        source_name: nullable(row.source_name) || "linkedin",
+        source_url: sourceUrl,
+        role_summary: nullable(row.role_summary),
+        status: nullable(row.status) || "active",
+        first_seen_at: nullable(row.first_seen_at),
+        status_updated_at: nullable(row.status_updated_at),
+        metadata_json: buildMetadata({}, row.metadata_json ?? {}),
       };
     })
     .filter(Boolean);
@@ -439,8 +478,10 @@ async function syncCandidates(supabase, candidates, dryRun = false) {
   return { inserted, updated };
 }
 
-function runRefresh(v2Dir) {
-  execFileSync("npm", ["run", "db:import"], {
+function runRefresh(v2Dir, exportFile) {
+  fs.mkdirSync(path.dirname(exportFile), { recursive: true });
+
+  execFileSync("npm", ["run", "db:import", "--", "--export-json", exportFile], {
     cwd: v2Dir,
     stdio: "inherit",
     env: process.env,
@@ -465,12 +506,13 @@ async function main() {
   }
 
   if (args.refreshV2) {
-    runRefresh(args.v2Dir);
+    runRefresh(args.v2Dir, args.exportFile);
   }
 
   const seedRows = normalizeSeedRows(args.seedFile);
   const sqliteRows = normalizeSqliteRows(args.sqliteDb);
-  const candidates = combineCandidates([...seedRows, ...sqliteRows]);
+  const exportRows = normalizeExportRows(args.exportFile);
+  const candidates = combineCandidates([...seedRows, ...sqliteRows, ...exportRows]);
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -483,6 +525,7 @@ async function main() {
     refreshV2: args.refreshV2,
     seedRows: seedRows.length,
     sqliteRows: sqliteRows.length,
+    exportRows: exportRows.length,
     mergedRows: candidates.length,
     inserted: result.inserted,
     updated: result.updated,
