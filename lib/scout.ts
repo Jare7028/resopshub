@@ -57,6 +57,21 @@ export function normalizeScoutStatus(value?: string | null): ScoutStatus | null 
     : null;
 }
 
+function getPostedAtMs(job: ScoutJob) {
+  const metadata = job.metadata_json;
+  const postedAt = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata.posted_at : null;
+  const parsedPostedAt = typeof postedAt === "string" ? Date.parse(postedAt) : Number.NaN;
+  if (Number.isFinite(parsedPostedAt)) return parsedPostedAt;
+
+  const firstSeenAt = Date.parse(job.first_seen_at);
+  if (Number.isFinite(firstSeenAt)) return firstSeenAt;
+
+  const statusUpdatedAt = Date.parse(job.status_updated_at);
+  if (Number.isFinite(statusUpdatedAt)) return statusUpdatedAt;
+
+  return 0;
+}
+
 export async function listScoutJobs(filters?: { query?: string; status?: string | null }) {
   const supabase = createSupabaseServerClient();
   const query = String(filters?.query || "").trim();
@@ -90,5 +105,5 @@ export async function listScoutJobs(filters?: { query?: string; status?: string 
     throw error;
   }
 
-  return (data || []) as ScoutJob[];
+  return ((data || []) as ScoutJob[]).sort((a, b) => getPostedAtMs(b) - getPostedAtMs(a));
 }
