@@ -445,6 +445,12 @@ function runRefresh(v2Dir) {
     stdio: "inherit",
     env: process.env,
   });
+
+  execFileSync("npm", ["run", "db:verify-posted-live", "--", "--limit", "250", "--delay-ms", "300"], {
+    cwd: v2Dir,
+    stdio: "inherit",
+    env: process.env,
+  });
 }
 
 async function main() {
