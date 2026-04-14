@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildConnecteamMirrorMessage,
+  resolveConnecteamUserIds,
   stripChatReplyMetadata,
 } from "./connecteamChatMirror";
 
@@ -67,5 +68,95 @@ describe("buildConnecteamMirrorMessage", () => {
 
     expect(message).toContain("Open in ResOpsHub: https://resopshub.example/chat?c=conversation-2");
     expect(message.length).toBeLessThanOrEqual(1000);
+  });
+});
+
+describe("resolveConnecteamUserIds", () => {
+  afterEach(() => {
+    delete process.env.CONNECTEAM_API_KEY;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("resolves recipients by email and unique full name", async () => {
+    process.env.CONNECTEAM_API_KEY = "test-key";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          data: {
+            users: [
+              {
+                userId: 101,
+                email: "[email protected]",
+                fullName: "Alice Example",
+              },
+              {
+                userId: 202,
+                firstName: "Bob",
+                lastName: "Example",
+              },
+            ],
+          },
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resolved = await resolveConnecteamUserIds([
+      {
+        id: "user-1",
+        full_name: "Alice Example",
+        email: "[email protected]",
+      },
+      {
+        id: "user-2",
+        full_name: "Bob Example",
+        email: null,
+      },
+    ]);
+
+    expect(resolved.get("user-1")).toBe(101);
+    expect(resolved.get("user-2")).toBe(202);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.getAll("emailAddresses")).toEqual(["[email protected]"]);
+    expect(requestUrl.searchParams.getAll("fullNames")).toEqual(
+      expect.arrayContaining(["Alice Example", "Bob Example"])
+    );
+  });
+
+  it("skips ambiguous full-name matches", async () => {
+    process.env.CONNECTEAM_API_KEY = "test-key";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          data: {
+            users: [
+              {
+                userId: 301,
+                fullName: "Chris Smith",
+              },
+              {
+                userId: 302,
+                firstName: "Chris",
+                lastName: "Smith",
+              },
+            ],
+          },
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resolved = await resolveConnecteamUserIds([
+      {
+        id: "user-3",
+        full_name: "Chris Smith",
+        email: null,
+      },
+    ]);
+
+    expect(resolved.has("user-3")).toBe(false);
   });
 });

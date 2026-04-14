@@ -34,6 +34,10 @@ type ConnecteamUserRow = {
   userId?: number;
   id?: number;
   email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  name?: string | null;
 };
 
 type ConnecteamPublisherRow = {
@@ -58,6 +62,16 @@ let cachedUserMap: Record<string, unknown> | null = null;
 
 function normalizeEmail(value: string | null | undefined) {
   return String(value || "").trim().toLowerCase();
+}
+
+function cleanFullName(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeFullName(value: string | null | undefined) {
+  return cleanFullName(value).toLowerCase();
 }
 
 function normalizeSiteOrigin(value: string | null | undefined) {
@@ -232,6 +246,20 @@ function getMappedConnecteamUserId(localUser: LocalChatUser) {
   return normalizePositiveInteger(mapping[normalizedEmail]);
 }
 
+function getConnecteamUserFullName(user: ConnecteamUserRow) {
+  const explicitFullName = normalizeFullName(user.fullName);
+  if (explicitFullName) return explicitFullName;
+
+  const genericName = normalizeFullName(user.name);
+  if (genericName) return genericName;
+
+  return normalizeFullName(
+    [String(user.firstName || "").trim(), String(user.lastName || "").trim()]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
 export function isConnecteamChatMirrorConfigured() {
   return Boolean(getConnecteamApiKey());
 }
@@ -320,9 +348,10 @@ async function resolvePublisherId() {
   return publisherIds[0];
 }
 
-async function resolveConnecteamUserIds(users: LocalChatUser[]) {
+export async function resolveConnecteamUserIds(users: LocalChatUser[]) {
   const byLocalUserId = new Map<string, number>();
   const unresolvedEmails = new Set<string>();
+  const unresolvedFullNames = new Map<string, string>();
 
   users.forEach((user) => {
     const mappedId = getMappedConnecteamUserId(user);
@@ -335,16 +364,28 @@ async function resolveConnecteamUserIds(users: LocalChatUser[]) {
     if (normalizedEmail) {
       unresolvedEmails.add(normalizedEmail);
     }
+
+    const cleanedFullName = cleanFullName(user.full_name);
+    const normalizedFullName = normalizeFullName(cleanedFullName);
+    if (normalizedFullName) {
+      unresolvedFullNames.set(normalizedFullName, cleanedFullName);
+    }
   });
 
-  if (!unresolvedEmails.size) {
+  if (!unresolvedEmails.size && !unresolvedFullNames.size) {
     return byLocalUserId;
   }
 
   const query = new URLSearchParams();
-  query.set("limit", String(Math.min(500, Math.max(10, unresolvedEmails.size))));
+  query.set(
+    "limit",
+    String(Math.min(500, Math.max(10, unresolvedEmails.size + unresolvedFullNames.size)))
+  );
   Array.from(unresolvedEmails).forEach((email) => {
     query.append("emailAddresses", email);
+  });
+  Array.from(unresolvedFullNames.values()).forEach((fullName) => {
+    query.append("fullNames", fullName);
   });
 
   const payload = (await fetchConnecteam(`/users/v1/users?${query.toString()}`)) as
@@ -352,20 +393,40 @@ async function resolveConnecteamUserIds(users: LocalChatUser[]) {
     | null;
   const connecteamUsers = Array.isArray(payload?.data?.users) ? payload.data.users : [];
   const connecteamUserIdByEmail = new Map<string, number>();
+  const connecteamUserIdsByFullName = new Map<string, number[]>();
 
   connecteamUsers.forEach((user) => {
     const userId = normalizePositiveInteger(user.userId ?? user.id);
     const email = normalizeEmail(user.email);
-    if (!userId || !email) return;
-    connecteamUserIdByEmail.set(email, userId);
+    const fullName = getConnecteamUserFullName(user);
+    if (!userId) return;
+
+    if (email) {
+      connecteamUserIdByEmail.set(email, userId);
+    }
+
+    if (fullName) {
+      const bucket = connecteamUserIdsByFullName.get(fullName) || [];
+      bucket.push(userId);
+      connecteamUserIdsByFullName.set(fullName, bucket);
+    }
   });
 
   users.forEach((user) => {
     if (byLocalUserId.has(user.id)) return;
+
     const email = normalizeEmail(user.email);
     const connecteamUserId = email ? connecteamUserIdByEmail.get(email) || null : null;
     if (connecteamUserId) {
       byLocalUserId.set(user.id, connecteamUserId);
+      return;
+    }
+
+    const fullName = normalizeFullName(user.full_name);
+    const candidateIds = fullName ? connecteamUserIdsByFullName.get(fullName) || [] : [];
+    const uniqueCandidateIds = Array.from(new Set(candidateIds));
+    if (uniqueCandidateIds.length === 1) {
+      byLocalUserId.set(user.id, uniqueCandidateIds[0]);
     }
   });
 
@@ -390,6 +451,16 @@ async function sendConnecteamPrivateMessages(
     logInfo("connecteam.chat.private.no_recipients_resolved", {
       conversation_id: input.conversation.id,
       recipient_count: input.recipients.length,
+      recipient_preview: summarizeList(
+        input.recipients.map(
+          (recipient) =>
+            String(recipient.full_name || "").trim() ||
+            String(recipient.email || "").trim() ||
+            recipient.id
+        )
+      ),
+      recipients_with_email_count: input.recipients.filter((recipient) => normalizeEmail(recipient.email)).length,
+      recipients_with_name_count: input.recipients.filter((recipient) => normalizeFullName(recipient.full_name)).length,
     });
     return { deliveredCount: 0, skippedCount: input.recipients.length };
   }
