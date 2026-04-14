@@ -212,8 +212,8 @@ export default async function ScoutPage({ searchParams }: ScoutPageProps) {
             <table className="min-w-[1500px] text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-[0.12em] text-zinc-500">
-                  <th className="sticky left-0 top-0 z-30 w-56 min-w-[14rem] bg-white px-3 py-3">Job</th>
-                  <th className="sticky left-56 top-0 z-30 min-w-[12rem] bg-white px-3 py-3">Company</th>
+                  <th className="sticky left-0 top-0 z-30 box-border w-56 min-w-[14rem] bg-white px-3 py-3">Job</th>
+                  <th className="sticky left-56 top-0 z-30 box-border w-56 min-w-[14rem] bg-white px-3 py-3">Company</th>
                   <th className="sticky top-0 z-20 min-w-[12rem] bg-white px-3 py-3">Location</th>
                   <th className="sticky top-0 z-20 min-w-[8rem] bg-white px-3 py-3">Posted</th>
                   <th className="sticky top-0 z-20 min-w-[13rem] bg-white px-3 py-3">Status</th>
@@ -233,13 +233,13 @@ export default async function ScoutPage({ searchParams }: ScoutPageProps) {
                   const rowBgClass = index % 2 === 0 ? "bg-white" : "bg-zinc-50";
                   return (
                     <tr key={job.id} className={`border-b border-zinc-100 align-top ${rowBgClass}`}>
-                      <td className={`sticky left-0 z-20 w-56 min-w-[14rem] border-r border-zinc-200 bg-clip-padding px-3 py-3 font-medium text-zinc-900 shadow-[1px_0_0_rgba(228,228,231,1)] ${rowBgClass}`}>
+                      <td className={`sticky left-0 z-20 box-border w-56 min-w-[14rem] border-r border-zinc-200 bg-clip-padding px-3 py-3 font-medium text-zinc-900 shadow-[1px_0_0_rgba(228,228,231,1)] ${rowBgClass}`}>
                         <div>{job.role_title}</div>
                         <div className="mt-1 text-xs font-normal text-zinc-500">
                           Updated {formatDateTime(job.status_updated_at) || "-"}
                         </div>
                       </td>
-                      <td className={`sticky left-56 z-20 min-w-[12rem] border-r border-zinc-200 bg-clip-padding px-3 py-3 text-zinc-700 shadow-[1px_0_0_rgba(228,228,231,1),12px_0_18px_-14px_rgba(0,0,0,0.28)] ${rowBgClass}`}>
+                      <td className={`sticky left-56 z-20 box-border w-56 min-w-[14rem] border-r border-zinc-200 bg-clip-padding px-3 py-3 text-zinc-700 shadow-[1px_0_0_rgba(228,228,231,1),12px_0_18px_-14px_rgba(0,0,0,0.28)] ${rowBgClass}`}>
                         {job.company_name}
                       </td>
                       <td className="px-3 py-3 text-zinc-700">{job.location_text || "-"}</td>
