@@ -9,7 +9,7 @@ import {
   type ScoutStatus,
 } from "@/lib/scout";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
-import { updateScoutJobStatusAction } from "./actions";
+import { ScoutStatusCell } from "./status-cell";
 
 export const dynamic = "force-dynamic";
 
@@ -90,37 +90,6 @@ function ContactCell({ contact }: { contact?: ScoutContact }) {
     <a href={profile} target="_blank" rel="noreferrer" className="font-medium text-zinc-800 hover:text-zinc-950">
       {label}
     </a>
-  );
-}
-
-function JobStatusCell({ job }: { job: ScoutJob }) {
-  return (
-    <form action={updateScoutJobStatusAction} className="min-w-[13rem] space-y-2">
-      <input name="jobId" type="hidden" value={job.id} />
-      <select
-        name="status"
-        defaultValue={job.status}
-        className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
-      >
-        {SCOUT_STATUSES.map((status) => (
-          <option key={status} value={status}>
-            {STATUS_LABELS[status]}
-          </option>
-        ))}
-      </select>
-      <input
-        name="ignoreReason"
-        defaultValue={job.ignore_reason || ""}
-        placeholder="Ignore reason"
-        className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-zinc-400"
-      />
-      <button
-        type="submit"
-        className="rounded-xl bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800"
-      >
-        Save
-      </button>
-    </form>
   );
 }
 
@@ -234,7 +203,7 @@ export default async function ScoutPage({ searchParams }: ScoutPageProps) {
                       <td className="px-3 py-3 text-zinc-700">{job.location_text || "-"}</td>
                       <td className="px-3 py-3 text-zinc-700">{postedText || "Unverified"}</td>
                       <td className="px-3 py-3">
-                        <JobStatusCell job={job} />
+                        <ScoutStatusCell jobId={job.id} status={job.status} ignoreReason={job.ignore_reason} />
                       </td>
                       <td className="px-3 py-3 text-zinc-700">
                         <ContactCell contact={contacts[0]} />
