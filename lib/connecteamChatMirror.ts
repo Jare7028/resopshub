@@ -10,6 +10,7 @@ type LocalChatUser = {
   id: string;
   full_name: string | null;
   email: string | null;
+  phone?: string | null;
 };
 
 type LocalChatLink = {
@@ -34,6 +35,7 @@ type ConnecteamUserRow = {
   userId?: number;
   id?: number;
   email?: string | null;
+  phoneNumber?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   fullName?: string | null;
@@ -57,11 +59,55 @@ const CONNECTEAM_BASE_URL = "https://api.connecteam.com";
 const CONNECTEAM_REQUEST_TIMEOUT_MS = 8000;
 const CONNECTEAM_MESSAGE_MAX_LENGTH = 1000;
 const CONNECTEAM_LIST_PREVIEW_LIMIT = 3;
+const CONNECTEAM_USERS_PAGE_LIMIT = 500;
+const CONNECTEAM_USERS_FALLBACK_MAX = 2000;
+const CONNECTEAM_USERS_CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedConversationMap: Record<string, unknown> | null = null;
 let cachedUserMap: Record<string, unknown> | null = null;
+let cachedActiveUsers:
+  | {
+      users: ConnecteamUserRow[];
+      expiresAt: number;
+    }
+  | null = null;
+
+export function resetConnecteamChatMirrorCachesForTest() {
+  cachedConversationMap = null;
+  cachedUserMap = null;
+  cachedActiveUsers = null;
+}
 
 function normalizeEmail(value: string | null | undefined) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizePhoneNumber(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const digits = raw.replace(/\D+/g, "");
+  if (!digits) return "";
+
+  if (raw.startsWith("+")) {
+    return `+${digits}`;
+  }
+  if (raw.startsWith("00") && digits.length > 2) {
+    return `+${digits.slice(2)}`;
+  }
+  return digits;
+}
+
+function getPhoneLookupCandidates(value: string | null | undefined) {
+  const normalized = normalizePhoneNumber(value);
+  if (!normalized) return [];
+
+  const variants = new Set<string>([normalized]);
+  if (normalized.startsWith("+")) {
+    variants.add(normalized.slice(1));
+  } else if (!normalized.startsWith("0")) {
+    variants.add(`+${normalized}`);
+  }
+  return Array.from(variants);
 }
 
 function cleanFullName(value: string | null | undefined) {
@@ -260,6 +306,50 @@ function getConnecteamUserFullName(user: ConnecteamUserRow) {
   );
 }
 
+function addConnecteamLookupValue(
+  index: Map<string, number[]>,
+  key: string | null | undefined,
+  userId: number
+) {
+  const normalizedKey = String(key || "").trim();
+  if (!normalizedKey) return;
+
+  const bucket = index.get(normalizedKey) || [];
+  bucket.push(userId);
+  index.set(normalizedKey, bucket);
+}
+
+function buildConnecteamLookupIndexes(connecteamUsers: ConnecteamUserRow[]) {
+  const emailIndex = new Map<string, number[]>();
+  const phoneIndex = new Map<string, number[]>();
+  const fullNameIndex = new Map<string, number[]>();
+
+  connecteamUsers.forEach((user) => {
+    const userId = normalizePositiveInteger(user.userId ?? user.id);
+    if (!userId) return;
+
+    addConnecteamLookupValue(emailIndex, normalizeEmail(user.email), userId);
+    getPhoneLookupCandidates(user.phoneNumber).forEach((candidate) => {
+      addConnecteamLookupValue(phoneIndex, candidate, userId);
+    });
+    addConnecteamLookupValue(fullNameIndex, getConnecteamUserFullName(user), userId);
+  });
+
+  return {
+    emailIndex,
+    phoneIndex,
+    fullNameIndex,
+  };
+}
+
+function getUniqueLookupMatch(index: Map<string, number[]>, key: string | null | undefined) {
+  const normalizedKey = String(key || "").trim();
+  if (!normalizedKey) return null;
+
+  const uniqueIds = Array.from(new Set(index.get(normalizedKey) || []));
+  return uniqueIds.length === 1 ? uniqueIds[0] : null;
+}
+
 export function isConnecteamChatMirrorConfigured() {
   return Boolean(getConnecteamApiKey());
 }
@@ -320,6 +410,38 @@ async function fetchConnecteam(
   }
 }
 
+async function fetchAllActiveConnecteamUsers() {
+  if (cachedActiveUsers && cachedActiveUsers.expiresAt > Date.now()) {
+    return cachedActiveUsers.users;
+  }
+
+  const users: ConnecteamUserRow[] = [];
+  let offset = 0;
+
+  while (users.length < CONNECTEAM_USERS_FALLBACK_MAX) {
+    const query = new URLSearchParams();
+    query.set("limit", String(CONNECTEAM_USERS_PAGE_LIMIT));
+    query.set("offset", String(offset));
+
+    const payload = (await fetchConnecteam(`/users/v1/users?${query.toString()}`)) as
+      | { data?: { users?: ConnecteamUserRow[] } }
+      | null;
+    const pageUsers = Array.isArray(payload?.data?.users) ? payload.data.users : [];
+    users.push(...pageUsers);
+
+    if (pageUsers.length < CONNECTEAM_USERS_PAGE_LIMIT) {
+      break;
+    }
+    offset += pageUsers.length;
+  }
+
+  cachedActiveUsers = {
+    users,
+    expiresAt: Date.now() + CONNECTEAM_USERS_CACHE_TTL_MS,
+  };
+  return users;
+}
+
 async function resolvePublisherId() {
   const configuredPublisherId = normalizePositiveInteger(process.env.CONNECTEAM_PUBLISHER_ID);
   if (configuredPublisherId) {
@@ -351,6 +473,7 @@ async function resolvePublisherId() {
 export async function resolveConnecteamUserIds(users: LocalChatUser[]) {
   const byLocalUserId = new Map<string, number>();
   const unresolvedEmails = new Set<string>();
+  const unresolvedPhoneNumbers = new Set<string>();
   const unresolvedFullNames = new Map<string, string>();
 
   users.forEach((user) => {
@@ -365,6 +488,10 @@ export async function resolveConnecteamUserIds(users: LocalChatUser[]) {
       unresolvedEmails.add(normalizedEmail);
     }
 
+    getPhoneLookupCandidates(user.phone).forEach((candidate) => {
+      unresolvedPhoneNumbers.add(candidate);
+    });
+
     const cleanedFullName = cleanFullName(user.full_name);
     const normalizedFullName = normalizeFullName(cleanedFullName);
     if (normalizedFullName) {
@@ -372,17 +499,25 @@ export async function resolveConnecteamUserIds(users: LocalChatUser[]) {
     }
   });
 
-  if (!unresolvedEmails.size && !unresolvedFullNames.size) {
+  if (!unresolvedEmails.size && !unresolvedPhoneNumbers.size && !unresolvedFullNames.size) {
     return byLocalUserId;
   }
 
   const query = new URLSearchParams();
   query.set(
     "limit",
-    String(Math.min(500, Math.max(10, unresolvedEmails.size + unresolvedFullNames.size)))
+    String(
+      Math.min(
+        CONNECTEAM_USERS_PAGE_LIMIT,
+        Math.max(10, unresolvedEmails.size + unresolvedPhoneNumbers.size + unresolvedFullNames.size)
+      )
+    )
   );
   Array.from(unresolvedEmails).forEach((email) => {
     query.append("emailAddresses", email);
+  });
+  Array.from(unresolvedPhoneNumbers).forEach((phoneNumber) => {
+    query.append("phoneNumbers", phoneNumber);
   });
   Array.from(unresolvedFullNames.values()).forEach((fullName) => {
     query.append("fullNames", fullName);
@@ -392,41 +527,61 @@ export async function resolveConnecteamUserIds(users: LocalChatUser[]) {
     | { data?: { users?: ConnecteamUserRow[] } }
     | null;
   const connecteamUsers = Array.isArray(payload?.data?.users) ? payload.data.users : [];
-  const connecteamUserIdByEmail = new Map<string, number>();
-  const connecteamUserIdsByFullName = new Map<string, number[]>();
-
-  connecteamUsers.forEach((user) => {
-    const userId = normalizePositiveInteger(user.userId ?? user.id);
-    const email = normalizeEmail(user.email);
-    const fullName = getConnecteamUserFullName(user);
-    if (!userId) return;
-
-    if (email) {
-      connecteamUserIdByEmail.set(email, userId);
-    }
-
-    if (fullName) {
-      const bucket = connecteamUserIdsByFullName.get(fullName) || [];
-      bucket.push(userId);
-      connecteamUserIdsByFullName.set(fullName, bucket);
-    }
-  });
+  const filteredIndexes = buildConnecteamLookupIndexes(connecteamUsers);
 
   users.forEach((user) => {
     if (byLocalUserId.has(user.id)) return;
 
-    const email = normalizeEmail(user.email);
-    const connecteamUserId = email ? connecteamUserIdByEmail.get(email) || null : null;
-    if (connecteamUserId) {
-      byLocalUserId.set(user.id, connecteamUserId);
+    const phoneMatch = getPhoneLookupCandidates(user.phone)
+      .map((candidate) => getUniqueLookupMatch(filteredIndexes.phoneIndex, candidate))
+      .find((candidate): candidate is number => candidate !== null);
+    if (phoneMatch) {
+      byLocalUserId.set(user.id, phoneMatch);
       return;
     }
 
-    const fullName = normalizeFullName(user.full_name);
-    const candidateIds = fullName ? connecteamUserIdsByFullName.get(fullName) || [] : [];
-    const uniqueCandidateIds = Array.from(new Set(candidateIds));
-    if (uniqueCandidateIds.length === 1) {
-      byLocalUserId.set(user.id, uniqueCandidateIds[0]);
+    const emailMatch = getUniqueLookupMatch(filteredIndexes.emailIndex, normalizeEmail(user.email));
+    if (emailMatch) {
+      byLocalUserId.set(user.id, emailMatch);
+      return;
+    }
+
+    const fullNameMatch = getUniqueLookupMatch(
+      filteredIndexes.fullNameIndex,
+      normalizeFullName(user.full_name)
+    );
+    if (fullNameMatch) {
+      byLocalUserId.set(user.id, fullNameMatch);
+    }
+  });
+
+  const unresolvedUsers = users.filter((user) => !byLocalUserId.has(user.id));
+  if (!unresolvedUsers.length) {
+    return byLocalUserId;
+  }
+
+  const fallbackIndexes = buildConnecteamLookupIndexes(await fetchAllActiveConnecteamUsers());
+  unresolvedUsers.forEach((user) => {
+    const phoneMatch = getPhoneLookupCandidates(user.phone)
+      .map((candidate) => getUniqueLookupMatch(fallbackIndexes.phoneIndex, candidate))
+      .find((candidate): candidate is number => candidate !== null);
+    if (phoneMatch) {
+      byLocalUserId.set(user.id, phoneMatch);
+      return;
+    }
+
+    const emailMatch = getUniqueLookupMatch(fallbackIndexes.emailIndex, normalizeEmail(user.email));
+    if (emailMatch) {
+      byLocalUserId.set(user.id, emailMatch);
+      return;
+    }
+
+    const fullNameMatch = getUniqueLookupMatch(
+      fallbackIndexes.fullNameIndex,
+      normalizeFullName(user.full_name)
+    );
+    if (fullNameMatch) {
+      byLocalUserId.set(user.id, fullNameMatch);
     }
   });
 
@@ -459,6 +614,9 @@ async function sendConnecteamPrivateMessages(
             recipient.id
         )
       ),
+      recipients_with_phone_count: input.recipients.filter(
+        (recipient) => getPhoneLookupCandidates(recipient.phone).length
+      ).length,
       recipients_with_email_count: input.recipients.filter((recipient) => normalizeEmail(recipient.email)).length,
       recipients_with_name_count: input.recipients.filter((recipient) => normalizeFullName(recipient.full_name)).length,
     });

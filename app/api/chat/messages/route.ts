@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { toEmployeeInfoColumnKey } from "@/lib/employeeInfo";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withSignedChatAttachmentUrls } from "@/lib/chatAttachments";
@@ -13,6 +15,17 @@ import { logError } from "@/lib/vercelLogger";
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const conversationMemberSelect =
   "conversation_id,user_id,role,last_read_at,is_pinned,is_muted";
+const connecteamMirrorPhoneColumnKeys = new Set([
+  "phone",
+  "phone_number",
+  "mobile",
+  "mobile_phone",
+  "mobile_number",
+  "cell",
+  "cell_phone",
+  "telephone",
+  "tel",
+]);
 
 type LinkEntityType =
   | "task"
@@ -69,6 +82,91 @@ type ConversationMemberRow = {
   is_pinned: boolean | null;
   is_muted: boolean | null;
 };
+
+async function loadConnecteamMirrorPhones(userIds: string[]) {
+  if (!userIds.length || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return new Map<string, string>();
+  }
+
+  const adminSupabase = createSupabaseAdminClient();
+  const { data: phoneColumnsRaw, error: phoneColumnsError } = await adminSupabase
+    .from("employee_info_columns")
+    .select("id,key,label,column_kind");
+
+  if (phoneColumnsError) {
+    throw phoneColumnsError;
+  }
+
+  const phoneColumnIds = ((phoneColumnsRaw || []) as Array<{
+    id: string | null;
+    key: string | null;
+    label: string | null;
+    column_kind: string | null;
+  }>)
+    .filter((column) => column.column_kind !== "formula")
+    .filter((column) => {
+      const keyCandidates = [
+        toEmployeeInfoColumnKey(String(column.key || "")),
+        toEmployeeInfoColumnKey(String(column.label || "")),
+      ];
+      return keyCandidates.some((candidate) => connecteamMirrorPhoneColumnKeys.has(candidate));
+    })
+    .map((column) => String(column.id || "").trim())
+    .filter(Boolean);
+
+  if (!phoneColumnIds.length) {
+    return new Map<string, string>();
+  }
+
+  const { data: employeeRecordsRaw, error: employeeRecordsError } = await adminSupabase
+    .from("employee_info_records")
+    .select("id,user_id")
+    .in("user_id", userIds);
+
+  if (employeeRecordsError) {
+    throw employeeRecordsError;
+  }
+
+  const employeeRecords = ((employeeRecordsRaw || []) as Array<{
+    id: string | null;
+    user_id: string | null;
+  }>).filter((row) => row.id && row.user_id);
+  if (!employeeRecords.length) {
+    return new Map<string, string>();
+  }
+
+  const recordIds = employeeRecords.map((row) => String(row.id));
+  const userIdByRecordId = new Map(
+    employeeRecords.map((row) => [String(row.id), String(row.user_id)])
+  );
+
+  const { data: phoneValuesRaw, error: phoneValuesError } = await adminSupabase
+    .from("employee_info_values")
+    .select("record_id,column_id,text_value,option_value")
+    .in("record_id", recordIds)
+    .in("column_id", phoneColumnIds);
+
+  if (phoneValuesError) {
+    throw phoneValuesError;
+  }
+
+  const phoneByUserId = new Map<string, string>();
+  ((phoneValuesRaw || []) as Array<{
+    record_id: string | null;
+    text_value: string | null;
+    option_value: string | null;
+  }>).forEach((row) => {
+    const recordId = String(row.record_id || "").trim();
+    const userId = userIdByRecordId.get(recordId);
+    if (!userId || phoneByUserId.has(userId)) return;
+
+    const phone = String(row.text_value || row.option_value || "").trim();
+    if (!phone) return;
+    phoneByUserId.set(userId, phone);
+  });
+
+  return phoneByUserId;
+}
 
 async function buildMessagePayloads(
   supabase: ReturnType<typeof createSupabaseServerClient>,
@@ -445,8 +543,14 @@ export async function POST(req: Request) {
         ? authData.user.user_metadata.full_name
         : null,
     email: authData.user?.email || null,
+    phone: null as string | null,
   };
-  let recipientMirrorUsers: Array<{ id: string; full_name: string | null; email: string | null }> = [];
+  let recipientMirrorUsers: Array<{
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    phone: string | null;
+  }> = [];
 
   if (mentionHandles.length || shouldMirrorToConnecteam) {
     try {
@@ -465,7 +569,11 @@ export async function POST(req: Request) {
 
       if (shouldMirrorToConnecteam) {
         const memberIdsForLookup = Array.from(new Set(conversationMemberUserIds));
-        const [{ data: conversationRaw, error: conversationError }, { data: conversationUsersRaw, error: conversationUsersError }] =
+        const [
+          { data: conversationRaw, error: conversationError },
+          { data: conversationUsersRaw, error: conversationUsersError },
+          phoneByUserId,
+        ] =
           await Promise.all([
             supabase
               .from("chat_conversations")
@@ -481,6 +589,7 @@ export async function POST(req: Request) {
                   data: [] as Array<{ id: string; full_name: string | null; email: string | null }>,
                   error: null,
                 }),
+            loadConnecteamMirrorPhones(memberIdsForLookup),
           ]);
 
         if (conversationError) {
@@ -503,7 +612,15 @@ export async function POST(req: Request) {
           full_name: string | null;
           email: string | null;
         }>;
-        const usersById = new Map(conversationUsers.map((row) => [row.id, row]));
+        const usersById = new Map(
+          conversationUsers.map((row) => [
+            row.id,
+            {
+              ...row,
+              phone: phoneByUserId.get(row.id) || null,
+            },
+          ])
+        );
         const senderUser = usersById.get(userId);
         if (senderUser) {
           senderMirrorUser = senderUser;
@@ -515,6 +632,7 @@ export async function POST(req: Request) {
               id: memberUserId,
               full_name: null,
               email: null,
+              phone: null,
             }
           );
       }

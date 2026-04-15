@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildConnecteamMirrorMessage,
+  resetConnecteamChatMirrorCachesForTest,
   resolveConnecteamUserIds,
   stripChatReplyMetadata,
 } from "./connecteamChatMirror";
@@ -74,11 +75,12 @@ describe("buildConnecteamMirrorMessage", () => {
 describe("resolveConnecteamUserIds", () => {
   afterEach(() => {
     delete process.env.CONNECTEAM_API_KEY;
+    resetConnecteamChatMirrorCachesForTest();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it("resolves recipients by email and unique full name", async () => {
+  it("resolves recipients by phone, email, and unique full name", async () => {
     process.env.CONNECTEAM_API_KEY = "test-key";
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -93,6 +95,10 @@ describe("resolveConnecteamUserIds", () => {
               },
               {
                 userId: 202,
+                phoneNumber: "+447700900123",
+              },
+              {
+                userId: 303,
                 firstName: "Bob",
                 lastName: "Example",
               },
@@ -110,6 +116,12 @@ describe("resolveConnecteamUserIds", () => {
       },
       {
         id: "user-2",
+        full_name: "Charlie Example",
+        email: null,
+        phone: "+44 7700 900123",
+      },
+      {
+        id: "user-3",
         full_name: "Bob Example",
         email: null,
       },
@@ -117,12 +129,16 @@ describe("resolveConnecteamUserIds", () => {
 
     expect(resolved.get("user-1")).toBe(101);
     expect(resolved.get("user-2")).toBe(202);
+    expect(resolved.get("user-3")).toBe(303);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(requestUrl.searchParams.getAll("emailAddresses")).toEqual(["[email protected]"]);
+    expect(requestUrl.searchParams.getAll("phoneNumbers")).toEqual(
+      expect.arrayContaining(["+447700900123", "447700900123"])
+    );
     expect(requestUrl.searchParams.getAll("fullNames")).toEqual(
-      expect.arrayContaining(["Alice Example", "Bob Example"])
+      expect.arrayContaining(["Alice Example", "Charlie Example", "Bob Example"])
     );
   });
 
@@ -158,5 +174,48 @@ describe("resolveConnecteamUserIds", () => {
     ]);
 
     expect(resolved.has("user-3")).toBe(false);
+  });
+
+  it("falls back to the active user list when exact Connecteam filters miss a case-insensitive name match", async () => {
+    process.env.CONNECTEAM_API_KEY = "test-key";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            data: {
+              users: [],
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            data: {
+              users: [
+                {
+                  userId: 404,
+                  fullName: "Sam Example",
+                },
+              ],
+            },
+          }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resolved = await resolveConnecteamUserIds([
+      {
+        id: "user-4",
+        full_name: "sam example",
+        email: null,
+      },
+    ]);
+
+    expect(resolved.get("user-4")).toBe(404);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("limit=500");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=0");
   });
 });
