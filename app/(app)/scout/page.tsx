@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  getLatestScoutRun,
   listScoutJobs,
   SCOUT_STATUSES,
   type ScoutContact,
@@ -51,6 +52,7 @@ function formatDateTime(value: string | null) {
   return new Intl.DateTimeFormat("en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Europe/London",
   }).format(new Date(value));
 }
 
@@ -144,10 +146,18 @@ export default async function ScoutPage({ searchParams }: ScoutPageProps) {
   }
 
   let jobs: ScoutJob[] = [];
+  let latestRunAt: string | null = null;
+  let latestRunStatus: "success" | "error" | null = null;
   let missingSchema = false;
 
   try {
-    jobs = await listScoutJobs({ query: params.q, status: params.status });
+    const [jobRows, latestRun] = await Promise.all([
+      listScoutJobs({ query: params.q, status: params.status }),
+      getLatestScoutRun(),
+    ]);
+    jobs = jobRows;
+    latestRunAt = latestRun?.finished_at ?? null;
+    latestRunStatus = latestRun?.status ?? null;
   } catch (error) {
     if (isSupabaseMissingTableError(error as { message?: string; code?: string })) {
       missingSchema = true;
@@ -167,6 +177,10 @@ export default async function ScoutPage({ searchParams }: ScoutPageProps) {
         </p>
 
         <form className="mt-5 grid gap-3 md:grid-cols-[1.8fr_1fr_auto]">
+          <div className="md:col-span-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+            Last run: <span className="font-medium text-zinc-900">{formatDateTime(latestRunAt) || "Not recorded yet"}</span>
+            {latestRunStatus ? <span className="ml-2 text-zinc-500">({latestRunStatus})</span> : null}
+          </div>
           <input
             type="text"
             name="q"

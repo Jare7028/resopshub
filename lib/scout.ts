@@ -49,6 +49,15 @@ export type ScoutJob = {
   updated_at: string;
 };
 
+export type ScoutRun = {
+  id: string;
+  started_at: string;
+  finished_at: string;
+  status: "success" | "error";
+  trigger_source: string | null;
+  created_at: string;
+};
+
 export function normalizeScoutStatus(value?: string | null): ScoutStatus | null {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return null;
@@ -106,4 +115,20 @@ export async function listScoutJobs(filters?: { query?: string; status?: string 
   }
 
   return ((data || []) as ScoutJob[]).sort((a, b) => getPostedAtMs(b) - getPostedAtMs(a));
+}
+
+export async function getLatestScoutRun() {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("role_scout_runs")
+    .select("id,started_at,finished_at,status,trigger_source,created_at")
+    .order("finished_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as ScoutRun | null) ?? null;
 }
