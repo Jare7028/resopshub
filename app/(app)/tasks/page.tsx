@@ -34,7 +34,6 @@ import RecurrenceFields from "./_components/RecurrenceFields";
 import {
   normalizeTaskSortDir,
   normalizeTaskSortKey,
-  sortTasksForDisplay,
 } from "@/lib/taskSorting";
 import { withPerfTiming } from "@/lib/perf";
 import {
@@ -109,6 +108,25 @@ type OpenSubtaskTaskRow = {
   projects?: { name: string | null } | { name: string | null }[] | null;
   clients?: { name: string | null } | { name: string | null }[] | null;
   assignee_user_ids: string[];
+};
+
+type TaskListPageRpcRow = {
+  id: string;
+  title: string | null;
+  status: string | null;
+  priority: string | null;
+  start_date: string | null;
+  due_date: string | null;
+  due_time: string | null;
+  created_at: string | null;
+  assignee_user_id: string | null;
+  client_id: string | null;
+  project_id: string | null;
+  client_name: string | null;
+  project_name: string | null;
+  assignee_user_ids: string[] | null;
+  open_subtask_count: number | string | null;
+  next_subtask_due_date: string | null;
 };
 
 function isTemplateStatusEnumError(error: unknown) {
@@ -724,235 +742,90 @@ export default async function TasksPage(props: {
   const initialNextSubtaskDueDateByTaskId: Record<string, string | null> = {};
 
   if (activeTab === "list") {
-    let request = supabase
-      .from("tasks")
-      .select(
-        "id,title,status,priority,start_date,due_date,due_time,created_at,assignee_user_id,client_id,project_id"
-      )
-      .is("parent_task_id", null)
-      .order("created_at", { ascending: sortKey === "created" && sortDir === "asc" });
-
-    if (!isAdminUser) {
-      const { data: visibleTaskIdRows, error: visibleTaskIdsError } = await withPerfTiming(
-        "tasks.page.visible_task_ids",
-        () =>
-          supabase.rpc("task_accessible_root_ids_for", {
-            p_user_ids: assignmentUserIds,
-            p_include_watching: includeWatching,
-          })
-      );
-
-      if (visibleTaskIdsError) {
-        redirect(
-          buildTasksRedirectUrl(returnTo, {
-            error: formatDbError("tasks.page.visible_task_ids", visibleTaskIdsError),
-          })
-        );
-      }
-
-      const allowedTaskIds = Array.from(
-        new Set(
-          ((visibleTaskIdRows || []) as Array<{ task_id: string | null }>)
-            .map((row) => row.task_id)
-            .filter((taskId): taskId is string => Boolean(taskId))
-        )
-      );
-
-      if (allowedTaskIds.length) {
-        request = request.in("id", allowedTaskIds);
-      } else {
-        console.warn(
-          "[tasks.page.visible_task_ids] helper returned no ids; falling back to RLS query",
-          {
-            assignmentUserIds,
-            includeWatching,
-          }
-        );
-      }
-    }
-
-    if (effectiveSelectedStatuses.length) {
-      request = request.in("status", expandTaskStatusFilterForQuery(effectiveSelectedStatuses));
-    }
-
-    if (selectedPriorities.length) {
-      request = request.in("priority", selectedPriorities);
-    }
-
     const wantsUnassigned = selectedAssignees.includes("unassigned");
     const selectedAssigneeIds = selectedAssignees.filter((value) => value !== "unassigned");
-    let selectedAssigneeTaskIds: string[] = [];
-
-    if (selectedAssigneeIds.length) {
-      const { data: selectedAssigneeTaskRows, error: selectedAssigneeTaskError } =
-        await withPerfTiming("tasks.page.selected_assignee_task_ids", () =>
-          supabase
-            .from("task_assignees")
-            .select("task_id")
-            .in("user_id", selectedAssigneeIds)
-        );
-
-      if (selectedAssigneeTaskError) {
-        redirect(
-          buildTasksRedirectUrl(returnTo, {
-            error: formatDbError(
-              "tasks.page.selected_assignee_task_ids",
-              selectedAssigneeTaskError
-            ),
-          })
-        );
-      }
-
-      selectedAssigneeTaskIds = Array.from(
-        new Set(
-          ((selectedAssigneeTaskRows || []) as Array<{ task_id: string | null }>)
-            .map((row) => row.task_id)
-            .filter((taskId): taskId is string => Boolean(taskId))
-        )
-      );
-    }
-
-    if (wantsUnassigned && selectedAssigneeIds.length) {
-      const assigneeOrFilters = [
-        "assignee_user_id.is.null",
-        `assignee_user_id.in.(${selectedAssigneeIds.join(",")})`,
-      ];
-      if (selectedAssigneeTaskIds.length) {
-        assigneeOrFilters.push(`id.in.(${selectedAssigneeTaskIds.join(",")})`);
-      }
-      request = request.or(assigneeOrFilters.join(","));
-    } else if (wantsUnassigned) {
-      request = request.is("assignee_user_id", null);
-    } else if (selectedAssigneeIds.length) {
-      if (selectedAssigneeTaskIds.length) {
-        request = request.or(
-          `assignee_user_id.in.(${selectedAssigneeIds.join(",")}),id.in.(${selectedAssigneeTaskIds.join(",")})`
-        );
-      } else {
-        request = request.in("assignee_user_id", selectedAssigneeIds);
-      }
-    }
-
-    if (effectiveSelectedClientIds.length) {
-      request = request.in("client_id", effectiveSelectedClientIds);
-    }
-
-    if (effectiveSelectedProjectIds.length) {
-      request = request.in("project_id", effectiveSelectedProjectIds);
-    }
-
     const wantsHiddenStatuses = effectiveSelectedStatuses.some((status) =>
       hiddenTaskStatusSet.has(status)
     );
     const wantsTemplateStatus = effectiveSelectedStatuses.includes("template");
-    if (templateStatusSupported && !wantsTemplateStatus) {
-      request = request.neq("status", "template");
-    }
-    if (hideCompleted && hiddenTaskStatusValues.length && !wantsHiddenStatuses) {
-      request = request.not("status", "in", `(${hiddenTaskStatusValues.join(",")})`);
-    }
 
-    const today = new Date();
-    const todayIso = today.toISOString().slice(0, 10);
-    if (selectedDue === "overdue") {
-      request = request.lt("due_date", todayIso);
-    } else if (selectedDue === "next_7") {
-      const next = new Date(today);
-      next.setDate(next.getDate() + 7);
-      const nextIso = next.toISOString().slice(0, 10);
-      request = request.gte("due_date", todayIso).lte("due_date", nextIso);
-    } else if (selectedDue === "none") {
-      request = request.is("due_date", null);
-    }
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const hiddenStatusesForQuery =
+      hideCompleted && hiddenTaskStatusValues.length && !wantsHiddenStatuses
+        ? hiddenTaskStatusValues
+        : [];
 
-    request = request.limit(MAX_TASK_ROWS);
+    const { data: taskRowsRaw, error: taskListError } = await withPerfTiming(
+      "tasks.page.task_list_page",
+      () =>
+        supabase.rpc("task_list_page", {
+          p_user_ids: assignmentUserIds,
+          p_is_admin: isAdminUser,
+          p_include_watching: includeWatching,
+          p_statuses: expandTaskStatusFilterForQuery(effectiveSelectedStatuses),
+          p_priorities: selectedPriorities,
+          p_assignee_user_ids: selectedAssigneeIds,
+          p_include_unassigned: wantsUnassigned,
+          p_client_ids: effectiveSelectedClientIds,
+          p_project_ids: effectiveSelectedProjectIds,
+          p_hidden_statuses: hiddenStatusesForQuery,
+          p_hidden_subtask_statuses: hiddenTaskStatusValues,
+          p_exclude_template: templateStatusSupported && !wantsTemplateStatus,
+          p_due_filter: selectedDue,
+          p_today: todayIso,
+          p_sort_key: sortKey,
+          p_sort_dir: sortDir,
+          p_status_order: statusOptions,
+          p_limit: MAX_TASK_ROWS,
+        })
+    );
 
-    const { data: tasksRaw } = await withPerfTiming("tasks.page.tasks", () => request);
-    const clientNameById = new Map((clients || []).map((client) => [client.id, client.name]));
-    const projectNameById = new Map((projects || []).map((project) => [project.id, project.name]));
-    const tasks = ((tasksRaw || []) as TaskListRow[]).map((task) => ({
-      ...task,
-      clients: task.client_id ? { name: clientNameById.get(task.client_id) || "" } : null,
-      projects: task.project_id ? { name: projectNameById.get(task.project_id) || "" } : null,
-    }));
-    const taskIds = tasks.map((task) => task.id).filter(Boolean);
-
-    if (taskIds.length) {
-      const { data: assigneeRows } = await supabase
-        .from("task_assignees")
-        .select("task_id,user_id")
-        .in("task_id", taskIds);
-      (assigneeRows || []).forEach((row) => {
-        if (!assigneesByTask[row.task_id]) {
-          assigneesByTask[row.task_id] = [];
-        }
-        assigneesByTask[row.task_id].push(row.user_id);
-      });
-    }
-
-    tasks.forEach((task) => {
-      if (!assigneesByTask[task.id]) {
-        assigneesByTask[task.id] = [];
-      }
-      if (task.assignee_user_id && !assigneesByTask[task.id].includes(task.assignee_user_id)) {
-        assigneesByTask[task.id].push(task.assignee_user_id);
-      }
-    });
-
-    sortedTasks = sortTasksForDisplay({
-      tasks,
-      sortKey,
-      sortDir,
-      users: users || [],
-      assigneesByTask,
-      statusOrder: statusOptions,
-    }) as TaskListRow[];
-
-    const taskIdsForSubtaskCounts = sortedTasks.map((task) => task.id).filter(Boolean) as string[];
-    if (taskIdsForSubtaskCounts.length) {
-      let openSubtaskMetaQuery = supabase
-        .from("tasks")
-        .select("parent_task_id,due_date,status")
-        .in("parent_task_id", taskIdsForSubtaskCounts)
-        .order("created_at", { ascending: true });
-
-      if (hiddenTaskStatusValues.length) {
-        openSubtaskMetaQuery = openSubtaskMetaQuery.not(
-          "status",
-          "in",
-          `(${hiddenTaskStatusValues.join(",")})`
-        );
-      }
-
-      const { data: openSubtaskMetaRaw, error: openSubtaskMetaError } = await withPerfTiming(
-        "tasks.page.open_subtasks.meta",
-        () => openSubtaskMetaQuery
+    if (taskListError) {
+      redirect(
+        buildTasksRedirectUrl(returnTo, {
+          error: formatDbError("tasks.page.task_list_page", taskListError),
+        })
       );
-
-      if (openSubtaskMetaError) {
-        console.error(
-          "[tasks.page.open_subtasks.meta]",
-          openSubtaskMetaError.message
-        );
-      } else {
-        const openSubtaskMetaRows = (openSubtaskMetaRaw || []) as Array<{
-          parent_task_id: string | null;
-          due_date: string | null;
-        }>;
-
-        openSubtaskMetaRows.forEach((row) => {
-          const parentId = String(row.parent_task_id || "").trim();
-          if (!parentId) return;
-          openSubtaskCountByTaskId[parentId] = (openSubtaskCountByTaskId[parentId] || 0) + 1;
-          const dueDate = String(row.due_date || "").trim();
-          if (!dueDate) return;
-          const currentNextDueDate = initialNextSubtaskDueDateByTaskId[parentId];
-          if (!currentNextDueDate || dueDate < currentNextDueDate) {
-            initialNextSubtaskDueDateByTaskId[parentId] = dueDate;
-          }
-        });
-      }
     }
+
+    const taskRows = (taskRowsRaw || []) as TaskListPageRpcRow[];
+    sortedTasks = taskRows.map((row) => {
+      const task: TaskListRow = {
+        id: row.id,
+        title: String(row.title || "").trim() || "Untitled task",
+        status: row.status,
+        priority: row.priority,
+        start_date: row.start_date,
+        due_date: row.due_date,
+        due_time: row.due_time,
+        created_at: row.created_at,
+        assignee_user_id: row.assignee_user_id,
+        client_id: row.client_id,
+        project_id: row.project_id,
+        clients: row.client_id ? { name: row.client_name || "" } : null,
+        projects: row.project_id ? { name: row.project_name || "" } : null,
+      };
+
+      const assigneeIds = Array.isArray(row.assignee_user_ids)
+        ? row.assignee_user_ids.filter(Boolean)
+        : [];
+      if (row.assignee_user_id && !assigneeIds.includes(row.assignee_user_id)) {
+        assigneeIds.push(row.assignee_user_id);
+      }
+      assigneesByTask[row.id] = assigneeIds;
+
+      const openSubtaskCount = Number(row.open_subtask_count || 0);
+      if (Number.isFinite(openSubtaskCount) && openSubtaskCount > 0) {
+        openSubtaskCountByTaskId[row.id] = openSubtaskCount;
+      }
+
+      const nextSubtaskDueDate = String(row.next_subtask_due_date || "").trim();
+      if (nextSubtaskDueDate) {
+        initialNextSubtaskDueDateByTaskId[row.id] = nextSubtaskDueDate;
+      }
+
+      return task;
+    });
   }
 
   async function createTask(formData: FormData) {
