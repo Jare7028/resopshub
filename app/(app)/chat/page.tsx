@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
@@ -142,8 +143,8 @@ export default async function ChatPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const currentUserId = authData.user?.id;
+  const authUser = await getCurrentRequestUser(supabase, "chat.page.auth");
+  const currentUserId = authUser?.id;
   if (!currentUserId) {
     redirect("/login");
   }

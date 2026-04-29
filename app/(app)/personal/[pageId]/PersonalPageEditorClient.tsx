@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import NoteEditorClient from "../../_components/NoteEditorClient";
+import NoteEditorClient from "../../_components/LazyNoteEditorClient";
 import type {
   ContextMenuFavoriteActionId,
   NoteLiveContentSnapshot,

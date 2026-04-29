@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import NoteEditorClient from "../../_components/NoteEditorClient";
+import NoteEditorClient from "../../_components/LazyNoteEditorClient";
 import type { HelpGuide } from "../_data/guides";
 import { normalizeHelpGuide } from "../_data/guides";
 import { buildGuideSingleDoc, parseGuideSingleDoc } from "../_lib/guideSingleDoc";

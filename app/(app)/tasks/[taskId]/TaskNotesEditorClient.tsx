@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import NoteEditorClient from "../../_components/NoteEditorClient";
+import NoteEditorClient from "../../_components/LazyNoteEditorClient";
 import { createTaskFromTaskNote, updateTaskContent } from "./editorActions";
 
 export default function TaskNotesEditorClient({

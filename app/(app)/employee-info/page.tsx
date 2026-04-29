@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { withPerfTiming } from "@/lib/perf";
 import {
   isSupabaseMissingColumnError,
@@ -48,6 +49,8 @@ type EmployeeInfoRecordRow = {
   client_id: string | null;
   created_at: string;
 };
+
+const MAX_EMPLOYEE_INFO_RECORD_ROWS = 500;
 
 type EmployeeInfoColumnRow = {
   id: string;
@@ -594,18 +597,19 @@ export default async function EmployeeInfoPage(props: {
   const displayCurrency = normalizeEmployeeInfoDisplayCurrencyCode(searchParams?.display_currency);
   const exportNonce = Date.now().toString();
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await withPerfTiming("employee_info.auth", () =>
-    supabase.auth.getUser()
-  );
-  const authUserId = authData.user?.id;
-  const authEmail = authData.user?.email || "";
+  const authUser = await getCurrentRequestUser(supabase, "employee_info.auth");
+  const authUserId = authUser?.id;
   if (!authUserId) {
     redirect("/login");
   }
+  const authEmail = authUser.email || "";
 
-  const { data: profile } = await withPerfTiming("employee_info.profile", () =>
-    supabase.from("users").select("id,role").eq("email", authEmail).maybeSingle()
-  );
+  const { data: profile } = await withPerfTiming("employee_info.profile", () => {
+    const query = supabase.from("users").select("id,role");
+    return authEmail
+      ? query.eq("email", authEmail).maybeSingle()
+      : query.eq("id", authUserId).maybeSingle();
+  });
   const currentAppUserId = profile?.id || authUserId;
   const isAdmin = profile?.role === "admin";
   let canAccessEmployeeInfo = isAdmin;
@@ -699,7 +703,8 @@ export default async function EmployeeInfoPage(props: {
   let recordsQuery = supabase
     .from("employee_info_records")
     .select("id,full_name,client_id,created_at")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(MAX_EMPLOYEE_INFO_RECORD_ROWS);
   const shouldApplyDefaultClientScope = !isAdmin && !viewerVisibilityRuleRow;
   if (viewerCustomRule.enabled && viewerCustomRule.allowedClientIds.length) {
     recordsQuery = recordsQuery.in("client_id", viewerCustomRule.allowedClientIds);

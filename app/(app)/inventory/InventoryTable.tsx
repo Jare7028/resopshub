@@ -90,6 +90,8 @@ const currencyLabelByCode: Record<EmployeeInfoCurrencyCode, string> = {
 };
 const NONE_FILTER_VALUE = "__none__";
 const CURRENCY_SWITCH_INTENT_WINDOW_MS = 1500;
+const INITIAL_VISIBLE_ROW_COUNT = 100;
+const VISIBLE_ROW_INCREMENT = 100;
 
 function parseOptionsJson(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -782,6 +784,7 @@ export default function InventoryTable({
   const tableElementRef = useRef<HTMLTableElement | null>(null);
   const [showTopScrollbar, setShowTopScrollbar] = useState(false);
   const [topScrollbarContentWidth, setTopScrollbarContentWidth] = useState(0);
+  const [visibleRowCount, setVisibleRowCount] = useState(INITIAL_VISIBLE_ROW_COUNT);
 
   useEffect(() => {
     const handleAddRow = () => {
@@ -1571,6 +1574,31 @@ export default function InventoryTable({
   ]);
 
   const hasAnyFilters = activeFilterCount > 0;
+  const renderedRecords = useMemo(
+    () => filteredAndSortedRecords.slice(0, visibleRowCount),
+    [filteredAndSortedRecords, visibleRowCount]
+  );
+  const hasMoreRows = renderedRecords.length < filteredAndSortedRecords.length;
+  const loadMoreRows = useCallback(() => {
+    setVisibleRowCount((current) => {
+      if (current >= filteredAndSortedRecords.length) {
+        return current;
+      }
+      return Math.min(current + VISIBLE_ROW_INCREMENT, filteredAndSortedRecords.length);
+    });
+  }, [filteredAndSortedRecords.length]);
+
+  useEffect(() => {
+    setVisibleRowCount(INITIAL_VISIBLE_ROW_COUNT);
+  }, [
+    columnOptionFilters,
+    columnTextFilters,
+    fullNameFilter,
+    records.length,
+    sortDir,
+    sortKey,
+    visibleColumns.length,
+  ]);
 
   const computeHeaderMenuPosition = useCallback((trigger: HTMLElement) => {
     if (typeof window === "undefined") return null;
@@ -1649,6 +1677,22 @@ export default function InventoryTable({
           placeholder="Filter inventory item..."
           className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"
         />
+      </div>
+
+      <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+        <span>
+          Showing {Math.min(renderedRecords.length, filteredAndSortedRecords.length)} of{" "}
+          {filteredAndSortedRecords.length} records
+        </span>
+        {hasMoreRows ? (
+          <button
+            type="button"
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-100"
+            onClick={loadMoreRows}
+          >
+            Load {Math.min(VISIBLE_ROW_INCREMENT, filteredAndSortedRecords.length - renderedRecords.length)} more
+          </button>
+        ) : null}
       </div>
 
       <div
@@ -1850,7 +1894,7 @@ export default function InventoryTable({
             ) : null}
 
             {filteredAndSortedRecords.length ? (
-              filteredAndSortedRecords.map((record) => {
+              renderedRecords.map((record) => {
                 const valuesByColumnId = valuesByRecordId[record.id] || {};
                 const formulasByColumnId = formulaValueByRecordIdAndColumnId[record.id] || {};
                 const rowHasLeaveDate = recordIdsWithLeaveDate.has(record.id);

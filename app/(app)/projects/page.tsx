@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -17,6 +18,7 @@ import {
 } from "@/lib/statusOptions";
 import {
   isSupabaseMissingColumnError,
+  isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
 import {
@@ -36,6 +38,7 @@ import ProjectTemplateAutoSelect from "./_components/ProjectTemplateAutoSelect";
 import RouteModalOverlay from "../_components/RouteModalOverlay";
 
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
+const MAX_PROJECT_ROWS = 500;
 const toProjectCode = (value: string) =>
   value
     .toLowerCase()
@@ -260,16 +263,15 @@ export default async function ProjectsPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
-  if (!authEmail) {
+  const authUser = await getCurrentRequestUser(supabase, "projects.page.auth");
+  if (!authUser?.id) {
     redirect("/login");
   }
-  const currentUserPromise = supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
+  const authEmail = authUser.email || "";
+  const currentUserQuery = supabase.from("users").select("id,role");
+  const currentUserPromise = authEmail
+    ? currentUserQuery.eq("email", authEmail).maybeSingle()
+    : currentUserQuery.eq("id", authUser.id).maybeSingle();
   const selectedViewRaw = String(searchParams?.view || "").trim().toLowerCase();
   const selectedView: "table" | "gantt" | "board" =
     selectedViewRaw === "gantt" || selectedViewRaw === "board" || selectedViewRaw === "table"
@@ -459,7 +461,8 @@ export default async function ProjectsPage(props: {
   let request = supabase
     .from("projects")
     .select("id,name,status,start_date,end_date,created_at,client_id")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(MAX_PROJECT_ROWS);
 
   if (!currentUserId) {
     request = request.eq("id", "00000000-0000-0000-0000-000000000000");
@@ -533,30 +536,51 @@ export default async function ProjectsPage(props: {
   const openTaskCountByProjectId: Record<string, number> = {};
   const projectIdsForCounts = projects.map((project) => project.id).filter(Boolean) as string[];
   if (projectIdsForCounts.length) {
-    let openTaskCountRowsQuery = supabase
-      .from("tasks")
-      .select("project_id")
-      .in("project_id", projectIdsForCounts)
-      .is("parent_task_id", null);
-    if (hiddenTaskStatusValues.length) {
-      openTaskCountRowsQuery = openTaskCountRowsQuery.not(
-        "status",
-        "in",
-        `(${hiddenTaskStatusValues.join(",")})`
-      );
-    }
-    const { data: openTaskCountRowsRaw, error: openTaskCountRowsError } =
-      await openTaskCountRowsQuery;
+    const { data: openTaskCountsRaw, error: openTaskCountsError } = await supabase.rpc(
+      "open_task_counts_by_project",
+      {
+        p_project_ids: projectIdsForCounts,
+        p_hidden_statuses: hiddenTaskStatusValues,
+      }
+    );
 
-    if (!openTaskCountRowsError) {
-      const openTaskCountRows = (openTaskCountRowsRaw || []) as Array<{
+    if (!openTaskCountsError) {
+      ((openTaskCountsRaw || []) as Array<{
         project_id: string | null;
-      }>;
-      openTaskCountRows.forEach((row) => {
+        open_task_count: number | string | null;
+      }>).forEach((row) => {
         if (!row.project_id) return;
-        openTaskCountByProjectId[row.project_id] =
-          (openTaskCountByProjectId[row.project_id] || 0) + 1;
+        openTaskCountByProjectId[row.project_id] = Number(row.open_task_count || 0);
       });
+    } else {
+      if (!isSupabaseMissingFunctionError(openTaskCountsError)) {
+        console.error("[projects.open_task_counts_by_project]", openTaskCountsError.message);
+      }
+      let openTaskCountRowsQuery = supabase
+        .from("tasks")
+        .select("project_id")
+        .in("project_id", projectIdsForCounts)
+        .is("parent_task_id", null);
+      if (hiddenTaskStatusValues.length) {
+        openTaskCountRowsQuery = openTaskCountRowsQuery.not(
+          "status",
+          "in",
+          `(${hiddenTaskStatusValues.join(",")})`
+        );
+      }
+      const { data: openTaskCountRowsRaw, error: openTaskCountRowsError } =
+        await openTaskCountRowsQuery;
+
+      if (!openTaskCountRowsError) {
+        const openTaskCountRows = (openTaskCountRowsRaw || []) as Array<{
+          project_id: string | null;
+        }>;
+        openTaskCountRows.forEach((row) => {
+          if (!row.project_id) return;
+          openTaskCountByProjectId[row.project_id] =
+            (openTaskCountByProjectId[row.project_id] || 0) + 1;
+        });
+      }
     }
   }
 
@@ -1448,7 +1472,7 @@ export default async function ProjectsPage(props: {
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="projects"
           columnPreferenceUserId={currentUserId}
-          filterPersistenceUserId={currentUserId || authData.user?.id || null}
+          filterPersistenceUserId={currentUserId || authUser.id}
           hasExplicitFilterParams={hasExplicitFilterParams}
         />
       </section>

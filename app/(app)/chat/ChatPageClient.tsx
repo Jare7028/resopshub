@@ -690,6 +690,7 @@ export default function ChatPageClient(props: {
       conversationId: string,
       options?: {
         after?: string;
+        includeMembers?: boolean;
         replace?: boolean;
         markRead?: boolean;
         silent?: boolean;
@@ -699,6 +700,9 @@ export default function ChatPageClient(props: {
       params.set("conversation_id", conversationId);
       if (options?.after) {
         params.set("after", options.after);
+      }
+      if (options?.includeMembers === false) {
+        params.set("include_members", "0");
       }
 
       if (!options?.silent) {
@@ -1308,6 +1312,7 @@ export default function ChatPageClient(props: {
     const timer = window.setInterval(() => {
       void fetchMessages(selectedConversationId, {
         after,
+        includeMembers: false,
         replace: !messageRows.length,
         markRead: true,
         silent: true,

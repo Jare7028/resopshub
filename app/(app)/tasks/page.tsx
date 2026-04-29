@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
@@ -201,16 +202,16 @@ export default async function TasksPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData.user?.id;
+  const authUser = await getCurrentRequestUser(supabase, "tasks.page.auth");
+  const authUserId = authUser?.id;
   if (!authUserId) {
     redirect("/login");
   }
-  const { data: currentUserProfile } = await supabase
-    .from("users")
-    .select("id,role,status")
-    .eq("email", authData.user?.email || "")
-    .maybeSingle();
+  const authEmail = authUser.email || "";
+  const currentUserProfileQuery = supabase.from("users").select("id,role,status");
+  const { data: currentUserProfile } = await (authEmail
+    ? currentUserProfileQuery.eq("email", authEmail).maybeSingle()
+    : currentUserProfileQuery.eq("id", authUserId).maybeSingle());
   const currentAppUserId = currentUserProfile?.id || null;
   const currentUserRole = String(currentUserProfile?.role || "")
     .trim()
@@ -520,21 +521,27 @@ export default async function TasksPage(props: {
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
   const selectedClientIds = selectedClientIdsRaw.filter((id) => clientIdSet.has(id));
+  const effectiveSelectedClientIds = areSameValueSets(selectedClientIds, Array.from(clientIdSet))
+    ? []
+    : selectedClientIds;
   const hasExplicitClientFilter = typeof searchParams?.client !== "undefined";
   const defaultAddClientId =
-    hasExplicitClientFilter && selectedClientIds.length === 1
-      ? selectedClientIds[0]
+    hasExplicitClientFilter && effectiveSelectedClientIds.length === 1
+      ? effectiveSelectedClientIds[0]
       : "";
 
   const projectIdSet = new Set((projects || []).map((project) => project.id));
   const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
+  const effectiveSelectedProjectIds = areSameValueSets(selectedProjectIds, Array.from(projectIdSet))
+    ? []
+    : selectedProjectIds;
   const hasExplicitProjectFilter = typeof searchParams?.project !== "undefined";
   const addTaskProjectIdSet = new Set(addTaskProjects.map((project) => project.id));
   const defaultAddProjectId =
     hasExplicitProjectFilter &&
-    selectedProjectIds.length === 1 &&
-    addTaskProjectIdSet.has(selectedProjectIds[0])
-      ? selectedProjectIds[0]
+    effectiveSelectedProjectIds.length === 1 &&
+    addTaskProjectIdSet.has(effectiveSelectedProjectIds[0])
+      ? effectiveSelectedProjectIds[0]
       : "";
 
   if (hasExplicitFilterParams && currentAppUserId && taskPreferencesAvailable) {
@@ -552,10 +559,13 @@ export default async function TasksPage(props: {
         normalizePreferenceValues(taskTablePreferences.assignee),
         selectedAssignees
       ) ||
-      !areSameValueSets(normalizePreferenceValues(taskTablePreferences.client), selectedClientIds) ||
+      !areSameValueSets(
+        normalizePreferenceValues(taskTablePreferences.client),
+        effectiveSelectedClientIds
+      ) ||
       !areSameValueSets(
         normalizePreferenceValues(taskTablePreferences.project),
-        selectedProjectIds
+        effectiveSelectedProjectIds
       ) ||
       String(taskTablePreferences.due || "all") !== selectedDue ||
       Boolean(taskTablePreferences.hide_completed ?? true) !== hideCompleted ||
@@ -574,8 +584,8 @@ export default async function TasksPage(props: {
           priority: selectedPriorities,
           assignee: selectedAssignees,
           due: selectedDue,
-          client: selectedClientIds,
-          project: selectedProjectIds,
+          client: effectiveSelectedClientIds,
+          project: effectiveSelectedProjectIds,
           hide_completed: hideCompleted,
           include_watching: includeWatching,
           sort_key: sortKey,
@@ -600,15 +610,18 @@ export default async function TasksPage(props: {
   )
     ? []
     : selectedAssignees;
-  const clientValuesForQueryParam = areSameValueSets(selectedClientIds, Array.from(clientIdSet))
+  const clientValuesForQueryParam = areSameValueSets(
+    effectiveSelectedClientIds,
+    Array.from(clientIdSet)
+  )
     ? []
-    : selectedClientIds;
+    : effectiveSelectedClientIds;
   const projectValuesForQueryParam = areSameValueSets(
-    selectedProjectIds,
+    effectiveSelectedProjectIds,
     Array.from(projectIdSet)
   )
     ? []
-    : selectedProjectIds;
+    : effectiveSelectedProjectIds;
 
   const returnParams = new URLSearchParams();
   setCsvParam(returnParams, "status", statusValuesForQueryParam);
@@ -711,10 +724,6 @@ export default async function TasksPage(props: {
       .is("parent_task_id", null)
       .order("created_at", { ascending: sortKey === "created" && sortDir === "asc" });
 
-    if (sortKey === "created") {
-      request = request.limit(MAX_TASK_ROWS);
-    }
-
     if (!isAdminUser) {
       const { data: visibleTaskIdRows, error: visibleTaskIdsError } = await withPerfTiming(
         "tasks.page.visible_task_ids",
@@ -816,12 +825,12 @@ export default async function TasksPage(props: {
       }
     }
 
-    if (selectedClientIds.length) {
-      request = request.in("client_id", selectedClientIds);
+    if (effectiveSelectedClientIds.length) {
+      request = request.in("client_id", effectiveSelectedClientIds);
     }
 
-    if (selectedProjectIds.length) {
-      request = request.in("project_id", selectedProjectIds);
+    if (effectiveSelectedProjectIds.length) {
+      request = request.in("project_id", effectiveSelectedProjectIds);
     }
 
     const wantsHiddenStatuses = effectiveSelectedStatuses.some((status) =>
@@ -847,6 +856,8 @@ export default async function TasksPage(props: {
     } else if (selectedDue === "none") {
       request = request.is("due_date", null);
     }
+
+    request = request.limit(MAX_TASK_ROWS);
 
     const { data: tasksRaw } = await withPerfTiming("tasks.page.tasks", () => request);
     const clientNameById = new Map((clients || []).map((client) => [client.id, client.name]));
@@ -1821,8 +1832,8 @@ export default async function TasksPage(props: {
             priority: selectedPriorities,
             assignee: selectedAssignees,
             due: selectedDue,
-            client: selectedClientIds,
-            project: selectedProjectIds,
+            client: effectiveSelectedClientIds,
+            project: effectiveSelectedProjectIds,
           }}
           onUpdate={updateTaskInlineAction}
           hideCompleted={hideCompleted}

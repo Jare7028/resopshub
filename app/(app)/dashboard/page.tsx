@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { cookies } from "next/headers";
 import DashboardFilters from "./DashboardFilters";
 import DashboardCurrencySelect from "./DashboardCurrencySelect";
@@ -51,6 +52,8 @@ type DashboardViewKey =
 const taskStatuses = TASK_STATUS_OPTIONS;
 const taskPriorities = ["low", "medium", "high", "critical"] as const;
 const projectActiveStatuses = ["planned", "active", "on_hold"] as const;
+const MAX_DASHBOARD_PROJECT_ROWS = 500;
+const MAX_DASHBOARD_TASK_ROWS = 750;
 const rangeOptions = [
   { value: "all", label: "All time" },
   { value: "7d", label: "Last 7 days" },
@@ -171,11 +174,8 @@ export default async function DashboardPage(props: {
   const shouldLoadRequestsSection = selectedView === "overview" || selectedView === "requests";
   const supabase = createSupabaseServerClient();
 
-  const { data: authData } = await withPerfTiming("dashboard.auth", () =>
-    supabase.auth.getUser()
-  );
-  const authEmail = authData.user?.email;
-  if (!authEmail) {
+  const authUser = await getCurrentRequestUser(supabase, "dashboard.auth");
+  if (!authUser?.id) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
@@ -184,9 +184,13 @@ export default async function DashboardPage(props: {
     );
   }
 
-  const { data: currentUser } = await withPerfTiming("dashboard.current_user", () =>
-    supabase.from("users").select("id,role").eq("email", authEmail).maybeSingle()
-  );
+  const authEmail = authUser.email || "";
+  const { data: currentUser } = await withPerfTiming("dashboard.current_user", () => {
+    const query = supabase.from("users").select("id,role");
+    return authEmail
+      ? query.eq("email", authEmail).maybeSingle()
+      : query.eq("id", authUser.id).maybeSingle();
+  });
 
   const currentUserId = currentUser?.id || null;
   const isAdmin = currentUser?.role === "admin";
@@ -334,7 +338,8 @@ export default async function DashboardPage(props: {
     let projectsQuery = supabase
       .from("projects")
       .select("id,name,status,client_id,updated_at")
-      .order("name", { ascending: true });
+      .order("name", { ascending: true })
+      .limit(MAX_DASHBOARD_PROJECT_ROWS);
 
     if (!isAdmin) {
       projectsQuery = projectsQuery.in("id", visibleProjectIds);
@@ -434,6 +439,8 @@ export default async function DashboardPage(props: {
 
     tasksQuery = tasksQuery.or(orParts.join(","));
   }
+
+  tasksQuery = tasksQuery.limit(MAX_DASHBOARD_TASK_ROWS);
 
   const { data: taskData } = await withPerfTiming("dashboard.tasks", () => tasksQuery);
   tasks = (taskData || []) as typeof tasks;

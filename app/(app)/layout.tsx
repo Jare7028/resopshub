@@ -1,7 +1,8 @@
 import Image from "next/image";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentRequestUser, type CurrentRequestUser } from "@/lib/supabase/currentUser";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
 import { type PagePermissionKey } from "@/lib/pagePermissions";
@@ -25,21 +26,10 @@ type UserProfileRow = {
   status: string;
 };
 
-type LayoutUser = {
-  id: string;
-  email: string | null;
-  user_metadata?: Record<string, unknown> | null;
-};
-
 type NavPermissionRow = {
   page_key: PagePermissionKey;
   access_level: "none" | "view" | "edit";
 };
-
-const MIDDLEWARE_USER_ID_HEADER = "x-resopshub-user-id";
-const MIDDLEWARE_USER_EMAIL_HEADER = "x-resopshub-user-email";
-const UUID_V4ISH_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function mergeNavLinksByUserOrder(
   links: readonly SidebarNavLink[],
@@ -84,24 +74,7 @@ export default async function AppLayout({
   children: React.ReactNode;
 }>) {
   const supabase = createSupabaseServerClient();
-  const headerList = await headers();
-  const forwardedUserId = String(headerList.get(MIDDLEWARE_USER_ID_HEADER) || "").trim();
-  const forwardedUserEmail = String(headerList.get(MIDDLEWARE_USER_EMAIL_HEADER) || "").trim();
-
-  let user: LayoutUser | null = UUID_V4ISH_REGEX.test(forwardedUserId)
-    ? {
-        id: forwardedUserId,
-        email: forwardedUserEmail || null,
-        user_metadata: null,
-      }
-    : null;
-
-  if (!user) {
-    const { data: authData } = await withPerfTiming("layout.auth", () =>
-      supabase.auth.getUser()
-    );
-    user = (authData.user as LayoutUser | null) || null;
-  }
+  const user = (await getCurrentRequestUser(supabase, "layout.auth")) as CurrentRequestUser | null;
 
   if (!user) {
     redirect("/login");

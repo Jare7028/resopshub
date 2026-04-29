@@ -17,7 +17,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
 const MIDDLEWARE_USER_ID_HEADER = "x-resopshub-user-id";
 const MIDDLEWARE_USER_EMAIL_HEADER = "x-resopshub-user-email";
-const VIEW_PERMISSION_CACHE_TTL_MS = 5_000;
+const VIEW_PERMISSION_CACHE_TTL_MS = 60_000;
 const VIEW_PERMISSION_CACHE_MAX_ENTRIES = 1000;
 
 type ViewPermissionCacheEntry = {

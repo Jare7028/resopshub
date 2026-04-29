@@ -331,6 +331,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const conversationId = String(url.searchParams.get("conversation_id") || "").trim();
   const afterRaw = String(url.searchParams.get("after") || "").trim();
+  const includeMembers = String(url.searchParams.get("include_members") || "1") !== "0";
   if (!uuidRegex.test(conversationId)) {
     return NextResponse.json({ error: "Invalid conversation_id" }, { status: 400 });
   }
@@ -363,14 +364,14 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .limit(300);
   }
-  const [{ data: messagesRaw, error: messagesError }, { data: membersRaw, error: membersError }] =
-    await Promise.all([
-      messagesQuery,
-      supabase
+  const membersQuery = includeMembers
+    ? supabase
         .from("chat_conversation_members")
         .select(conversationMemberSelect)
-        .eq("conversation_id", conversationId),
-    ]);
+        .eq("conversation_id", conversationId)
+    : Promise.resolve({ data: [] as ConversationMemberRow[], error: null });
+  const [{ data: messagesRaw, error: messagesError }, { data: membersRaw, error: membersError }] =
+    await Promise.all([messagesQuery, membersQuery]);
 
   if (messagesError) {
     return NextResponse.json({ error: messagesError.message }, { status: 400 });
