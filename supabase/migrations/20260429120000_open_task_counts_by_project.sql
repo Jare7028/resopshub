@@ -16,7 +16,7 @@ as $$
     and tasks.parent_task_id is null
     and (
       coalesce(array_length(p_hidden_statuses, 1), 0) = 0
-      or not (tasks.status = any(p_hidden_statuses))
+      or not (tasks.status::text = any(p_hidden_statuses))
     )
   group by tasks.project_id;
 $$;
