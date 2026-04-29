@@ -1035,7 +1035,7 @@ export default function TasksView({
     if (hasExplicitView) return;
     const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
     if (savedDefaultView && savedDefaultView !== initialView) {
-      applyView(savedDefaultView);
+      setView(savedDefaultView);
     }
   }, [hasExplicitView, initialView, viewPreferenceScope]);
   /* eslint-enable react-hooks/exhaustive-deps */

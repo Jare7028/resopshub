@@ -278,63 +278,8 @@ export default async function TasksPage(props: {
   const createMode: "new" | "template" =
     createModeRaw === "template" ? "template" : "new";
   const templateTaskId = String(searchParams?.template_task_id || "").trim();
-
-  const viewSource =
-    typeof searchParams?.view !== "undefined"
-      ? searchParams?.view
-      : taskTablePreferences?.view_mode;
-  const viewRaw = String(viewSource || "").trim().toLowerCase();
-  const selectedView: "table" | "gantt" | "board" =
-    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
-      ? (viewRaw as "table" | "gantt" | "board")
-      : "table";
-  const hasExplicitView = typeof searchParams?.view !== "undefined";
-
-  const sortSource =
-    typeof searchParams?.sort !== "undefined"
-      ? searchParams?.sort
-      : taskTablePreferences?.sort_key;
-  const dirSource =
-    typeof searchParams?.dir !== "undefined"
-      ? searchParams?.dir
-      : taskTablePreferences?.sort_dir;
-  const sortKey = normalizeTaskSortKey(sortSource as string | undefined);
-  const sortDir = normalizeTaskSortDir(dirSource as string | undefined);
-
-  const selectedStatusesRaw =
-    typeof searchParams?.status !== "undefined"
-      ? parseCsvParam(searchParams?.status)
-      : normalizePreferenceValues(taskTablePreferences?.status);
-  const selectedPrioritiesRaw =
-    typeof searchParams?.priority !== "undefined"
-      ? parseCsvParam(searchParams?.priority)
-      : normalizePreferenceValues(taskTablePreferences?.priority);
-  const selectedAssigneesRaw =
-    typeof searchParams?.assignee !== "undefined"
-      ? parseCsvParam(searchParams?.assignee)
-      : normalizePreferenceValues(taskTablePreferences?.assignee);
-  const selectedClientIdsRaw =
-    typeof searchParams?.client !== "undefined"
-      ? parseCsvParam(searchParams?.client)
-      : normalizePreferenceValues(taskTablePreferences?.client);
-  const selectedProjectIdsRaw =
-    typeof searchParams?.project !== "undefined"
-      ? parseCsvParam(searchParams?.project)
-      : normalizePreferenceValues(taskTablePreferences?.project);
-  const dueSource =
-    typeof searchParams?.due !== "undefined"
-      ? searchParams?.due
-      : taskTablePreferences?.due || "all";
-  let selectedDue = String(dueSource || "all").trim();
-  const hideCompleted =
-    typeof searchParams?.hide !== "undefined"
-      ? (searchParams?.hide ?? "1").trim() !== "0"
-      : Boolean(taskTablePreferences?.hide_completed ?? true);
-  const includeWatching =
-    typeof searchParams?.watch !== "undefined"
-      ? (searchParams?.watch ?? "0").trim() === "1"
-      : Boolean(taskTablePreferences?.include_watching ?? false);
   const activeTab = normalizeTasksTabKey(searchParams?.tab);
+  const hasExplicitView = typeof searchParams?.view !== "undefined";
   const hasExplicitFilterParams =
     typeof searchParams?.status !== "undefined" ||
     typeof searchParams?.priority !== "undefined" ||
@@ -346,7 +291,25 @@ export default async function TasksPage(props: {
     typeof searchParams?.watch !== "undefined" ||
     typeof searchParams?.sort !== "undefined" ||
     typeof searchParams?.dir !== "undefined" ||
-    typeof searchParams?.view !== "undefined";
+    hasExplicitView;
+
+  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
+  const selectedView: "table" | "gantt" | "board" =
+    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
+      ? (viewRaw as "table" | "gantt" | "board")
+      : "table";
+
+  const sortKey = normalizeTaskSortKey(searchParams?.sort);
+  const sortDir = normalizeTaskSortDir(searchParams?.dir);
+
+  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
+  const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
+  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
+  const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
+  const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
+  let selectedDue = String(searchParams?.due || "all").trim();
+  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
+  const includeWatching = (searchParams?.watch ?? "0").trim() === "1";
 
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
@@ -574,7 +537,7 @@ export default async function TasksPage(props: {
       ? selectedProjectIds[0]
       : "";
 
-  if (currentAppUserId && taskPreferencesAvailable) {
+  if (hasExplicitFilterParams && currentAppUserId && taskPreferencesAvailable) {
     const shouldSavePreferences =
       !taskTablePreferences ||
       !areSameValueSets(
@@ -1875,9 +1838,6 @@ export default async function TasksPage(props: {
           initialView={selectedView}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
-          filterPersistenceUserId={currentAppUserId || authUserId}
-          filterPersistenceScope="/tasks"
-          hasExplicitFilterParams={hasExplicitFilterParams}
           columnPreferenceUserId={currentAppUserId || authUserId}
         />
       </section>
