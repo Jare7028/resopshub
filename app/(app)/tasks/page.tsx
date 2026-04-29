@@ -305,6 +305,7 @@ export default async function TasksPage(props: {
 
   const selectedStatusesRaw = parseCsvParam(searchParams?.status);
   const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
+  const hasExplicitAssigneeFilter = typeof searchParams?.assignee !== "undefined";
   const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
   const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
   const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
@@ -514,9 +515,13 @@ export default async function TasksPage(props: {
   const defaultAssigneeUserId =
     (currentAppUserId && userIdSet.has(currentAppUserId) && currentAppUserId) ||
     (userIdSet.has(authUserId) ? authUserId : null);
-  const selectedAssignees = selectedAssigneesRaw.filter(
+  const requestedAssignees = selectedAssigneesRaw.filter(
     (value) => value === "unassigned" || userIdSet.has(value)
   );
+  const selectedAssignees =
+    hasExplicitAssigneeFilter || !defaultAssigneeUserId
+      ? requestedAssignees
+      : [defaultAssigneeUserId];
   const allAssigneeFilterValues = Array.from(new Set(["unassigned", ...Array.from(userIdSet)]));
 
   const clientIdSet = new Set((clients || []).map((client) => client.id));
@@ -627,6 +632,9 @@ export default async function TasksPage(props: {
   setCsvParam(returnParams, "status", statusValuesForQueryParam);
   setCsvParam(returnParams, "priority", priorityValuesForQueryParam);
   setCsvParam(returnParams, "assignee", assigneeValuesForQueryParam);
+  if (hasExplicitAssigneeFilter && !assigneeValuesForQueryParam.length) {
+    returnParams.set("assignee", "all");
+  }
   if (selectedDue !== "all") {
     returnParams.set("due", selectedDue);
   }

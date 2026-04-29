@@ -849,7 +849,11 @@ export default function TasksView({
       });
       setCsvParam(params, "status", next.status);
       setCsvParam(params, "priority", next.priority);
-      setCsvParam(params, "assignee", next.assignee);
+      if (next.assignee.length) {
+        setCsvParam(params, "assignee", next.assignee);
+      } else {
+        params.set("assignee", "all");
+      }
       setCsvParam(params, "client", next.client);
       setCsvParam(params, "project", next.project);
       if (next.due && next.due !== "all") params.set("due", next.due);
@@ -896,10 +900,14 @@ export default function TasksView({
         const clientSet = new Set(clients.map((value) => String(value.id).trim()));
         const projectSet = new Set(projects.map((value) => String(value.id).trim()));
 
+        const restoredAssignees = filterAllowedValues(
+          normalizeStorageList(parsed.assignee),
+          assigneeSet
+        );
         const nextFilters = {
           status: filterAllowedValues(normalizeStorageList(parsed.status), statusSet),
           priority: filterAllowedValues(normalizeStorageList(parsed.priority), prioritySet),
-          assignee: filterAllowedValues(normalizeStorageList(parsed.assignee), assigneeSet),
+          assignee: restoredAssignees.length > 0 ? restoredAssignees : initialFilters.assignee,
           due:
             dueSet.has(String(parsed.due || "").trim()) && String(parsed.due || "").trim()
               ? String(parsed.due || "").trim()
@@ -950,6 +958,7 @@ export default function TasksView({
     hasLoadedPersistedFilters,
     hideCompleted,
     includeWatching,
+    initialFilters.assignee,
     priorityOptions,
     projects,
     router,
