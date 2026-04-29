@@ -141,6 +141,9 @@ const typeLabel: Record<LinkEntityType, string> = {
   client: "Client",
 };
 
+const CHAT_POLL_VISIBLE_INTERVAL_MS = 6000;
+const CHAT_POLL_HIDDEN_INTERVAL_MS = 30000;
+
 function toMs(value: string | null | undefined) {
   const parsed = Date.parse(String(value || ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -148,6 +151,23 @@ function toMs(value: string | null | undefined) {
 
 function sortMessagesAsc(messages: MessageRow[]) {
   return [...messages].sort((left, right) => toMs(left.created_at) - toMs(right.created_at));
+}
+
+function messageSyncCursor(messages: MessageRow[]) {
+  let latestValue: string | null = null;
+  let latestMs = 0;
+
+  messages.forEach((message) => {
+    [message.created_at, message.edited_at, message.deleted_at].forEach((value) => {
+      const ms = toMs(value);
+      if (ms > latestMs) {
+        latestMs = ms;
+        latestValue = value || null;
+      }
+    });
+  });
+
+  return latestValue;
 }
 
 function mergeMessages(current: MessageRow[], incoming: MessageRow[]) {
@@ -693,6 +713,7 @@ export default function ChatPageClient(props: {
         includeMembers?: boolean;
         replace?: boolean;
         markRead?: boolean;
+        markReadExisting?: boolean;
         silent?: boolean;
       }
     ) => {
@@ -732,6 +753,11 @@ export default function ChatPageClient(props: {
         let mergedMessages: MessageRow[] = [];
         setMessagesByConversation((prev) => {
           const current = prev[conversationId] || [];
+          if (!incomingMessages.length && !options?.replace) {
+            mergedMessages = current;
+            return prev;
+          }
+
           const next = options?.replace ? incomingMessages : mergeMessages(current, incomingMessages);
           mergedMessages = next;
           return {
@@ -745,16 +771,22 @@ export default function ChatPageClient(props: {
           incomingMessages[incomingMessages.length - 1] ||
           null;
 
-        if (latestMessage) {
+        if (latestMessage && (incomingMessages.length || options?.replace)) {
           setLatestByConversationId((prev) => ({
             ...prev,
             [conversationId]: latestMessage,
           }));
         }
 
-        if (options?.markRead && latestMessage) {
+        if (
+          options?.markRead &&
+          latestMessage &&
+          (incomingMessages.length || options?.replace || options?.markReadExisting)
+        ) {
           await markConversationRead(conversationId, latestMessage.created_at);
         }
+
+        return { incomingCount: incomingMessages.length, latestMessage };
       } finally {
         if (!options?.silent) {
           setIsLoadingConversation(false);
@@ -787,16 +819,20 @@ export default function ChatPageClient(props: {
 
       try {
         const existing = messagesByConversation[conversationId] || [];
+        const hasKnownMembers = Boolean(membersByConversationId[conversationId]?.length);
         if (existing.length) {
-          const after = existing[existing.length - 1]?.created_at;
+          const after = messageSyncCursor(existing);
           await fetchMessages(conversationId, {
-            after,
+            after: after || undefined,
+            includeMembers: !hasKnownMembers,
             replace: false,
             markRead: true,
+            markReadExisting: true,
             silent: true,
           });
         } else {
           await fetchMessages(conversationId, {
+            includeMembers: !hasKnownMembers,
             replace: true,
             markRead: true,
           });
@@ -1306,21 +1342,58 @@ export default function ChatPageClient(props: {
       return;
     }
 
-    const messageRows = messagesByConversation[selectedConversationId] || [];
-    const after = messageRows[messageRows.length - 1]?.created_at;
+    const conversationId = selectedConversationId;
+    const messageRows = messagesByConversation[conversationId] || [];
+    const after = messageSyncCursor(messageRows);
+    let isActive = true;
+    let timeoutId: number | null = null;
 
-    const timer = window.setInterval(() => {
-      void fetchMessages(selectedConversationId, {
-        after,
+    function clearPollTimeout() {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    }
+
+    function schedulePoll() {
+      clearPollTimeout();
+      if (!isActive) return;
+      timeoutId = window.setTimeout(
+        poll,
+        document.hidden ? CHAT_POLL_HIDDEN_INTERVAL_MS : CHAT_POLL_VISIBLE_INTERVAL_MS
+      );
+    }
+
+    function poll() {
+      void fetchMessages(conversationId, {
+        after: after || undefined,
         includeMembers: false,
         replace: !messageRows.length,
         markRead: true,
         silent: true,
-      }).catch(() => null);
-    }, 6000);
+      })
+        .catch(() => null)
+        .finally(() => {
+          schedulePoll();
+        });
+    }
+
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        schedulePoll();
+        return;
+      }
+      clearPollTimeout();
+      poll();
+    }
+
+    schedulePoll();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      window.clearInterval(timer);
+      isActive = false;
+      clearPollTimeout();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchMessages, messagesByConversation, selectedConversationId]);
 
