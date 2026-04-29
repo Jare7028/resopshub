@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { Suspense } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
+import {
+  getCurrentRequestUser,
+  type CurrentRequestUser,
+} from "@/lib/supabase/currentUser";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
@@ -129,6 +133,25 @@ type TaskListPageRpcRow = {
   next_subtask_due_date: string | null;
 };
 
+type TasksPageSearchParams = {
+  tab?: string;
+  view?: string;
+  create_mode?: string;
+  template_task_id?: string;
+  status?: string | string[];
+  priority?: string | string[];
+  assignee?: string | string[];
+  due?: string;
+  client?: string | string[];
+  project?: string | string[];
+  hide?: string;
+  watch?: string;
+  sort?: string;
+  dir?: string;
+  error?: string;
+  success?: string;
+};
+
 function isTemplateStatusEnumError(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const message = String((error as { message?: unknown }).message || "").toLowerCase();
@@ -198,25 +221,134 @@ function buildTasksRedirectUrl(
   return qs ? `${path}?${qs}` : path;
 }
 
+function appendShellSearchParam(
+  params: URLSearchParams,
+  key: string,
+  value: string | string[] | undefined
+) {
+  if (typeof value === "undefined") return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => params.append(key, item));
+    return;
+  }
+  params.set(key, value);
+}
+
+function buildTasksShellListHref(searchParams: TasksPageSearchParams | undefined) {
+  const params = new URLSearchParams();
+  appendShellSearchParam(params, "view", searchParams?.view);
+  appendShellSearchParam(params, "status", searchParams?.status);
+  appendShellSearchParam(params, "priority", searchParams?.priority);
+  appendShellSearchParam(params, "assignee", searchParams?.assignee);
+  appendShellSearchParam(params, "due", searchParams?.due);
+  appendShellSearchParam(params, "client", searchParams?.client);
+  appendShellSearchParam(params, "project", searchParams?.project);
+  appendShellSearchParam(params, "hide", searchParams?.hide);
+  appendShellSearchParam(params, "watch", searchParams?.watch);
+  appendShellSearchParam(params, "sort", searchParams?.sort);
+  appendShellSearchParam(params, "dir", searchParams?.dir);
+  const query = params.toString();
+  return query ? `/tasks?${query}` : "/tasks";
+}
+
+function TasksPageMessages({
+  error,
+  success,
+}: {
+  error?: string;
+  success?: string;
+}) {
+  if (!error && !success) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      {error ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+      {success ? (
+        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+          {success}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function TasksTableSkeleton() {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="h-6 w-28 animate-pulse rounded bg-slate-100" />
+          <div className="flex gap-2">
+            <div className="h-9 w-24 animate-pulse rounded bg-slate-100" />
+            <div className="h-9 w-24 animate-pulse rounded bg-slate-100" />
+            <div className="h-9 w-24 animate-pulse rounded bg-slate-100" />
+          </div>
+        </div>
+      </div>
+      <div className="hidden divide-y divide-slate-100 md:block">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div key={index} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-4">
+            <div className="h-4 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 animate-pulse rounded bg-slate-100" />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-3 p-4 md:hidden">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-lg border border-slate-200 p-4">
+            <div className="h-5 w-3/4 animate-pulse rounded bg-slate-100" />
+            <div className="mt-3 flex gap-2">
+              <div className="h-6 w-20 animate-pulse rounded bg-slate-100" />
+              <div className="h-6 w-24 animate-pulse rounded bg-slate-100" />
+            </div>
+            <div className="mt-4 h-4 w-full animate-pulse rounded bg-slate-100" />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TasksPageFallback({
+  activeTab,
+  closeHref,
+}: {
+  activeTab: TasksTabKey;
+  closeHref: string;
+}) {
+  return (
+    <>
+      {activeTab === "add" ? (
+        <RouteModalOverlay closeHref={closeHref} overlayLabel="Close add task dialog">
+          <div className="relative z-10 flex min-h-full items-end justify-center overflow-y-auto p-0 md:items-start md:p-6 md:pb-8 md:pt-8 lg:p-10">
+            <section className="w-full max-w-none rounded-t-2xl border border-slate-200 bg-white p-6 shadow-[0_28px_85px_-32px_rgba(15,23,42,0.5)] md:max-w-5xl md:rounded-2xl">
+              <div className="h-6 w-32 animate-pulse rounded bg-slate-100" />
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                ))}
+              </div>
+              <div className="mt-6 h-10 w-32 animate-pulse rounded bg-slate-100" />
+            </section>
+          </div>
+        </RouteModalOverlay>
+      ) : null}
+      <TasksTableSkeleton />
+    </>
+  );
+}
+
 export default async function TasksPage(props: {
-  searchParams?: Promise<{
-    tab?: string;
-    view?: string;
-    create_mode?: string;
-    template_task_id?: string;
-    status?: string | string[];
-    priority?: string | string[];
-    assignee?: string | string[];
-    due?: string;
-    client?: string | string[];
-    project?: string | string[];
-    hide?: string;
-    watch?: string;
-    sort?: string;
-    dir?: string;
-    error?: string;
-    success?: string;
-  }>;
+  searchParams?: Promise<TasksPageSearchParams>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
@@ -225,6 +357,34 @@ export default async function TasksPage(props: {
   if (!authUserId) {
     redirect("/login");
   }
+
+  const activeTab = normalizeTasksTabKey(searchParams?.tab);
+  return (
+    <div className="space-y-8">
+      <TasksPageMessages error={searchParams?.error} success={searchParams?.success} />
+      <Suspense
+        fallback={
+          <TasksPageFallback
+            activeTab={activeTab}
+            closeHref={buildTasksShellListHref(searchParams)}
+          />
+        }
+      >
+        <TasksPageContent searchParams={searchParams} authUser={authUser} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function TasksPageContent({
+  searchParams,
+  authUser,
+}: {
+  searchParams?: TasksPageSearchParams;
+  authUser: CurrentRequestUser;
+}) {
+  const supabase = createSupabaseServerClient();
+  const authUserId = authUser.id;
   const authEmail = authUser.email || "";
   const currentUserProfileQuery = supabase.from("users").select("id,role,status");
   const { data: currentUserProfile } = await (authEmail
@@ -1473,22 +1633,7 @@ export default async function TasksPage(props: {
   }
 
   return (
-    <div className="space-y-8">
-      {(searchParams?.error || searchParams?.success) && (
-        <div className="space-y-2">
-          {searchParams?.error ? (
-            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-              {searchParams.error}
-            </p>
-          ) : null}
-          {searchParams?.success ? (
-            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-              {searchParams.success}
-            </p>
-          ) : null}
-        </div>
-      )}
-
+    <>
       {!users?.length ? (
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
           <p className="font-semibold">No users found.</p>
@@ -1733,7 +1878,7 @@ export default async function TasksPage(props: {
           columnPreferenceUserId={currentAppUserId || authUserId}
         />
       </section>
-    </div>
+    </>
   );
 }
 
