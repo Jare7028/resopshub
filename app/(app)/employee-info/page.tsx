@@ -50,6 +50,8 @@ type EmployeeInfoRecordRow = {
   created_at: string;
 };
 
+const DEFAULT_EMPLOYEE_INFO_RECORD_ROWS = 100;
+const EMPLOYEE_INFO_RECORD_LOAD_INCREMENT = 100;
 const MAX_EMPLOYEE_INFO_RECORD_ROWS = 500;
 
 type EmployeeInfoColumnRow = {
@@ -72,6 +74,10 @@ type EmployeeInfoValueRow = {
   money_currency_code: string | null;
 };
 
+type EmployeeInfoRecordPageRpcRow = EmployeeInfoRecordRow & {
+  total_count: number | string | null;
+};
+
 type EmployeeInfoValuesByRecordId = Record<
   string,
   Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
@@ -89,7 +95,6 @@ type EmployeeInfoActionResult = {
   error?: string;
 };
 
-type EmployeeInfoRoleValueLookup = Record<string, string>;
 type ClientUserMembershipRow = { user_id: string; client_id: string };
 
 const DEFAULT_EMPLOYEE_INFO_ROLE_VALUE = "Customer Service Representative";
@@ -101,6 +106,7 @@ function buildEmployeeInfoUrl(params?: {
   displayCurrency?: EmployeeInfoDisplayCurrencyCode;
   visibilityUserId?: string | null;
   visibilityPanel?: "rules" | null;
+  recordLimit?: number | null;
 }) {
   const sp = new URLSearchParams();
   if (params?.error) sp.set("error", params.error);
@@ -114,6 +120,12 @@ function buildEmployeeInfoUrl(params?: {
   }
   if (params?.visibilityUserId) {
     sp.set("visibility_user_id", params.visibilityUserId);
+  }
+  if (
+    params?.recordLimit &&
+    params.recordLimit > DEFAULT_EMPLOYEE_INFO_RECORD_ROWS
+  ) {
+    sp.set("rows", String(Math.min(params.recordLimit, MAX_EMPLOYEE_INFO_RECORD_ROWS)));
   }
   const qs = sp.toString();
   return qs ? `/employee-info?${qs}` : "/employee-info";
@@ -212,41 +224,12 @@ function normalizeUuidList(values: string[]) {
   );
 }
 
-function buildRoleValueLookup(args: {
-  records: EmployeeInfoRecordRow[];
-  valuesByRecordId: EmployeeInfoValuesByRecordId;
-  roleColumnId: string | null;
-}) {
-  const { records, valuesByRecordId, roleColumnId } = args;
-  if (!roleColumnId) return {} as EmployeeInfoRoleValueLookup;
-
-  return records.reduce<EmployeeInfoRoleValueLookup>((acc, record) => {
-    const roleCell = valuesByRecordId[record.id]?.[roleColumnId];
-    acc[record.id] = roleCell?.option_value || roleCell?.text_value || "";
-    return acc;
-  }, {});
-}
-
-function filterRecordsByVisibilityRule(args: {
-  records: EmployeeInfoRecordRow[];
-  valuesByRecordId: EmployeeInfoValuesByRecordId;
-  rule: EmployeeInfoVisibilityRule;
-}) {
-  const { records, valuesByRecordId, rule } = args;
-  if (!rule.enabled) return records;
-
-  const roleValueByRecordId = buildRoleValueLookup({
-    records,
-    valuesByRecordId,
-    roleColumnId: rule.roleColumnId,
-  });
-
-  return records.filter((record) =>
-    isEmployeeInfoRecordVisible({
-      rule,
-      clientId: record.client_id,
-      roleValue: roleValueByRecordId[record.id] || "",
-    })
+function normalizeEmployeeInfoRecordLimit(value: string | null | undefined) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_EMPLOYEE_INFO_RECORD_ROWS;
+  return Math.min(
+    Math.max(parsed, DEFAULT_EMPLOYEE_INFO_RECORD_ROWS),
+    MAX_EMPLOYEE_INFO_RECORD_ROWS
   );
 }
 
@@ -591,10 +574,12 @@ export default async function EmployeeInfoPage(props: {
     display_currency?: string;
     visibility_user_id?: string;
     visibility_panel?: string;
+    rows?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
   const displayCurrency = normalizeEmployeeInfoDisplayCurrencyCode(searchParams?.display_currency);
+  const recordLimit = normalizeEmployeeInfoRecordLimit(searchParams?.rows);
   const exportNonce = Date.now().toString();
   const supabase = createSupabaseServerClient();
   const authUser = await getCurrentRequestUser(supabase, "employee_info.auth");
@@ -700,29 +685,13 @@ export default async function EmployeeInfoPage(props: {
   const viewerVisibilityTableMissing = viewerVisibilityRuleResult.tableMissing;
   const viewerCustomRule = toEmployeeInfoVisibilityRule(viewerVisibilityRuleRow);
 
-  let recordsQuery = supabase
-    .from("employee_info_records")
-    .select("id,full_name,client_id,created_at")
-    .order("created_at", { ascending: false })
-    .limit(MAX_EMPLOYEE_INFO_RECORD_ROWS);
-  const shouldApplyDefaultClientScope = !isAdmin && !viewerVisibilityRuleRow;
-  if (viewerCustomRule.enabled && viewerCustomRule.allowedClientIds.length) {
-    recordsQuery = recordsQuery.in("client_id", viewerCustomRule.allowedClientIds);
-  } else if (shouldApplyDefaultClientScope && viewerAssignedClientIds.length) {
-    recordsQuery = recordsQuery.in("client_id", viewerAssignedClientIds);
-  }
-  const [recordsResult, columnsResult] = await Promise.all([
-    recordsQuery,
-    supabase
-      .from("employee_info_columns")
-      .select(
-        "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
-      )
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true }),
-  ]);
-  const recordsRaw = recordsResult.data;
-  const recordsError = recordsResult.error;
+  const columnsResult = await supabase
+    .from("employee_info_columns")
+    .select(
+      "id,key,label,column_kind,formula,formula_currency_mode,formula_currency_code,options_json,position"
+    )
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
   let columnsRaw = columnsResult.data;
   let columnsError = columnsResult.error;
 
@@ -740,7 +709,7 @@ export default async function EmployeeInfoPage(props: {
     }));
   }
 
-  if (isSupabaseMissingTableError(recordsError) || isSupabaseMissingTableError(columnsError)) {
+  if (isSupabaseMissingTableError(columnsError)) {
     return (
       <div className="space-y-6">
         <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
@@ -751,10 +720,6 @@ export default async function EmployeeInfoPage(props: {
     );
   }
 
-  const records =
-    shouldApplyDefaultClientScope && viewerAssignedClientIds.length === 0
-      ? ([] as EmployeeInfoRecordRow[])
-      : ((recordsRaw || []) as EmployeeInfoRecordRow[]);
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
   const defaultRoleColumnId = resolveDefaultRoleColumnId(columns);
   const viewerVisibilityRule = resolveEffectiveVisibilityRule({
@@ -766,6 +731,66 @@ export default async function EmployeeInfoPage(props: {
   const formulaSuggestions = buildFormulaSuggestions(columns);
   const hasFormulaColumns = columns.some((column) => column.column_kind === "formula");
   const hasCurrencyColumns = columns.some((column) => column.column_kind === "currency");
+  const shouldApplyDefaultClientScope = !isAdmin && !viewerVisibilityRuleRow;
+  const shouldRestrictToClients =
+    (viewerCustomRule.enabled && viewerCustomRule.allowedClientIds.length > 0) ||
+    shouldApplyDefaultClientScope;
+  const scopedClientIds = viewerCustomRule.enabled
+    ? viewerCustomRule.allowedClientIds
+    : shouldApplyDefaultClientScope
+    ? viewerAssignedClientIds
+    : [];
+  const shouldReturnNoRecords =
+    shouldApplyDefaultClientScope && viewerAssignedClientIds.length === 0;
+
+  let records: EmployeeInfoRecordRow[] = [];
+  let visibleRecordTotalCount = 0;
+  if (!shouldReturnNoRecords) {
+    const { data: recordPageRowsRaw, error: recordPageError } = await withPerfTiming(
+      "employee_info.records_page",
+      () =>
+        supabase.rpc("employee_info_records_page", {
+          p_restrict_client_scope: shouldRestrictToClients,
+          p_allowed_client_ids: normalizeUuidList(scopedClientIds),
+          p_role_column_id:
+            viewerVisibilityRule.enabled &&
+            viewerVisibilityRule.roleColumnId &&
+            viewerVisibilityRule.allowedRoleTokens.length > 0
+              ? viewerVisibilityRule.roleColumnId
+              : null,
+          p_allowed_role_tokens: viewerVisibilityRule.enabled
+            ? viewerVisibilityRule.allowedRoleTokens
+            : [],
+          p_limit: recordLimit,
+        })
+    );
+
+    if (recordPageError) {
+      if (isSupabaseMissingTableError(recordPageError)) {
+        return (
+          <div className="space-y-6">
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+              Employee Info is not set up yet. Run <code>sql/employee_info.sql</code> in Supabase SQL
+              editor, then refresh this page.
+            </p>
+          </div>
+        );
+      }
+      redirect(buildEmployeeInfoUrl({ error: recordPageError.message, displayCurrency }));
+    }
+
+    const recordPageRows = (recordPageRowsRaw || []) as EmployeeInfoRecordPageRpcRow[];
+    records = recordPageRows.map((row) => ({
+      id: row.id,
+      full_name: row.full_name,
+      client_id: row.client_id,
+      created_at: row.created_at,
+    }));
+    visibleRecordTotalCount = Number(recordPageRows[0]?.total_count || records.length);
+    if (!Number.isFinite(visibleRecordTotalCount)) {
+      visibleRecordTotalCount = records.length;
+    }
+  }
 
   const visibilityRulesPromise =
     canManageVisibilityRules && !viewerVisibilityTableMissing
@@ -776,47 +801,8 @@ export default async function EmployeeInfoPage(props: {
           data: [] as EmployeeInfoVisibilityRuleRow[],
           error: null as { message?: string } | null,
         });
-  let recordsForValues = records;
-  const shouldPrefilterByRole =
-    viewerVisibilityRule.enabled &&
-    Boolean(viewerVisibilityRule.roleColumnId) &&
-    viewerVisibilityRule.allowedRoleTokens.length > 0 &&
-    recordsForValues.length > 0;
 
-  if (shouldPrefilterByRole) {
-    const roleColumnId = viewerVisibilityRule.roleColumnId as string;
-    const rolePrefilterRecordIds = recordsForValues.map((row) => row.id).filter(Boolean);
-    const roleValuesResult = await supabase
-      .from("employee_info_values")
-      .select("record_id,text_value,option_value")
-      .in("record_id", rolePrefilterRecordIds)
-      .eq("column_id", roleColumnId);
-
-    if (roleValuesResult.error && !isSupabaseMissingTableError(roleValuesResult.error)) {
-      redirect(buildEmployeeInfoUrl({ error: roleValuesResult.error.message }));
-    }
-
-    const roleValueByRecordId = new Map<string, string>();
-    ((roleValuesResult.data || []) as Array<{
-      record_id: string;
-      text_value: string | null;
-      option_value: string | null;
-    }>).forEach((row) => {
-      const roleValue = String(row.option_value || row.text_value || "").trim();
-      if (!row.record_id) return;
-      roleValueByRecordId.set(row.record_id, roleValue);
-    });
-
-    recordsForValues = recordsForValues.filter((record) =>
-      isEmployeeInfoRecordVisible({
-        rule: viewerVisibilityRule,
-        clientId: record.client_id,
-        roleValue: roleValueByRecordId.get(record.id) || "",
-      })
-    );
-  }
-
-  const recordIds = recordsForValues.map((row) => row.id).filter(Boolean);
+  const recordIds = records.map((row) => row.id).filter(Boolean);
   let valuesRaw: EmployeeInfoValueRow[] = [];
   let valuesError: { message?: string; code?: string } | null = null;
   if (recordIds.length) {
@@ -844,11 +830,7 @@ export default async function EmployeeInfoPage(props: {
 
   const valueRows = (isSupabaseMissingTableError(valuesError) ? [] : valuesRaw || []) as EmployeeInfoValueRow[];
   const valuesByRecordId = buildValueMap(valueRows);
-  const visibleRecords = filterRecordsByVisibilityRule({
-    records: recordsForValues,
-    valuesByRecordId,
-    rule: viewerVisibilityRule,
-  });
+  const visibleRecords = records;
   const shouldLoadExchangeRates =
     visibleRecords.length > 0 &&
     (hasFormulaColumns || (displayCurrency !== "ORIGINAL" && hasCurrencyColumns));
@@ -1884,10 +1866,25 @@ export default async function EmployeeInfoPage(props: {
     columns.find((column) => column.id === selectedRoleColumnId)?.label || "";
   const openVisibilityRulesHref = buildEmployeeInfoUrl({
     displayCurrency,
+    recordLimit,
     visibilityPanel: "rules",
     visibilityUserId: activeVisibilityUserId || null,
   });
-  const closeVisibilityRulesHref = buildEmployeeInfoUrl({ displayCurrency });
+  const closeVisibilityRulesHref = buildEmployeeInfoUrl({ displayCurrency, recordLimit });
+  const nextRecordLimit = Math.min(
+    recordLimit + EMPLOYEE_INFO_RECORD_LOAD_INCREMENT,
+    visibleRecordTotalCount,
+    MAX_EMPLOYEE_INFO_RECORD_ROWS
+  );
+  const loadMoreRecordsHref =
+    visibleRecordTotalCount > records.length && nextRecordLimit > recordLimit
+      ? buildEmployeeInfoUrl({
+          displayCurrency,
+          recordLimit: nextRecordLimit,
+          visibilityPanel: isVisibilityPanelOpen ? "rules" : null,
+          visibilityUserId: isVisibilityPanelOpen ? activeVisibilityUserId || null : null,
+        })
+      : null;
 
   return (
     <div className="space-y-6">
@@ -2174,6 +2171,8 @@ export default async function EmployeeInfoPage(props: {
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
           currencyDisplayValueByRecordIdAndColumnId={currencyDisplayValueByRecordIdAndColumnId}
           displayCurrency={displayCurrency}
+          totalRecordCount={visibleRecordTotalCount}
+          loadMoreHref={loadMoreRecordsHref}
           currentUserId={currentAppUserId}
           isAdmin={canManageColumns}
           formulaSuggestions={formulaSuggestions}
