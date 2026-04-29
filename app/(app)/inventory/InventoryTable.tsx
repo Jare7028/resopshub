@@ -724,6 +724,8 @@ export default function InventoryTable({
   formulaValueByRecordIdAndColumnId,
   currencyDisplayValueByRecordIdAndColumnId,
   displayCurrency,
+  totalRecordCount,
+  loadMoreHref,
   currentUserId,
   isAdmin,
   formulaSuggestions,
@@ -742,6 +744,8 @@ export default function InventoryTable({
   formulaValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
   currencyDisplayValueByRecordIdAndColumnId: Record<string, Record<string, string>>;
   displayCurrency: EmployeeInfoDisplayCurrencyCode;
+  totalRecordCount?: number;
+  loadMoreHref?: string | null;
   currentUserId?: string | null;
   isAdmin: boolean;
   formulaSuggestions: FormulaSuggestion[];
@@ -1579,6 +1583,12 @@ export default function InventoryTable({
     [filteredAndSortedRecords, visibleRowCount]
   );
   const hasMoreRows = renderedRecords.length < filteredAndSortedRecords.length;
+  const safeTotalRecordCount =
+    typeof totalRecordCount === "number" && Number.isFinite(totalRecordCount)
+      ? Math.max(totalRecordCount, records.length)
+      : records.length;
+  const hasMoreServerRows =
+    Boolean(loadMoreHref) && safeTotalRecordCount > records.length;
   const loadMoreRows = useCallback(() => {
     setVisibleRowCount((current) => {
       if (current >= filteredAndSortedRecords.length) {
@@ -1682,7 +1692,10 @@ export default function InventoryTable({
       <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
         <span>
           Showing {Math.min(renderedRecords.length, filteredAndSortedRecords.length)} of{" "}
-          {filteredAndSortedRecords.length} records
+          {filteredAndSortedRecords.length} loaded records
+          {safeTotalRecordCount > records.length
+            ? ` (${safeTotalRecordCount} total)`
+            : ""}
         </span>
         {hasMoreRows ? (
           <button
@@ -1692,6 +1705,13 @@ export default function InventoryTable({
           >
             Load {Math.min(VISIBLE_ROW_INCREMENT, filteredAndSortedRecords.length - renderedRecords.length)} more
           </button>
+        ) : hasMoreServerRows && loadMoreHref ? (
+          <a
+            href={loadMoreHref}
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Load {Math.min(VISIBLE_ROW_INCREMENT, safeTotalRecordCount - records.length)} more
+          </a>
         ) : null}
       </div>
 

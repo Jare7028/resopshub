@@ -41,6 +41,8 @@ type EmployeeInfoRecordRow = {
   created_at: string;
 };
 
+const DEFAULT_INVENTORY_RECORD_ROWS = 100;
+const INVENTORY_RECORD_LOAD_INCREMENT = 100;
 const MAX_INVENTORY_RECORD_ROWS = 500;
 
 type EmployeeInfoColumnRow = {
@@ -63,6 +65,10 @@ type EmployeeInfoValueRow = {
   money_currency_code: string | null;
 };
 
+type InventoryRecordPageRpcRow = EmployeeInfoRecordRow & {
+  total_count: number | string | null;
+};
+
 type EmployeeInfoValuesByRecordId = Record<
   string,
   Record<string, { text_value: string | null; option_value: string | null; money_currency_code: string | null }>
@@ -78,12 +84,16 @@ function buildEmployeeInfoUrl(params?: {
   error?: string;
   success?: string;
   displayCurrency?: EmployeeInfoDisplayCurrencyCode;
+  recordLimit?: number | null;
 }) {
   const sp = new URLSearchParams();
   if (params?.error) sp.set("error", params.error);
   if (params?.success) sp.set("success", params.success);
   if (params?.displayCurrency && params.displayCurrency !== "ORIGINAL") {
     sp.set("display_currency", params.displayCurrency);
+  }
+  if (params?.recordLimit && params.recordLimit > DEFAULT_INVENTORY_RECORD_ROWS) {
+    sp.set("rows", String(Math.min(params.recordLimit, MAX_INVENTORY_RECORD_ROWS)));
   }
   const qs = sp.toString();
   return qs ? `/inventory?${qs}` : "/inventory";
@@ -179,6 +189,15 @@ function buildValueMap(rows: EmployeeInfoValueRow[]): EmployeeInfoValuesByRecord
     };
     return acc;
   }, {});
+}
+
+function normalizeInventoryRecordLimit(value: string | null | undefined) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_INVENTORY_RECORD_ROWS;
+  return Math.min(
+    Math.max(parsed, DEFAULT_INVENTORY_RECORD_ROWS),
+    MAX_INVENTORY_RECORD_ROWS
+  );
 }
 
 function buildFormulaValueMap(args: {
@@ -434,10 +453,12 @@ export default async function EmployeeInfoPage(props: {
     error?: string;
     success?: string;
     display_currency?: string;
+    rows?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
   const displayCurrency = normalizeEmployeeInfoDisplayCurrencyCode(searchParams?.display_currency);
+  const recordLimit = normalizeInventoryRecordLimit(searchParams?.rows);
   const exportNonce = Date.now().toString();
   const supabase = createSupabaseServerClient();
   const authUser = await getCurrentRequestUser(supabase, "inventory.auth");
@@ -480,7 +501,7 @@ export default async function EmployeeInfoPage(props: {
   const [
     { data: clientsRaw, error: clientsError },
     employeeNameOptionsResult,
-    recordsResult,
+    recordPageResult,
     columnsResult,
   ] = await Promise.all([
     supabase.from("clients").select("id,name").order("name", { ascending: true }),
@@ -488,11 +509,11 @@ export default async function EmployeeInfoPage(props: {
       .from("employee_info_records")
       .select("full_name")
       .order("full_name", { ascending: true }),
-    supabase
-      .from("inventory_records")
-      .select("id,full_name,client_id,created_at")
-      .order("created_at", { ascending: false })
-      .limit(MAX_INVENTORY_RECORD_ROWS),
+    withPerfTiming("inventory.records_page", () =>
+      supabase.rpc("inventory_records_page", {
+        p_limit: recordLimit,
+      })
+    ),
     supabase
       .from("inventory_columns")
       .select(
@@ -512,8 +533,8 @@ export default async function EmployeeInfoPage(props: {
           .map((row) => String((row as { full_name: string | null }).full_name || "").trim())
           .filter(Boolean);
 
-  const recordsRaw = recordsResult.data;
-  const recordsError = recordsResult.error;
+  const recordsRaw = recordPageResult.data;
+  const recordsError = recordPageResult.error;
   let columnsRaw = columnsResult.data;
   let columnsError = columnsResult.error;
 
@@ -548,7 +569,17 @@ export default async function EmployeeInfoPage(props: {
     );
   }
 
-  const records = (recordsRaw || []) as EmployeeInfoRecordRow[];
+  const recordPageRows = (recordsRaw || []) as InventoryRecordPageRpcRow[];
+  const records = recordPageRows.map((row) => ({
+    id: row.id,
+    full_name: row.full_name,
+    client_id: row.client_id,
+    created_at: row.created_at,
+  })) as EmployeeInfoRecordRow[];
+  let visibleRecordTotalCount = Number(recordPageRows[0]?.total_count || records.length);
+  if (!Number.isFinite(visibleRecordTotalCount)) {
+    visibleRecordTotalCount = records.length;
+  }
   const columns = (columnsRaw || []) as EmployeeInfoColumnRow[];
   const formulaSuggestions = buildFormulaSuggestions(columns);
   const hasFormulaColumns = columns.some((column) => column.column_kind === "formula");
@@ -1275,6 +1306,18 @@ export default async function EmployeeInfoPage(props: {
   }
 
   const inventoryTableKey = `${records.length}:${columns.length}`;
+  const nextRecordLimit = Math.min(
+    recordLimit + INVENTORY_RECORD_LOAD_INCREMENT,
+    visibleRecordTotalCount,
+    MAX_INVENTORY_RECORD_ROWS
+  );
+  const loadMoreRecordsHref =
+    visibleRecordTotalCount > records.length && nextRecordLimit > recordLimit
+      ? buildEmployeeInfoUrl({
+          displayCurrency,
+          recordLimit: nextRecordLimit,
+        })
+      : null;
 
   return (
     <div className="space-y-8">
@@ -1352,6 +1395,8 @@ export default async function EmployeeInfoPage(props: {
           formulaValueByRecordIdAndColumnId={formulaValueByRecordIdAndColumnId}
           currencyDisplayValueByRecordIdAndColumnId={currencyDisplayValueByRecordIdAndColumnId}
           displayCurrency={displayCurrency}
+          totalRecordCount={visibleRecordTotalCount}
+          loadMoreHref={loadMoreRecordsHref}
           currentUserId={currentAppUserId}
           isAdmin={canManageColumns}
           formulaSuggestions={formulaSuggestions}
