@@ -1,11 +1,11 @@
 import Image from "next/image";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentRequestUser, type CurrentRequestUser } from "@/lib/supabase/currentUser";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
-import { type PagePermissionKey } from "@/lib/pagePermissions";
+import { PAGE_PERMISSION_KEYS, type PagePermissionKey } from "@/lib/pagePermissions";
 import { APP_SIDEBAR_LINKS, type SidebarNavLink } from "@/lib/appSidebarLinks";
 import { LOGIN_QUICK_READ_COOKIE } from "@/lib/loginQuickRead";
 import NotificationBell from "./_components/NotificationBell";
@@ -30,6 +30,15 @@ type NavPermissionRow = {
   page_key: PagePermissionKey;
   access_level: "none" | "view" | "edit";
 };
+
+const MIDDLEWARE_PAGE_KEY_HEADER = "x-resopshub-page-key";
+
+function normalizeForwardedPageKey(value: string | null) {
+  const normalized = String(value || "").trim();
+  return PAGE_PERMISSION_KEYS.includes(normalized as PagePermissionKey)
+    ? (normalized as PagePermissionKey)
+    : null;
+}
 
 function mergeNavLinksByUserOrder(
   links: readonly SidebarNavLink[],
@@ -74,6 +83,10 @@ export default async function AppLayout({
   children: React.ReactNode;
 }>) {
   const supabase = createSupabaseServerClient();
+  const headerList = await headers();
+  const currentPageKey = normalizeForwardedPageKey(
+    headerList.get(MIDDLEWARE_PAGE_KEY_HEADER)
+  );
   const user = (await getCurrentRequestUser(supabase, "layout.auth")) as CurrentRequestUser | null;
 
   if (!user) {
@@ -181,6 +194,13 @@ export default async function AppLayout({
     const explicitAccess = pagePermissionByKey.get(pageKey);
     return (explicitAccess || "edit") !== "none";
   };
+
+  if (currentPageKey && !canViewPage(currentPageKey)) {
+    if (currentPageKey === "dashboard") {
+      redirect("/login?error=No%20access%20to%20that%20page");
+    }
+    redirect("/dashboard?error=No%20access%20to%20that%20page");
+  }
 
   const navBaseLinks = APP_SIDEBAR_LINKS.filter((link) => canViewPage(link.pageKey));
 
