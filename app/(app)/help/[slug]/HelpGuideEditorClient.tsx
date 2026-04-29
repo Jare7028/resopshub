@@ -243,6 +243,7 @@ export default function HelpGuideEditorClient({
           contextMenuMode="favorites"
           initialContextMenuFavorites={["bold", "italic", "underline", "bulletList"]}
           editorHeightMode="fill"
+          initiallyEditing
         />
       </section>
     </div>

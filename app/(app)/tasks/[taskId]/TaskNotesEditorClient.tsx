@@ -32,6 +32,7 @@ export default function TaskNotesEditorClient({
       blockNavigationWhileSaving={false}
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
+      editButtonLabel="Edit notes"
     />
   );
 }

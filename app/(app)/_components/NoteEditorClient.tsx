@@ -68,7 +68,7 @@ type ContextMenuState = {
   overlayNodePos: number | null;
 };
 
-type ContextMenuMode = "full" | "favorites";
+export type ContextMenuMode = "full" | "favorites";
 
 export type ContextMenuFavoriteActionId =
   | "bold"
@@ -148,7 +148,7 @@ type MentionMenuState = {
   loading: boolean;
 };
 
-type NoteEditorClientProps = {
+export type NoteEditorClientProps = {
   entityId: string;
   initialContent: unknown;
   initialUpdatedAt?: string | null;
@@ -504,7 +504,7 @@ function getNextFontSizeValue(currentValue: string, direction: "up" | "down") {
 
 type WordTextAlign = "left" | "center" | "right" | "justify";
 type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
-type RibbonTabId = "home" | "insert" | "layout" | "review" | "view";
+export type RibbonTabId = "home" | "insert" | "layout" | "review" | "view";
 
 const NOTE_CRITICAL_SAVE_META_KEY = "note-critical-save";
 const NOTE_OVERLAY_COMMIT_META_KEY = "note-overlay-commit";

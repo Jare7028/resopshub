@@ -184,6 +184,8 @@ export default function PersonalPageEditorClient({
       onFocusModeChange={handleFocusModeChange}
       debugImagePersistence
       enforceImageNodeIntegrity
+      initiallyEditing={initialFocusMode}
+      editButtonLabel="Edit page"
     />
   );
 }

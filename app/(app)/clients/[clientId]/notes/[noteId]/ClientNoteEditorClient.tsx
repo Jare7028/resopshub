@@ -140,6 +140,7 @@ export default function ClientNoteEditorClient({
       lastEditedByLabel={lastEditedByLabel}
       debugImagePersistence={Boolean(sourcePersonalPageId)}
       enforceImageNodeIntegrity={Boolean(sourcePersonalPageId)}
+      editButtonLabel="Edit note"
     />
   );
 }
