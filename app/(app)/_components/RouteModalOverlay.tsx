@@ -15,7 +15,7 @@ export default function RouteModalOverlay({
   closeHref,
   overlayLabel,
   children,
-  fallbackDelayMs = 1200,
+  fallbackDelayMs = 10000,
 }: RouteModalOverlayProps) {
   const router = useRouter();
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

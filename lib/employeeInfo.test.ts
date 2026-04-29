@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEmployeeInfoExchangeRateMap,
   convertEmployeeInfoCurrencyAmount,
-  evaluateEmployeeFormula,
   formatEmployeeInfoCurrencyAmount,
-  formatFormulaResult,
   getEmployeeInfoCurrencySymbol,
   normalizeEmployeeInfoColumnKind,
   normalizeEmployeeInfoCurrencyCode,
@@ -14,6 +12,7 @@ import {
   parseEmployeeInfoCurrencyInput,
   parseEmployeeInfoDateToSerial,
 } from "./employeeInfo";
+import { evaluateEmployeeFormula, formatFormulaResult } from "./employeeInfoFormula";
 
 describe("normalizeEmployeeInfoColumnKind", () => {
   it("accepts date as a valid employee info column kind", () => {

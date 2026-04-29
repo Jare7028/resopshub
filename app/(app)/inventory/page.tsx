@@ -18,9 +18,7 @@ import {
   buildEmployeeInfoExchangeRateMap,
   columnIndexToLetter,
   convertEmployeeInfoCurrencyAmount,
-  evaluateEmployeeFormula,
   formatEmployeeInfoCurrencyAmount,
-  formatFormulaResult,
   normalizeEmployeeInfoCurrencyCode,
   normalizeEmployeeInfoDisplayCurrencyCode,
   normalizeEmployeeInfoFormulaCurrencyMode,
@@ -33,6 +31,7 @@ import {
   type EmployeeInfoDisplayCurrencyCode,
   type EmployeeInfoExchangeRateRow,
 } from "@/lib/employeeInfo";
+import { evaluateEmployeeFormula, formatFormulaResult } from "@/lib/employeeInfoFormula";
 
 type EmployeeInfoRecordRow = {
   id: string;

@@ -2,7 +2,6 @@ import {
   buildEmployeeInfoExchangeRateMap,
   columnIndexToLetter,
   convertEmployeeInfoCurrencyAmount,
-  evaluateEmployeeFormula,
   normalizeEmployeeInfoCurrencyCode,
   normalizeEmployeeInfoFormulaCurrencyMode,
   parseEmployeeInfoCurrencyCodeFromOptions,
@@ -12,6 +11,7 @@ import {
   type EmployeeInfoCurrencyCode,
   type EmployeeInfoExchangeRateRow,
 } from "../employeeInfo";
+import { evaluateEmployeeFormula } from "../employeeInfoFormula";
 
 export type EmployeeInfoRecordRow = {
   id: string;

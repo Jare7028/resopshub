@@ -4,8 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ComponentProps, type MouseEvent } from "react";
 
-const STALLED_NAV_FALLBACK_MS = 2200;
-
 type AppNavLinkProps = Omit<ComponentProps<typeof Link>, "href"> & {
   href: string;
   forceHardNavigation?: boolean;
@@ -56,15 +54,6 @@ export default function AppNavLink({
       window.location.assign(nextUrl.toString());
       return;
     }
-
-    const originPathAndSearch = `${window.location.pathname}${window.location.search}`;
-    window.setTimeout(() => {
-      const currentPathAndSearch = `${window.location.pathname}${window.location.search}`;
-      if (currentPathAndSearch !== originPathAndSearch) {
-        return;
-      }
-      window.location.assign(nextUrl.toString());
-    }, STALLED_NAV_FALLBACK_MS);
   };
 
   return (

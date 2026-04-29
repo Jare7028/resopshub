@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 const SHOW_DELAY_MS = 120;
 const FAILSAFE_HIDE_MS = 15000;
-const HARD_NAV_FALLBACK_MS = 2200;
 
 export default function GlobalLoadingIndicator() {
   const pathname = usePathname();
@@ -15,10 +14,8 @@ export default function GlobalLoadingIndicator() {
   const [visible, setVisible] = useState(false);
 
   const navigationPendingRef = useRef(false);
-  const pendingNavigationHrefRef = useRef<string | null>(null);
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failsafeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hardFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearShowTimer = useCallback(() => {
     if (showTimerRef.current) {
@@ -34,18 +31,10 @@ export default function GlobalLoadingIndicator() {
     }
   }, []);
 
-  const clearHardFallbackTimer = useCallback(() => {
-    if (hardFallbackTimerRef.current) {
-      clearTimeout(hardFallbackTimerRef.current);
-      hardFallbackTimerRef.current = null;
-    }
-  }, []);
-
   const startFailsafeTimer = useCallback(() => {
     clearFailsafeTimer();
     failsafeTimerRef.current = setTimeout(() => {
       navigationPendingRef.current = false;
-      pendingNavigationHrefRef.current = null;
       setVisible(false);
     }, FAILSAFE_HIDE_MS);
   }, [clearFailsafeTimer]);
@@ -60,12 +49,10 @@ export default function GlobalLoadingIndicator() {
 
   const stopLoading = useCallback(() => {
     navigationPendingRef.current = false;
-    pendingNavigationHrefRef.current = null;
     clearShowTimer();
     clearFailsafeTimer();
-    clearHardFallbackTimer();
     setVisible(false);
-  }, [clearFailsafeTimer, clearHardFallbackTimer, clearShowTimer]);
+  }, [clearFailsafeTimer, clearShowTimer]);
 
   useEffect(() => {
     const handleLinkClick = (event: MouseEvent) => {
@@ -102,28 +89,11 @@ export default function GlobalLoadingIndicator() {
       }
 
       navigationPendingRef.current = true;
-      pendingNavigationHrefRef.current = nextUrl.toString();
       startLoading();
-
-      const originPathAndSearch = `${window.location.pathname}${window.location.search}`;
-      clearHardFallbackTimer();
-      hardFallbackTimerRef.current = setTimeout(() => {
-        const pendingHref = pendingNavigationHrefRef.current;
-        if (!navigationPendingRef.current || !pendingHref) {
-          return;
-        }
-        const currentPathAndSearch = `${window.location.pathname}${window.location.search}`;
-        if (currentPathAndSearch !== originPathAndSearch) {
-          return;
-        }
-        window.location.assign(pendingHref);
-      }, HARD_NAV_FALLBACK_MS);
     };
 
     const handleSubmit = () => {
       navigationPendingRef.current = true;
-      pendingNavigationHrefRef.current = null;
-      clearHardFallbackTimer();
       startLoading();
     };
 
@@ -136,7 +106,6 @@ export default function GlobalLoadingIndicator() {
       stopLoading();
     };
   }, [
-    clearHardFallbackTimer,
     startLoading,
     stopLoading,
   ]);
