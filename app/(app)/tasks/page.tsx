@@ -31,6 +31,7 @@ import {
 } from "@/lib/supabaseErrors";
 import TasksView from "./TasksView";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
+import QuickSubtasksField from "./_components/QuickSubtasksField";
 import { normalizeTasksTabKey, type TasksTabKey } from "./_components/TasksTabs";
 import RouteModalOverlay from "../_components/RouteModalOverlay";
 import TemplateAutoSelect from "./_components/TemplateAutoSelect";
@@ -1094,6 +1095,10 @@ async function TasksPageContent({
     const projectIdRaw = String(formData.get("project_id") || "").trim();
     let clientId = clientIdRaw || null;
     const projectId = projectIdRaw || null;
+    const manualSubtaskTitles = formData
+      .getAll("subtask_titles")
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
 
     if (!title) {
       redirect(
@@ -1334,6 +1339,58 @@ async function TasksPageContent({
           error: error instanceof Error ? error.message : "Unable to create task",
         })
       );
+    }
+
+    if (taskId && manualSubtaskTitles.length) {
+      const manualSubtaskRows = manualSubtaskTitles.map((subtaskTitle) => ({
+        id: randomUUID(),
+        client_id: clientId,
+        project_id: projectId,
+        parent_task_id: taskId,
+        title: subtaskTitle,
+        status: normalizeTaskStatusOrDefault("to_do"),
+        priority,
+        due_date: null,
+        due_time: null,
+        assignee_user_id: primaryAssignee || null,
+        created_by_user_id: authData.user.id,
+        content: DEFAULT_EDITOR_CONTENT,
+        content_text: defaultContentText,
+      }));
+
+      const { error: manualSubtaskInsertError } = await supabase
+        .from("tasks")
+        .insert(manualSubtaskRows);
+
+      if (manualSubtaskInsertError) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: formatDbError(
+              "tasks.createTask.manualSubtasks.tasks.insert",
+              manualSubtaskInsertError
+            ),
+          })
+        );
+      }
+
+      const manualSubtaskAssigneeRows = manualSubtaskRows.flatMap((row) =>
+        effectiveAssigneeIds.map((userId) => ({ task_id: row.id, user_id: userId }))
+      );
+
+      if (manualSubtaskAssigneeRows.length) {
+        const { error: manualSubtaskAssigneesError } = await supabase
+          .from("task_assignees")
+          .insert(manualSubtaskAssigneeRows);
+        if (manualSubtaskAssigneesError) {
+          redirect(
+            buildTasksRedirectUrl(returnTo, {
+              tab: "add",
+              error: manualSubtaskAssigneesError.message,
+            })
+          );
+        }
+      }
     }
 
     if (taskId && templateTaskIdFromForm) {
@@ -1841,6 +1898,8 @@ async function TasksPageContent({
                           />
                         </div>
                       </div>
+
+                      <QuickSubtasksField />
 
                       <details className="md:col-span-6 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
                         <summary className="cursor-pointer select-none text-sm font-semibold text-slate-800">
