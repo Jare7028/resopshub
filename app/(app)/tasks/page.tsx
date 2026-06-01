@@ -216,6 +216,27 @@ function isLegacyTaskListPageSignatureError(error: unknown) {
   );
 }
 
+function isStaleLegacyTaskListPageErrorMessage(error: unknown) {
+  const message = String(error || "").toLowerCase();
+  return (
+    message.includes("[tasks.page.task_list_page]") &&
+    message.includes("task_list_page") &&
+    message.includes("p_offset") &&
+    message.includes("p_query") &&
+    message.includes("perhaps you meant")
+  );
+}
+
+function buildTasksUrlWithoutMessage(searchParams: TasksPageSearchParams | undefined) {
+  const params = new URLSearchParams();
+  Object.entries(searchParams || {}).forEach(([key, value]) => {
+    if (key === "error" || key === "success" || typeof value === "undefined") return;
+    params.set(key, String(value));
+  });
+  const query = params.toString();
+  return query ? `/tasks?${query}` : "/tasks";
+}
+
 function legacyTaskListRowMatchesSearch(row: TaskListPageRpcRow, query: string) {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return true;
@@ -395,6 +416,10 @@ export default async function TasksPage(props: {
   searchParams?: Promise<TasksPageSearchParams>;
 }) {
   const searchParams = await props.searchParams;
+  if (isStaleLegacyTaskListPageErrorMessage(searchParams?.error)) {
+    redirect(buildTasksUrlWithoutMessage(searchParams));
+  }
+
   const supabase = createSupabaseServerClient();
   const authUser = await getCurrentRequestUser(supabase, "tasks.page.auth");
   const authUserId = authUser?.id;
