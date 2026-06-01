@@ -5906,14 +5906,14 @@ export default function NoteEditorClient({
       : contextMenu.overlayNodeType === "noteTextBox"
       ? "Delete text box"
       : "Delete item";
-  const editorContentStyle =
-    editorHeightMode === "fill"
-      ? { minHeight: "clamp(420px, 62vh, 980px)" }
-      : undefined;
+  const fillHeightEditor = editorHeightMode === "fill";
+  const editorContentStyle = fillHeightEditor ? { minHeight: "100%" } : undefined;
 
   return (
     <section
-      className={`rounded-lg border bg-white p-2 ${
+      className={`rounded-lg border bg-white ${
+        fillHeightEditor ? "flex h-full min-h-0 flex-col overflow-hidden p-1.5" : "p-2"
+      } ${
         focusMode ? "border-slate-300 shadow-sm" : "border-slate-200"
       }`}
       aria-label={title}
@@ -5958,11 +5958,11 @@ export default function NoteEditorClient({
 
       {showTopToolbar ? (
         <div
-          className={`sticky top-0 z-20 rounded-md border border-slate-200 bg-white px-2 py-1.5 ${
+          className={`sticky top-0 z-20 shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 ${
             taskToast ? "mt-3" : ""
           }`}
         >
-          <div className="mb-1 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-1">
+          <div className="mb-0.5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-1">
             <div className="flex min-w-0 flex-wrap items-center gap-1" role="tablist" aria-label="Editor tabs">
               {RIBBON_TABS.map((tab) => {
                 const isActive = activeRibbonTab === tab.id;
@@ -6012,10 +6012,10 @@ export default function NoteEditorClient({
                     role="tab"
                     aria-selected={Boolean(tab.active)}
                     className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
-                    tab.active
-                      ? "border-slate-300 bg-white text-slate-900"
-                      : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
-                  }`}
+                      tab.active
+                        ? "border-slate-300 bg-white text-slate-900"
+                        : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
+                    }`}
                   >
                     {tab.label}
                   </a>
@@ -6037,7 +6037,11 @@ export default function NoteEditorClient({
             </div>
           </div>
           {suppressToolbarGroups ? (
-            toolbarPanel ? <div className="-mx-1 px-1 pb-1">{toolbarPanel}</div> : null
+            toolbarPanel ? (
+              <div className="-mx-1 max-h-[32vh] overflow-y-auto px-1 pb-1 pr-2">
+                {toolbarPanel}
+              </div>
+            ) : null
           ) : (
             <div
               className={`-mx-1 px-1 ${
@@ -6049,30 +6053,30 @@ export default function NoteEditorClient({
                   disableHorizontalScroll ? "flex-wrap" : "min-w-max"
                 }`}
               >
-              {isHomeTab ? (
-                <>
-                  <RibbonGroup title="Clipboard">
-                    <RibbonIconButton
-                      label="Copy style"
-                      title="Copy formatting"
-                      onClick={copyFormatting}
-                      active={Boolean(copiedFormat)}
-                      icon={<PaintIcon />}
-                    />
-                    <RibbonIconButton
-                      label="Apply style"
-                      title="Apply copied formatting"
-                      onClick={applyCopiedFormatting}
-                      disabled={!copiedFormat}
-                      icon={<ApplyIcon />}
-                    />
-                    <RibbonIconButton
-                      label="Clear"
-                      title="Clear formatting"
-                      onClick={clearFormatting}
-                      icon={<ClearIcon />}
-                    />
-                  </RibbonGroup>
+                {isHomeTab ? (
+                  <>
+                    <RibbonGroup title="Clipboard">
+                      <RibbonIconButton
+                        label="Copy style"
+                        title="Copy formatting"
+                        onClick={copyFormatting}
+                        active={Boolean(copiedFormat)}
+                        icon={<PaintIcon />}
+                      />
+                      <RibbonIconButton
+                        label="Apply style"
+                        title="Apply copied formatting"
+                        onClick={applyCopiedFormatting}
+                        disabled={!copiedFormat}
+                        icon={<ApplyIcon />}
+                      />
+                      <RibbonIconButton
+                        label="Clear"
+                        title="Clear formatting"
+                        onClick={clearFormatting}
+                        icon={<ClearIcon />}
+                      />
+                    </RibbonGroup>
 
                   <RibbonGroup title="Font">
                     <select
@@ -6471,20 +6475,26 @@ export default function NoteEditorClient({
       ) : null}
 
       {saveError ? (
-        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="mt-2 shrink-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {saveError}
         </p>
       ) : null}
 
       {saveWarning ? (
-        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p className="mt-2 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {saveWarning}
         </p>
       ) : null}
 
       <div
         ref={editorSurfaceRef}
-        className={`${showTopToolbar ? "mt-2" : "mt-4"} ${focusMode ? "md:px-8" : ""}`}
+        className={`${
+          fillHeightEditor
+            ? `${showTopToolbar ? "mt-1.5" : "mt-3"} min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1`
+            : showTopToolbar
+              ? "mt-2"
+              : "mt-4"
+        } ${focusMode ? "md:px-8" : ""}`}
         onContextMenu={handleContextMenu}
         onMouseMove={handleEditorMouseMove}
         onMouseLeave={() => scheduleTaskHoverClose()}
@@ -6576,7 +6586,7 @@ export default function NoteEditorClient({
           </div>
         ) : null}
         <div
-          className={`rounded-lg border bg-white p-4 ${
+          className={`${fillHeightEditor ? "min-h-full rounded-md p-3" : "rounded-lg p-4"} border bg-white ${
             disableHorizontalScroll ? "overflow-x-hidden" : "overflow-x-auto"
           } ${
             focusMode ? "border-slate-300 shadow-sm" : "border-slate-200"
@@ -6592,6 +6602,7 @@ export default function NoteEditorClient({
           }
         >
           <div
+            className={fillHeightEditor ? "min-h-full" : undefined}
             style={{
               transform: `scale(${editorScale})`,
               transformOrigin: "top left",

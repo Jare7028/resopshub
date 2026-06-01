@@ -1778,8 +1778,8 @@ export default async function PersonalPage(props: {
   }));
 
   return (
-    <div className="personal-page-layout space-y-2 xl:flex xl:h-[calc(100vh-5.5rem)] xl:items-start xl:gap-3 xl:space-y-0 xl:overflow-hidden">
-      <div className="personal-page-sidebar">
+    <div className="personal-page-layout space-y-2 xl:-mt-6 xl:flex xl:h-[calc(100dvh-7rem)] xl:items-stretch xl:gap-2 xl:space-y-0 xl:overflow-hidden">
+      <div className="personal-page-sidebar xl:h-full xl:min-h-0 xl:[&>aside]:h-full">
         <PersonalSidebarTree
           sections={sidebarTree.sections}
           generalPages={sidebarTree.generalPages}
@@ -1790,8 +1790,8 @@ export default async function PersonalPage(props: {
         />
       </div>
 
-      <div className="personal-page-main space-y-1.5 xl:h-full xl:min-h-0 xl:min-w-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
-        <div className="personal-page-chrome space-y-1.5">
+      <div className="personal-page-main flex min-h-0 min-w-0 flex-1 flex-col space-y-1.5 overflow-hidden xl:h-full xl:pr-0">
+        <div className="personal-page-chrome shrink-0 space-y-1.5">
           {(searchParams?.error || searchParams?.success) && (
             <div className="space-y-2">
               {searchParams?.error ? (
@@ -1815,7 +1815,7 @@ export default async function PersonalPage(props: {
           ) : null}
         </div>
 
-        <div className="personal-page-editor-wrap">
+        <div className="personal-page-editor-wrap min-h-0 flex-1">
           <PersonalPageEditorClient
             pageId={page.id}
             initialContent={page.content ?? null}

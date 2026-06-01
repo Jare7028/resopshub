@@ -289,20 +289,19 @@ body.personal-focus-mode .personal-page-layout {
 body.personal-focus-mode .personal-page-main {
   height: 100dvh;
   max-height: 100dvh;
-  overflow-y: auto !important;
+  overflow: hidden !important;
   padding-right: 0 !important;
-  -webkit-overflow-scrolling: touch;
 }
 
 body.personal-focus-mode .personal-page-editor-wrap {
-  min-height: 100dvh;
-  height: auto;
+  min-height: 0;
+  height: 100dvh;
   margin-top: 0 !important;
 }
 
 body.personal-focus-mode .personal-page-editor-wrap > section {
-  min-height: 100dvh;
-  height: auto;
+  min-height: 0;
+  height: 100%;
   border: 0;
   border-radius: 0;
 }
