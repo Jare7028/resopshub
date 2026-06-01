@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   Fragment,
+  type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -323,6 +324,7 @@ export default function TasksView({
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
+  const [isOpeningAddTask, setIsOpeningAddTask] = useState(false);
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
@@ -1495,6 +1497,19 @@ export default function TasksView({
       router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
   };
+  const handleAddTaskClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    setIsOpeningAddTask(true);
+  };
 
   return (
     <>
@@ -1517,9 +1532,12 @@ export default function TasksView({
           {addTaskUrl ? (
             <Link
               href={addTaskUrl}
+              prefetch={false}
+              onClick={handleAddTaskClick}
+              aria-disabled={isOpeningAddTask}
               className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
             >
-              Add task
+              {isOpeningAddTask ? "Opening..." : "Add task"}
             </Link>
           ) : null}
           <a
@@ -2254,6 +2272,7 @@ export default function TasksView({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Link
                       href={`/tasks/${task.id}`}
+                      prefetch={false}
                       className="text-base font-semibold text-slate-900 hover:underline"
                     >
                       {task.title}
@@ -2300,6 +2319,7 @@ export default function TasksView({
                   </div>
                   <Link
                     href={`/tasks/${task.id}`}
+                    prefetch={false}
                     className="mobile-card-action"
                   >
                     Open task
@@ -2384,7 +2404,7 @@ export default function TasksView({
                     className="grid grid-cols-[240px_1fr] border-b border-slate-100"
                   >
                     <div className="px-6 py-3 text-sm text-slate-900">
-                      <Link href={`/tasks/${task.id}`} className="hover:underline">
+                      <Link href={`/tasks/${task.id}`} prefetch={false} className="hover:underline">
                         {task.title}
                       </Link>
                     </div>
@@ -2402,6 +2422,7 @@ export default function TasksView({
                         ) : null}
                         <Link
                           href={`/tasks/${task.id}`}
+                          prefetch={false}
                           className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full"
                           style={{
                             left: `${leftPercent}%`,
@@ -2515,6 +2536,7 @@ export default function TasksView({
                               >
                                 <Link
                                   href={`/tasks/${task.id}`}
+                                  prefetch={false}
                                   draggable={false}
                                   className="block text-sm font-semibold text-slate-900 hover:underline"
                                 >

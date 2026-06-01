@@ -34,6 +34,10 @@ function logTaskCreate(
   event: string,
   payload: Record<string, unknown>
 ) {
+  if (level === "info" && process.env.LOG_TASK_CREATE !== "1") {
+    return;
+  }
+
   const entry = {
     scope: "task.create",
     event,

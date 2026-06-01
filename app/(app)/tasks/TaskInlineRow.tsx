@@ -291,6 +291,7 @@ export default function TaskInlineRow({
               </span>
               <Link
                 href={`/tasks/${task.id}`}
+                prefetch={false}
                 className="hover:underline"
                 onMouseEnter={handleTitleHoverStart}
                 onMouseMove={handleTitleHoverMove}
@@ -302,6 +303,7 @@ export default function TaskInlineRow({
           ) : (
             <Link
               href={`/tasks/${task.id}`}
+              prefetch={false}
               className="hover:underline"
               onMouseEnter={handleTitleHoverStart}
               onMouseMove={handleTitleHoverMove}

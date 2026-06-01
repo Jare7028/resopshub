@@ -31,6 +31,7 @@ import {
 } from "@/lib/supabaseErrors";
 import TasksView from "./TasksView";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
+import CreateTaskSubmitButton from "./_components/CreateTaskSubmitButton";
 import QuickSubtasksField from "./_components/QuickSubtasksField";
 import { normalizeTasksTabKey, type TasksTabKey } from "./_components/TasksTabs";
 import RouteModalOverlay from "../_components/RouteModalOverlay";
@@ -565,7 +566,7 @@ async function TasksPageContent({
   const selectedPriorities = selectedPrioritiesRaw.filter((priority) =>
     priorityOptions.includes(priority as (typeof priorityOptions)[number])
   );
-  const shouldLoadTemplateOptions = activeTab === "add" || createMode === "template";
+  const shouldLoadTemplateOptions = createMode === "template";
   const taskTemplatesFromTasksPromise = shouldLoadTemplateOptions
     ? supabase
         .from("tasks")
@@ -1994,12 +1995,7 @@ async function TasksPageContent({
                         </div>
                       </details>
                       <div className="md:col-span-6 flex justify-end">
-                        <button
-                          type="submit"
-                          className="w-full rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"
-                        >
-                          Create task
-                        </button>
+                        <CreateTaskSubmitButton />
                       </div>
                     </form>
                   )}
