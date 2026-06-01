@@ -33,8 +33,8 @@ function weekdayFromDate(ymd: string) {
 }
 
 export type ParsedTaskSchedule = {
-  dueDate: string;
-  dueTime: string;
+  dueDate: string | null;
+  dueTime: string | null;
   startDate: string | null;
   recurrenceConfig: RecurrenceConfig | null;
   recurrenceNextDate: string | null;
@@ -72,13 +72,6 @@ export function parseTaskScheduleFormData(
       ? 7
       : recurrenceLeadDaysRaw;
 
-  if (!TIME_PATTERN.test(dueTimeRaw)) {
-    return {
-      error: "Due time is required",
-      value: null,
-    };
-  }
-
   const recurrenceFrequency =
     recurrenceFrequencyRaw === "daily" ||
     recurrenceFrequencyRaw === "weekly" ||
@@ -89,9 +82,37 @@ export function parseTaskScheduleFormData(
   const startDateRaw = String(formData.get("start_date") || "").trim();
 
   if (!recurrenceFrequency) {
+    if (!dueDateRaw && !dueTimeRaw) {
+      if (startDateRaw && !isIsoDate(startDateRaw)) {
+        return {
+          error: "Start date must be a valid date",
+          value: null,
+        };
+      }
+
+      return {
+        error: null,
+        value: {
+          dueDate: null,
+          dueTime: null,
+          startDate: startDateRaw || null,
+          recurrenceConfig: null,
+          recurrenceNextDate: null,
+          recurrenceLeadDays,
+          recurrenceTimezone,
+        },
+      };
+    }
+
     if (!isIsoDate(dueDateRaw)) {
       return {
         error: "Due date is required",
+        value: null,
+      };
+    }
+    if (!TIME_PATTERN.test(dueTimeRaw)) {
+      return {
+        error: "Due time is required",
         value: null,
       };
     }
@@ -117,6 +138,12 @@ export function parseTaskScheduleFormData(
   }
 
   const recurrenceStartDate = String(formData.get("recurrence_start_date") || "").trim();
+  if (!TIME_PATTERN.test(dueTimeRaw)) {
+    return {
+      error: "Due time is required",
+      value: null,
+    };
+  }
   if (!isIsoDate(recurrenceStartDate)) {
     return {
       error: "Start date is required for recurring tasks",

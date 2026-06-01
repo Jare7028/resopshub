@@ -69,13 +69,10 @@ const addTaskLabelClass =
   "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
 const addTaskControlClass =
   "mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200";
+const addTaskTextAreaClass =
+  "mt-1 min-h-36 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200";
 const addTaskInlineControlClass =
   "h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-700 outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-200";
-const addTaskPanelClass =
-  "rounded-xl bg-slate-50/70 p-4 ring-1 ring-slate-100 md:p-5";
-const addTaskPanelTitleClass =
-  "text-xs font-semibold uppercase tracking-wide text-slate-500";
-
 type TaskContentSource = {
   content?: unknown | null;
   content_text?: string | null;
@@ -743,7 +740,7 @@ async function TasksPageContent({
     selectedTemplate?.recurrence_frequency === "monthly" ||
     selectedTemplate?.recurrence_frequency === "yearly"
       ? selectedTemplate.recurrence_frequency
-      : "once";
+      : "none";
   const templateOptions = taskTemplates.map((template) => ({
     id: template.id,
     name: template.name,
@@ -1076,6 +1073,7 @@ async function TasksPageContent({
       new Set([authData.user.id, actionCurrentAppUserId].filter(Boolean))
     ) as string[];
     const title = String(formData.get("title") || "").trim();
+    const taskNotesText = String(formData.get("notes") || "").trim();
     const status = normalizeTaskStatusOrDefault(String(formData.get("status") || "to_do"));
     const priority = String(formData.get("priority") || "medium");
     const assigneeResolution = await resolveAssignmentTargetsToUserIds(
@@ -1270,7 +1268,14 @@ async function TasksPageContent({
         ? [primaryAssignee]
         : [];
 
+    const manualContent = taskNotesText
+      ? {
+          content: plainTextToTiptapDoc(taskNotesText),
+          contentText: taskNotesText,
+        }
+      : null;
     const templateContent = resolveTaskContentFromSource(templateContentSource);
+    const taskContent = manualContent || templateContent;
     let taskId: string;
     try {
       const createdTask = await createTaskLikeRoot({
@@ -1302,8 +1307,8 @@ async function TasksPageContent({
               recurrence_timezone: schedule.recurrenceTimezone,
             }
           : null,
-        content: templateContent.content,
-        contentText: templateContent.contentText,
+        content: taskContent.content,
+        contentText: taskContent.contentText,
       });
       taskId = createdTask.taskId;
     } catch (error) {
@@ -1814,19 +1819,34 @@ async function TasksPageContent({
                           />
                         </>
                       ) : null}
-                      <div className={`md:col-span-6 ${addTaskPanelClass}`}>
-                        <p className={addTaskPanelTitleClass}>Task details</p>
-                        <div className="mt-3 grid gap-4 md:grid-cols-6">
-                          <div className="md:col-span-2">
-                            <label className={addTaskLabelClass}>Title</label>
-                            <input
-                              name="title"
-                              placeholder="Task title"
-                              className={addTaskControlClass}
-                              defaultValue={selectedTemplate?.title || ""}
-                              required
-                            />
-                          </div>
+                      <div className="md:col-span-6 grid gap-4">
+                        <div>
+                          <label className={addTaskLabelClass}>Title</label>
+                          <input
+                            name="title"
+                            placeholder="Task title"
+                            className={addTaskControlClass}
+                            defaultValue={selectedTemplate?.title || ""}
+                            autoFocus
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className={addTaskLabelClass}>Task notes</label>
+                          <textarea
+                            name="notes"
+                            placeholder="Add notes"
+                            className={addTaskTextAreaClass}
+                            defaultValue={selectedTemplate?.description || ""}
+                          />
+                        </div>
+                      </div>
+
+                      <details className="md:col-span-6 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+                        <summary className="cursor-pointer select-none text-sm font-semibold text-slate-800">
+                          More options
+                        </summary>
+                        <div className="mt-4 grid gap-4 md:grid-cols-6">
                           <div className="md:col-span-2">
                             <label className={addTaskLabelClass}>Client</label>
                             <select
@@ -1905,13 +1925,15 @@ async function TasksPageContent({
                               ))}
                             </select>
                           </div>
+                          <div className="md:col-span-6">
+                            <RecurrenceFields
+                              initialFrequency={initialRecurrenceFrequency}
+                              initialDueTime={selectedTemplate?.due_time || undefined}
+                              initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
+                            />
+                          </div>
                         </div>
-                      </div>
-                      <RecurrenceFields
-                        initialFrequency={initialRecurrenceFrequency}
-                        initialDueTime={selectedTemplate?.due_time || undefined}
-                        initialLeadDays={selectedTemplate?.recurrence_lead_days ?? 7}
-                      />
+                      </details>
                       <div className="md:col-span-6 flex justify-end">
                         <button
                           type="submit"

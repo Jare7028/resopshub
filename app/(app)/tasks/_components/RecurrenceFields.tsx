@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import MultiSelect from "@/app/(app)/_components/MultiSelect";
 
 const scheduleModeOptions = [
-  { value: "once", label: "Once" },
+  { value: "none", label: "No schedule" },
+  { value: "once", label: "Due date" },
   { value: "recurring", label: "Recurring" },
 ] as const;
 
@@ -36,7 +37,7 @@ const monthDayOptions = Array.from({ length: 31 }, (_, index) => {
 
 type ScheduleMode = (typeof scheduleModeOptions)[number]["value"];
 type RecurrencePattern = (typeof recurrencePatternOptions)[number]["value"];
-type FrequencyValue = "once" | RecurrencePattern;
+type FrequencyValue = "none" | "once" | RecurrencePattern;
 
 type RecurrenceFieldsProps = {
   initialFrequency?: FrequencyValue;
@@ -82,7 +83,7 @@ function sortWeekdays(values: string[]) {
 }
 
 export default function RecurrenceFields({
-  initialFrequency = "once",
+  initialFrequency = "none",
   initialDueDate,
   initialDueTime,
   initialStartDate,
@@ -106,7 +107,11 @@ export default function RecurrenceFields({
       : "weekly";
 
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(
-    initialFrequency === "once" ? "once" : "recurring"
+    initialFrequency === "none"
+      ? "none"
+      : initialFrequency === "once"
+        ? "once"
+        : "recurring"
   );
   const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>(
     initialRecurrencePattern
@@ -234,6 +239,7 @@ export default function RecurrenceFields({
   ]);
 
   const recurring = scheduleMode === "recurring";
+  const scheduledOnce = scheduleMode === "once";
 
   return (
     <fieldset className="md:col-span-6 rounded-xl bg-slate-50/70 p-4 ring-1 ring-slate-100 md:p-5">
@@ -244,7 +250,7 @@ export default function RecurrenceFields({
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-6">
           <div className="md:col-span-2">
-            <label className={fieldLabelClass}>Frequency</label>
+            <label className={fieldLabelClass}>Schedule</label>
             <select
               className={fieldControlClass}
               value={scheduleMode}
@@ -388,7 +394,7 @@ export default function RecurrenceFields({
               </div>
             ) : null}
           </div>
-        ) : (
+        ) : scheduledOnce ? (
           <div className="grid gap-4 md:grid-cols-6">
             <div className="md:col-span-2">
               <label className={fieldLabelClass}>Due time</label>
@@ -425,10 +431,10 @@ export default function RecurrenceFields({
               />
             </div>
           </div>
-        )}
+        ) : null}
 
         <p className="rounded-lg bg-white px-3 py-2 text-xs text-slate-500 ring-1 ring-slate-100">
-          {recurring ? recurringSummary : onceSummary}
+          {recurring ? recurringSummary : scheduledOnce ? onceSummary : "No schedule."}
         </p>
       </div>
 

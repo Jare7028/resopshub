@@ -2,6 +2,22 @@ import { describe, expect, it } from "vitest";
 import { parseTaskScheduleFormData } from "./taskSchedule";
 
 describe("parseTaskScheduleFormData", () => {
+  it("allows quick tasks without a schedule", () => {
+    const formData = new FormData();
+    formData.set("due_date", "");
+    formData.set("due_time", "");
+    formData.set("start_date", "");
+    formData.set("recurrence_frequency", "");
+
+    const result = parseTaskScheduleFormData(formData, "Europe/London");
+
+    expect(result.error).toBeNull();
+    expect(result.value?.dueDate).toBeNull();
+    expect(result.value?.dueTime).toBeNull();
+    expect(result.value?.startDate).toBeNull();
+    expect(result.value?.recurrenceConfig).toBeNull();
+  });
+
   it("keeps a blank one-off start date as null", () => {
     const formData = new FormData();
     formData.set("due_date", "2026-06-10");
