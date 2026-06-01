@@ -244,10 +244,6 @@ function normalizePersonalPageTabKey(value: string | null | undefined): Personal
   return "notes";
 }
 
-function buildPersonalPageTabHref(pageId: string, tab: PersonalPageTabKey) {
-  return tab === "notes" ? `/personal/${pageId}` : `/personal/${pageId}?tab=${tab}`;
-}
-
 export default async function PersonalPage(props: {
   params: Promise<{ pageId: string }>;
   searchParams?: Promise<{
@@ -499,7 +495,7 @@ export default async function PersonalPage(props: {
 
     if (!title) {
       const sp = new URLSearchParams();
-      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("tab", "details");
       sp.set("error", "Title is required");
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
@@ -515,7 +511,7 @@ export default async function PersonalPage(props: {
 
     if (error) {
       const sp = new URLSearchParams();
-      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("tab", "details");
       sp.set("error", error.message);
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
@@ -565,7 +561,7 @@ export default async function PersonalPage(props: {
 
     if (pageOwnerId !== user.id) {
       const sp = new URLSearchParams();
-      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("tab", "details");
       sp.set("error", "Only the page owner can delete it");
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
@@ -574,7 +570,7 @@ export default async function PersonalPage(props: {
 
     if (error) {
       const sp = new URLSearchParams();
-      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("tab", "details");
       sp.set("error", error.message);
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
@@ -595,7 +591,7 @@ export default async function PersonalPage(props: {
     const name = String(formData.get("name") || "").trim();
     if (!name) {
       const sp = new URLSearchParams();
-      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("panel", "templates");
       sp.set("error", "Template name is required");
       redirect(`/personal/${pageId}?${sp.toString()}`);
     }
@@ -612,7 +608,7 @@ export default async function PersonalPage(props: {
 
     if (error) {
       const sp = new URLSearchParams();
-      if (activeTab !== "notes") sp.set("tab", activeTab);
+      sp.set("panel", "templates");
       if (isSupabaseMissingTableError(error)) {
         sp.set("error", "Page templates need sql/personal_templates_and_page_order.sql");
       } else {
@@ -624,7 +620,7 @@ export default async function PersonalPage(props: {
     revalidatePath("/personal");
     revalidatePath(`/personal/${pageId}`);
     const sp = new URLSearchParams();
-    if (activeTab !== "notes") sp.set("tab", activeTab);
+    sp.set("panel", "templates");
     sp.set("success", "Template saved");
     redirect(`/personal/${pageId}?${sp.toString()}`);
   }
@@ -1681,108 +1677,104 @@ export default async function PersonalPage(props: {
     { key: "history", label: "History" },
     { key: "templates", label: "Templates" },
   ] as const;
-  const managementPanel =
-    activeTab === "details" ? (
-      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <Link href="/personal" className="hover:text-slate-700">
-                Personal
-              </Link>
-              {" / "}
-              {sectionTitle || "General"}
-              {" / "}
-              {pageTitle}
-            </p>
-            <form action={updatePageDetails} className="mt-2 flex flex-wrap items-center gap-2">
-              <input
-                name="title"
-                defaultValue={page.title}
-                aria-label="Page title"
-                className="h-9 w-64 rounded-md border border-slate-300 px-3 text-sm"
-              />
-              <select
-                name="section_id"
-                defaultValue={page.section_id || ""}
-                aria-label="Section"
-                className="h-9 w-56 rounded-md border border-slate-300 px-3 text-sm"
-              >
-                <option value="">General</option>
-                {sections?.map((section) => (
-                  <option key={section.id} value={section.id}>
-                    {section.title}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="h-9 rounded-md btn-primary px-4 text-sm font-semibold text-white"
-              >
-                Save title
-              </button>
-            </form>
-            <p className="mt-2 text-xs text-slate-500">
-              {lastEditedAtLabel ? `Last edited ${lastEditedAtLabel}` : "No edit history yet"}
-              {lastEditedByLabel ? ` by ${lastEditedByLabel}` : ""}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <form action={toggleFavorite}>
-              <button
-                type="submit"
-                className={`h-9 rounded-md border px-3 text-sm font-semibold ${
-                  pageIsFavorite
-                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                    : "border-slate-300 text-slate-700 hover:border-slate-400"
-                }`}
-              >
-                {pageIsFavorite ? "Favorited" : "Favorite"}
-              </button>
-            </form>
-
-            {isOwner ? (
-              <form action={deletePersonalPage}>
-                <ConfirmDelete
-                  name={pageTitle}
-                  itemType="Personal page"
-                  triggerLabel={
-                    <span className="inline-flex h-9 items-center rounded-md border border-red-300 bg-red-50 px-3 text-sm font-semibold text-red-700">
-                      Delete
-                    </span>
-                  }
-                  confirmLabel="Confirm delete page"
-                  pendingRedirectHref="/personal"
-                />
-              </form>
-            ) : null}
-          </div>
+  const initialPersonalTab =
+    activeTab === "section_members" || activeTab === "page_members" ? "share" : activeTab;
+  const detailsPanelContent = (
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Link href="/personal" className="hover:text-slate-700">
+              Personal
+            </Link>
+            {" / "}
+            {sectionTitle || "General"}
+            {" / "}
+            {pageTitle}
+          </p>
+          <form action={updatePageDetails} className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              name="title"
+              defaultValue={page.title}
+              aria-label="Page title"
+              className="h-8 w-64 rounded-md border border-slate-300 px-3 text-sm"
+            />
+            <select
+              name="section_id"
+              defaultValue={page.section_id || ""}
+              aria-label="Section"
+              className="h-8 w-56 rounded-md border border-slate-300 px-3 text-sm"
+            >
+              <option value="">General</option>
+              {sections?.map((section) => (
+                <option key={section.id} value={section.id}>
+                  {section.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="h-8 rounded-md btn-primary px-3 text-sm font-semibold text-white"
+            >
+              Save title
+            </button>
+          </form>
+          <p className="mt-1 text-xs text-slate-500">
+            {lastEditedAtLabel ? `Last edited ${lastEditedAtLabel}` : "No edit history yet"}
+            {lastEditedByLabel ? ` by ${lastEditedByLabel}` : ""}
+          </p>
         </div>
-      </section>
-    ) : activeTab === "share" ||
-      activeTab === "section_members" ||
-      activeTab === "page_members" ? (
-      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
-        {sharePanelContent}
-      </section>
-    ) : activeTab === "history" ? (
-      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
-        {historyPanelContent}
-      </section>
-    ) : activeTab === "templates" ? (
-      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
-        {templatesPanelContent}
-      </section>
-    ) : null;
-  const editorToolbarTabs = personalPageTabs.map((tab) => ({
-    id: `personal-${tab.key}`,
-    label: tab.label,
-    href: buildPersonalPageTabHref(pageId, tab.key),
-    active:
-      activeTab === tab.key ||
-      (tab.key === "share" &&
-        (activeTab === "section_members" || activeTab === "page_members")),
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <form action={toggleFavorite}>
+            <button
+              type="submit"
+              className={`h-8 rounded-md border px-3 text-sm font-semibold ${
+                pageIsFavorite
+                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+              }`}
+            >
+              {pageIsFavorite ? "Favorited" : "Favorite"}
+            </button>
+          </form>
+
+          {isOwner ? (
+            <form action={deletePersonalPage}>
+              <ConfirmDelete
+                name={pageTitle}
+                itemType="Personal page"
+                triggerLabel={
+                  <span className="inline-flex h-8 items-center rounded-md border border-red-300 bg-red-50 px-3 text-sm font-semibold text-red-700">
+                    Delete
+                  </span>
+                }
+                confirmLabel="Confirm delete page"
+                pendingRedirectHref="/personal"
+              />
+            </form>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+  const getPersonalTabPanel = (tabKey: (typeof personalPageTabs)[number]["key"]) => {
+    switch (tabKey) {
+      case "details":
+        return detailsPanelContent;
+      case "share":
+        return sharePanelContent;
+      case "history":
+        return historyPanelContent;
+      case "templates":
+        return templatesPanelContent;
+      default:
+        return null;
+    }
+  };
+  const personalEditorTabs = personalPageTabs.map((tab) => ({
+    ...tab,
+    panel: getPersonalTabPanel(tab.key),
   }));
 
   return (
@@ -1821,8 +1813,6 @@ export default async function PersonalPage(props: {
               <span className="font-mono"> sql/personal_workspace_user_state.sql</span>.
             </p>
           ) : null}
-
-          {managementPanel}
         </div>
 
         <div className="personal-page-editor-wrap">
@@ -1837,11 +1827,11 @@ export default async function PersonalPage(props: {
             initialRibbonTab={initialRibbonTab}
             initialZoomPercent={initialZoomPercent}
             initialFocusMode={initialFocusMode}
-            adjacentToolbarTabs={editorToolbarTabs}
+            initialPersonalTab={initialPersonalTab}
+            personalTabs={personalEditorTabs}
           />
         </div>
       </div>
-
     </div>
   );
 }

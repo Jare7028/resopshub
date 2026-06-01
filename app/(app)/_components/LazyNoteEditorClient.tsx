@@ -64,18 +64,38 @@ export default function LazyNoteEditorClient({
       {editorProps.adjacentToolbarTabs?.length ? (
         <div className="mb-2 flex min-w-0 flex-wrap items-center gap-1 border-b border-slate-200 px-1">
           {editorProps.adjacentToolbarTabs.map((tab) => (
-            <a
-              key={tab.id}
-              href={tab.href}
-              className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
-                tab.active
-                  ? "border-slate-300 bg-white text-slate-900"
-                  : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {tab.label}
-            </a>
+            tab.onSelect ? (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={tab.onSelect}
+                className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
+                  tab.active
+                    ? "border-slate-300 bg-white text-slate-900"
+                    : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ) : (
+              <a
+                key={tab.id}
+                href={tab.href}
+                className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
+                  tab.active
+                    ? "border-slate-300 bg-white text-slate-900"
+                    : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {tab.label}
+              </a>
+            )
           ))}
+        </div>
+      ) : null}
+      {editorProps.toolbarPanel ? (
+        <div className="mb-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+          {editorProps.toolbarPanel}
         </div>
       ) : null}
       <div className="flex flex-wrap items-start justify-between gap-3">

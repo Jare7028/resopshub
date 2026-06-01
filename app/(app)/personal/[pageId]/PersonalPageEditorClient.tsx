@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NoteEditorClient from "../../_components/LazyNoteEditorClient";
 import type {
   ContextMenuFavoriteActionId,
@@ -19,6 +20,26 @@ import type { PersonalWorkspaceRibbonTab } from "../types";
 import { uploadPersonalPageImage } from "@/lib/personalPageImageUpload";
 import { supabase } from "@/lib/supabaseClient";
 
+type PersonalEditorTabKey = "notes" | "details" | "share" | "history" | "templates";
+
+type PersonalEditorTab = {
+  key: PersonalEditorTabKey;
+  label: string;
+  panel?: ReactNode;
+};
+
+function normalizePersonalEditorTab(value: string | null | undefined): PersonalEditorTabKey {
+  if (
+    value === "details" ||
+    value === "share" ||
+    value === "history" ||
+    value === "templates"
+  ) {
+    return value;
+  }
+  return "notes";
+}
+
 export default function PersonalPageEditorClient({
   pageId,
   initialContent,
@@ -30,7 +51,8 @@ export default function PersonalPageEditorClient({
   initialRibbonTab = "home",
   initialZoomPercent = 100,
   initialFocusMode = false,
-  adjacentToolbarTabs = [],
+  initialPersonalTab = "notes",
+  personalTabs,
 }: {
   pageId: string;
   initialContent: unknown;
@@ -42,14 +64,13 @@ export default function PersonalPageEditorClient({
   initialRibbonTab?: PersonalWorkspaceRibbonTab;
   initialZoomPercent?: number;
   initialFocusMode?: boolean;
-  adjacentToolbarTabs?: ReadonlyArray<{
-    id: string;
-    label: string;
-    href: string;
-    active?: boolean;
-  }>;
+  initialPersonalTab?: PersonalEditorTabKey;
+  personalTabs: ReadonlyArray<PersonalEditorTab>;
 }) {
   const expectedUpdatedAtRef = useRef<string | null>(initialUpdatedAt ?? null);
+  const [activePersonalTab, setActivePersonalTab] = useState<PersonalEditorTabKey>(() =>
+    normalizePersonalEditorTab(initialPersonalTab)
+  );
   const [liveContentSnapshot, setLiveContentSnapshot] = useState<NoteLiveContentSnapshot | null>(
     null
   );
@@ -66,6 +87,10 @@ export default function PersonalPageEditorClient({
   useEffect(() => {
     setShellFocusModeActive(Boolean(initialFocusMode));
   }, [initialFocusMode, pageId]);
+
+  useEffect(() => {
+    setActivePersonalTab(normalizePersonalEditorTab(initialPersonalTab));
+  }, [initialPersonalTab, pageId]);
 
   useEffect(() => {
     const bodyClassName = "personal-focus-mode";
@@ -160,6 +185,25 @@ export default function PersonalPageEditorClient({
   const handleLiveSnapshotApplied = useCallback((updatedAt: string | null) => {
     expectedUpdatedAtRef.current = updatedAt;
   }, []);
+  const handleRibbonTabSelect = useCallback(() => {
+    setActivePersonalTab("notes");
+  }, []);
+  const adjacentToolbarTabs = useMemo(
+    () =>
+      personalTabs.map((tab) => ({
+        id: `personal-${tab.key}`,
+        label: tab.label,
+        active: activePersonalTab === tab.key,
+        onSelect: () => setActivePersonalTab(tab.key),
+      })),
+    [activePersonalTab, personalTabs]
+  );
+  const activePanel = useMemo(() => {
+    if (activePersonalTab === "notes") {
+      return null;
+    }
+    return personalTabs.find((tab) => tab.key === activePersonalTab)?.panel ?? null;
+  }, [activePersonalTab, personalTabs]);
 
   return (
     <NoteEditorClient
@@ -177,6 +221,9 @@ export default function PersonalPageEditorClient({
       lastEditedByLabel={lastEditedByLabel}
       showTopToolbar
       adjacentToolbarTabs={adjacentToolbarTabs}
+      toolbarPanel={activePanel}
+      suppressToolbarGroups={activePersonalTab !== "notes"}
+      onRibbonTabSelect={handleRibbonTabSelect}
       enableZoomControls
       disableHorizontalScroll
       contextMenuMode="favorites"
@@ -192,7 +239,7 @@ export default function PersonalPageEditorClient({
       onFocusModeChange={handleFocusModeChange}
       debugImagePersistence
       enforceImageNodeIntegrity
-      initiallyEditing={initialFocusMode}
+      initiallyEditing
       editButtonLabel="Edit page"
     />
   );

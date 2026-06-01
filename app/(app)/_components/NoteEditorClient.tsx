@@ -170,9 +170,13 @@ export type NoteEditorClientProps = {
   adjacentToolbarTabs?: ReadonlyArray<{
     id: string;
     label: string;
-    href: string;
+    href?: string;
     active?: boolean;
+    onSelect?: () => void;
   }>;
+  toolbarPanel?: ReactNode;
+  suppressToolbarGroups?: boolean;
+  onRibbonTabSelect?: (tabId: RibbonTabId) => void;
   enableZoomControls?: boolean;
   disableHorizontalScroll?: boolean;
   blockNavigationWhileSaving?: boolean;
@@ -2650,6 +2654,9 @@ export default function NoteEditorClient({
   lastEditedByLabel,
   showTopToolbar = true,
   adjacentToolbarTabs = [],
+  toolbarPanel,
+  suppressToolbarGroups = false,
+  onRibbonTabSelect,
   enableZoomControls = false,
   disableHorizontalScroll = false,
   blockNavigationWhileSaving = true,
@@ -5876,6 +5883,7 @@ export default function NoteEditorClient({
   const isLayoutTab = activeRibbonTab === "layout";
   const isReviewTab = activeRibbonTab === "review";
   const isViewTab = activeRibbonTab === "view";
+  const editorRibbonTabIsActive = !suppressToolbarGroups;
   const selectedOverlayLabel = selectedOverlayNode
     ? selectedOverlayNode.node.type.name === "noteShape"
       ? "Shape selected"
@@ -5962,11 +5970,14 @@ export default function NoteEditorClient({
                   <button
                     key={tab.id}
                     type="button"
-                    onClick={() => setActiveRibbonTab(tab.id)}
+                    onClick={() => {
+                      setActiveRibbonTab(tab.id);
+                      onRibbonTabSelect?.(tab.id);
+                    }}
                     role="tab"
-                    aria-selected={isActive}
+                    aria-selected={editorRibbonTabIsActive && isActive}
                     className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
-                      isActive
+                      editorRibbonTabIsActive && isActive
                         ? "border-slate-300 bg-white text-slate-900"
                         : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
                     }`}
@@ -5979,17 +5990,36 @@ export default function NoteEditorClient({
                 <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
               ) : null}
               {adjacentToolbarTabs.map((tab) => (
-                <a
-                  key={tab.id}
-                  href={tab.href}
-                  className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
+                tab.onSelect ? (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={tab.onSelect}
+                    role="tab"
+                    aria-selected={Boolean(tab.active)}
+                    className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
+                      tab.active
+                        ? "border-slate-300 bg-white text-slate-900"
+                        : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ) : (
+                  <a
+                    key={tab.id}
+                    href={tab.href}
+                    role="tab"
+                    aria-selected={Boolean(tab.active)}
+                    className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
                     tab.active
                       ? "border-slate-300 bg-white text-slate-900"
                       : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
                   }`}
-                >
-                  {tab.label}
-                </a>
+                  >
+                    {tab.label}
+                  </a>
+                )
               ))}
             </div>
             <div
@@ -6006,16 +6036,19 @@ export default function NoteEditorClient({
                 : "Ready"}
             </div>
           </div>
-          <div
-            className={`-mx-1 px-1 ${
-              disableHorizontalScroll ? "overflow-x-hidden" : "overflow-x-auto"
-            }`}
-          >
+          {suppressToolbarGroups ? (
+            toolbarPanel ? <div className="-mx-1 px-1 pb-1">{toolbarPanel}</div> : null
+          ) : (
             <div
-              className={`flex items-start gap-1.5 ${
-                disableHorizontalScroll ? "flex-wrap" : "min-w-max"
+              className={`-mx-1 px-1 ${
+                disableHorizontalScroll ? "overflow-x-hidden" : "overflow-x-auto"
               }`}
             >
+              <div
+                className={`flex items-start gap-1.5 ${
+                  disableHorizontalScroll ? "flex-wrap" : "min-w-max"
+                }`}
+              >
               {isHomeTab ? (
                 <>
                   <RibbonGroup title="Clipboard">
@@ -6431,8 +6464,9 @@ export default function NoteEditorClient({
                   </RibbonGroup>
                 </>
               ) : null}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : null}
 
