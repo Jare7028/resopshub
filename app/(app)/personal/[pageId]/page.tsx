@@ -222,15 +222,30 @@ function normalizeContextMenuFavorites(value: unknown) {
   return Array.from(new Set(next));
 }
 
-type PersonalPageTabKey = "notes" | "section_members" | "page_members";
+type PersonalPageTabKey =
+  | "notes"
+  | "details"
+  | "share"
+  | "history"
+  | "templates"
+  | "section_members"
+  | "page_members";
 
 function normalizePersonalPageTabKey(value: string | null | undefined): PersonalPageTabKey {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
+  if (normalized === "details") return "details";
+  if (normalized === "share") return "share";
+  if (normalized === "history") return "history";
+  if (normalized === "templates") return "templates";
   if (normalized === "section_members") return "section_members";
   if (normalized === "page_members") return "page_members";
   return "notes";
+}
+
+function buildPersonalPageTabHref(pageId: string, tab: PersonalPageTabKey) {
+  return tab === "notes" ? `/personal/${pageId}` : `/personal/${pageId}?tab=${tab}`;
 }
 
 export default async function PersonalPage(props: {
@@ -268,19 +283,15 @@ export default async function PersonalPage(props: {
   const pageId = page.id;
   const pageTitle = page.title || "Personal page";
   const pageContent = page.content ?? null;
-  const activeTab = normalizePersonalPageTabKey(searchParams?.tab);
   const panelParam = String(searchParams?.panel || "")
     .trim()
     .toLowerCase();
-  const activePanel: "none" | "share" | "history" | "templates" =
-    panelParam === "share" ||
-    panelParam === "history" ||
-    panelParam === "templates" ||
-    panelParam === "none"
-      ? (panelParam as "none" | "share" | "history" | "templates")
-      : activeTab === "section_members" || activeTab === "page_members"
-      ? "share"
-      : "none";
+  const activeTabFromQuery = normalizePersonalPageTabKey(searchParams?.tab);
+  const activeTab: PersonalPageTabKey =
+    activeTabFromQuery === "notes" &&
+    (panelParam === "share" || panelParam === "history" || panelParam === "templates")
+      ? panelParam
+      : activeTabFromQuery;
   const focusFromQuery = String(searchParams?.focus || "0") === "1";
   const sectionId = page.section_id;
   const pageOwnerId = page.owner_id;
@@ -1663,8 +1674,109 @@ export default async function PersonalPage(props: {
       </section>
     </div>
   );
+  const personalPageTabs = [
+    { key: "notes", label: "Notes" },
+    { key: "details", label: "Details" },
+    { key: "share", label: "Share" },
+    { key: "history", label: "History" },
+    { key: "templates", label: "Templates" },
+  ] as const;
+  const managementPanel =
+    activeTab === "details" ? (
+      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Link href="/personal" className="hover:text-slate-700">
+                Personal
+              </Link>
+              {" / "}
+              {sectionTitle || "General"}
+              {" / "}
+              {pageTitle}
+            </p>
+            <form action={updatePageDetails} className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                name="title"
+                defaultValue={page.title}
+                aria-label="Page title"
+                className="h-9 w-64 rounded-md border border-slate-300 px-3 text-sm"
+              />
+              <select
+                name="section_id"
+                defaultValue={page.section_id || ""}
+                aria-label="Section"
+                className="h-9 w-56 rounded-md border border-slate-300 px-3 text-sm"
+              >
+                <option value="">General</option>
+                {sections?.map((section) => (
+                  <option key={section.id} value={section.id}>
+                    {section.title}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="h-9 rounded-md btn-primary px-4 text-sm font-semibold text-white"
+              >
+                Save title
+              </button>
+            </form>
+            <p className="mt-2 text-xs text-slate-500">
+              {lastEditedAtLabel ? `Last edited ${lastEditedAtLabel}` : "No edit history yet"}
+              {lastEditedByLabel ? ` by ${lastEditedByLabel}` : ""}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <form action={toggleFavorite}>
+              <button
+                type="submit"
+                className={`h-9 rounded-md border px-3 text-sm font-semibold ${
+                  pageIsFavorite
+                    ? "border-amber-300 bg-amber-50 text-amber-700"
+                    : "border-slate-300 text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                {pageIsFavorite ? "Favorited" : "Favorite"}
+              </button>
+            </form>
+
+            {isOwner ? (
+              <form action={deletePersonalPage}>
+                <ConfirmDelete
+                  name={pageTitle}
+                  itemType="Personal page"
+                  triggerLabel={
+                    <span className="inline-flex h-9 items-center rounded-md border border-red-300 bg-red-50 px-3 text-sm font-semibold text-red-700">
+                      Delete
+                    </span>
+                  }
+                  confirmLabel="Confirm delete page"
+                  pendingRedirectHref="/personal"
+                />
+              </form>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    ) : activeTab === "share" ||
+      activeTab === "section_members" ||
+      activeTab === "page_members" ? (
+      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
+        {sharePanelContent}
+      </section>
+    ) : activeTab === "history" ? (
+      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
+        {historyPanelContent}
+      </section>
+    ) : activeTab === "templates" ? (
+      <section className="rounded-md border border-slate-200 bg-white px-3 py-3">
+        {templatesPanelContent}
+      </section>
+    ) : null;
   return (
-    <div className="personal-page-layout space-y-4 xl:flex xl:h-[calc(100vh-8.5rem)] xl:items-start xl:gap-4 xl:space-y-0 xl:overflow-hidden">
+    <div className="personal-page-layout space-y-3 xl:flex xl:h-[calc(100vh-6.5rem)] xl:items-start xl:gap-4 xl:space-y-0 xl:overflow-hidden">
       <div className="personal-page-sidebar">
         <PersonalSidebarTree
           sections={sidebarTree.sections}
@@ -1676,8 +1788,8 @@ export default async function PersonalPage(props: {
         />
       </div>
 
-      <div className="personal-page-main space-y-4 xl:h-full xl:min-h-0 xl:min-w-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
-        <div className="personal-page-chrome space-y-4">
+      <div className="personal-page-main space-y-2 xl:h-full xl:min-h-0 xl:min-w-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
+        <div className="personal-page-chrome space-y-2">
           {(searchParams?.error || searchParams?.success) && (
             <div className="space-y-2">
               {searchParams?.error ? (
@@ -1700,131 +1812,37 @@ export default async function PersonalPage(props: {
             </p>
           ) : null}
 
-          <section className="rounded-lg border border-slate-200 bg-white px-4 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <Link href="/personal" className="hover:text-slate-700">
-                    Personal
+          <nav className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 text-sm">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {personalPageTabs.map((tab) => {
+                const isActive =
+                  activeTab === tab.key ||
+                  (tab.key === "share" &&
+                    (activeTab === "section_members" || activeTab === "page_members"));
+                return (
+                  <Link
+                    key={tab.key}
+                    href={buildPersonalPageTabHref(pageId, tab.key)}
+                    className={`rounded-md px-3 py-1.5 font-medium ${
+                      isActive
+                        ? "tab-active"
+                        : "border border-slate-200 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    {tab.label}
                   </Link>
-                  {" / "}
-                  {sectionTitle || "General"}
-                  {" / "}
-                  {pageTitle}
-                </p>
-                <form action={updatePageDetails} className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    name="title"
-                    defaultValue={page.title}
-                    aria-label="Page title"
-                    className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                  />
-                  <select
-                    name="section_id"
-                    defaultValue={page.section_id || ""}
-                    aria-label="Section"
-                    className="w-56 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                  >
-                    <option value="">General</option>
-                    {sections?.map((section) => (
-                      <option key={section.id} value={section.id}>
-                        {section.title}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="submit"
-                    className="rounded-md btn-primary px-4 py-1.5 text-sm font-semibold text-white"
-                  >
-                    Save title
-                  </button>
-                </form>
-                <p className="mt-2 text-xs text-slate-500">
-                  {lastEditedAtLabel ? `Last edited ${lastEditedAtLabel}` : "No edit history yet"}
-                  {lastEditedByLabel ? ` by ${lastEditedByLabel}` : ""}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <form action={toggleFavorite}>
-                  <button
-                    type="submit"
-                    className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
-                      pageIsFavorite
-                        ? "border-amber-300 bg-amber-50 text-amber-700"
-                        : "border-slate-300 text-slate-700 hover:border-slate-400"
-                    }`}
-                  >
-                    {pageIsFavorite ? "Favorited" : "Favorite"}
-                  </button>
-                </form>
-
-                <details className="relative" open={activePanel === "share"}>
-                  <summary
-                    className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
-                      activePanel === "share"
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-300 text-slate-700 hover:border-slate-400"
-                    }`}
-                  >
-                    Share
-                  </summary>
-                  <div className="absolute right-0 z-40 mt-2 w-[34rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                    <div className="max-h-[70vh] overflow-auto p-3">{sharePanelContent}</div>
-                  </div>
-                </details>
-
-                <details className="relative" open={activePanel === "history"}>
-                  <summary
-                    className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
-                      activePanel === "history"
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-300 text-slate-700 hover:border-slate-400"
-                    }`}
-                  >
-                    History
-                  </summary>
-                  <div className="absolute right-0 z-40 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                    <div className="max-h-[70vh] overflow-auto p-3">{historyPanelContent}</div>
-                  </div>
-                </details>
-
-                <details className="relative" open={activePanel === "templates"}>
-                  <summary
-                    className={`list-none cursor-pointer rounded-md border px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden ${
-                      activePanel === "templates"
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-300 text-slate-700 hover:border-slate-400"
-                    }`}
-                  >
-                    Templates
-                  </summary>
-                  <div className="absolute right-0 z-40 mt-2 w-[24rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                    <div className="max-h-[70vh] overflow-auto p-3">{templatesPanelContent}</div>
-                  </div>
-                </details>
-
-                {isOwner ? (
-                  <form action={deletePersonalPage}>
-                    <ConfirmDelete
-                      name={pageTitle}
-                      itemType="Personal page"
-                      triggerLabel={
-                        <span className="inline-flex rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700">
-                          Delete
-                        </span>
-                      }
-                      confirmLabel="Confirm delete page"
-                      pendingRedirectHref="/personal"
-                    />
-                  </form>
-                ) : null}
-              </div>
+                );
+              })}
             </div>
-          </section>
+            <p className="min-w-0 truncate text-xs text-slate-500">
+              {sectionTitle || "General"} / {pageTitle}
+            </p>
+          </nav>
+
+          {managementPanel}
         </div>
 
-        <div className="personal-page-editor-wrap space-y-3">
+        <div className="personal-page-editor-wrap">
           <PersonalPageEditorClient
             pageId={page.id}
             initialContent={page.content ?? null}
