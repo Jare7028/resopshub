@@ -5,6 +5,7 @@ import {
   validateUploadImageFile,
 } from "@/lib/imageUploadValidation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logError, logWarn } from "@/lib/vercelLogger";
 
 const PERSONAL_NOTE_IMAGES_BUCKET = "personal-note-images";
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -86,13 +87,13 @@ export async function POST(
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    console.error("[personal.image.debug] upload_missing_file", { pageId, userId: user.id });
+    logWarn("personal.image.upload.missing_file", { pageId, userId: user.id });
     return NextResponse.json({ error: "Missing image file" }, { status: 400 });
   }
 
   const validation = validateUploadImageFile(file, { maxSizeBytes: MAX_IMAGE_SIZE_BYTES });
   if (!validation.ok) {
-    console.error("[personal.image.debug] upload_invalid_type", {
+    logWarn("personal.image.upload.invalid_file", {
       pageId,
       userId: user.id,
       type: file.type,
@@ -108,7 +109,7 @@ export async function POST(
     .maybeSingle();
 
   if (pageError) {
-    console.error("[personal.image.debug] upload_page_lookup_error", {
+    logError("personal.image.upload.page_lookup_failed", {
       pageId,
       userId: user.id,
       message: pageError.message,
@@ -117,7 +118,7 @@ export async function POST(
   }
 
   if (!page) {
-    console.error("[personal.image.debug] upload_page_not_found", { pageId, userId: user.id });
+    logWarn("personal.image.upload.page_not_found", { pageId, userId: user.id });
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
@@ -134,7 +135,7 @@ export async function POST(
       user.id
     );
   } catch (error) {
-    console.error("[personal.image.debug] upload_permission_check_error", {
+    logError("personal.image.upload.permission_check_failed", {
       pageId,
       userId: user.id,
       message: error instanceof Error ? error.message : String(error),
@@ -148,7 +149,7 @@ export async function POST(
   }
 
   if (!canEdit) {
-    console.error("[personal.image.debug] upload_forbidden", { pageId, userId: user.id });
+    logWarn("personal.image.upload.forbidden", { pageId, userId: user.id });
     return NextResponse.json({ error: "You do not have permission to edit this page" }, { status: 403 });
   }
 
@@ -166,7 +167,7 @@ export async function POST(
     });
 
   if (uploadError) {
-    console.error("[personal.image.debug] upload_storage_error", {
+    logError("personal.image.upload.storage_failed", {
       pageId,
       userId: user.id,
       storagePath,
@@ -180,22 +181,13 @@ export async function POST(
     .getPublicUrl(storagePath);
   const publicUrl = String(publicUrlData.publicUrl || "").trim();
   if (!publicUrl) {
-    console.error("[personal.image.debug] upload_public_url_missing", {
+    logError("personal.image.upload.public_url_missing", {
       pageId,
       userId: user.id,
       storagePath,
     });
     return NextResponse.json({ error: "Unable to create image URL" }, { status: 500 });
   }
-
-  console.error("[personal.image.debug] upload_success", {
-    pageId,
-    userId: user.id,
-    storagePath,
-    publicUrl: publicUrl.slice(0, 180),
-    sizeBytes: file.size,
-    mimeType: validation.mimeType,
-  });
 
   return NextResponse.json({
     image: {

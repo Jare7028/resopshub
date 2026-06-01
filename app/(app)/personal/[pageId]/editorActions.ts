@@ -10,6 +10,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
+import { logDebug } from "@/lib/vercelLogger";
 
 function isMissingColumnError(error: unknown) {
   if (!error || typeof error !== "object") {
@@ -81,7 +82,7 @@ export async function updatePersonalPageContent(
   // Personal pages persist content as-authored to avoid image-loss from server-side transforms.
   const canonicalContent = content;
   const inputImageSummary = summarizeImageNodes(canonicalContent);
-  console.error("[personal.image.debug] update_start", {
+  logDebug("personal.image.update.start", {
     pageId,
     editorId,
     inputImageSummary,
@@ -227,7 +228,7 @@ export async function updatePersonalPageContent(
   revalidatePath(`/personal/${pageId}`);
   revalidatePath("/personal");
 
-  console.error("[personal.image.debug] update_saved", {
+  logDebug("personal.image.update.saved", {
     pageId,
     editorId,
     updatedAt: savedUpdatedAt,

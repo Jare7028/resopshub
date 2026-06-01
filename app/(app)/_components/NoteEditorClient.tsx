@@ -2786,6 +2786,8 @@ export default function NoteEditorClient({
     () => parseTimestampMs(initialUpdatedAt),
     [initialUpdatedAt]
   );
+  const imageDebugEnabled =
+    debugImagePersistence && process.env.NEXT_PUBLIC_NOTE_IMAGE_DEBUG === "1";
 
   useEffect(() => {
     pendingLiveSnapshotRef.current = null;
@@ -2801,7 +2803,10 @@ export default function NoteEditorClient({
 
   const logSaveDebug = useCallback(
     (event: string, payload?: Record<string, unknown>) => {
-      if (process.env.NODE_ENV === "production") {
+      if (
+        process.env.NODE_ENV === "production" ||
+        process.env.NEXT_PUBLIC_NOTE_SAVE_DEBUG !== "1"
+      ) {
         return;
       }
       console.debug("[noteEditor.save]", {
@@ -2854,7 +2859,7 @@ export default function NoteEditorClient({
         queue.splice(0, queue.length - UPLOADED_IMAGE_SRC_QUEUE_LIMIT);
       }
 
-      if (debugImagePersistence) {
+      if (imageDebugEnabled) {
         console.info("[noteEditor.image.debug] queue_push", {
           entityId,
           reason,
@@ -2863,7 +2868,7 @@ export default function NoteEditorClient({
         });
       }
     },
-    [debugImagePersistence, enforceImageNodeIntegrity, entityId]
+    [imageDebugEnabled, enforceImageNodeIntegrity, entityId]
   );
 
   const resolveImageSourceFromFile = useCallback(
@@ -2874,7 +2879,7 @@ export default function NoteEditorClient({
       if (file.size > MAX_UPLOADED_IMAGE_BYTES) {
         throw new Error("Image is too large. Use images up to 10 MB.");
       }
-      if (debugImagePersistence) {
+      if (imageDebugEnabled) {
         console.info("[noteEditor.image.debug] resolve_source_start", {
           entityId,
           name: file.name,
@@ -2888,7 +2893,7 @@ export default function NoteEditorClient({
           const uploadedSrc = String((await onUploadImageFile(file)) || "").trim();
           if (uploadedSrc) {
             pushUploadedImageSrcToQueue(uploadedSrc, "upload");
-            if (debugImagePersistence) {
+            if (imageDebugEnabled) {
               console.info("[noteEditor.image.debug] resolve_source_uploaded", {
                 entityId,
                 src: uploadedSrc.slice(0, 180),
@@ -2897,7 +2902,7 @@ export default function NoteEditorClient({
             return uploadedSrc;
           }
         } catch (error) {
-          if (debugImagePersistence) {
+          if (imageDebugEnabled) {
             console.warn("[noteEditor.image.debug] resolve_source_upload_failed", {
               entityId,
               message: error instanceof Error ? error.message : String(error),
@@ -2916,7 +2921,7 @@ export default function NoteEditorClient({
       const inlineSrc = await optimizeImageForInlineInsert(file);
       assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
       pushUploadedImageSrcToQueue(inlineSrc, "inline");
-      if (debugImagePersistence) {
+      if (imageDebugEnabled) {
         console.info("[noteEditor.image.debug] resolve_source_inline_fallback", {
           entityId,
           dataUrlLength: inlineSrc.length,
@@ -2925,7 +2930,7 @@ export default function NoteEditorClient({
       return inlineSrc;
     },
     [
-      debugImagePersistence,
+      imageDebugEnabled,
       entityId,
       onUploadImageFile,
       pushUploadedImageSrcToQueue,
@@ -3039,7 +3044,7 @@ export default function NoteEditorClient({
           uploadedImageSrcQueueRef.current = repairedMissingSources.remainingQueue.slice(
             -UPLOADED_IMAGE_SRC_QUEUE_LIMIT
           );
-          if (debugImagePersistence) {
+          if (imageDebugEnabled) {
             console.info("[noteEditor.image.debug] save_missing_src_repair", {
               entityId,
               requestVersion,
@@ -3049,14 +3054,16 @@ export default function NoteEditorClient({
             });
           }
           if (repairedMissingSources.unresolvedCount > 0) {
-            console.error("[personal.image.debug] blocked_missing_src_save", {
-              pageId: entityId,
-              unresolvedCount: repairedMissingSources.unresolvedCount,
-            });
+            if (imageDebugEnabled) {
+              console.error("[noteEditor.image.debug] blocked_missing_src_save", {
+                entityId,
+                unresolvedCount: repairedMissingSources.unresolvedCount,
+              });
+            }
             throw new Error(MISSING_IMAGE_SRC_SAVE_BLOCK_MESSAGE);
           }
         }
-        if (debugImagePersistence) {
+        if (imageDebugEnabled) {
           const payloadSummary = summarizeImageNodes(savePayload);
           if (payloadSummary.total > 0) {
             console.info("[noteEditor.image.debug] save_payload", {
@@ -3076,7 +3083,7 @@ export default function NoteEditorClient({
           hasCanonicalContent
             ? normalizeContent((saveResult as NoteSaveResult).content)
             : savePayload;
-        if (debugImagePersistence) {
+        if (imageDebugEnabled) {
           const canonicalSummary = summarizeImageNodes(canonicalContent);
           if (canonicalSummary.total > 0) {
             console.info("[noteEditor.image.debug] save_canonical_content", {
@@ -3121,7 +3128,7 @@ export default function NoteEditorClient({
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unable to save your changes.";
-        if (debugImagePersistence) {
+        if (imageDebugEnabled) {
           const payloadSummary = summarizeImageNodes(json);
           if (payloadSummary.total > 0) {
             console.error("[noteEditor.image.debug] save_error_with_images", {
@@ -3150,7 +3157,7 @@ export default function NoteEditorClient({
       }
     },
     [
-      debugImagePersistence,
+      imageDebugEnabled,
       enforceImageNodeIntegrity,
       entityId,
       logSaveDebug,
@@ -3889,7 +3896,7 @@ export default function NoteEditorClient({
     if (!nextSrc) {
       return false;
     }
-    if (debugImagePersistence) {
+    if (imageDebugEnabled) {
       console.info("[noteEditor.image.debug] insert_image", {
         entityId,
         src: nextSrc.slice(0, 180),
@@ -3897,7 +3904,7 @@ export default function NoteEditorClient({
     }
     const currentEditor = editorRef.current;
     if (!currentEditor) {
-      if (debugImagePersistence) {
+      if (imageDebugEnabled) {
         console.warn("[noteEditor.image.debug] insert_image_no_editor", { entityId });
       }
       return false;
@@ -3909,7 +3916,7 @@ export default function NoteEditorClient({
       schemaNodeNames.find((name) => name.toLowerCase().includes("image")) ||
       null;
 
-    if (debugImagePersistence) {
+    if (imageDebugEnabled) {
       console.info("[noteEditor.image.debug] insert_image_node_type", {
         entityId,
         imageNodeTypeName,
@@ -3946,7 +3953,7 @@ export default function NoteEditorClient({
           return true;
         })
         .run();
-      if (debugImagePersistence) {
+      if (imageDebugEnabled) {
         console.info("[noteEditor.image.debug] repair_missing_src_attempt", {
           entityId,
           missingPos,
@@ -3981,7 +3988,7 @@ export default function NoteEditorClient({
           inserted = true;
         } else {
           inserted = false;
-          if (debugImagePersistence) {
+          if (imageDebugEnabled) {
             console.warn("[noteEditor.image.debug] set_image_no_matching_src", {
               entityId,
               nextSrc: nextSrc.slice(0, 180),
@@ -4015,7 +4022,7 @@ export default function NoteEditorClient({
         })
         .insertContentAt(docEndPos, baseImageNode)
         .run();
-      if (debugImagePersistence) {
+      if (imageDebugEnabled) {
         console.info("[noteEditor.image.debug] insert_image_fallback", {
           entityId,
           docEndPos,
@@ -4035,7 +4042,7 @@ export default function NoteEditorClient({
             inserted = true;
           } else {
             inserted = false;
-            if (debugImagePersistence) {
+            if (imageDebugEnabled) {
               console.warn("[noteEditor.image.debug] fallback_no_matching_src", {
                 entityId,
                 nextSrc: nextSrc.slice(0, 180),
@@ -4050,14 +4057,14 @@ export default function NoteEditorClient({
       }
     }
 
-    if (!inserted && debugImagePersistence) {
+    if (!inserted && imageDebugEnabled) {
       console.error("[noteEditor.image.debug] insert_image_failed", {
         entityId,
         src: nextSrc.slice(0, 180),
       });
     }
     return inserted;
-  }, [debugImagePersistence, entityId]);
+  }, [imageDebugEnabled, entityId]);
 
   const insertImageFromFileWithSave = useCallback(
     async (file: File) => {
@@ -4370,7 +4377,7 @@ export default function NoteEditorClient({
         initialImageIntegrity.removedCount === 1 ? "" : "s"
       } removed from this page. Re-paste images if needed.`
     );
-    if (debugImagePersistence) {
+    if (imageDebugEnabled) {
       console.warn("[noteEditor.image.debug] load_removed_missing_src", {
         entityId,
         removedCount: initialImageIntegrity.removedCount,
@@ -4378,7 +4385,7 @@ export default function NoteEditorClient({
     }
     void persistEditorSaveImmediate(initialImageIntegrity.content);
   }, [
-    debugImagePersistence,
+    imageDebugEnabled,
     editor,
     enforceImageNodeIntegrity,
     entityId,

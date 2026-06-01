@@ -66,12 +66,14 @@ Updated 2026-06-01:
 - Completed: F-011 cron authorization tightening. `x-vercel-cron` is now trusted only on production Vercel deployments; other environments require `CRON_SECRET`.
 - Completed: F-004 task quick-add slice. The default `/tasks` add flow now opens a focused client modal for title, notes, and optional subtasks, backed by a dedicated server action that returns the created task summary without forcing the route-modal flow. The existing `/tasks?tab=add` route remains available as Advanced options for recurrence/templates/full metadata.
 - Open: F-004 follow-up for other route-driven modal workflows outside the default task quick-add path.
+- Completed: F-009 personal image/editor observability slice. Personal image upload/save success paths no longer log as errors, personal image upload failures now use the structured server logger, note editor image/save debug output requires explicit public debug flags, and `lib/vercelLogger.test.ts` covers structured output, log-level filtering, redaction, errors, and bigint serialization.
+- Open: F-009 follow-up for the remaining broad console logging inventory outside the personal image/editor path.
 - Open: F-005 through F-015 except F-011. These remain the main refactor, test, observability, docs, and tooling backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npm test`: passed, 27 files and 150 tests.
+- `npm test`: passed, 28 files and 153 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -341,10 +343,10 @@ Verification needed:
 
 Evidence:
 
-- Static scan found 93 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`.
-- `app/(app)/_components/NoteEditorClient.tsx` contains many image debug logs, including lines `2864`, `2878`, `2892`, `2920`, `3062`, `3082`, `3893`, and others.
-- `app/api/personal/pages/[pageId]/images/route.ts:213` logs upload success via `console.error`.
-- `lib/vercelLogger.ts` exists but has very low coverage from `npm run test:coverage`.
+- Original static scan found 93 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`; after the personal image/editor observability slice this is down to 78.
+- `app/(app)/_components/NoteEditorClient.tsx` still contains image debug log call sites, but they now require `NEXT_PUBLIC_NOTE_IMAGE_DEBUG=1`; save-coordinator debug logging now requires `NEXT_PUBLIC_NOTE_SAVE_DEBUG=1`.
+- `app/api/personal/pages/[pageId]/images/route.ts` no longer logs successful uploads via `console.error`; upload failure paths now use `logWarn`/`logError` from `lib/vercelLogger.ts`.
+- `lib/vercelLogger.test.ts` now covers structured output, redaction, log-level filtering, errors, and bigint serialization.
 
 User/business impact:
 
@@ -353,17 +355,19 @@ User/business impact:
 
 Recommended fix:
 
-- Route server logs through one structured logger with levels, request IDs, user IDs where safe, route names, and error codes.
-- Remove client debug logs or gate them behind a development flag.
-- Stop using `console.error` for successful operations.
-- Add tests for logger formatting and redaction.
+- Done for the personal image upload/save path: route server failure logs through one structured logger with levels and safe context fields.
+- Done for note editor image/save diagnostics: gate client debug logs behind explicit development/debug flags.
+- Done for the personal image upload path: stop using `console.error` for successful operations.
+- Done for the logger core: add tests for logger formatting, redaction, level filtering, error serialization, and bigint serialization.
+- Continue migrating the remaining console inventory by product area instead of doing one risky mechanical rewrite.
 
 Estimated effort: small to medium.
 
 Verification needed:
 
-- Production log sample shows no expected-success `error` events.
-- Simulated task creation failure emits one structured error with enough context to debug it.
+- Production log sample shows no expected-success `error` events for personal image uploads.
+- Simulated personal image upload failures emit one structured warning/error with enough context to debug it.
+- Continue with broader route-level logging checks for task creation and other customer-critical flows.
 
 ### F-010 - P2 - Security and Scalability - Security-definer and RLS surface needs an inventory and regression tests
 

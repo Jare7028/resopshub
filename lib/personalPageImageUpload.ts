@@ -22,24 +22,13 @@ export async function uploadPersonalPageImage(input: { pageId: string; file: Fil
   };
 
   if (!response.ok) {
-    console.warn("[personal.image.debug] upload_response_error", {
-      pageId,
-      status: response.status,
-      error: payload.error || "Unable to upload image.",
-    });
     throw new Error(payload.error || "Unable to upload image.");
   }
 
   const uploadedUrl = String(payload.image?.url || "").trim();
   if (!uploadedUrl) {
-    console.warn("[personal.image.debug] upload_response_missing_url", { pageId });
     throw new Error("Image upload did not return a URL.");
   }
-
-  console.info("[personal.image.debug] upload_response_success", {
-    pageId,
-    url: uploadedUrl.slice(0, 180),
-  });
 
   return uploadedUrl;
 }
