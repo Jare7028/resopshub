@@ -64,8 +64,18 @@ Updated 2026-06-01:
 - Completed: F-002 for the user-facing search/filter paths called out in the finding. Search suggestions, search fallback, mentions, forms, and feature suggestions now use a shared PostgREST filter helper with regression tests.
 - Completed: F-003 upload MIME handling. Chat, personal-page images, social images, note image persistence, note rendering, profile avatars, and client upload controls now share an explicit PNG/JPEG/WebP/GIF/AVIF policy and block SVG by default.
 - Completed: F-011 cron authorization tightening. `x-vercel-cron` is now trusted only on production Vercel deployments; other environments require `CRON_SECRET`.
-- Open: F-004 and the larger task quick-add UX/performance work. The next pass should move task creation away from full route-modal reloads toward a focused client modal/server-action flow.
+- Completed: F-004 task quick-add slice. The default `/tasks` add flow now opens a focused client modal for title, notes, and optional subtasks, backed by a dedicated server action that returns the created task summary without forcing the route-modal flow. The existing `/tasks?tab=add` route remains available as Advanced options for recurrence/templates/full metadata.
+- Open: F-004 follow-up for other route-driven modal workflows outside the default task quick-add path.
 - Open: F-005 through F-015 except F-011. These remain the main refactor, test, observability, docs, and tooling backlog.
+
+Latest implementation validation:
+
+- `npx tsc --noEmit`: passed.
+- `npm test`: passed, 27 files and 150 tests.
+- `npm run lint`: passed.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS.
+- `npm audit --json`: passed with 0 vulnerabilities.
+- Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` 307 redirect. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
 
 ## Suggested Order of Implementation
 
@@ -185,6 +195,7 @@ Evidence:
 - `app/(app)/projects/page.tsx:1265`, `app/(app)/schedules/page.tsx:419`, `app/(app)/schedules/[clientId]/page.tsx:1099`, `app/(app)/social/[pageId]/page.tsx:1670`, and `app/(app)/employee-info/page.tsx:1906` use the same route-modal pattern.
 - Recent production timing checks before the latest task optimization showed direct `/tasks?tab=add` around 1.95s and simple submit around 4.5s, with multiple `/tasks/[id]?_rsc` prefetches.
 - After the targeted task optimization, direct add reload improved to about 0.946s, simple submit to about 3.026s, and task detail prefetch count dropped to 0. The pattern is still expensive relative to a local client modal with focused data loading.
+- Implemented task quick-add slice: `app/(app)/tasks/_components/QuickAddTaskModal.tsx`, `app/(app)/tasks/actions.ts`, and `app/(app)/tasks/TasksView.tsx` now support a lightweight default modal and optimistic local insertion. `app/(app)/tasks/page.tsx` still keeps the advanced route-modal form for recurrence/templates/full metadata.
 
 User/business impact:
 
@@ -193,16 +204,16 @@ User/business impact:
 
 Recommended fix:
 
-- Keep the UI idea of a popout where useful, but make the default quick-add task form a client-side modal/drawer with title and notes as first-class fields.
-- Lazy-load recurrence, subtasks, assignees, watchers, and advanced fields behind disclosure controls.
-- Use a small mutation endpoint/server action that returns the created task summary without forcing the full task list to reload.
+- Done for default task creation: keep the UI idea of a popout, but make the default quick-add task form a client-side modal/drawer with title and notes as first-class fields.
+- Done for default task creation: use a small server action that returns the created task summary without forcing the full task list route to reload.
+- Continue to keep recurrence, templates, assignees, watchers, and full metadata in the advanced task form until those flows can be progressively split.
 - Apply the same split to other heavy route-modal workflows after tasks.
 
 Estimated effort: medium to large.
 
 Verification needed:
 
-- Browser timing for open quick-add, submit title-only task, submit title plus notes, open created task, and close modal.
+- Browser timing for open quick-add, submit title-only task, submit title plus notes, open created task, and close modal using a signed-in session.
 - Check that no task detail RSC prefetches fire while hovering or viewing the task list unless explicitly needed.
 
 ### F-005 - P1 - Code Health and Scalability - Very large files are hiding bugs and slowing change

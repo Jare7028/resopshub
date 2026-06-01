@@ -13,6 +13,8 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
+import QuickAddTaskModal from "./_components/QuickAddTaskModal";
+import type { QuickCreateTaskResult } from "./actions";
 import {
   normalizeTaskSortDir,
   normalizeTaskSortKey,
@@ -158,6 +160,7 @@ type TasksViewProps = {
   pageSize?: number;
   totalTaskCount?: number;
   onSavePreferences?: (formData: FormData) => Promise<unknown> | void;
+  onQuickCreate?: (formData: FormData) => Promise<QuickCreateTaskResult>;
 };
 
 type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
@@ -208,6 +211,8 @@ type TaskNotesHoverState = {
 type TaskNotesHoverPayload = {
   notesPreview: string | null;
 };
+
+type QuickCreateTaskSuccess = Extract<QuickCreateTaskResult, { ok: true }>;
 
 const TASK_NOTES_HOVER_OPEN_DELAY_MS = 120;
 const TASK_NOTES_HOVER_CLOSE_DELAY_MS = 120;
@@ -321,10 +326,12 @@ export default function TasksView({
   pageSize = 50,
   totalTaskCount = tasks.length,
   onSavePreferences,
+  onQuickCreate,
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const [isOpeningAddTask, setIsOpeningAddTask] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
@@ -342,9 +349,42 @@ export default function TasksView({
   >({});
   const dragPreviewRef = useRef<HTMLElement | null>(null);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+  const [quickCreatedTasks, setQuickCreatedTasks] = useState<TaskRow[]>([]);
+  const [quickCreatedAssigneesByTask, setQuickCreatedAssigneesByTask] = useState<
+    Record<string, string[]>
+  >({});
+  const [quickCreatedOpenSubtaskCountByTaskId, setQuickCreatedOpenSubtaskCountByTaskId] =
+    useState<Record<string, number>>({});
+  const [quickCreatedSubtasksByParentId, setQuickCreatedSubtasksByParentId] = useState<
+    Record<string, OpenSubtaskRow[]>
+  >({});
+  const serverTaskIdSet = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
+  const locallyVisibleQuickTasks = useMemo(
+    () => quickCreatedTasks.filter((task) => !serverTaskIdSet.has(task.id)),
+    [quickCreatedTasks, serverTaskIdSet]
+  );
+  const effectiveTasks = useMemo(
+    () =>
+      locallyVisibleQuickTasks.length
+        ? [...locallyVisibleQuickTasks, ...tasks]
+        : tasks,
+    [locallyVisibleQuickTasks, tasks]
+  );
+  const effectiveAssigneesByTask = useMemo(
+    () => ({ ...quickCreatedAssigneesByTask, ...assigneesByTask }),
+    [assigneesByTask, quickCreatedAssigneesByTask]
+  );
+  const effectiveOpenSubtaskCountByTaskId = useMemo(
+    () => ({ ...quickCreatedOpenSubtaskCountByTaskId, ...openSubtaskCountByTaskId }),
+    [openSubtaskCountByTaskId, quickCreatedOpenSubtaskCountByTaskId]
+  );
+  const effectiveOpenSubtasksByParentId = useMemo(
+    () => ({ ...quickCreatedSubtasksByParentId, ...openSubtasksByParentId }),
+    [openSubtasksByParentId, quickCreatedSubtasksByParentId]
+  );
   const [loadedSubtasksByParentId, setLoadedSubtasksByParentId] = useState<
     Record<string, OpenSubtaskRow[]>
-  >(openSubtasksByParentId);
+  >(effectiveOpenSubtasksByParentId);
   const [subtasksLoadingByTaskId, setSubtasksLoadingByTaskId] = useState<Record<string, boolean>>(
     {}
   );
@@ -466,12 +506,43 @@ export default function TasksView({
     [projects]
   );
 
+  const handleQuickTaskCreated = useCallback((result: QuickCreateTaskSuccess) => {
+    setQuickCreatedTasks((current) => [
+      result.task,
+      ...current.filter((task) => task.id !== result.task.id),
+    ]);
+    setQuickCreatedAssigneesByTask((current) => ({
+      ...current,
+      [result.task.id]: result.assigneeUserIds,
+    }));
+    setQuickCreatedOpenSubtaskCountByTaskId((current) => ({
+      ...current,
+      [result.task.id]: result.openSubtaskCount,
+    }));
+
+    if (result.subtasks.length) {
+      setQuickCreatedSubtasksByParentId((current) => ({
+        ...current,
+        [result.task.id]: result.subtasks,
+      }));
+      setLoadedSubtasksByParentId((current) => ({
+        ...current,
+        [result.task.id]: result.subtasks,
+      }));
+      setExpandedTaskIds((current) => {
+        const next = new Set(current);
+        next.add(result.task.id);
+        return next;
+      });
+    }
+  }, []);
+
   useEffect(() => {
-    setLoadedSubtasksByParentId(openSubtasksByParentId);
+    setLoadedSubtasksByParentId(effectiveOpenSubtasksByParentId);
     setSubtasksLoadingByTaskId({});
     setSubtasksErrorByTaskId({});
     subtasksRequestInFlightRef.current.clear();
-  }, [openSubtasksByParentId]);
+  }, [effectiveOpenSubtasksByParentId]);
 
   useEffect(() => {
     setVisibleTaskColumns((current) =>
@@ -501,7 +572,7 @@ export default function TasksView({
   }, [columnPreferenceUserId, taskTableColumnIds, visibleTaskColumns]);
 
   useEffect(() => {
-    const validIds = new Set(tasks.map((task) => task.id));
+    const validIds = new Set(effectiveTasks.map((task) => task.id));
     setExpandedTaskIds((current) => {
       const next = new Set<string>();
       current.forEach((taskId) => {
@@ -511,11 +582,11 @@ export default function TasksView({
       });
       return next.size === current.size ? current : next;
     });
-  }, [tasks]);
+  }, [effectiveTasks]);
 
   useEffect(() => {
     const latestStatusByTaskId = new Map<string, string>();
-    tasks.forEach((task) => {
+    effectiveTasks.forEach((task) => {
       latestStatusByTaskId.set(task.id, normalizeTaskStatusOrDefault(task.status));
     });
     setOptimisticStatusByTaskId((current) => {
@@ -535,7 +606,7 @@ export default function TasksView({
       });
       return changed ? next : current;
     });
-  }, [tasks]);
+  }, [effectiveTasks]);
 
   useEffect(() => {
     if (!openMenu) {
@@ -1166,13 +1237,13 @@ export default function TasksView({
 
   const visibleTasks = useMemo(() => {
     if (!shouldHideHiddenStatuses) {
-      return tasks;
+      return effectiveTasks;
     }
-    return tasks.filter((task) => {
+    return effectiveTasks.filter((task) => {
       const status = optimisticStatusByTaskId[task.id] || normalizeTaskStatusKey(task.status);
       return !hiddenStatusSet.has(status);
     });
-  }, [hiddenStatusSet, optimisticStatusByTaskId, shouldHideHiddenStatuses, tasks]);
+  }, [effectiveTasks, hiddenStatusSet, optimisticStatusByTaskId, shouldHideHiddenStatuses]);
 
   useEffect(() => {
     if (!taskNotesHover.taskId) {
@@ -1244,11 +1315,11 @@ export default function TasksView({
 
   const statusByTaskId = useMemo(() => {
     const map = new Map<string, string>();
-    tasks.forEach((task) => {
+    effectiveTasks.forEach((task) => {
       map.set(task.id, normalizeTaskStatusOrDefault(task.status));
     });
     return map;
-  }, [tasks]);
+  }, [effectiveTasks]);
 
   const effectiveStatusByTaskId = useMemo(() => {
     const map = new Map(statusByTaskId);
@@ -1402,7 +1473,7 @@ export default function TasksView({
 
     if (
       !isExpanded &&
-      (openSubtaskCountByTaskId[taskId] ?? 0) > 0 &&
+      (effectiveOpenSubtaskCountByTaskId[taskId] ?? 0) > 0 &&
       !Object.prototype.hasOwnProperty.call(loadedSubtasksByParentId, taskId)
     ) {
       void loadSubtasksForTask(taskId);
@@ -1460,7 +1531,7 @@ export default function TasksView({
   }, 0);
   const normalizedPage = Math.max(1, currentPage);
   const normalizedPageSize = Math.max(1, pageSize);
-  const normalizedTotalCount = Math.max(0, totalTaskCount);
+  const normalizedTotalCount = Math.max(0, totalTaskCount + locallyVisibleQuickTasks.length);
   const showingFrom = normalizedTotalCount
     ? (normalizedPage - 1) * normalizedPageSize + 1
     : 0;
@@ -1513,6 +1584,15 @@ export default function TasksView({
 
   return (
     <>
+      {onQuickCreate ? (
+        <QuickAddTaskModal
+          open={quickAddOpen}
+          advancedHref={addTaskUrl}
+          onClose={() => setQuickAddOpen(false)}
+          onCreate={onQuickCreate}
+          onCreated={handleQuickTaskCreated}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 md:px-6">
         <div className="flex flex-wrap items-center gap-3">
           {view === "table" ? (
@@ -1529,7 +1609,15 @@ export default function TasksView({
           {showHeaderTitle ? (
             <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
           ) : null}
-          {addTaskUrl ? (
+          {onQuickCreate ? (
+            <button
+              type="button"
+              onClick={() => setQuickAddOpen(true)}
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            >
+              Add task
+            </button>
+          ) : addTaskUrl ? (
             <Link
               href={addTaskUrl}
               prefetch={false}
@@ -2140,10 +2228,10 @@ export default function TasksView({
                     <Fragment key={task.id}>
                       <TaskInlineRow
                         task={task}
-                        openSubtaskCount={openSubtaskCountByTaskId[task.id] ?? 0}
+                        openSubtaskCount={effectiveOpenSubtaskCountByTaskId[task.id] ?? 0}
                         isSubtasksExpanded={isExpanded}
                         onToggleSubtasks={toggleSubtasks}
-                        assigneeUserIds={assigneesByTask[task.id] || []}
+                        assigneeUserIds={effectiveAssigneesByTask[task.id] || []}
                         users={users}
                         groups={groups}
                         clients={clients}
@@ -2252,7 +2340,7 @@ export default function TasksView({
         <div className="mobile-list-stack md:hidden">
           {visibleTasks.length ? (
             visibleTasks.map((task) => {
-              const assigneeIds = assigneesByTask[task.id] || [];
+              const assigneeIds = effectiveAssigneesByTask[task.id] || [];
               const clientName = task.client_id ? clientNameById[task.client_id] || null : null;
               const projectName = task.project_id
                 ? projectNameById[task.project_id] || null
@@ -2300,7 +2388,7 @@ export default function TasksView({
                       {dueLabel}
                     </span>
                     <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                      {openSubtaskCountByTaskId[task.id] ?? 0} open subtasks
+                      {effectiveOpenSubtaskCountByTaskId[task.id] ?? 0} open subtasks
                     </span>
                   </div>
                   <div className="grid gap-1 text-sm text-slate-600">

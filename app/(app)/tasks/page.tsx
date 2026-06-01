@@ -49,6 +49,7 @@ import {
   resolveAssignmentTargetsToUserIds,
 } from "@/lib/assignmentGroups";
 import {
+  quickCreateTaskAction,
   saveTaskTablePreferencesAction,
   updateTaskInlineAction,
 } from "./actions";
@@ -2048,6 +2049,7 @@ async function TasksPageContent({
           pageSize={TASK_PAGE_SIZE}
           totalTaskCount={totalTaskCount}
           onSavePreferences={saveTaskTablePreferencesAction}
+          onQuickCreate={quickCreateTaskAction}
           hasExplicitFilterParams={hasExplicitPreferenceParams}
           columnPreferenceUserId={currentAppUserId || authUserId}
         />

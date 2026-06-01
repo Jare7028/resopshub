@@ -9,10 +9,19 @@ type SubtaskRow = {
 
 const initialRows: SubtaskRow[] = [{ id: "subtask-0", title: "" }];
 
-export default function QuickSubtasksField() {
+type QuickSubtasksFieldProps = {
+  className?: string;
+  defaultOpen?: boolean;
+};
+
+export default function QuickSubtasksField({
+  className = "md:col-span-6 rounded-xl border border-slate-200 bg-white p-4 md:p-5",
+  defaultOpen = false,
+}: QuickSubtasksFieldProps) {
   const [rows, setRows] = useState<SubtaskRow[]>(initialRows);
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const fieldIdPrefix = useId();
+  const detailsRef = useRef<HTMLDetailsElement | null>(null);
   const nextRowIndex = useRef(1);
   const inputRefs = useRef(new Map<string, HTMLInputElement>());
 
@@ -26,6 +35,12 @@ export default function QuickSubtasksField() {
     inputRefs.current.get(pendingFocusId)?.focus();
     setPendingFocusId(null);
   }, [pendingFocusId]);
+
+  useEffect(() => {
+    if (defaultOpen && detailsRef.current) {
+      detailsRef.current.open = true;
+    }
+  }, [defaultOpen]);
 
   const addRow = () => {
     const nextId = `subtask-${nextRowIndex.current}`;
@@ -48,7 +63,7 @@ export default function QuickSubtasksField() {
   };
 
   return (
-    <details className="md:col-span-6 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+    <details ref={detailsRef} className={className}>
       <summary className="flex cursor-pointer select-none items-center gap-2 text-sm font-semibold text-slate-800">
         <span>Subtasks</span>
         {filledCount ? (
