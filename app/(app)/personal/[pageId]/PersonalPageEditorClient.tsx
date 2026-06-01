@@ -30,6 +30,7 @@ export default function PersonalPageEditorClient({
   initialRibbonTab = "home",
   initialZoomPercent = 100,
   initialFocusMode = false,
+  adjacentToolbarTabs = [],
 }: {
   pageId: string;
   initialContent: unknown;
@@ -41,6 +42,12 @@ export default function PersonalPageEditorClient({
   initialRibbonTab?: PersonalWorkspaceRibbonTab;
   initialZoomPercent?: number;
   initialFocusMode?: boolean;
+  adjacentToolbarTabs?: ReadonlyArray<{
+    id: string;
+    label: string;
+    href: string;
+    active?: boolean;
+  }>;
 }) {
   const expectedUpdatedAtRef = useRef<string | null>(initialUpdatedAt ?? null);
   const [liveContentSnapshot, setLiveContentSnapshot] = useState<NoteLiveContentSnapshot | null>(
@@ -169,6 +176,7 @@ export default function PersonalPageEditorClient({
       lastEditedAtLabel={lastEditedAtLabel}
       lastEditedByLabel={lastEditedByLabel}
       showTopToolbar
+      adjacentToolbarTabs={adjacentToolbarTabs}
       enableZoomControls
       disableHorizontalScroll
       contextMenuMode="favorites"

@@ -167,6 +167,12 @@ export type NoteEditorClientProps = {
   lastEditedAtLabel?: string | null;
   lastEditedByLabel?: string | null;
   showTopToolbar?: boolean;
+  adjacentToolbarTabs?: ReadonlyArray<{
+    id: string;
+    label: string;
+    href: string;
+    active?: boolean;
+  }>;
   enableZoomControls?: boolean;
   disableHorizontalScroll?: boolean;
   blockNavigationWhileSaving?: boolean;
@@ -2643,6 +2649,7 @@ export default function NoteEditorClient({
   lastEditedAtLabel,
   lastEditedByLabel,
   showTopToolbar = true,
+  adjacentToolbarTabs = [],
   enableZoomControls = false,
   disableHorizontalScroll = false,
   blockNavigationWhileSaving = true,
@@ -5898,7 +5905,7 @@ export default function NoteEditorClient({
 
   return (
     <section
-      className={`rounded-lg border bg-white p-4 ${
+      className={`rounded-lg border bg-white p-2 ${
         focusMode ? "border-slate-300 shadow-sm" : "border-slate-200"
       }`}
       aria-label={title}
@@ -5929,24 +5936,26 @@ export default function NoteEditorClient({
         </div>
       ) : null}
 
-      <div className={`mt-2 text-xs font-medium ${saveState === "error" ? "text-red-600" : "text-slate-500"}`}>
-        {saveState === "saving"
-          ? "Saving..."
-          : saveState === "saved"
-          ? "Saved"
-          : saveState === "error"
-          ? "Save failed"
-          : "Ready"}
-      </div>
+      {showTopToolbar ? null : (
+        <div className={`mt-2 text-xs font-medium ${saveState === "error" ? "text-red-600" : "text-slate-500"}`}>
+          {saveState === "saving"
+            ? "Saving..."
+            : saveState === "saved"
+            ? "Saved"
+            : saveState === "error"
+            ? "Save failed"
+            : "Ready"}
+        </div>
+      )}
 
       {showTopToolbar ? (
         <div
-          className={`sticky top-0 z-20 rounded-lg border border-slate-200 bg-white p-2 ${
+          className={`sticky top-0 z-20 rounded-md border border-slate-200 bg-white px-2 py-1.5 ${
             taskToast ? "mt-3" : ""
           }`}
         >
-          <div className="mb-1.5 flex items-center border-b border-slate-200 px-1">
-            <div className="flex items-center gap-1" role="tablist" aria-label="Editor tabs">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-1" role="tablist" aria-label="Editor tabs">
               {RIBBON_TABS.map((tab) => {
                 const isActive = activeRibbonTab === tab.id;
                 return (
@@ -5966,6 +5975,35 @@ export default function NoteEditorClient({
                   </button>
                 );
               })}
+              {adjacentToolbarTabs.length ? (
+                <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
+              ) : null}
+              {adjacentToolbarTabs.map((tab) => (
+                <a
+                  key={tab.id}
+                  href={tab.href}
+                  className={`rounded-t-md border border-b-0 px-3 py-1 text-xs font-semibold transition ${
+                    tab.active
+                      ? "border-slate-300 bg-white text-slate-900"
+                      : "border-transparent bg-transparent text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {tab.label}
+                </a>
+              ))}
+            </div>
+            <div
+              className={`shrink-0 text-xs font-medium ${
+                saveState === "error" ? "text-red-600" : "text-slate-500"
+              }`}
+            >
+              {saveState === "saving"
+                ? "Saving..."
+                : saveState === "saved"
+                ? "Saved"
+                : saveState === "error"
+                ? "Save failed"
+                : "Ready"}
             </div>
           </div>
           <div
@@ -6412,7 +6450,7 @@ export default function NoteEditorClient({
 
       <div
         ref={editorSurfaceRef}
-        className={`${showTopToolbar ? "mt-3" : "mt-4"} ${focusMode ? "md:px-8" : ""}`}
+        className={`${showTopToolbar ? "mt-2" : "mt-4"} ${focusMode ? "md:px-8" : ""}`}
         onContextMenu={handleContextMenu}
         onMouseMove={handleEditorMouseMove}
         onMouseLeave={() => scheduleTaskHoverClose()}

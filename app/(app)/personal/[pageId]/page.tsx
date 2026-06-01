@@ -1775,8 +1775,18 @@ export default async function PersonalPage(props: {
         {templatesPanelContent}
       </section>
     ) : null;
+  const editorToolbarTabs = personalPageTabs.map((tab) => ({
+    id: `personal-${tab.key}`,
+    label: tab.label,
+    href: buildPersonalPageTabHref(pageId, tab.key),
+    active:
+      activeTab === tab.key ||
+      (tab.key === "share" &&
+        (activeTab === "section_members" || activeTab === "page_members")),
+  }));
+
   return (
-    <div className="personal-page-layout space-y-3 xl:flex xl:h-[calc(100vh-6.5rem)] xl:items-start xl:gap-4 xl:space-y-0 xl:overflow-hidden">
+    <div className="personal-page-layout space-y-2 xl:flex xl:h-[calc(100vh-5.5rem)] xl:items-start xl:gap-3 xl:space-y-0 xl:overflow-hidden">
       <div className="personal-page-sidebar">
         <PersonalSidebarTree
           sections={sidebarTree.sections}
@@ -1788,8 +1798,8 @@ export default async function PersonalPage(props: {
         />
       </div>
 
-      <div className="personal-page-main space-y-2 xl:h-full xl:min-h-0 xl:min-w-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
-        <div className="personal-page-chrome space-y-2">
+      <div className="personal-page-main space-y-1.5 xl:h-full xl:min-h-0 xl:min-w-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
+        <div className="personal-page-chrome space-y-1.5">
           {(searchParams?.error || searchParams?.success) && (
             <div className="space-y-2">
               {searchParams?.error ? (
@@ -1812,33 +1822,6 @@ export default async function PersonalPage(props: {
             </p>
           ) : null}
 
-          <nav className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 text-sm">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              {personalPageTabs.map((tab) => {
-                const isActive =
-                  activeTab === tab.key ||
-                  (tab.key === "share" &&
-                    (activeTab === "section_members" || activeTab === "page_members"));
-                return (
-                  <Link
-                    key={tab.key}
-                    href={buildPersonalPageTabHref(pageId, tab.key)}
-                    className={`rounded-md px-3 py-1.5 font-medium ${
-                      isActive
-                        ? "tab-active"
-                        : "border border-slate-200 text-slate-700 hover:bg-slate-100"
-                    }`}
-                  >
-                    {tab.label}
-                  </Link>
-                );
-              })}
-            </div>
-            <p className="min-w-0 truncate text-xs text-slate-500">
-              {sectionTitle || "General"} / {pageTitle}
-            </p>
-          </nav>
-
           {managementPanel}
         </div>
 
@@ -1854,6 +1837,7 @@ export default async function PersonalPage(props: {
             initialRibbonTab={initialRibbonTab}
             initialZoomPercent={initialZoomPercent}
             initialFocusMode={initialFocusMode}
+            adjacentToolbarTabs={editorToolbarTabs}
           />
         </div>
       </div>
