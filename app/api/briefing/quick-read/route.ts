@@ -10,16 +10,12 @@ import {
   normalizeStatusValue,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
-import { toLocalDueDateTime } from "@/lib/taskIndicators";
 import { LOGIN_QUICK_READ_COOKIE } from "@/lib/loginQuickRead";
-
-type TaskSummaryRow = {
-  id: string;
-  title: string | null;
-  status: string | null;
-  due_date: string | null;
-  due_time: string | null;
-};
+import {
+  getLoginQuickReadTaskDueDateCutoff,
+  summarizeLoginQuickReadTasks,
+  type LoginQuickReadTaskRow,
+} from "@/lib/loginQuickReadSummary";
 
 type MentionSummaryRow = {
   id: string;
@@ -60,7 +56,7 @@ export async function GET() {
   }
 
   const now = new Date();
-  const cutoff = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const taskDueDateCutoff = getLoginQuickReadTaskDueDateCutoff(now);
 
   let taskStatusRows: StatusOptionRow[] = [];
   const taskStatusResult = await supabase
@@ -116,6 +112,7 @@ export async function GET() {
     .from("tasks")
     .select("id,title,status,due_date,due_time")
     .not("due_date", "is", null)
+    .lte("due_date", taskDueDateCutoff)
     .neq("status", "template")
     .order("due_date", { ascending: true })
     .order("due_time", { ascending: true })
@@ -136,61 +133,18 @@ export async function GET() {
   }
 
   const tasksResult = await taskQuery;
-  let taskRows: TaskSummaryRow[] = [];
+  let taskRows: LoginQuickReadTaskRow[] = [];
   if (!tasksResult.error) {
-    taskRows = (tasksResult.data || []) as TaskSummaryRow[];
+    taskRows = (tasksResult.data || []) as LoginQuickReadTaskRow[];
   } else if (!isSupabaseMissingTableError(tasksResult.error)) {
     console.error("[quickRead.tasks]", tasksResult.error.message);
   }
 
-  const overdueItems: Array<{
-    id: string;
-    title: string;
-    dueDate: string | null;
-    dueTime: string | null;
-    dueAt: string;
-    url: string;
-    _sort: number;
-  }> = [];
-  const dueSoonItems: Array<{
-    id: string;
-    title: string;
-    dueDate: string | null;
-    dueTime: string | null;
-    dueAt: string;
-    url: string;
-    _sort: number;
-  }> = [];
-
-  for (const task of taskRows) {
-    const statusKey = normalizeStatusValue(String(task.status || ""));
-    if (statusKey && hiddenTaskStatusSet.has(statusKey)) {
-      continue;
-    }
-
-    const dueAt = toLocalDueDateTime(task.due_date, task.due_time);
-    if (!dueAt) continue;
-
-    const dueMs = dueAt.getTime();
-    const entry = {
-      id: task.id,
-      title: String(task.title || "Untitled task").trim() || "Untitled task",
-      dueDate: task.due_date,
-      dueTime: task.due_time,
-      dueAt: dueAt.toISOString(),
-      url: `/tasks/${encodeURIComponent(task.id)}`,
-      _sort: dueMs,
-    };
-
-    if (dueMs < now.getTime()) {
-      overdueItems.push(entry);
-    } else if (dueMs <= cutoff.getTime()) {
-      dueSoonItems.push(entry);
-    }
-  }
-
-  overdueItems.sort((left, right) => left._sort - right._sort);
-  dueSoonItems.sort((left, right) => left._sort - right._sort);
+  const { overdueItems, dueSoonItems } = summarizeLoginQuickReadTasks({
+    taskRows,
+    hiddenTaskStatusSet,
+    now,
+  });
 
   const mentionsResult = await supabase
     .from("notifications")

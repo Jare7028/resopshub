@@ -68,12 +68,14 @@ Updated 2026-06-01:
 - Open: F-004 follow-up for other route-driven modal workflows outside the default task quick-add path.
 - Completed: F-009 personal image/editor observability slice. Personal image upload/save success paths no longer log as errors, personal image upload failures now use the structured server logger, note editor image/save debug output requires explicit public debug flags, and `lib/vercelLogger.test.ts` covers structured output, log-level filtering, redaction, errors, and bigint serialization.
 - Open: F-009 follow-up for the remaining broad console logging inventory outside the personal image/editor path.
+- Completed: F-007 quick-read date-window slice. `/api/briefing/quick-read` now applies a local next-24-hour `due_date` cutoff to the task query before summarizing overdue and due-soon work, and `lib/loginQuickReadSummary.test.ts` covers cutoff, filtering, sorting, URLs, and fallback titles.
+- Open: F-007 follow-up for replacing the remaining broad `task_assignees` lookup with an RPC/view that joins assignments and task due dates directly.
 - Open: F-005 through F-015 except F-011. These remain the main refactor, test, observability, docs, and tooling backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npm test`: passed, 28 files and 153 tests.
+- `npm test`: passed, 29 files and 156 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -285,7 +287,7 @@ Evidence:
 
 - `app/(app)/_components/LoginQuickReadPrompt.tsx:105` fetches `/api/briefing/quick-read` after login.
 - `app/api/briefing/quick-read/route.ts:98` reads `task_assignees` and `app/api/briefing/quick-read/route.ts:101` limits to 600 rows.
-- `app/api/briefing/quick-read/route.ts:122` limits task reads to 600 rows.
+- Original task query limited task reads to 600 rows without a due-date cutoff; the implemented date-window slice now applies `.lte("due_date", taskDueDateCutoff)` before summarizing.
 - `app/api/briefing/quick-read/route.ts:195` reads notifications for mentions.
 - Recent production timing checks put `/api/briefing/quick-read` around 0.76s to 1.24s.
 
@@ -296,6 +298,7 @@ User/business impact:
 
 Recommended fix:
 
+- Done for the first performance slice: add a local next-24-hour task due-date cutoff before reading task rows.
 - Replace the multi-query route with a small RPC or summary view that returns only counts and the top few items.
 - Cache the result briefly per user or only fetch when the prompt is eligible to display.
 - Avoid reading large assignment sets just to identify the current user's relevant tasks.
@@ -304,6 +307,7 @@ Estimated effort: medium.
 
 Verification needed:
 
+- Unit coverage exists for quick-read task cutoff, hidden-status filtering, overdue/due-soon splitting, sorting, URLs, and fallback titles.
 - Production timing target below 300 ms p95 for the quick-read route.
 - Verify unread mention counts, overdue tasks, due-soon tasks, and dismissed prompt state.
 
