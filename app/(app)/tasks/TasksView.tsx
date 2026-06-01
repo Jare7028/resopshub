@@ -152,6 +152,11 @@ type TasksViewProps = {
   filterPersistenceScope?: string;
   hasExplicitFilterParams?: boolean;
   columnPreferenceUserId?: string | null;
+  searchQuery?: string;
+  currentPage?: number;
+  pageSize?: number;
+  totalTaskCount?: number;
+  onSavePreferences?: (formData: FormData) => Promise<unknown> | void;
 };
 
 type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
@@ -310,12 +315,18 @@ export default function TasksView({
   filterPersistenceScope,
   hasExplicitFilterParams = false,
   columnPreferenceUserId = null,
+  searchQuery = "",
+  currentPage = 1,
+  pageSize = 50,
+  totalTaskCount = tasks.length,
+  onSavePreferences,
 }: TasksViewProps) {
   const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
   const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [filters, setFilters] = useState(initialFilters);
+  const [taskSearchQuery, setTaskSearchQuery] = useState(searchQuery);
   const [openMenu, setOpenMenu] = useState<HeaderMenuKey | null>(null);
   const [openMenuPosition, setOpenMenuPosition] = useState<{ left: number; top: number } | null>(
     null
@@ -831,6 +842,10 @@ export default function TasksView({
     setFilters(initialFilters);
   }, [initialKey, initialFilters]);
 
+  useEffect(() => {
+    setTaskSearchQuery(searchQuery);
+  }, [searchQuery]);
+
   const buildQuery = useCallback(
     (
       next: typeof filters,
@@ -838,7 +853,9 @@ export default function TasksView({
       nextSortDir: TaskSortDir,
       nextView: typeof view,
       nextHideCompleted: boolean,
-      nextIncludeWatching: boolean = includeWatching
+      nextIncludeWatching: boolean = includeWatching,
+      nextSearchQuery: string = taskSearchQuery,
+      nextPage: number = 1
     ) => {
       const params = new URLSearchParams();
       Object.entries(fixedParams).forEach(([key, value]) => {
@@ -870,9 +887,51 @@ export default function TasksView({
       if (nextView !== "table") {
         params.set("view", nextView);
       }
+      const normalizedSearchQuery = String(nextSearchQuery || "").trim();
+      if (normalizedSearchQuery) {
+        params.set("q", normalizedSearchQuery);
+      }
+      if (nextPage > 1) {
+        params.set("page", String(nextPage));
+      }
       return params.toString();
     },
-    [fixedParams, includeWatching]
+    [fixedParams, includeWatching, taskSearchQuery]
+  );
+
+  const saveTaskPreferences = useCallback(
+    (
+      nextFilters: typeof filters,
+      nextSortKey: TaskSortKey,
+      nextSortDir: TaskSortDir,
+      nextView: typeof view,
+      nextHideCompleted: boolean,
+      nextIncludeWatching: boolean
+    ) => {
+      if (!onSavePreferences) return;
+      const formData = new FormData();
+      const setCsvField = (key: string, values: string[]) => {
+        const cleaned = Array.from(
+          new Set(values.map((value) => value.trim()).filter(Boolean))
+        );
+        formData.set(key, cleaned.join(","));
+      };
+      setCsvField("status", nextFilters.status);
+      setCsvField("priority", nextFilters.priority);
+      setCsvField("assignee", nextFilters.assignee);
+      setCsvField("client", nextFilters.client);
+      setCsvField("project", nextFilters.project);
+      formData.set("due", nextFilters.due || "all");
+      formData.set("hide_completed", nextHideCompleted ? "1" : "0");
+      formData.set("include_watching", nextIncludeWatching ? "1" : "0");
+      formData.set("sort_key", nextSortKey);
+      formData.set("sort_dir", nextSortDir);
+      formData.set("view_mode", nextView);
+      void Promise.resolve(onSavePreferences(formData)).catch(() => {
+        // Preference writes should never block navigation or inline work.
+      });
+    },
+    [onSavePreferences]
   );
 
   useEffect(() => {
@@ -1005,12 +1064,22 @@ export default function TasksView({
     view,
   ]);
 
-  const inlineReturnToQuery = buildQuery(filters, sortKey, sortDir, view, hideCompleted);
+  const inlineReturnToQuery = buildQuery(
+    filters,
+    sortKey,
+    sortDir,
+    view,
+    hideCompleted,
+    includeWatching,
+    taskSearchQuery,
+    currentPage
+  );
   const inlineReturnTo = inlineReturnToQuery ? `${basePath}?${inlineReturnToQuery}` : returnTo;
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);
     const query = buildQuery(next, sortKey, sortDir, view, hideCompleted);
+    saveTaskPreferences(next, sortKey, sortDir, view, hideCompleted, includeWatching);
     startTransition(() => {
       router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
@@ -1023,9 +1092,20 @@ export default function TasksView({
     return query ? `${basePath}?${query}` : basePath;
   };
 
+  const applySort = (key: TaskSortKey) => {
+    const nextDir: TaskSortDir =
+      sortKey === key && sortDir === "asc" ? "desc" : "asc";
+    const query = buildQuery(filters, key, nextDir, view, hideCompleted);
+    saveTaskPreferences(filters, key, nextDir, view, hideCompleted, includeWatching);
+    startTransition(() => {
+      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
+    });
+  };
+
   const applyView = (nextView: typeof view) => {
     setView(nextView);
     const query = buildQuery(filters, sortKey, sortDir, nextView, hideCompleted);
+    saveTaskPreferences(filters, sortKey, sortDir, nextView, hideCompleted, includeWatching);
     startTransition(() => {
       router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
     });
@@ -1376,6 +1456,45 @@ export default function TasksView({
   const tableColSpan = taskTableColumnIds.reduce((count, columnId) => {
     return isTaskColumnVisible(columnId) ? count + 1 : count;
   }, 0);
+  const normalizedPage = Math.max(1, currentPage);
+  const normalizedPageSize = Math.max(1, pageSize);
+  const normalizedTotalCount = Math.max(0, totalTaskCount);
+  const showingFrom = normalizedTotalCount
+    ? (normalizedPage - 1) * normalizedPageSize + 1
+    : 0;
+  const showingTo = normalizedTotalCount
+    ? Math.min(normalizedPage * normalizedPageSize, normalizedTotalCount)
+    : 0;
+  const hasPreviousPage = normalizedPage > 1;
+  const hasNextPage = showingTo < normalizedTotalCount;
+  const buildPageUrl = (page: number) => {
+    const query = buildQuery(
+      filters,
+      sortKey,
+      sortDir,
+      view,
+      hideCompleted,
+      includeWatching,
+      searchQuery,
+      page
+    );
+    return query ? `${basePath}?${query}` : basePath;
+  };
+  const applySearch = (nextSearchQuery: string) => {
+    const query = buildQuery(
+      filters,
+      sortKey,
+      sortDir,
+      view,
+      hideCompleted,
+      includeWatching,
+      nextSearchQuery,
+      1
+    );
+    startTransition(() => {
+      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
+    });
+  };
 
   return (
     <>
@@ -1414,6 +1533,14 @@ export default function TasksView({
                 view,
                 !hideCompleted
               );
+              saveTaskPreferences(
+                filters,
+                sortKey,
+                sortDir,
+                view,
+                !hideCompleted,
+                includeWatching
+              );
               startTransition(() => {
                 router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
               });
@@ -1441,6 +1568,14 @@ export default function TasksView({
                   params.set("watch", "1");
                 }
                 const nextQuery = params.toString();
+                saveTaskPreferences(
+                  filters,
+                  sortKey,
+                  sortDir,
+                  view,
+                  hideCompleted,
+                  !includeWatching
+                );
                 startTransition(() => {
                   router.replace(nextQuery ? `${basePath}?${nextQuery}` : basePath, { scroll: false });
                 });
@@ -1454,7 +1589,52 @@ export default function TasksView({
               {includeWatching ? "Hide Tickets I'm watching" : "Show Tickets I'm watching"}
             </a>
           ) : null}
+          <button
+            type="button"
+            onClick={() => applySort("queue")}
+            className={`inline-flex min-h-11 items-center rounded-md border px-3 py-1.5 text-xs font-semibold ${
+              sortKey === "queue"
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700 hover:border-indigo-400 hover:text-indigo-800"
+                : "border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            }`}
+          >
+            My queue
+          </button>
         </div>
+        <form
+          className="flex w-full min-w-0 items-center gap-2 md:max-w-md"
+          onSubmit={(event) => {
+            event.preventDefault();
+            applySearch(taskSearchQuery);
+          }}
+        >
+          <input
+            type="search"
+            value={taskSearchQuery}
+            onChange={(event) => setTaskSearchQuery(event.target.value)}
+            className="min-h-11 min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+            placeholder="Search tasks or notes"
+            aria-label="Search tasks or notes"
+          />
+          <button
+            type="submit"
+            className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+          >
+            Search
+          </button>
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTaskSearchQuery("");
+                applySearch("");
+              }}
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+            >
+              Clear
+            </button>
+          ) : null}
+        </form>
         <div className="grid w-full grid-cols-2 gap-2 text-sm md:flex md:w-auto md:items-center md:gap-2">
           <button
             type="button"
@@ -1576,7 +1756,14 @@ export default function TasksView({
               <tr>
                 {isTaskColumnVisible("task") ? (
                   <th className="px-6 py-3">
-                    <a href={buildSortUrl("title")} className={headerClass("title")}>
+                    <a
+                      href={buildSortUrl("title")}
+                      className={headerClass("title")}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        applySort("title");
+                      }}
+                    >
                       Task
                       {sortIndicator("title")}
                     </a>
@@ -1588,7 +1775,14 @@ export default function TasksView({
                 {isTaskColumnVisible("client") ? (
                   <th className="px-6 py-3">
                     <div className="relative flex items-center justify-between gap-2">
-                      <a href={buildSortUrl("client")} className={headerClass("client")}>
+                      <a
+                        href={buildSortUrl("client")}
+                        className={headerClass("client")}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          applySort("client");
+                        }}
+                      >
                         Client
                         {sortIndicator("client")}
                       </a>
@@ -1631,7 +1825,14 @@ export default function TasksView({
                 {isTaskColumnVisible("project") ? (
                   <th className="px-6 py-3">
                     <div className="relative flex items-center justify-between gap-2">
-                      <a href={buildSortUrl("project")} className={headerClass("project")}>
+                      <a
+                        href={buildSortUrl("project")}
+                        className={headerClass("project")}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          applySort("project");
+                        }}
+                      >
                         Project
                         {sortIndicator("project")}
                       </a>
@@ -1679,7 +1880,14 @@ export default function TasksView({
                 {isTaskColumnVisible("status") ? (
                   <th className="px-6 py-3">
                     <div className="relative flex items-center justify-between gap-2">
-                      <a href={buildSortUrl("status")} className={headerClass("status")}>
+                      <a
+                        href={buildSortUrl("status")}
+                        className={headerClass("status")}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          applySort("status");
+                        }}
+                      >
                         Status
                         {sortIndicator("status")}
                       </a>
@@ -1725,6 +1933,10 @@ export default function TasksView({
                       <a
                         href={buildSortUrl("priority")}
                         className={headerClass("priority")}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          applySort("priority");
+                        }}
                       >
                         Priority
                         {sortIndicator("priority")}
@@ -1771,6 +1983,10 @@ export default function TasksView({
                       <a
                         href={buildSortUrl("assignees")}
                         className={headerClass("assignees")}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          applySort("assignees");
+                        }}
                       >
                         Assignees
                         {sortIndicator("assignees")}
@@ -1816,7 +2032,14 @@ export default function TasksView({
                 ) : null}
                 {isTaskColumnVisible("start") ? (
                   <th className="px-6 py-3">
-                    <a href={buildSortUrl("start")} className={headerClass("start")}>
+                    <a
+                      href={buildSortUrl("start")}
+                      className={headerClass("start")}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        applySort("start");
+                      }}
+                    >
                       Start
                       {sortIndicator("start")}
                     </a>
@@ -1830,7 +2053,14 @@ export default function TasksView({
                 {isTaskColumnVisible("due") ? (
                   <th className="px-6 py-3">
                     <div className="relative flex items-center justify-between gap-2">
-                      <a href={buildSortUrl("due")} className={headerClass("due")}>
+                       <a
+                         href={buildSortUrl("due")}
+                         className={headerClass("due")}
+                         onClick={(event) => {
+                           event.preventDefault();
+                           applySort("due");
+                         }}
+                       >
                         Due
                         {sortIndicator("due")}
                       </a>
@@ -2333,6 +2563,35 @@ export default function TasksView({
           )}
         </div>
       )}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600 md:px-6">
+        <p>
+          {normalizedTotalCount
+            ? `Showing ${showingFrom}-${showingTo} of ${normalizedTotalCount}`
+            : searchQuery
+              ? "No tasks match this search."
+              : "No tasks match these filters."}
+        </p>
+        {(hasPreviousPage || hasNextPage) ? (
+          <div className="flex items-center gap-2">
+            {hasPreviousPage ? (
+              <Link
+                href={buildPageUrl(normalizedPage - 1)}
+                className="inline-flex min-h-10 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+              >
+                Previous
+              </Link>
+            ) : null}
+            {hasNextPage ? (
+              <Link
+                href={buildPageUrl(normalizedPage + 1)}
+                className="inline-flex min-h-10 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+              >
+                Next
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </>
   );
 }

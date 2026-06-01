@@ -8,8 +8,9 @@ import {
   type CurrentRequestUser,
 } from "@/lib/supabase/currentUser";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
+import { plainTextToTiptapDoc } from "@/lib/plainTextToTiptapDoc";
 import { extractPlainText } from "@/lib/tiptapText";
-import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { setCsvParam } from "@/lib/queryParams";
 import {
   coerceTaskStatusList,
   expandTaskStatusFilterForQuery,
@@ -36,15 +37,23 @@ import { DEFAULT_RECURRENCE_TZ } from "@/lib/recurrence";
 import { parseTaskScheduleFormData } from "@/lib/taskSchedule";
 import RecurrenceFields from "./_components/RecurrenceFields";
 import {
-  normalizeTaskSortDir,
-  normalizeTaskSortKey,
-} from "@/lib/taskSorting";
+  resolveTaskTableState,
+  type TaskTablePreferenceRow,
+} from "@/lib/taskTablePreferences";
 import { withPerfTiming } from "@/lib/perf";
 import {
   loadAssignmentGroups,
   resolveAssignmentTargetsToUserIds,
 } from "@/lib/assignmentGroups";
-import { updateTaskInlineAction } from "./actions";
+import {
+  saveTaskTablePreferencesAction,
+  updateTaskInlineAction,
+} from "./actions";
+import {
+  createTaskLikeRoot,
+  TaskCreateDbError,
+  TaskCreateInputError,
+} from "@/lib/tasks/createTaskLikeRoot";
 import { randomUUID } from "node:crypto";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
@@ -65,21 +74,31 @@ const addTaskPanelClass =
   "rounded-xl bg-slate-50/70 p-4 ring-1 ring-slate-100 md:p-5";
 const addTaskPanelTitleClass =
   "text-xs font-semibold uppercase tracking-wide text-slate-500";
-const MAX_TASK_ROWS = 500;
 
-type UserTaskTablePreferencesRow = {
-  status: string[] | null;
-  priority: string[] | null;
-  assignee: string[] | null;
-  due: string | null;
-  client: string[] | null;
-  project: string[] | null;
-  hide_completed: boolean | null;
-  include_watching: boolean | null;
-  sort_key: string | null;
-  sort_dir: string | null;
-  view_mode: string | null;
+type TaskContentSource = {
+  content?: unknown | null;
+  content_text?: string | null;
+  description?: string | null;
 };
+
+function resolveTaskContentFromSource(source?: TaskContentSource | null) {
+  const sourceContent = source?.content || null;
+  const sourceContentText =
+    String(source?.content_text || "").trim() ||
+    (sourceContent ? extractPlainText(sourceContent) : "");
+  if (sourceContent && sourceContentText) {
+    return { content: sourceContent, contentText: sourceContentText };
+  }
+
+  const description = String(source?.description || "").trim();
+  if (description) {
+    const content = plainTextToTiptapDoc(description);
+    return { content, contentText: extractPlainText(content) || description };
+  }
+
+  return { content: DEFAULT_EDITOR_CONTENT, contentText: defaultContentText };
+}
+const TASK_PAGE_SIZE = 50;
 
 type TaskListRow = {
   id: string;
@@ -131,6 +150,7 @@ type TaskListPageRpcRow = {
   assignee_user_ids: string[] | null;
   open_subtask_count: number | string | null;
   next_subtask_due_date: string | null;
+  total_count: number | string | null;
 };
 
 type TasksPageSearchParams = {
@@ -148,6 +168,8 @@ type TasksPageSearchParams = {
   watch?: string;
   sort?: string;
   dir?: string;
+  q?: string;
+  page?: string;
   error?: string;
   success?: string;
 };
@@ -156,11 +178,6 @@ function isTemplateStatusEnumError(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const message = String((error as { message?: unknown }).message || "").toLowerCase();
   return message.includes("invalid input value for enum") && message.includes("template");
-}
-
-function normalizePreferenceValues(value: string[] | null | undefined) {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 function areSameValueSets(left: string[], right: string[]) {
@@ -247,6 +264,8 @@ function buildTasksShellListHref(searchParams: TasksPageSearchParams | undefined
   appendShellSearchParam(params, "watch", searchParams?.watch);
   appendShellSearchParam(params, "sort", searchParams?.sort);
   appendShellSearchParam(params, "dir", searchParams?.dir);
+  appendShellSearchParam(params, "q", searchParams?.q);
+  appendShellSearchParam(params, "page", searchParams?.page);
   const query = params.toString();
   return query ? `/tasks?${query}` : "/tasks";
 }
@@ -401,8 +420,7 @@ async function TasksPageContent({
   const assignmentUserIds = Array.from(
     new Set([authUserId, currentAppUserId].filter(Boolean))
   ) as string[];
-  let taskTablePreferences: UserTaskTablePreferencesRow | null = null;
-  let taskPreferencesAvailable = true;
+  let taskTablePreferences: TaskTablePreferenceRow | null = null;
   if (currentAppUserId) {
     const { data, error } = await supabase
       .from("user_task_table_preferences")
@@ -413,12 +431,12 @@ async function TasksPageContent({
       .maybeSingle();
     if (error) {
       if (isSupabaseMissingTableError(error)) {
-        taskPreferencesAvailable = false;
+        taskTablePreferences = null;
       } else {
         console.error("[tasks.preferences.select]", error.message);
       }
     } else {
-      taskTablePreferences = (data || null) as UserTaskTablePreferencesRow | null;
+      taskTablePreferences = (data || null) as TaskTablePreferenceRow | null;
     }
   }
   const statusOptionsResponse = await supabase
@@ -458,38 +476,30 @@ async function TasksPageContent({
     createModeRaw === "template" ? "template" : "new";
   const templateTaskId = String(searchParams?.template_task_id || "").trim();
   const activeTab = normalizeTasksTabKey(searchParams?.tab);
-  const hasExplicitView = typeof searchParams?.view !== "undefined";
-  const hasExplicitFilterParams =
-    typeof searchParams?.status !== "undefined" ||
-    typeof searchParams?.priority !== "undefined" ||
-    typeof searchParams?.assignee !== "undefined" ||
-    typeof searchParams?.due !== "undefined" ||
-    typeof searchParams?.client !== "undefined" ||
-    typeof searchParams?.project !== "undefined" ||
-    typeof searchParams?.hide !== "undefined" ||
-    typeof searchParams?.watch !== "undefined" ||
-    typeof searchParams?.sort !== "undefined" ||
-    typeof searchParams?.dir !== "undefined" ||
-    hasExplicitView;
-
-  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
-  const selectedView: "table" | "gantt" | "board" =
-    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
-      ? (viewRaw as "table" | "gantt" | "board")
-      : "table";
-
-  const sortKey = normalizeTaskSortKey(searchParams?.sort);
-  const sortDir = normalizeTaskSortDir(searchParams?.dir);
-
-  const selectedStatusesRaw = parseCsvParam(searchParams?.status);
-  const selectedPrioritiesRaw = parseCsvParam(searchParams?.priority);
-  const hasExplicitAssigneeFilter = typeof searchParams?.assignee !== "undefined";
-  const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
-  const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
-  const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
-  let selectedDue = String(searchParams?.due || "all").trim();
-  const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
-  const includeWatching = (searchParams?.watch ?? "0").trim() === "1";
+  const resolvedTaskTableState = resolveTaskTableState({
+    searchParams,
+    preferences: taskTablePreferences,
+  });
+  const {
+    selectedStatusesRaw,
+    selectedPrioritiesRaw,
+    selectedAssigneesRaw,
+    selectedClientIdsRaw,
+    selectedProjectIdsRaw,
+    hideCompleted,
+    includeWatching,
+    sortKey,
+    sortDir,
+    selectedView,
+    hasExplicitView,
+    hasExplicitPreferenceParams,
+    shouldUseSavedPreferences,
+    searchQuery,
+    currentPage,
+  } = resolvedTaskTableState;
+  const hasExplicitAssigneeFilter =
+    typeof searchParams?.assignee !== "undefined" || shouldUseSavedPreferences;
+  let selectedDue = resolvedTaskTableState.selectedDue;
 
   const allowedDueValues = new Set<string>(
     dueDateFilters.map((filter) => filter.value)
@@ -727,62 +737,6 @@ async function TasksPageContent({
       ? effectiveSelectedProjectIds[0]
       : "";
 
-  if (hasExplicitFilterParams && currentAppUserId && taskPreferencesAvailable) {
-    const shouldSavePreferences =
-      !taskTablePreferences ||
-      !areSameValueSets(
-        normalizePreferenceValues(taskTablePreferences.status),
-        effectiveSelectedStatuses
-      ) ||
-      !areSameValueSets(
-        normalizePreferenceValues(taskTablePreferences.priority),
-        selectedPriorities
-      ) ||
-      !areSameValueSets(
-        normalizePreferenceValues(taskTablePreferences.assignee),
-        selectedAssignees
-      ) ||
-      !areSameValueSets(
-        normalizePreferenceValues(taskTablePreferences.client),
-        effectiveSelectedClientIds
-      ) ||
-      !areSameValueSets(
-        normalizePreferenceValues(taskTablePreferences.project),
-        effectiveSelectedProjectIds
-      ) ||
-      String(taskTablePreferences.due || "all") !== selectedDue ||
-      Boolean(taskTablePreferences.hide_completed ?? true) !== hideCompleted ||
-      Boolean(taskTablePreferences.include_watching ?? false) !== includeWatching ||
-      String(taskTablePreferences.sort_key || "created") !== sortKey ||
-      String(taskTablePreferences.sort_dir || "desc") !== sortDir ||
-      String(taskTablePreferences.view_mode || "table") !== selectedView;
-
-    if (shouldSavePreferences) {
-      const { error: savePreferencesError } = await supabase
-        .from("user_task_table_preferences")
-        .upsert(
-        {
-          user_id: currentAppUserId,
-          status: effectiveSelectedStatuses,
-          priority: selectedPriorities,
-          assignee: selectedAssignees,
-          due: selectedDue,
-          client: effectiveSelectedClientIds,
-          project: effectiveSelectedProjectIds,
-          hide_completed: hideCompleted,
-          include_watching: includeWatching,
-          sort_key: sortKey,
-          sort_dir: sortDir,
-          view_mode: selectedView,
-        },
-        { onConflict: "user_id" }
-      );
-      if (savePreferencesError && !isSupabaseMissingTableError(savePreferencesError)) {
-        console.error("[tasks.preferences.save]", savePreferencesError.message);
-      }
-    }
-  }
-
   const statusValuesForQueryParam = effectiveSelectedStatuses;
   const priorityValuesForQueryParam = areSameValueSets(selectedPriorities, [...priorityOptions])
     ? []
@@ -830,6 +784,12 @@ async function TasksPageContent({
   }
   if (includeWatching) {
     returnParams.set("watch", "1");
+  }
+  if (searchQuery) {
+    returnParams.set("q", searchQuery);
+  }
+  if (currentPage > 1) {
+    returnParams.set("page", String(currentPage));
   }
 
   const returnTo = returnParams.toString() ? `/tasks?${returnParams}` : "/tasks";
@@ -900,6 +860,7 @@ async function TasksPageContent({
   const openSubtaskCountByTaskId: Record<string, number> = {};
   const openSubtasksByParentId: Record<string, OpenSubtaskTaskRow[]> = {};
   const initialNextSubtaskDueDateByTaskId: Record<string, string | null> = {};
+  let totalTaskCount = 0;
 
   if (activeTab === "list") {
     const wantsUnassigned = selectedAssignees.includes("unassigned");
@@ -936,7 +897,9 @@ async function TasksPageContent({
           p_sort_key: sortKey,
           p_sort_dir: sortDir,
           p_status_order: statusOptions,
-          p_limit: MAX_TASK_ROWS,
+          p_limit: TASK_PAGE_SIZE,
+          p_offset: (currentPage - 1) * TASK_PAGE_SIZE,
+          p_query: searchQuery,
         })
     );
 
@@ -949,6 +912,13 @@ async function TasksPageContent({
     }
 
     const taskRows = (taskRowsRaw || []) as TaskListPageRpcRow[];
+    if (!taskRows.length && currentPage > 1) {
+      const resetPageParams = new URLSearchParams(returnParams);
+      resetPageParams.delete("page");
+      const resetPageQuery = resetPageParams.toString();
+      redirect(resetPageQuery ? `/tasks?${resetPageQuery}` : "/tasks");
+    }
+    totalTaskCount = Number(taskRows[0]?.total_count || 0);
     sortedTasks = taskRows.map((row) => {
       const task: TaskListRow = {
         id: row.id,
@@ -1115,12 +1085,17 @@ async function TasksPageContent({
 
     const manualAssigneeIds = Array.from(new Set(assigneeIds));
     let templateAssigneeIds: string[] = [];
+    let templateContentSource: TaskContentSource | null = null;
     if (templateTaskIdFromForm) {
-      const [templateTaskResponse, templateAssigneesResponse, templateTableAssigneesResponse] =
-        await Promise.all([
+      const [
+        templateTaskResponse,
+        templateAssigneesResponse,
+        templateTableAssigneesResponse,
+        templateTableResponse,
+      ] = await Promise.all([
         supabase
           .from("tasks")
-          .select("assignee_user_id")
+          .select("assignee_user_id,description,content,content_text")
           .eq("id", templateTaskIdFromForm)
           .maybeSingle(),
         supabase
@@ -1131,6 +1106,11 @@ async function TasksPageContent({
           .from("task_template_assignees")
           .select("user_id")
           .eq("task_template_id", templateTaskIdFromForm),
+        supabase
+          .from("task_templates")
+          .select("description")
+          .eq("id", templateTaskIdFromForm)
+          .maybeSingle(),
       ]);
 
       if (templateTaskResponse.error) {
@@ -1160,6 +1140,17 @@ async function TasksPageContent({
           })
         );
       }
+      if (
+        templateTableResponse.error &&
+        !isSupabaseMissingTableError(templateTableResponse.error)
+      ) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: templateTableResponse.error.message,
+          })
+        );
+      }
 
       templateAssigneeIds = Array.from(
         new Set(
@@ -1170,6 +1161,11 @@ async function TasksPageContent({
           ].filter(Boolean)
         )
       ) as string[];
+      templateContentSource =
+        (templateTaskResponse.data as TaskContentSource | null) ||
+        (templateTableResponse.error
+          ? null
+          : (templateTableResponse.data as TaskContentSource | null));
     }
     const uniqueAssigneeIds = Array.from(
       new Set([...manualAssigneeIds, ...templateAssigneeIds])
@@ -1182,47 +1178,63 @@ async function TasksPageContent({
         ? [primaryAssignee]
         : [];
 
-    const taskId = randomUUID();
-    const payload: Record<string, unknown> = {
-      id: taskId,
-      client_id: clientId,
-      project_id: projectId,
-      title,
-      status,
-      priority,
-      due_date: schedule.dueDate,
-      due_time: schedule.dueTime,
-      assignee_user_id: primaryAssignee || null,
-      created_by_user_id: authData.user.id,
-      content: DEFAULT_EDITOR_CONTENT,
-      content_text: defaultContentText,
-    };
-
-    if (schedule.recurrenceConfig) {
-      payload.recurrence_frequency = schedule.recurrenceConfig.frequency;
-      payload.recurrence_interval = schedule.recurrenceConfig.interval;
-      payload.recurrence_weekdays = schedule.recurrenceConfig.weekdays;
-      payload.recurrence_month_day = schedule.recurrenceConfig.monthDay;
-      payload.recurrence_month_week = schedule.recurrenceConfig.monthWeek;
-      payload.recurrence_month_weekday = schedule.recurrenceConfig.monthWeekday;
-      payload.recurrence_start_date = schedule.recurrenceConfig.startDate;
-      payload.recurrence_end_date = schedule.recurrenceConfig.endDate;
-      payload.recurrence_lead_days = schedule.recurrenceLeadDays;
-      payload.recurrence_next_date = schedule.recurrenceNextDate;
-      payload.recurrence_timezone = schedule.recurrenceTimezone;
-    }
-
-    if (schedule.startDate) {
-      payload.start_date = schedule.startDate;
-    }
-
-    const { error } = await supabase.from("tasks").insert(payload);
-
-    if (error) {
+    const templateContent = resolveTaskContentFromSource(templateContentSource);
+    let taskId: string;
+    try {
+      const createdTask = await createTaskLikeRoot({
+        supabase,
+        context: "tasks.createTask",
+        title,
+        status,
+        priority,
+        clientId,
+        projectId,
+        dueDate: schedule.dueDate,
+        dueTime: schedule.dueTime,
+        startDate: schedule.startDate,
+        createdByUserId: authData.user.id,
+        assigneeUserIds: uniqueAssigneeIds,
+        defaultAssigneeUserId: fallbackAssigneeId,
+        recurrenceValues: schedule.recurrenceConfig
+          ? {
+              recurrence_frequency: schedule.recurrenceConfig.frequency,
+              recurrence_interval: schedule.recurrenceConfig.interval,
+              recurrence_weekdays: schedule.recurrenceConfig.weekdays,
+              recurrence_month_day: schedule.recurrenceConfig.monthDay,
+              recurrence_month_week: schedule.recurrenceConfig.monthWeek,
+              recurrence_month_weekday: schedule.recurrenceConfig.monthWeekday,
+              recurrence_start_date: schedule.recurrenceConfig.startDate,
+              recurrence_end_date: schedule.recurrenceConfig.endDate,
+              recurrence_lead_days: schedule.recurrenceLeadDays,
+              recurrence_next_date: schedule.recurrenceNextDate,
+              recurrence_timezone: schedule.recurrenceTimezone,
+            }
+          : null,
+        content: templateContent.content,
+        contentText: templateContent.contentText,
+      });
+      taskId = createdTask.taskId;
+    } catch (error) {
+      if (error instanceof TaskCreateDbError) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: formatDbError(error.context, error.dbError),
+          })
+        );
+      }
+      if (error instanceof TaskCreateInputError) {
+        redirect(
+          buildTasksRedirectUrl(returnTo, {
+            tab: "add",
+            error: error.message,
+          })
+        );
+      }
       redirect(
         buildTasksRedirectUrl(returnTo, {
           tab: "add",
-          error: formatDbError("tasks.createTask.tasks.insert", error),
+          error: error instanceof Error ? error.message : "Unable to create task",
         })
       );
     }
@@ -1431,29 +1443,13 @@ async function TasksPageContent({
         }
       }
     }
-    if (taskId && effectiveAssigneeIds.length) {
-        const inserts = effectiveAssigneeIds.map((userId) => ({
-          task_id: taskId,
-          user_id: userId,
-        }));
-        const { error: assigneeError } = await supabase
-          .from("task_assignees")
-          .insert(inserts);
-        if (assigneeError) {
-          redirect(
-            buildTasksRedirectUrl(returnTo, {
-              tab: "add",
-              error: assigneeError.message,
-            })
-          );
-        }
-    }
-
     if (taskId && templateTaskIdFromForm) {
       let subtaskTemplates: Array<{
         id: string;
         title: string;
         description: string | null;
+        content?: unknown | null;
+        content_text?: string | null;
         status: string;
         priority: string;
         assignee_user_id?: string | null;
@@ -1462,7 +1458,7 @@ async function TasksPageContent({
 
       const { data: mirroredSubtasksRaw, error: mirroredSubtasksError } = await supabase
         .from("tasks")
-        .select("id,title,description,status,priority,assignee_user_id")
+        .select("id,title,description,content,content_text,status,priority,assignee_user_id")
         .eq("parent_task_id", templateTaskIdFromForm)
         .order("created_at", { ascending: true });
       if (mirroredSubtasksError) {
@@ -1477,6 +1473,8 @@ async function TasksPageContent({
         id: string;
         title: string;
         description: string | null;
+        content?: unknown | null;
+        content_text?: string | null;
         status: string;
         priority: string;
         assignee_user_id?: string | null;
@@ -1567,6 +1565,7 @@ async function TasksPageContent({
           );
           const primarySubtaskAssignee =
             subtaskAssigneeIds[0] || primaryAssigneeForSubtasks;
+          const subtaskContent = resolveTaskContentFromSource(tpl);
           return {
             assigneeIds: subtaskAssigneeIds,
             payload: {
@@ -1580,8 +1579,8 @@ async function TasksPageContent({
               due_time: null,
               assignee_user_id: primarySubtaskAssignee,
               created_by_user_id: authData.user.id,
-              content: DEFAULT_EDITOR_CONTENT,
-              content_text: defaultContentText,
+              content: subtaskContent.content,
+              content_text: subtaskContent.contentText,
             },
           };
         });
@@ -1875,6 +1874,12 @@ async function TasksPageContent({
           initialView={selectedView}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
+          searchQuery={searchQuery}
+          currentPage={currentPage}
+          pageSize={TASK_PAGE_SIZE}
+          totalTaskCount={totalTaskCount}
+          onSavePreferences={saveTaskTablePreferencesAction}
+          hasExplicitFilterParams={hasExplicitPreferenceParams}
           columnPreferenceUserId={currentAppUserId || authUserId}
         />
       </section>

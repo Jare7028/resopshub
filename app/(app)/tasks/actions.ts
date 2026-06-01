@@ -1,10 +1,14 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import { resolveAssignmentTargetsToUserIds } from "@/lib/assignmentGroups";
+import { parseCsvParam } from "@/lib/queryParams";
+import {
+  normalizeTaskSortDir,
+  normalizeTaskSortKey,
+} from "@/lib/taskSorting";
 
 function safeReturnTo(value: unknown, fallback: string) {
   const next = String(value || "").trim();
@@ -14,12 +18,6 @@ function safeReturnTo(value: unknown, fallback: string) {
   return next;
 }
 
-function buildReturnToErrorUrl(returnTo: string, message: string) {
-  return returnTo.includes("?")
-    ? `${returnTo}&error=${encodeURIComponent(message)}`
-    : `${returnTo}?error=${encodeURIComponent(message)}`;
-}
-
 export async function updateTaskInlineAction(formData: FormData) {
   const supabase = createSupabaseServerClient();
   const taskId = String(formData.get("task_id") || "").trim();
@@ -27,113 +25,113 @@ export async function updateTaskInlineAction(formData: FormData) {
   const projectId = String(formData.get("project_id") || "").trim();
   const status = String(formData.get("status") || "").trim();
   const priority = String(formData.get("priority") || "").trim();
-  const assignee = String(formData.get("assignee_user_id") || "").trim();
   const startDate = String(formData.get("start_date") || "").trim();
   const dueDate = String(formData.get("due_date") || "").trim();
   const dueTime = String(formData.get("due_time") || "").trim();
   const returnTo = safeReturnTo(formData.get("return_to"), "/tasks");
+  const assigneesUpdated = formData.has("assignee_user_ids");
   const assigneeResolution = await resolveAssignmentTargetsToUserIds(
     supabase,
     formData.getAll("assignee_user_ids")
   );
   if (assigneeResolution.error) {
-    redirect(
-      returnTo.includes("?")
-        ? `${returnTo}&error=${encodeURIComponent(assigneeResolution.error)}`
-        : `${returnTo}?error=${encodeURIComponent(assigneeResolution.error)}`
-    );
+    return { ok: false, error: assigneeResolution.error };
   }
   const assigneeIds = assigneeResolution.userIds.filter(
     (value) => Boolean(value) && value !== "unassigned"
   );
-  const updates: Record<string, string | null> = {};
-  const assigneesUpdated = formData.has("assignee_user_ids");
-  let rollbackTaskSnapshot:
-    | {
-        status: string | null;
-        client_id: string | null;
-        project_id: string | null;
-        priority: string | null;
-        assignee_user_id: string | null;
-        start_date: string | null;
-        due_date: string | null;
-        due_time: string | null;
-      }
-    | null = null;
-  let taskUpdated = false;
 
   if (!taskId) {
-    redirect(buildReturnToErrorUrl(returnTo, "Missing task id"));
+    return { ok: false, error: "Missing task id" };
   }
 
-  if (formData.has("status")) {
-    updates.status = normalizeTaskStatusOrDefault(status);
-  }
-  if (formData.has("client_id")) {
-    updates.client_id = clientId || null;
-  }
-  if (formData.has("project_id")) {
-    updates.project_id = projectId || null;
-  }
-  if (formData.has("priority")) {
-    updates.priority = priority || null;
-  }
-  if (formData.has("assignee_user_id")) {
-    updates.assignee_user_id = assignee || null;
-  }
-  if (formData.has("start_date")) {
-    updates.start_date = startDate || null;
-  }
-  if (formData.has("due_date")) {
-    updates.due_date = dueDate || null;
-  }
-  if (formData.has("due_time")) {
-    updates.due_time = dueTime || null;
-  }
+  const { data, error } = await supabase.rpc("update_task_inline", {
+    p_task_id: taskId,
+    p_has_status: formData.has("status"),
+    p_status: formData.has("status") ? normalizeTaskStatusOrDefault(status) : null,
+    p_has_priority: formData.has("priority"),
+    p_priority: formData.has("priority") ? priority || null : null,
+    p_has_client_id: formData.has("client_id"),
+    p_client_id: formData.has("client_id") ? clientId || null : null,
+    p_has_project_id: formData.has("project_id"),
+    p_project_id: formData.has("project_id") ? projectId || null : null,
+    p_has_start_date: formData.has("start_date"),
+    p_start_date: formData.has("start_date") ? startDate || null : null,
+    p_has_due_date: formData.has("due_date"),
+    p_due_date: formData.has("due_date") ? dueDate || null : null,
+    p_has_due_time: formData.has("due_time"),
+    p_due_time: formData.has("due_time") ? dueTime || null : null,
+    p_has_assignees: assigneesUpdated,
+    p_assignee_user_ids: assigneesUpdated ? Array.from(new Set(assigneeIds)) : [],
+  });
 
-  if (Object.keys(updates).length && assigneesUpdated) {
-    const { data: taskSnapshot, error: taskSnapshotError } = await supabase
-      .from("tasks")
-      .select(
-        "status,client_id,project_id,priority,assignee_user_id,start_date,due_date,due_time"
-      )
-      .eq("id", taskId)
-      .maybeSingle();
-    if (taskSnapshotError) {
-      redirect(buildReturnToErrorUrl(returnTo, taskSnapshotError.message));
-    }
-    rollbackTaskSnapshot = taskSnapshot || null;
-  }
-
-  if (Object.keys(updates).length) {
-    const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
-    if (error) {
-      redirect(buildReturnToErrorUrl(returnTo, error.message));
-    }
-    taskUpdated = true;
-  }
-
-  if (assigneesUpdated) {
-    const uniqueIds = Array.from(new Set(assigneeIds));
-    const { error: replaceAssigneesError } = await supabase.rpc("replace_task_assignees", {
-      p_task_id: taskId,
-      p_assignee_user_ids: uniqueIds,
-    });
-    if (replaceAssigneesError) {
-      if (taskUpdated && rollbackTaskSnapshot) {
-        const { error: rollbackError } = await supabase
-          .from("tasks")
-          .update(rollbackTaskSnapshot)
-          .eq("id", taskId);
-        if (rollbackError) {
-          console.error("[tasks.inline.rollback]", rollbackError.message);
-        }
-      }
-      redirect(buildReturnToErrorUrl(returnTo, replaceAssigneesError.message));
-    }
+  if (error) {
+    return { ok: false, error: error.message };
   }
 
   const pathOnly = returnTo.split("?")[0] || "/tasks";
   revalidatePath(pathOnly);
+  return { ok: true, task: Array.isArray(data) ? data[0] || null : null };
+}
+
+function normalizePreferenceValues(value: unknown) {
+  return parseCsvParam(value)
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function normalizeViewMode(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "gantt" || normalized === "board" ? normalized : "table";
+}
+
+export async function saveTaskTablePreferencesAction(formData: FormData) {
+  const supabase = createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  const authUser = authData.user;
+  if (!authUser?.id) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const authEmail = String(authUser.email || "").trim();
+  const currentUserProfileQuery = supabase.from("users").select("id");
+  const { data: currentUserProfile, error: profileError } = await (authEmail
+    ? currentUserProfileQuery.eq("email", authEmail).maybeSingle()
+    : currentUserProfileQuery.eq("id", authUser.id).maybeSingle());
+
+  if (profileError) {
+    return { ok: false, error: profileError.message };
+  }
+
+  const currentAppUserId = currentUserProfile?.id || null;
+  if (!currentAppUserId) {
+    return { ok: false, error: "User profile not found" };
+  }
+
+  const due = String(formData.get("due") || "all").trim();
+  const normalizedDue =
+    due === "overdue" || due === "next_7" || due === "none" ? due : "all";
+  const { error } = await supabase.from("user_task_table_preferences").upsert(
+    {
+      user_id: currentAppUserId,
+      status: normalizePreferenceValues(formData.get("status")),
+      priority: normalizePreferenceValues(formData.get("priority")),
+      assignee: normalizePreferenceValues(formData.get("assignee")),
+      client: normalizePreferenceValues(formData.get("client")),
+      project: normalizePreferenceValues(formData.get("project")),
+      due: normalizedDue,
+      hide_completed: String(formData.get("hide_completed") || "1") !== "0",
+      include_watching: String(formData.get("include_watching") || "0") === "1",
+      sort_key: normalizeTaskSortKey(String(formData.get("sort_key") || "")),
+      sort_dir: normalizeTaskSortDir(String(formData.get("sort_dir") || "")),
+      view_mode: normalizeViewMode(formData.get("view_mode")),
+    },
+    { onConflict: "user_id" }
+  );
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
   return { ok: true };
 }

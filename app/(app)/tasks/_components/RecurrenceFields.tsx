@@ -115,6 +115,11 @@ export default function RecurrenceFields({
     isIsoDate(initialDueDate || "") ? (initialDueDate as string) : today
   );
   const [dueTime, setDueTime] = useState(normalizeTime(initialDueTime || ""));
+  const [onceStartDate, setOnceStartDate] = useState(
+    isIsoDate(initialStartDate || "") && initialFrequency === "once"
+      ? (initialStartDate as string)
+      : ""
+  );
   const [recurrenceStartDate, setRecurrenceStartDate] = useState(initialDate);
   const [recurrenceInterval, setRecurrenceInterval] = useState("1");
   const [recurrenceEndMode, setRecurrenceEndMode] = useState<"never" | "on">("never");
@@ -403,8 +408,8 @@ export default function RecurrenceFields({
                 type="date"
                 name="start_date"
                 className={fieldControlClass}
-                value={recurrenceStartDate}
-                onChange={(event) => setRecurrenceStartDate(event.target.value)}
+                value={onceStartDate}
+                onChange={(event) => setOnceStartDate(event.target.value)}
               />
             </div>
 

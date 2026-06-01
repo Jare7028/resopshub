@@ -131,6 +131,8 @@ export default function TaskInlineRow({
     null;
   const isSubtaskRow = rowVariant === "subtask";
   const [, startTransition] = useTransition();
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const getRelationName = (
     relation:
@@ -156,8 +158,25 @@ export default function TaskInlineRow({
     const form = event.currentTarget.form;
     if (!form) return;
     const formData = new FormData(form);
+    setIsSaving(true);
+    setSaveError("");
     startTransition(() => {
-      void onUpdate(formData);
+      void Promise.resolve(onUpdate(formData))
+        .then((result) => {
+          const actionResult = result as
+            | { ok?: boolean; error?: string | null }
+            | null
+            | undefined;
+          if (actionResult?.ok === false) {
+            setSaveError(actionResult.error || "Unable to save change");
+          }
+        })
+        .catch((error) => {
+          setSaveError(error instanceof Error ? error.message : "Unable to save change");
+        })
+        .finally(() => {
+          setIsSaving(false);
+        });
     });
   };
 
@@ -291,6 +310,15 @@ export default function TaskInlineRow({
               {task.title}
             </Link>
           )}
+          {isSaving || saveError ? (
+            <p
+              className={`mt-1 text-[11px] font-medium ${
+                saveError ? "text-rose-600" : "text-slate-500"
+              }`}
+            >
+              {saveError || "Saving..."}
+            </p>
+          ) : null}
         </td>
       ) : null}
       {isColumnVisible("open_subtasks") ? (

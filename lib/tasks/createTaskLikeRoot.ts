@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
-import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
-import { extractPlainText } from "@/lib/tiptapText";
-import type { createSupabaseServerClient } from "@/lib/supabase/server";
+import { DEFAULT_EDITOR_CONTENT } from "../editorContent";
+import { normalizeTaskStatusOrDefault } from "../taskStatus";
+import { extractPlainText } from "../tiptapText";
+import type { createSupabaseServerClient } from "../supabase/server";
 
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
@@ -67,6 +67,8 @@ export type CreateTaskLikeRootParams = {
   assigneeUserIds?: string[];
   defaultAssigneeUserId?: string | null;
   recurrenceValues?: RecurrenceValues | null;
+  content?: unknown | null;
+  contentText?: string | null;
 };
 
 export type CreateTaskLikeRootResult = {
@@ -114,6 +116,8 @@ export async function createTaskLikeRoot({
   assigneeUserIds = [],
   defaultAssigneeUserId = null,
   recurrenceValues = null,
+  content = null,
+  contentText = null,
 }: CreateTaskLikeRootParams): Promise<CreateTaskLikeRootResult> {
   const operationId = randomUUID();
   const startedAtMs = Date.now();
@@ -161,6 +165,9 @@ export async function createTaskLikeRoot({
 
   const normalizedAssigneeUserId = String(assigneeUserId || "").trim();
   const normalizedDefaultAssigneeUserId = String(defaultAssigneeUserId || "").trim();
+  const normalizedContent = content || DEFAULT_EDITOR_CONTENT;
+  const normalizedContentText =
+    String(contentText || "").trim() || extractPlainText(normalizedContent);
 
   const primaryAssignee =
     normalizedAssigneeIds[0] ||
@@ -193,8 +200,8 @@ export async function createTaskLikeRoot({
     due_time: normalizedDueTime,
     assignee_user_id: primaryAssignee || null,
     created_by_user_id: createdByUserId,
-    content: DEFAULT_EDITOR_CONTENT,
-    content_text: defaultContentText,
+    content: normalizedContent,
+    content_text: normalizedContentText || defaultContentText,
   };
 
   if (normalizedStartDate) {
