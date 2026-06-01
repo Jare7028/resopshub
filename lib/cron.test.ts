@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isAuthorizedCronRequest } from "./cron";
 
 const originalCronSecret = process.env.CRON_SECRET;
+const originalVercelEnv = process.env.VERCEL_ENV;
 
 function makeRequest(url: string, headers: Record<string, string> = {}) {
   return new Request(url, { headers: new Headers(headers) });
@@ -10,21 +11,36 @@ function makeRequest(url: string, headers: Record<string, string> = {}) {
 describe("isAuthorizedCronRequest", () => {
   beforeEach(() => {
     delete process.env.CRON_SECRET;
+    delete process.env.VERCEL_ENV;
   });
 
   afterEach(() => {
     if (originalCronSecret === undefined) {
       delete process.env.CRON_SECRET;
-      return;
+    } else {
+      process.env.CRON_SECRET = originalCronSecret;
     }
-    process.env.CRON_SECRET = originalCronSecret;
+    if (originalVercelEnv === undefined) {
+      delete process.env.VERCEL_ENV;
+    } else {
+      process.env.VERCEL_ENV = originalVercelEnv;
+    }
   });
 
-  it("authorizes Vercel cron header even when CRON_SECRET is not set", () => {
+  it("authorizes Vercel cron header in production even when CRON_SECRET is not set", () => {
+    process.env.VERCEL_ENV = "production";
     const request = makeRequest("https://example.com/api/cron/task-reminders", {
       "x-vercel-cron": "1",
     });
     expect(isAuthorizedCronRequest(request)).toBe(true);
+  });
+
+  it("rejects Vercel cron header outside production when CRON_SECRET is not set", () => {
+    process.env.VERCEL_ENV = "preview";
+    const request = makeRequest("https://example.com/api/cron/task-reminders", {
+      "x-vercel-cron": "1",
+    });
+    expect(isAuthorizedCronRequest(request)).toBe(false);
   });
 
   it("rejects non-vercel requests when CRON_SECRET is missing", () => {

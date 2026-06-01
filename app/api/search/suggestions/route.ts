@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  buildPostgrestIlikeContainsFilter,
+  buildPostgrestOrFilter,
+} from "@/lib/postgrestFilters";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type SearchResult = {
@@ -86,18 +90,21 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: rows.map(mapToSuggestion) });
   }
 
-  const likeQuery = `%${query}%`;
+  const fallbackSearchFilter = buildPostgrestOrFilter([
+    buildPostgrestIlikeContainsFilter("title", query),
+    buildPostgrestIlikeContainsFilter("content_text", query),
+  ]);
   const [personalResponse, taskResponse] = await Promise.all([
     supabase
       .from("personal_pages")
       .select("id,title,content_text,updated_at,last_edited_at,personal_sections(title)")
-      .or(`title.ilike.${likeQuery},content_text.ilike.${likeQuery}`)
+      .or(fallbackSearchFilter)
       .order("updated_at", { ascending: false })
       .limit(limit),
     supabase
       .from("tasks")
       .select("id,title,content_text,updated_at,last_edited_at,clients(name),projects(name)")
-      .or(`title.ilike.${likeQuery},content_text.ilike.${likeQuery}`)
+      .or(fallbackSearchFilter)
       .order("updated_at", { ascending: false })
       .limit(limit),
   ]);

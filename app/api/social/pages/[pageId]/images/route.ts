@@ -1,36 +1,15 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import {
+  safeUploadImageFilename,
+  validateUploadImageFile,
+} from "@/lib/imageUploadValidation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
 
 const SOCIAL_POST_IMAGES_BUCKET = "social-post-images";
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
-const ALLOWED_IMAGE_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-  "image/avif",
-]);
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function getExtension(file: File) {
-  const fromName = file.name.split(".").pop()?.trim().toLowerCase();
-  if (fromName && /^[a-z0-9]+$/.test(fromName)) {
-    return fromName;
-  }
-  if (file.type === "image/png") return "png";
-  if (file.type === "image/jpeg") return "jpg";
-  if (file.type === "image/webp") return "webp";
-  if (file.type === "image/gif") return "gif";
-  if (file.type === "image/avif") return "avif";
-  return "bin";
-}
-
-function safeFilename(name: string) {
-  const normalized = name.trim() || "image";
-  return normalized.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-}
 
 export async function POST(
   request: Request,
@@ -108,36 +87,16 @@ export async function POST(
     return NextResponse.json({ error: "Missing image file" }, { status: 400 });
   }
 
-  if (!file.type.startsWith("image/")) {
-    logWarn("social.image.upload.invalid_mime_type", {
-      request_id: requestId,
-      page_id: pageId,
-      user_id: user.id,
-      mime_type: file.type,
-    });
-    return NextResponse.json({ error: "Only image files are supported" }, { status: 400 });
-  }
-  if (!ALLOWED_IMAGE_MIME_TYPES.has(file.type)) {
+  const validation = validateUploadImageFile(file, { maxSizeBytes: MAX_IMAGE_SIZE_BYTES });
+  if (!validation.ok) {
     logWarn("social.image.upload.unsupported_mime_type", {
       request_id: requestId,
       page_id: pageId,
       user_id: user.id,
       mime_type: file.type,
-    });
-    return NextResponse.json(
-      { error: "Unsupported image type. Use PNG, JPEG, WebP, GIF, or AVIF." },
-      { status: 400 }
-    );
-  }
-
-  if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    logWarn("social.image.upload.file_too_large", {
-      request_id: requestId,
-      page_id: pageId,
-      user_id: user.id,
       size_bytes: file.size,
     });
-    return NextResponse.json({ error: "Image exceeds 10MB limit" }, { status: 400 });
+    return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
   const canAccessPageResult = await supabase.rpc("can_access_social_page", {
@@ -208,17 +167,16 @@ export async function POST(
     return NextResponse.json({ error: "Missing user profile" }, { status: 404 });
   }
 
-  const extension = getExtension(file);
   const timestamp = Date.now();
   const random = randomBytes(5).toString("hex");
-  const fileName = safeFilename(file.name || `image-${timestamp}.${extension}`);
+  const fileName = safeUploadImageFilename(file.name, validation.extension, `image-${timestamp}`);
   const storagePath = `${pageId}/${appUserId}/${timestamp}-${random}-${fileName}`;
 
   const arrayBuffer = await file.arrayBuffer();
   const { error: uploadError } = await supabase.storage
     .from(SOCIAL_POST_IMAGES_BUCKET)
     .upload(storagePath, arrayBuffer, {
-      contentType: file.type || "application/octet-stream",
+      contentType: validation.mimeType,
       upsert: false,
     });
 
@@ -262,7 +220,7 @@ export async function POST(
       storage_path: storagePath,
       url: publicUrl,
       filename: file.name || fileName,
-      mime_type: file.type || "application/octet-stream",
+      mime_type: validation.mimeType,
       size_bytes: file.size,
     },
   });

@@ -37,6 +37,11 @@ import {
   summarizeImageNodes,
 } from "@/lib/imageNodeIntegrity";
 import {
+  ALLOWED_UPLOAD_IMAGE_TYPE_LABEL,
+  getAllowedImageExtensionFromMimeType,
+  isAllowedUploadImageMimeType,
+} from "@/lib/imageUploadValidation";
+import {
   getNextSaveVersion,
   hasActiveSaveCoordinatorWork,
   resolveSaveCompletion,
@@ -850,27 +855,16 @@ function mergeSaveWarnings(...values: unknown[]) {
 
 function getImageExtensionFromMimeType(mimeType: string) {
   const normalized = String(mimeType || "").trim().toLowerCase();
-  if (normalized === "image/png") return "png";
-  if (normalized === "image/jpeg") return "jpg";
-  if (normalized === "image/webp") return "webp";
-  if (normalized === "image/gif") return "gif";
-  if (normalized === "image/avif") return "avif";
-  if (normalized === "image/heic") return "heic";
-  if (normalized === "image/heif") return "heif";
-  if (normalized === "image/bmp") return "bmp";
-  if (normalized === "image/tiff") return "tiff";
-  if (normalized === "image/svg+xml") return "svg";
-  return "bin";
+  return getAllowedImageExtensionFromMimeType(normalized) || "png";
 }
 
 function createImageFileFromBlob(blob: Blob, baseName = "pasted-image") {
-  const normalizedMimeType = String(blob.type || "").toLowerCase().startsWith("image/")
-    ? String(blob.type || "").toLowerCase()
-    : "image/png";
+  const normalizedMimeType = String(blob.type || "").toLowerCase();
+  if (!isAllowedUploadImageMimeType(normalizedMimeType)) {
+    throw new Error(`Unsupported image type. Use ${ALLOWED_UPLOAD_IMAGE_TYPE_LABEL}.`);
+  }
   const extension = getImageExtensionFromMimeType(normalizedMimeType);
-  const normalizedBlob =
-    normalizedMimeType === blob.type ? blob : new Blob([blob], { type: normalizedMimeType });
-  return new File([normalizedBlob], `${baseName}.${extension}`, {
+  return new File([blob], `${baseName}.${extension}`, {
     type: normalizedMimeType,
     lastModified: Date.now(),
   });
@@ -2874,6 +2868,12 @@ export default function NoteEditorClient({
 
   const resolveImageSourceFromFile = useCallback(
     async (file: File) => {
+      if (!isAllowedUploadImageMimeType(file.type)) {
+        throw new Error(`Unsupported image type. Use ${ALLOWED_UPLOAD_IMAGE_TYPE_LABEL}.`);
+      }
+      if (file.size > MAX_UPLOADED_IMAGE_BYTES) {
+        throw new Error("Image is too large. Use images up to 10 MB.");
+      }
       if (debugImagePersistence) {
         console.info("[noteEditor.image.debug] resolve_source_start", {
           entityId,

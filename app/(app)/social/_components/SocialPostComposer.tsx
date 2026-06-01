@@ -6,6 +6,10 @@ import { useFormStatus } from "react-dom";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
 import MentionTextarea from "@/app/(app)/_components/MentionTextarea";
 import { insertTextAtSelection } from "@/lib/emoji";
+import {
+  ALLOWED_UPLOAD_IMAGE_ACCEPT,
+  validateUploadImageFile,
+} from "@/lib/imageUploadValidation";
 import { buildSocialInlineImageToken } from "@/lib/socialPostContent";
 
 type UploadedSocialImage = {
@@ -53,6 +57,11 @@ export default function SocialPostComposer({
   const maxImages = 6;
 
   const uploadImage = async (file: File) => {
+    const validation = validateUploadImageFile(file, { maxSizeBytes: 10 * 1024 * 1024 });
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
     const formData = new FormData();
     formData.set("file", file);
 
@@ -208,7 +217,7 @@ export default function SocialPostComposer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={ALLOWED_UPLOAD_IMAGE_ACCEPT}
             multiple
             className="hidden"
             onChange={async (event) => {

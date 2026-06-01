@@ -2,6 +2,10 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import MentionTextareaField from "@/app/(app)/_components/MentionTextareaField";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
+import {
+  buildPostgrestIlikeContainsFilter,
+  buildPostgrestOrFilter,
+} from "@/lib/postgrestFilters";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -236,7 +240,12 @@ export default async function FeatureSuggestionsPage(props: {
     }
 
     if (query) {
-      queryBuilder = queryBuilder.or(`title.ilike.%${query}%,details.ilike.%${query}%`);
+      queryBuilder = queryBuilder.or(
+        buildPostgrestOrFilter([
+          buildPostgrestIlikeContainsFilter("title", query),
+          buildPostgrestIlikeContainsFilter("details", query),
+        ])
+      );
     }
 
     return queryBuilder;

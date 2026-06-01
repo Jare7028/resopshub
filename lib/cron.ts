@@ -1,6 +1,6 @@
 export function isAuthorizedCronRequest(request: Request) {
-  // Vercel Cron always sends this header.
-  if (request.headers.get("x-vercel-cron")) {
+  // Vercel Cron sends this header; only trust it on production Vercel deployments.
+  if (process.env.VERCEL_ENV === "production" && request.headers.get("x-vercel-cron")) {
     return true;
   }
 

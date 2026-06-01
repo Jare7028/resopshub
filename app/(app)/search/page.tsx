@@ -1,4 +1,8 @@
 import Link from "next/link";
+import {
+  buildPostgrestIlikeContainsFilter,
+  buildPostgrestOrFilter,
+} from "@/lib/postgrestFilters";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -143,7 +147,10 @@ export default async function SearchPage(props: {
 
     if (searchError) {
       const fallbackResults: SearchResult[] = [];
-      const likeQuery = `%${query}%`;
+      const fallbackSearchFilter = buildPostgrestOrFilter([
+        buildPostgrestIlikeContainsFilter("title", query),
+        buildPostgrestIlikeContainsFilter("content_text", query),
+      ]);
 
       if (typeFilter === "all" || typeFilter === "personal") {
         let personalQuery = supabase
@@ -156,9 +163,7 @@ export default async function SearchPage(props: {
           personalQuery = personalQuery.eq("section_id", sectionId);
         }
 
-        personalQuery = personalQuery.or(
-          `title.ilike.${likeQuery},content_text.ilike.${likeQuery}`
-        );
+        personalQuery = personalQuery.or(fallbackSearchFilter);
 
         const { data: personalData } = await personalQuery;
         const personalRows =
@@ -201,9 +206,7 @@ export default async function SearchPage(props: {
           taskQuery = taskQuery.eq("client_id", clientId);
         }
 
-        taskQuery = taskQuery.or(
-          `title.ilike.${likeQuery},content_text.ilike.${likeQuery}`
-        );
+        taskQuery = taskQuery.or(fallbackSearchFilter);
 
         const { data: taskData } = await taskQuery;
         const taskRows =

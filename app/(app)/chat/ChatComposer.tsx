@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import EmojiPickerButton from "@/app/(app)/_components/EmojiPickerButton";
 import MentionTextarea from "@/app/(app)/_components/MentionTextarea";
 import { insertTextAtSelection } from "@/lib/emoji";
+import {
+  ALLOWED_UPLOAD_IMAGE_ACCEPT,
+  validateUploadImageFile,
+} from "@/lib/imageUploadValidation";
 
 export type LinkEntityType =
   | "task"
@@ -185,6 +189,11 @@ export default function ChatComposer(props: {
   }, [insertDraftRequest]);
 
   const uploadImage = async (file: File) => {
+    const validation = validateUploadImageFile(file, { maxSizeBytes: 10 * 1024 * 1024 });
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
     const formData = new FormData();
     formData.set("conversation_id", conversationId);
     formData.set("file", file);
@@ -390,11 +399,11 @@ export default function ChatComposer(props: {
               </svg>
             </button>
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ALLOWED_UPLOAD_IMAGE_ACCEPT}
+              multiple
             className="hidden"
             onChange={async (event) => {
               const files = Array.from(event.currentTarget.files || []);

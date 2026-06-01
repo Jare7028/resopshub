@@ -30,6 +30,10 @@ import {
   resolveAssignmentTargetsToUserIds,
 } from "@/lib/assignmentGroups";
 import {
+  ALLOWED_UPLOAD_IMAGE_ACCEPT,
+  validateUploadImageFile,
+} from "@/lib/imageUploadValidation";
+import {
   isSupportedTaskStatus,
   SUPPORTED_TASK_STATUS_VALUES,
 } from "@/lib/taskStatus";
@@ -111,19 +115,6 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const USER_AVATARS_BUCKET = "user-avatars";
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
 const TASK_STATUS_OPTION_VALIDATION_MESSAGE = `Task statuses must use supported values: ${SUPPORTED_TASK_STATUS_VALUES.join(", ")}.`;
-
-function getImageExtension(file: File) {
-  const fromName = file.name.split(".").pop()?.trim().toLowerCase();
-  if (fromName && /^[a-z0-9]+$/.test(fromName)) {
-    return fromName;
-  }
-  if (file.type === "image/png") return "png";
-  if (file.type === "image/jpeg") return "jpg";
-  if (file.type === "image/webp") return "webp";
-  if (file.type === "image/gif") return "gif";
-  if (file.type === "image/avif") return "avif";
-  return "bin";
-}
 
 function toInitials(label: string) {
   const words = label
@@ -780,12 +771,11 @@ export default async function SettingsPage(props: {
       redirect("/settings?error=Name%20is%20too%20long");
     }
 
-    if (avatarFile && !avatarFile.type.startsWith("image/")) {
-      redirect("/settings?error=Profile%20photo%20must%20be%20an%20image");
-    }
-
-    if (avatarFile && avatarFile.size > MAX_AVATAR_SIZE_BYTES) {
-      redirect("/settings?error=Profile%20photo%20must%20be%205MB%20or%20smaller");
+    const avatarValidation = avatarFile
+      ? validateUploadImageFile(avatarFile, { maxSizeBytes: MAX_AVATAR_SIZE_BYTES })
+      : null;
+    if (avatarValidation && !avatarValidation.ok) {
+      redirect(`/settings?error=${encodeURIComponent(avatarValidation.error)}`);
     }
 
     const { data: currentProfile, error: currentProfileError } = await supabase
@@ -809,13 +799,16 @@ export default async function SettingsPage(props: {
     let nextAvatarStoragePath = currentAvatarStoragePath || null;
 
     if (avatarFile) {
-      const extension = getImageExtension(avatarFile);
+      if (!avatarValidation?.ok) {
+        redirect("/settings?error=Profile%20photo%20must%20be%20PNG%2C%20JPEG%2C%20WebP%2C%20GIF%2C%20or%20AVIF");
+      }
+      const extension = avatarValidation.extension;
       const storagePath = `${user.id}/${Date.now()}-${randomBytes(5).toString("hex")}.${extension}`;
       const arrayBuffer = await avatarFile.arrayBuffer();
       const { error: uploadError } = await supabase.storage
         .from(USER_AVATARS_BUCKET)
         .upload(storagePath, arrayBuffer, {
-          contentType: avatarFile.type || "application/octet-stream",
+          contentType: avatarValidation.mimeType,
           upsert: false,
         });
       if (uploadError) {
@@ -2775,7 +2768,7 @@ export default async function SettingsPage(props: {
                 <input
                   type="file"
                   name="avatar_file"
-                  accept="image/*"
+                  accept={ALLOWED_UPLOAD_IMAGE_ACCEPT}
                   className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
                 />
                 <span className="text-xs text-slate-500">

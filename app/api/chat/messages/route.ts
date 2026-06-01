@@ -335,7 +335,8 @@ export async function GET(req: Request) {
   if (!uuidRegex.test(conversationId)) {
     return NextResponse.json({ error: "Invalid conversation_id" }, { status: 400 });
   }
-  const after = afterRaw && Number.isFinite(Date.parse(afterRaw)) ? afterRaw : null;
+  const afterTimestamp = afterRaw ? Date.parse(afterRaw) : NaN;
+  const after = Number.isFinite(afterTimestamp) ? new Date(afterTimestamp).toISOString() : null;
 
   const { data: membership } = await supabase
     .from("chat_conversation_members")

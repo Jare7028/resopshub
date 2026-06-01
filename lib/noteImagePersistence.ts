@@ -1,4 +1,8 @@
 import { randomBytes } from "node:crypto";
+import {
+  getAllowedImageExtensionFromMimeType,
+  isAllowedUploadImageMimeType,
+} from "@/lib/imageUploadValidation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const NOTE_IMAGES_BUCKET = "note-images";
@@ -95,21 +99,6 @@ function isNoteImagesStorageUrl(value: string) {
   return /\/storage\/v1\/object\/(?:public|sign)\/note-images\//i.test(value);
 }
 
-function mimeToExtension(mimeType: string) {
-  const normalized = mimeType.toLowerCase();
-  if (normalized === "image/png") return "png";
-  if (normalized === "image/jpeg") return "jpg";
-  if (normalized === "image/webp") return "webp";
-  if (normalized === "image/gif") return "gif";
-  if (normalized === "image/avif") return "avif";
-  if (normalized === "image/heic") return "heic";
-  if (normalized === "image/heif") return "heif";
-  if (normalized === "image/bmp") return "bmp";
-  if (normalized === "image/tiff") return "tiff";
-  if (normalized === "image/svg+xml") return "svg";
-  return "bin";
-}
-
 function parseDataImage(src: string): ParsedDataImage | null {
   const match = src.match(/^data:([^;,]+)(;[^,]*)?,([\s\S]+)$/i);
   if (!match) {
@@ -119,7 +108,7 @@ function parseDataImage(src: string): ParsedDataImage | null {
   const mimeType = String(match[1] || "").trim().toLowerCase();
   const metadata = String(match[2] || "").toLowerCase();
   const payload = String(match[3] || "");
-  if (!mimeType.startsWith("image/")) {
+  if (!isAllowedUploadImageMimeType(mimeType)) {
     return null;
   }
 
@@ -148,7 +137,10 @@ async function uploadImageBytes(input: {
   bytes: Uint8Array;
   mimeType: string;
 }) {
-  const extension = mimeToExtension(input.mimeType);
+  const extension = getAllowedImageExtensionFromMimeType(input.mimeType);
+  if (!extension) {
+    return { url: "", error: "unsupported image type" };
+  }
   const timestamp = Date.now();
   const random = randomBytes(6).toString("hex");
   const storagePath = [

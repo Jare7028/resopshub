@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 import type { CSSProperties, ReactNode } from "react";
+import { isAllowedUploadImageMimeType } from "@/lib/imageUploadValidation";
 
 type TiptapMark = {
   type?: string;
@@ -46,11 +47,11 @@ function sanitizeUrl(value: unknown, options?: { image?: boolean }) {
   if (lower.startsWith("javascript:") || lower.startsWith("vbscript:")) {
     return "";
   }
-  if (lower.startsWith("data:") && !lower.startsWith("data:image/")) {
-    return "";
-  }
-  if (options?.image && lower.startsWith("data:") && !lower.startsWith("data:image/")) {
-    return "";
+  if (lower.startsWith("data:")) {
+    const mimeType = lower.match(/^data:([^;,]+)/)?.[1] || "";
+    if (!options?.image || !isAllowedUploadImageMimeType(mimeType)) {
+      return "";
+    }
   }
   return url;
 }

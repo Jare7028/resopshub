@@ -1,26 +1,13 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSignedChatAttachmentUrl } from "@/lib/chatAttachments";
+import {
+  safeUploadImageFilename,
+  validateUploadImageFile,
+} from "@/lib/imageUploadValidation";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const maxImageSizeBytes = 10 * 1024 * 1024;
-
-function getExtension(file: File) {
-  const fromName = file.name.split(".").pop()?.trim().toLowerCase();
-  if (fromName && /^[a-z0-9]+$/.test(fromName)) {
-    return fromName;
-  }
-  if (file.type === "image/png") return "png";
-  if (file.type === "image/jpeg") return "jpg";
-  if (file.type === "image/webp") return "webp";
-  if (file.type === "image/gif") return "gif";
-  return "bin";
-}
-
-function safeFilename(name: string) {
-  const normalized = name.trim() || "image";
-  return normalized.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-}
 
 export async function POST(req: Request) {
   const supabase = createSupabaseServerClient();
@@ -41,12 +28,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid conversation_id or file" }, { status: 400 });
   }
 
-  if (!file.type.startsWith("image/")) {
-    return NextResponse.json({ error: "Only image files are supported" }, { status: 400 });
-  }
-
-  if (file.size > maxImageSizeBytes) {
-    return NextResponse.json({ error: "Image exceeds 10MB limit" }, { status: 400 });
+  const validation = validateUploadImageFile(file, { maxSizeBytes: maxImageSizeBytes });
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
   const { data: membership } = await supabase
@@ -60,17 +44,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const ext = getExtension(file);
   const timestamp = Date.now();
   const random = Math.random().toString(36).slice(2, 10);
-  const fileName = safeFilename(file.name || `image-${timestamp}.${ext}`);
+  const fileName = safeUploadImageFilename(file.name, validation.extension, `image-${timestamp}`);
   const storagePath = `${conversationId}/${userId}/${timestamp}-${random}-${fileName}`;
   const arrayBuffer = await file.arrayBuffer();
 
   const { error: uploadError } = await supabase.storage
     .from("chat-attachments")
     .upload(storagePath, arrayBuffer, {
-      contentType: file.type || "application/octet-stream",
+      contentType: validation.mimeType,
       upsert: false,
     });
 
@@ -87,7 +70,7 @@ export async function POST(req: Request) {
     attachment: {
       storage_path: storagePath,
       filename: file.name || fileName,
-      mime_type: file.type || "application/octet-stream",
+      mime_type: validation.mimeType,
       size_bytes: file.size,
       url: signedUrl,
     },

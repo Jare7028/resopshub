@@ -56,6 +56,17 @@ Important counts from static review:
 6. Migrate `next lint` to ESLint CLI before the next framework upgrade.
 7. Add a Playwright smoke test for login, `/tasks`, quick add task, open task, and save task notes.
 
+## Implementation Progress
+
+Updated 2026-06-01:
+
+- Completed: F-001 dependency security upgrades. `npm audit --json` now reports 0 vulnerabilities.
+- Completed: F-002 for the user-facing search/filter paths called out in the finding. Search suggestions, search fallback, mentions, forms, and feature suggestions now use a shared PostgREST filter helper with regression tests.
+- Completed: F-003 upload MIME handling. Chat, personal-page images, social images, note image persistence, note rendering, profile avatars, and client upload controls now share an explicit PNG/JPEG/WebP/GIF/AVIF policy and block SVG by default.
+- Completed: F-011 cron authorization tightening. `x-vercel-cron` is now trusted only on production Vercel deployments; other environments require `CRON_SECRET`.
+- Open: F-004 and the larger task quick-add UX/performance work. The next pass should move task creation away from full route-modal reloads toward a focused client modal/server-action flow.
+- Open: F-005 through F-015 except F-011. These remain the main refactor, test, observability, docs, and tooling backlog.
+
 ## Suggested Order of Implementation
 
 1. F-001 dependency security upgrades.

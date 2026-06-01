@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  buildPostgrestIlikeContainsFilter,
+  buildPostgrestOrFilter,
+} from "@/lib/postgrestFilters";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type MentionUserRow = {
@@ -78,13 +82,17 @@ async function fetchMentionUsers(
 ): Promise<MentionUserRow[]> {
   const supabase = createSupabaseServerClient();
   const sampleSize = Math.max(limit * 4, 24);
-  const normalizedQuery = normalizeSearchValue(query).replace(/[,%]/g, " ").trim();
+  const normalizedQuery = normalizeSearchValue(query);
+  const userSearchFilter = buildPostgrestOrFilter([
+    buildPostgrestIlikeContainsFilter("full_name", normalizedQuery),
+    buildPostgrestIlikeContainsFilter("email", normalizedQuery),
+  ]);
 
   const withStatus = normalizedQuery.length
     ? await supabase
         .from("users")
         .select("id,full_name,email,status")
-        .or(`full_name.ilike.%${normalizedQuery}%,email.ilike.%${normalizedQuery}%`)
+        .or(userSearchFilter)
         .order("full_name", { ascending: true })
         .limit(sampleSize)
     : await supabase
@@ -101,7 +109,7 @@ async function fetchMentionUsers(
     ? await supabase
         .from("users")
         .select("id,full_name,email")
-        .or(`full_name.ilike.%${normalizedQuery}%,email.ilike.%${normalizedQuery}%`)
+        .or(userSearchFilter)
         .order("full_name", { ascending: true })
         .limit(sampleSize)
     : await supabase

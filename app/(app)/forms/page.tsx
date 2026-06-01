@@ -7,6 +7,10 @@ import {
   loadAssignmentGroups,
   resolveAssignmentTargetsToUserIds,
 } from "@/lib/assignmentGroups";
+import {
+  buildPostgrestIlikeContainsFilter,
+  buildPostgrestOrFilter,
+} from "@/lib/postgrestFilters";
 import FormCreateAutosave from "./FormCreateAutosave";
 import FormsTable from "./FormsTable";
 import FormsTabs, {
@@ -277,7 +281,12 @@ export default async function FormsPage(props: {
     formsQuery = formsQuery.in("status", selectedStatuses);
   }
   if (query) {
-    formsQuery = formsQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
+    formsQuery = formsQuery.or(
+      buildPostgrestOrFilter([
+        buildPostgrestIlikeContainsFilter("title", query),
+        buildPostgrestIlikeContainsFilter("description", query),
+      ])
+    );
   }
 
   const formsResult = await formsQuery;
