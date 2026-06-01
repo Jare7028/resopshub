@@ -132,7 +132,7 @@ export default function ChatNavLink({
     <AppNavLink
       href="/chat"
       prefetch={false}
-      className={`app-nav-item flex min-h-11 items-center border px-3 py-2 text-sm font-semibold ${
+      className={`app-nav-item flex min-h-9 items-center border px-2.5 py-1.5 text-sm font-semibold ${
         isActive ? "app-nav-item-active" : "text-slate-700"
       } ${className || ""}`}
       title="Chat"

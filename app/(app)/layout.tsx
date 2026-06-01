@@ -249,7 +249,7 @@ export default async function AppLayout({
         />
 
         <aside className="app-shell-sidebar fixed inset-y-0 left-0 z-40 flex h-screen w-[17.5rem] max-w-[85vw] -translate-x-full flex-col overflow-x-hidden border-r app-border app-surface transition-transform duration-200 peer-checked/drawer:translate-x-0 md:w-64 md:translate-x-0 md:transition-[width] md:duration-200 md:peer-checked/sidebar:w-16 md:peer-checked/sidebar:[&_.nav-label]:hidden md:peer-checked/sidebar:[&_.sidebar-logo]:hidden md:peer-checked/sidebar:[&_.sidebar-mini-logo]:inline-flex md:peer-checked/sidebar:[&_.nav-item]:justify-center md:peer-checked/sidebar:[&_.chat-badge]:absolute md:peer-checked/sidebar:[&_.chat-badge]:right-1 md:peer-checked/sidebar:[&_.chat-badge]:top-1">
-          <div className="px-4 py-4 md:py-5">
+          <div className="px-4 py-3 md:py-4">
             <div className="flex items-center justify-between gap-2">
               <AppNavLink href="/clients" prefetch={false} className="flex items-center gap-2">
                 <Image

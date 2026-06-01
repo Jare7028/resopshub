@@ -297,8 +297,8 @@ export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLi
   };
 
   return (
-    <nav className="min-h-0 flex-1 overflow-y-auto px-3">
-      <div className="px-3 pt-2 pb-3 text-xs uppercase text-slate-500">
+    <nav className="min-h-0 flex-1 overflow-y-auto px-2.5">
+      <div className="px-2.5 pb-2 pt-1 text-xs uppercase text-slate-500">
         <div className="flex items-center justify-end gap-2">
           {canReorder ? (
             isEditing ? (
@@ -335,7 +335,7 @@ export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLi
         {statusText ? <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-emerald-700">{statusText}</p> : null}
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-0.5">
         {(isEditing ? editableLinks : currentLinks).map((link, index, renderedLinks) => {
           const isActive = isNavLinkActive(pathname, link.href);
           const isFirst = index === 0;
@@ -369,7 +369,7 @@ export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLi
 
           if (link.pageKey === "chat") {
             return (
-              <div className="flex items-center gap-2" key={link.pageKey}>
+              <div className="flex items-center gap-1.5" key={link.pageKey}>
                 <ChatNavLink
                   initialUnreadCount={chatUnreadCount}
                   userId={userId}
@@ -383,11 +383,11 @@ export default function SidebarNav({ links, userId, chatUnreadCount }: SidebarLi
           }
 
           return (
-            <div className="flex items-center gap-2" key={link.pageKey}>
+            <div className="flex items-center gap-1.5" key={link.pageKey}>
               <AppNavLink
                 href={link.href}
                 prefetch={false}
-                className={`nav-item app-nav-item relative flex min-h-11 flex-1 items-center gap-2 border px-3 py-2 text-sm font-semibold ${
+                className={`nav-item app-nav-item relative flex min-h-9 flex-1 items-center gap-2 border px-2.5 py-1.5 text-sm font-semibold ${
                   isActive ? "app-nav-item-active" : "text-slate-700"
                 }`}
                 title={link.label}
