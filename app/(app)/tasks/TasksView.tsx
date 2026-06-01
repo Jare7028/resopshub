@@ -1192,7 +1192,6 @@ export default function TasksView({
     setDefaultView(readDefaultViewMode(viewPreferenceScope));
   }, [viewPreferenceScope]);
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (hasExplicitView) return;
     const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
@@ -1200,7 +1199,6 @@ export default function TasksView({
       setView(savedDefaultView);
     }
   }, [hasExplicitView, initialView, viewPreferenceScope]);
-  /* eslint-enable react-hooks/exhaustive-deps */
 
   const saveDefaultView = () => {
     writeDefaultViewMode(viewPreferenceScope, view);

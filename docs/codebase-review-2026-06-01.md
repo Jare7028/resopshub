@@ -70,6 +70,8 @@ Updated 2026-06-01:
 - Open: F-009 follow-up for the remaining broad console logging inventory outside the personal image/editor path.
 - Completed: F-007 quick-read date-window slice. `/api/briefing/quick-read` now applies a local next-24-hour `due_date` cutoff to the task query before summarizing overdue and due-soon work, and `lib/loginQuickReadSummary.test.ts` covers cutoff, filtering, sorting, URLs, and fallback titles.
 - Open: F-007 follow-up for replacing the remaining broad `task_assignees` lookup with an RPC/view that joins assignments and task due dates directly.
+- Completed: F-013 build tooling migration. `npm run lint` now runs `eslint .` through an explicit flat config and no longer prints the Next.js `next lint` deprecation warning.
+- Partially completed: F-014 stale hook-disable cleanup. The unused `react-hooks/exhaustive-deps` disable in `app/(app)/tasks/TasksView.tsx` was removed during the lint migration; the remaining table/view disables still need separate review.
 - Open: F-005 through F-015 except F-011. These remain the main refactor, test, observability, docs, and tooling backlog.
 
 Latest implementation validation:
@@ -460,8 +462,9 @@ Verification needed:
 
 Evidence:
 
-- `package.json:9` defines `"lint": "next lint"`.
-- `npm run lint` passed but printed the Next.js deprecation warning that `next lint` will be removed in Next 16.
+- Original finding: `package.json:9` defined `"lint": "next lint"`.
+- Original finding: `npm run lint` passed but printed the Next.js deprecation warning that `next lint` will be removed in Next 16.
+- Implemented migration: `package.json` now defines `"lint": "eslint ."`, `eslint.config.mjs` preserves the Next `core-web-vitals` and `typescript` rule sets, and generated/build artifacts are explicitly ignored.
 
 User/business impact:
 
@@ -470,23 +473,23 @@ User/business impact:
 
 Recommended fix:
 
-- Migrate to the ESLint CLI using the official Next codemod or an explicit ESLint config.
+- Done: migrate to the ESLint CLI using an explicit ESLint flat config.
 - Keep the same rule behavior before tightening rules.
 
 Estimated effort: small.
 
 Verification needed:
 
-- `npm run lint` passes with the ESLint CLI and no deprecation warning.
+- Done: `npm run lint` passes with the ESLint CLI and no deprecation warning.
 
 ### F-014 - P3 - Code Health - React hook dependency lint disables exist in important tables/views
 
 Evidence:
 
-- `app/(app)/tasks/TasksView.tsx:1124`
 - `app/(app)/projects/ProjectsView.tsx:802`
 - `app/(app)/clients/ClientsTable.tsx:557`
 - `app/(app)/feature-suggestions/FeatureSuggestionsTable.tsx:315`
+- Original finding also included `app/(app)/tasks/TasksView.tsx`; that stale unused disable has been removed.
 
 User/business impact:
 
