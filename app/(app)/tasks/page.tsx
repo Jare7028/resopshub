@@ -26,6 +26,7 @@ import {
 } from "@/lib/statusOptions";
 import {
   isSupabaseMissingColumnError,
+  isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
 import TasksView from "./TasksView";
@@ -197,6 +198,30 @@ function formatDbError(
   if (error.details) parts.push(`details=${error.details}`);
   if (error.hint) parts.push(`hint=${error.hint}`);
   return parts.join(" | ");
+}
+
+function isLegacyTaskListPageSignatureError(error: unknown) {
+  if (!isSupabaseMissingFunctionError(error as { message?: string; code?: string } | null)) {
+    return false;
+  }
+
+  const message = String((error as { message?: unknown } | null | undefined)?.message || "");
+  const hint = String((error as { hint?: unknown } | null | undefined)?.hint || "");
+  const combined = `${message} ${hint}`.toLowerCase();
+  return (
+    combined.includes("task_list_page") &&
+    combined.includes("p_offset") &&
+    combined.includes("p_query") &&
+    combined.includes("perhaps you meant")
+  );
+}
+
+function legacyTaskListRowMatchesSearch(row: TaskListPageRpcRow, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return [row.title, row.client_name, row.project_name]
+    .map((value) => String(value || "").toLowerCase())
+    .some((value) => value.includes(normalizedQuery));
 }
 
 function normalizeTemplateStatusForCreate(value: string | null | undefined) {
@@ -876,32 +901,74 @@ async function TasksPageContent({
         ? hiddenTaskStatusValues
         : [];
 
-    const { data: taskRowsRaw, error: taskListError } = await withPerfTiming(
+    const taskListParams = {
+      p_user_ids: assignmentUserIds,
+      p_is_admin: isAdminUser,
+      p_include_watching: includeWatching,
+      p_statuses: expandTaskStatusFilterForQuery(effectiveSelectedStatuses),
+      p_priorities: selectedPriorities,
+      p_assignee_user_ids: selectedAssigneeIds,
+      p_include_unassigned: wantsUnassigned,
+      p_client_ids: effectiveSelectedClientIds,
+      p_project_ids: effectiveSelectedProjectIds,
+      p_hidden_statuses: hiddenStatusesForQuery,
+      p_hidden_subtask_statuses: hiddenTaskStatusValues,
+      p_exclude_template: templateStatusSupported && !wantsTemplateStatus,
+      p_due_filter: selectedDue,
+      p_today: todayIso,
+      p_sort_key: sortKey,
+      p_sort_dir: sortDir,
+      p_status_order: statusOptions,
+      p_limit: TASK_PAGE_SIZE,
+      p_offset: (currentPage - 1) * TASK_PAGE_SIZE,
+      p_query: searchQuery,
+    };
+
+    let { data: taskRowsRaw, error: taskListError } = await withPerfTiming(
       "tasks.page.task_list_page",
       () =>
-        supabase.rpc("task_list_page", {
-          p_user_ids: assignmentUserIds,
-          p_is_admin: isAdminUser,
-          p_include_watching: includeWatching,
-          p_statuses: expandTaskStatusFilterForQuery(effectiveSelectedStatuses),
-          p_priorities: selectedPriorities,
-          p_assignee_user_ids: selectedAssigneeIds,
-          p_include_unassigned: wantsUnassigned,
-          p_client_ids: effectiveSelectedClientIds,
-          p_project_ids: effectiveSelectedProjectIds,
-          p_hidden_statuses: hiddenStatusesForQuery,
-          p_hidden_subtask_statuses: hiddenTaskStatusValues,
-          p_exclude_template: templateStatusSupported && !wantsTemplateStatus,
-          p_due_filter: selectedDue,
-          p_today: todayIso,
-          p_sort_key: sortKey,
-          p_sort_dir: sortDir,
-          p_status_order: statusOptions,
-          p_limit: TASK_PAGE_SIZE,
-          p_offset: (currentPage - 1) * TASK_PAGE_SIZE,
-          p_query: searchQuery,
-        })
+        supabase.rpc("task_list_page", taskListParams)
     );
+
+    if (taskListError && isLegacyTaskListPageSignatureError(taskListError)) {
+      const legacyLimit = Math.min(Math.max(currentPage * TASK_PAGE_SIZE, TASK_PAGE_SIZE), 500);
+      const legacyTaskListParams = {
+        p_user_ids: taskListParams.p_user_ids,
+        p_is_admin: taskListParams.p_is_admin,
+        p_include_watching: taskListParams.p_include_watching,
+        p_statuses: taskListParams.p_statuses,
+        p_priorities: taskListParams.p_priorities,
+        p_assignee_user_ids: taskListParams.p_assignee_user_ids,
+        p_include_unassigned: taskListParams.p_include_unassigned,
+        p_client_ids: taskListParams.p_client_ids,
+        p_project_ids: taskListParams.p_project_ids,
+        p_hidden_statuses: taskListParams.p_hidden_statuses,
+        p_hidden_subtask_statuses: taskListParams.p_hidden_subtask_statuses,
+        p_exclude_template: taskListParams.p_exclude_template,
+        p_due_filter: taskListParams.p_due_filter,
+        p_today: taskListParams.p_today,
+        p_sort_key: sortKey === "queue" ? "due" : taskListParams.p_sort_key,
+        p_sort_dir: taskListParams.p_sort_dir,
+        p_status_order: taskListParams.p_status_order,
+        p_limit: legacyLimit,
+      };
+      const legacyResponse = await withPerfTiming("tasks.page.task_list_page.legacy", () =>
+        supabase.rpc("task_list_page", legacyTaskListParams)
+      );
+
+      if (!legacyResponse.error) {
+        const legacyRows = ((legacyResponse.data || []) as TaskListPageRpcRow[]).filter((row) =>
+          legacyTaskListRowMatchesSearch(row, searchQuery)
+        );
+        const legacyPageRows = legacyRows
+          .slice((currentPage - 1) * TASK_PAGE_SIZE, currentPage * TASK_PAGE_SIZE)
+          .map((row) => ({ ...row, total_count: legacyRows.length }));
+        taskRowsRaw = legacyPageRows;
+        taskListError = null;
+      } else {
+        taskListError = legacyResponse.error;
+      }
+    }
 
     if (taskListError) {
       redirect(
