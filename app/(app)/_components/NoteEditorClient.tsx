@@ -88,6 +88,8 @@ import {
   isOverlayNodeTypeName,
   normalizeNoteShapeAttrs,
   normalizeNoteTextBoxAttrs,
+  resolveOverlayNodeFromContextMenuTarget,
+  resolveSelectedOverlayNode,
   type OverlayNodeType,
   type NoteShapeAttrs,
   type NoteShapeKind,
@@ -1548,83 +1550,6 @@ function commitOverlayNodeAttrs<T extends NoteShapeAttrs | NoteTextBoxAttrs>(par
     normalizedNext,
     resolvedPos,
   };
-}
-
-function resolveOverlayNodeFromContextMenuTarget(
-  editor: Editor,
-  target: Element | null,
-  clientX: number,
-  clientY: number
-) {
-  const findOverlayAtDocPos = (pos: number | null | undefined) => {
-    if (typeof pos !== "number" || Number.isNaN(pos)) {
-      return null;
-    }
-
-    const safePos = Math.max(0, Math.min(pos, editor.state.doc.content.size));
-    const directNode = editor.state.doc.nodeAt(safePos);
-    if (directNode && isOverlayNodeTypeName(directNode.type.name)) {
-      return {
-        overlayNodeType: directNode.type.name,
-        overlayNodePos: safePos,
-      };
-    }
-
-    const resolvedPos = editor.state.doc.resolve(safePos);
-    for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
-      const node = resolvedPos.node(depth);
-      if (isOverlayNodeTypeName(node.type.name)) {
-        return {
-          overlayNodeType: node.type.name,
-          overlayNodePos: resolvedPos.before(depth),
-        };
-      }
-    }
-
-    return null;
-  };
-
-  const overlayDom = target?.closest(".note-shape-node, .note-textbox-node");
-  if (overlayDom) {
-    try {
-      const posFromDom = editor.view.posAtDOM(overlayDom, 0);
-      const fromDom = findOverlayAtDocPos(posFromDom);
-      if (fromDom) {
-        return fromDom;
-      }
-    } catch {
-      // Fallback to coordinate lookup.
-    }
-  }
-
-  const posAtCoords = editor.view.posAtCoords({ left: clientX, top: clientY });
-  if (posAtCoords) {
-    const fromCoords = findOverlayAtDocPos(posAtCoords.pos);
-    if (fromCoords) {
-      return fromCoords;
-    }
-  }
-
-  return {
-    overlayNodeType: null,
-    overlayNodePos: null,
-  };
-}
-
-function resolveSelectedOverlayNode(editor: Editor) {
-  const { $from } = editor.state.selection;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    const node = $from.node(depth);
-    if (!isOverlayNodeTypeName(node.type.name)) {
-      continue;
-    }
-    return {
-      nodeType: node.type.name,
-      pos: $from.before(depth),
-      node,
-    };
-  }
-  return null;
 }
 
 export default function NoteEditorClient({

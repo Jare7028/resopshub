@@ -14,7 +14,10 @@ import {
   normalizeNoteShapeAttrs,
   normalizeNoteShapeKind,
   normalizeNoteTextBoxAttrs,
+  resolveOverlayNodeFromContextMenuTarget,
+  resolveSelectedOverlayNode,
   type OverlayInsertEditorLike,
+  type OverlaySelectionEditorLike,
 } from "./noteEditorOverlays";
 
 function createOverlayInsertEditor({
@@ -56,6 +59,73 @@ function createOverlayInsertEditor({
         },
         scrollLeft,
         scrollTop,
+      },
+    },
+  };
+}
+
+function createOverlayNode(name: string, attrs?: Record<string, unknown>) {
+  return {
+    type: { name },
+    attrs: attrs || null,
+  };
+}
+
+function createResolvedPosition(
+  depthNodes: Record<number, ReturnType<typeof createOverlayNode>>,
+  beforeByDepth: Record<number, number>
+) {
+  const depths = Object.keys(depthNodes).map(Number);
+  return {
+    depth: Math.max(...depths),
+    node(depth: number) {
+      return depthNodes[depth] || createOverlayNode("paragraph");
+    },
+    before(depth: number) {
+      return beforeByDepth[depth] || 0;
+    },
+  };
+}
+
+function createOverlaySelectionEditor({
+  directNode = null,
+  resolvedPosition = createResolvedPosition({ 1: createOverlayNode("paragraph") }, {}),
+  selectionPosition = createResolvedPosition({ 1: createOverlayNode("paragraph") }, {}),
+  posAtDom = 12,
+  posAtCoords = { pos: 18 } as { pos: number } | null,
+  shouldThrowPosAtDom = false,
+}: {
+  directNode?: ReturnType<typeof createOverlayNode> | null;
+  resolvedPosition?: ReturnType<typeof createResolvedPosition>;
+  selectionPosition?: ReturnType<typeof createResolvedPosition>;
+  posAtDom?: number;
+  posAtCoords?: { pos: number } | null;
+  shouldThrowPosAtDom?: boolean;
+} = {}): OverlaySelectionEditorLike {
+  return {
+    state: {
+      doc: {
+        content: { size: 100 },
+        nodeAt() {
+          return directNode;
+        },
+        resolve() {
+          return resolvedPosition;
+        },
+      },
+      selection: {
+        $from: selectionPosition,
+      },
+    },
+    view: {
+      posAtDOM() {
+        if (shouldThrowPosAtDom) {
+          throw new Error("No DOM position");
+        }
+        return posAtDom;
+      },
+      posAtCoords() {
+        return posAtCoords;
       },
     },
   };
@@ -211,5 +281,73 @@ describe("note editor overlay helpers", () => {
     expect(circle).toContain("<circle");
     expect(arrow).toContain("<path");
     expect(arrow).not.toContain(`fill="${NOTE_SHAPE_DEFAULT_FILL}"`);
+  });
+
+  it("resolves the selected overlay node from selection ancestors", () => {
+    const textBox = createOverlayNode("noteTextBox", { objectId: "text-1" });
+    const editor = createOverlaySelectionEditor({
+      selectionPosition: createResolvedPosition(
+        {
+          1: textBox,
+          2: createOverlayNode("paragraph"),
+        },
+        { 1: 7, 2: 11 }
+      ),
+    });
+
+    expect(resolveSelectedOverlayNode(editor)).toEqual({
+      nodeType: "noteTextBox",
+      pos: 7,
+      node: textBox,
+    });
+  });
+
+  it("resolves context-menu overlays from DOM and coordinate fallback", () => {
+    const shape = createOverlayNode("noteShape", { objectId: "shape-1" });
+    const target = {
+      closest: () => ({}),
+    } as unknown as Element;
+
+    expect(
+      resolveOverlayNodeFromContextMenuTarget(
+        createOverlaySelectionEditor({ directNode: shape, posAtDom: 22 }),
+        target,
+        100,
+        150
+      )
+    ).toEqual({ overlayNodeType: "noteShape", overlayNodePos: 22 });
+
+    const coordEditor = createOverlaySelectionEditor({
+      directNode: createOverlayNode("paragraph"),
+      resolvedPosition: createResolvedPosition(
+        {
+          1: shape,
+          2: createOverlayNode("paragraph"),
+        },
+        { 1: 44 }
+      ),
+      posAtCoords: { pos: 50 },
+      shouldThrowPosAtDom: true,
+    });
+
+    expect(resolveOverlayNodeFromContextMenuTarget(coordEditor, target, 100, 150)).toEqual({
+      overlayNodeType: "noteShape",
+      overlayNodePos: 44,
+    });
+  });
+
+  it("returns empty overlay context when no overlay node can be resolved", () => {
+    expect(
+      resolveOverlayNodeFromContextMenuTarget(
+        createOverlaySelectionEditor({
+          directNode: createOverlayNode("paragraph"),
+          posAtCoords: null,
+        }),
+        null,
+        10,
+        12
+      )
+    ).toEqual({ overlayNodeType: null, overlayNodePos: null });
+    expect(resolveSelectedOverlayNode(createOverlaySelectionEditor())).toBeNull();
   });
 });

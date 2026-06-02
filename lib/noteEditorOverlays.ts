@@ -28,6 +28,49 @@ type OverlayInsertEditorNode = {
   };
 };
 
+type OverlayNodeLike = {
+  type: {
+    name: string;
+  };
+  attrs?: Record<string, unknown> | null;
+};
+
+type OverlayResolvedPositionLike = {
+  depth: number;
+  node: (depth: number) => OverlayNodeLike;
+  before: (depth: number) => number;
+};
+
+export type OverlaySelectionEditorLike = {
+  state: {
+    doc: {
+      content: {
+        size: number;
+      };
+      nodeAt: (position: number) => OverlayNodeLike | null;
+      resolve: (position: number) => OverlayResolvedPositionLike;
+    };
+    selection: {
+      $from: OverlayResolvedPositionLike;
+    };
+  };
+  view: {
+    posAtDOM: (node: Element, offset: number) => number;
+    posAtCoords: (coords: { left: number; top: number }) => { pos: number } | null;
+  };
+};
+
+export type OverlayContextResolution = {
+  overlayNodeType: OverlayNodeType | null;
+  overlayNodePos: number | null;
+};
+
+export type SelectedOverlayNode = {
+  nodeType: OverlayNodeType;
+  pos: number;
+  node: OverlayNodeLike;
+};
+
 export type OverlayInsertEditorLike = {
   state: {
     doc: {
@@ -88,6 +131,85 @@ export function getOverlayNodeObjectId(
 ) {
   const attrs = node?.attrs;
   return typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
+}
+
+export function resolveOverlayNodeFromContextMenuTarget(
+  editor: OverlaySelectionEditorLike,
+  target: Element | null,
+  clientX: number,
+  clientY: number
+): OverlayContextResolution {
+  const findOverlayAtDocPos = (pos: number | null | undefined) => {
+    if (typeof pos !== "number" || Number.isNaN(pos)) {
+      return null;
+    }
+
+    const safePos = Math.max(0, Math.min(pos, editor.state.doc.content.size));
+    const directNode = editor.state.doc.nodeAt(safePos);
+    if (directNode && isOverlayNodeTypeName(directNode.type.name)) {
+      return {
+        overlayNodeType: directNode.type.name,
+        overlayNodePos: safePos,
+      };
+    }
+
+    const resolvedPos = editor.state.doc.resolve(safePos);
+    for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
+      const node = resolvedPos.node(depth);
+      if (isOverlayNodeTypeName(node.type.name)) {
+        return {
+          overlayNodeType: node.type.name,
+          overlayNodePos: resolvedPos.before(depth),
+        };
+      }
+    }
+
+    return null;
+  };
+
+  const overlayDom = target?.closest(".note-shape-node, .note-textbox-node");
+  if (overlayDom) {
+    try {
+      const posFromDom = editor.view.posAtDOM(overlayDom, 0);
+      const fromDom = findOverlayAtDocPos(posFromDom);
+      if (fromDom) {
+        return fromDom;
+      }
+    } catch {
+      // Fallback to coordinate lookup.
+    }
+  }
+
+  const posAtCoords = editor.view.posAtCoords({ left: clientX, top: clientY });
+  if (posAtCoords) {
+    const fromCoords = findOverlayAtDocPos(posAtCoords.pos);
+    if (fromCoords) {
+      return fromCoords;
+    }
+  }
+
+  return {
+    overlayNodeType: null,
+    overlayNodePos: null,
+  };
+}
+
+export function resolveSelectedOverlayNode(
+  editor: OverlaySelectionEditorLike
+): SelectedOverlayNode | null {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (!isOverlayNodeTypeName(node.type.name)) {
+      continue;
+    }
+    return {
+      nodeType: node.type.name,
+      pos: $from.before(depth),
+      node,
+    };
+  }
+  return null;
 }
 
 function normalizeShapeNumber(
