@@ -27,6 +27,22 @@ export type NoteEditorReviewStats = {
   linkedTaskRefs: number;
 };
 
+export type NoteEditorOutlineHeading = {
+  id: string;
+  label: string;
+  level: number;
+};
+
+type NoteEditorOutlineNode = {
+  type: { name: string };
+  attrs?: { level?: unknown } | null;
+  textContent?: string | null;
+};
+
+type NoteEditorOutlineDoc = {
+  descendants(callback: (node: NoteEditorOutlineNode, pos: number) => boolean): unknown;
+};
+
 export const EMPTY_NOTE_EDITOR_REVIEW_STATS: NoteEditorReviewStats = {
   words: 0,
   readingMinutes: 0,
@@ -65,6 +81,34 @@ export function buildNoteEditorReviewStats(rawText: string): NoteEditorReviewSta
     mentions: (plainText.match(/@[a-z0-9._-]+/gi) || []).length,
     linkedTaskRefs: (plainText.match(/\/tasks\/[a-f0-9-]+/gi) || []).length,
   };
+}
+
+export function buildNoteEditorOutlineHeadings(
+  doc: NoteEditorOutlineDoc | null | undefined
+): NoteEditorOutlineHeading[] {
+  if (!doc) {
+    return [];
+  }
+  const headings: NoteEditorOutlineHeading[] = [];
+  let headingIndex = 0;
+  doc.descendants((node, pos) => {
+    if (node.type.name !== "heading") {
+      return true;
+    }
+    const level = Number(node.attrs?.level || 1);
+    const label = normalizeInlineText(node.textContent || "");
+    if (!label) {
+      return true;
+    }
+    headings.push({
+      id: `heading-${pos}-${headingIndex}`,
+      label,
+      level: Math.min(3, Math.max(1, level)),
+    });
+    headingIndex += 1;
+    return true;
+  });
+  return headings;
 }
 
 export function getActiveTableColumnType(

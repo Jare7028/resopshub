@@ -140,6 +140,7 @@ import {
 import {
   EMPTY_NOTE_EDITOR_REVIEW_STATS,
   buildNoteEditorMetaTooltip,
+  buildNoteEditorOutlineHeadings,
   buildNoteEditorReviewStats,
   findTrailingMissingImageNodePos,
   getActiveTableColumnType,
@@ -4834,30 +4835,7 @@ export default function NoteEditorClient({
         editor.state.doc.textBetween(0, editor.state.doc.content.size, " ")
       )
     : EMPTY_NOTE_EDITOR_REVIEW_STATS;
-  const outlineHeadings = editor
-    ? (() => {
-        const headings: Array<{ id: string; label: string; level: number }> = [];
-        let headingIndex = 0;
-        editor.state.doc.descendants((node, pos) => {
-          if (node.type.name !== "heading") {
-            return true;
-          }
-          const level = Number(node.attrs?.level || 1);
-          const label = normalizeInlineText(node.textContent || "");
-          if (!label) {
-            return true;
-          }
-          headings.push({
-            id: `heading-${pos}-${headingIndex}`,
-            label,
-            level: Math.min(3, Math.max(1, level)),
-          });
-          headingIndex += 1;
-          return true;
-        });
-        return headings;
-      })()
-    : [];
+  const outlineHeadings = editor ? buildNoteEditorOutlineHeadings(editor.state.doc) : [];
   const isHomeTab = activeRibbonTab === "home";
   const isInsertTab = activeRibbonTab === "insert";
   const isLayoutTab = activeRibbonTab === "layout";

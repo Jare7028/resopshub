@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_NOTE_EDITOR_REVIEW_STATS,
   buildNoteEditorMetaTooltip,
+  buildNoteEditorOutlineHeadings,
   buildNoteEditorReviewStats,
   findTrailingMissingImageNodePos,
   getActiveTableColumnType,
@@ -16,8 +17,12 @@ function asEditor(value: unknown): Editor {
   return value as Editor;
 }
 
-function node(name: string, attrs: Record<string, unknown> = {}) {
-  return { type: { name }, attrs };
+function node(
+  name: string,
+  attrs: Record<string, unknown> = {},
+  textContent = ""
+) {
+  return { type: { name }, attrs, textContent };
 }
 
 describe("note editor state helpers", () => {
@@ -54,6 +59,24 @@ describe("note editor state helpers", () => {
         words: 221,
         readingMinutes: 2,
       });
+  });
+
+  it("builds normalized outline headings from document nodes", () => {
+    expect(buildNoteEditorOutlineHeadings(null)).toEqual([]);
+    expect(
+      buildNoteEditorOutlineHeadings({
+        descendants: (callback) => {
+          callback(node("paragraph", {}, "Ignored"), 1);
+          callback(node("heading", { level: 0 }, " First\nheading "), 5);
+          callback(node("heading", { level: 4 }, "Deep heading"), 12);
+          callback(node("heading", { level: 2 }, " "), 20);
+          return true;
+        },
+      })
+    ).toEqual([
+      { id: "heading-5-0", label: "First heading", level: 1 },
+      { id: "heading-12-1", label: "Deep heading", level: 3 },
+    ]);
   });
 
   it("detects the active table column type only inside supported table cells", () => {
