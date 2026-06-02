@@ -137,6 +137,18 @@ export function buildTaskTableColumns({
   ];
 }
 
+export function countVisibleTaskTableColumns({
+  columnIds,
+  isColumnVisible,
+}: {
+  columnIds: readonly TaskTableColumnId[];
+  isColumnVisible: (columnId: TaskTableColumnId) => boolean;
+}) {
+  return columnIds.reduce((count, columnId) => {
+    return isColumnVisible(columnId) ? count + 1 : count;
+  }, 0);
+}
+
 export function computeAnchoredPanelPosition({
   rect,
   panelWidth,

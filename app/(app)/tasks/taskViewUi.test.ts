@@ -7,6 +7,7 @@ import {
   buildTaskUserNameLookup,
   computeAnchoredPanelPosition,
   computeTaskNotesHoverPosition,
+  countVisibleTaskTableColumns,
   getTaskAssigneeLabel,
   getTaskHeaderMenuPanelWidth,
   resolveTaskStatusColor,
@@ -180,5 +181,19 @@ describe("task view UI helpers", () => {
     expect(
       buildTaskTableColumns({ supportsNextSubtaskDueDateColumn: true })[0]
     ).toEqual({ id: "task", label: "Task", required: true });
+  });
+
+  it("counts visible task table columns", () => {
+    const columns = buildTaskTableColumns({
+      supportsNextSubtaskDueDateColumn: true,
+    }).map((column) => column.id);
+    const hiddenColumns = new Set(["client", "next_subtask_due", "priority"]);
+
+    expect(
+      countVisibleTaskTableColumns({
+        columnIds: columns,
+        isColumnVisible: (columnId) => !hiddenColumns.has(columnId),
+      })
+    ).toBe(columns.length - hiddenColumns.size);
   });
 });

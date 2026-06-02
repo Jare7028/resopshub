@@ -87,6 +87,7 @@ import {
   buildTaskUserNameLookup,
   computeAnchoredPanelPosition,
   computeTaskNotesHoverPosition,
+  countVisibleTaskTableColumns,
   getTaskAssigneeLabel,
   getTaskHeaderMenuPanelWidth,
   resolveTaskStatusColor,
@@ -1270,9 +1271,10 @@ export default function TasksView({
     },
     [computeHeaderMenuPosition, openMenu]
   );
-  const tableColSpan = taskTableColumnIds.reduce((count, columnId) => {
-    return isTaskColumnVisible(columnId) ? count + 1 : count;
-  }, 0);
+  const tableColSpan = countVisibleTaskTableColumns({
+    columnIds: taskTableColumnIds,
+    isColumnVisible: isTaskColumnVisible,
+  });
   const {
     normalizedPage,
     normalizedTotalCount,
