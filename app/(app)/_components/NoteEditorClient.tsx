@@ -135,6 +135,13 @@ import {
   type WordTextAlign,
 } from "./NoteEditorRibbonPrimitives";
 import {
+  findTrailingMissingImageNodePos,
+  getActiveTableColumnType,
+  getCurrentTextAlign,
+  getSuggestedTaskTitle,
+  type CopiedFormatSnapshot,
+} from "./NoteEditorStateHelpers";
+import {
   IMAGE_COMPRESSION_QUALITIES,
   MAX_INLINE_IMAGE_BYTES,
   MAX_INLINE_IMAGE_DATA_URL_BYTES,
@@ -372,79 +379,6 @@ const NOTE_OVERLAY_DEBUG_STORAGE_KEY = "note-editor:overlay-debug";
 const NOTE_OVERLAY_SAVE_ERROR_MESSAGE = "Could not save object position. Move it again.";
 const DRAFT_STORAGE_PREFIX = "note-editor-draft-v2:";
 const MAX_UPLOADED_IMAGE_BYTES = 10 * 1024 * 1024;
-
-type CopiedFormatSnapshot = {
-  blockStyle: WordBlockStyle;
-  textAlign: WordTextAlign;
-  fontFamily: string;
-  fontSize: string;
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  highlight: boolean;
-};
-
-function getActiveTableColumnType(editor: Editor | null | undefined): TableColumnType {
-  if (!editor || !editor.isActive("table")) {
-    return "text";
-  }
-  const { $from } = editor.state.selection;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    const node = $from.node(depth);
-    const name = node.type.name;
-    if (name === "tableCell" || name === "tableHeader") {
-      const colType = (node.attrs?.colType as string | undefined) || "text";
-      return TABLE_COLUMN_TYPES.some((type) => type.id === colType)
-        ? (colType as TableColumnType)
-        : "text";
-    }
-  }
-  return "text";
-}
-
-function getCurrentTextAlign(editor: Editor | null | undefined): WordTextAlign {
-  if (!editor) {
-    return "left";
-  }
-  const candidates = [
-    editor.getAttributes("paragraph"),
-    editor.getAttributes("heading"),
-    editor.getAttributes("blockquote"),
-  ] as Array<{ textAlign?: string }>;
-  for (const attrs of candidates) {
-    const value = String(attrs?.textAlign || "")
-      .trim()
-      .toLowerCase();
-    if (
-      value === "left" ||
-      value === "center" ||
-      value === "right" ||
-      value === "justify"
-    ) {
-      return value;
-    }
-  }
-  return "left";
-}
-
-function findTrailingMissingImageNodePos(editor: Editor) {
-  let trailingPos: number | null = null;
-  editor.state.doc.descendants((node, pos) => {
-    const nodeType = String(node.type.name || "")
-      .trim()
-      .toLowerCase();
-    if (!nodeType.includes("image")) {
-      return true;
-    }
-    const attrs = (node.attrs || {}) as Record<string, unknown>;
-    const src = String(attrs.src || "").trim();
-    if (!src) {
-      trailingPos = pos;
-    }
-    return true;
-  });
-  return trailingPos;
-}
 
 function getInsertShapeDefaults(editor: Editor, kind: NoteShapeKind) {
   const { width, height } = getDefaultShapeSize(kind);
@@ -1755,23 +1689,6 @@ function resolveSelectedOverlayNode(editor: Editor) {
     };
   }
   return null;
-}
-
-function getSelectedText(editor: Editor) {
-  const { from, to, empty } = editor.state.selection;
-  if (empty) {
-    return "";
-  }
-  return normalizeInlineText(editor.state.doc.textBetween(from, to, " "));
-}
-
-function getCurrentLineText(editor: Editor) {
-  const { $from } = editor.state.selection;
-  return normalizeInlineText($from.parent.textContent || "");
-}
-
-function getSuggestedTaskTitle(editor: Editor) {
-  return getSelectedText(editor) || getCurrentLineText(editor);
 }
 
 export default function NoteEditorClient({

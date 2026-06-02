@@ -1,16 +1,12 @@
 import type { ReactNode } from "react";
+import {
+  NOTE_TABLE_COLUMN_TYPES,
+  type NoteTableColumnType,
+} from "@/lib/noteEditorTableColumns";
 
-export const TABLE_COLUMN_TYPES = [
-  { id: "text", label: "Text" },
-  { id: "number", label: "Number" },
-  { id: "date", label: "Date" },
-  { id: "url", label: "URL" },
-  { id: "email", label: "Email" },
-  { id: "phone", label: "Phone" },
-  { id: "checkbox", label: "Checkbox" },
-] as const;
+export const TABLE_COLUMN_TYPES = NOTE_TABLE_COLUMN_TYPES;
 
-export type TableColumnType = (typeof TABLE_COLUMN_TYPES)[number]["id"];
+export type TableColumnType = NoteTableColumnType;
 export type WordTextAlign = "left" | "center" | "right" | "justify";
 export type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
 export type RibbonTabId = "home" | "insert" | "layout" | "review" | "view";
