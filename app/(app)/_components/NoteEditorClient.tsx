@@ -7,7 +7,6 @@ import {
   mergeAttributes,
   Node as TiptapNode,
   type Editor,
-  type JSONContent,
 } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -28,7 +27,6 @@ import Link from "@tiptap/extension-link";
 import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
 import Placeholder from "@tiptap/extension-placeholder";
 import { selectedRect } from "prosemirror-tables";
-import { createEmptyDoc } from "@/lib/editorContent";
 import { getMentionRanges } from "@/lib/mentions";
 import {
   countImageNodesBySrc,
@@ -53,6 +51,15 @@ import {
   logClientInfo,
   logClientWarn,
 } from "@/lib/clientLogger";
+import {
+  cloneJsonValue,
+  containsEphemeralImageSource,
+  isEphemeralImageSource,
+  isObjectRecord,
+  isTiptapDocContent,
+  mergeSaveWarnings,
+  normalizeContent,
+} from "@/lib/noteEditorContent";
 
 type OverlayNodeType = "noteShape" | "noteTextBox";
 type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
@@ -811,54 +818,6 @@ function getCurrentTextAlign(editor: Editor | null | undefined): WordTextAlign {
   return "left";
 }
 
-function normalizeContent(content: unknown): JSONContent {
-  if (content && typeof content === "object") {
-    const value = content as { type?: string };
-    if (value.type === "doc") {
-      return content as JSONContent;
-    }
-  }
-  return createEmptyDoc() as JSONContent;
-}
-
-function isTiptapDocContent(value: unknown): value is { type: "doc" } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const node = value as { type?: unknown };
-  return node.type === "doc";
-}
-
-function normalizeSaveWarnings(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [] as string[];
-  }
-  return value
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .slice(0, 6);
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function cloneJsonValue<T>(value: T): T {
-  try {
-    return JSON.parse(JSON.stringify(value)) as T;
-  } catch {
-    return value;
-  }
-}
-
-function mergeSaveWarnings(...values: unknown[]) {
-  const warnings = new Set<string>();
-  values.forEach((value) => {
-    normalizeSaveWarnings(value).forEach((warning) => warnings.add(warning));
-  });
-  return Array.from(warnings).slice(0, 6);
-}
-
 function getImageExtensionFromMimeType(mimeType: string) {
   const normalized = String(mimeType || "").trim().toLowerCase();
   return getAllowedImageExtensionFromMimeType(normalized) || "png";
@@ -874,13 +833,6 @@ function createImageFileFromBlob(blob: Blob, baseName = "pasted-image") {
     type: normalizedMimeType,
     lastModified: Date.now(),
   });
-}
-
-function isEphemeralImageSource(value: string) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  return normalized.startsWith("blob:") || normalized.startsWith("file:");
 }
 
 function extractImageSourcesFromHtml(htmlValue: string) {
@@ -937,25 +889,6 @@ function extractSingleLinkFromHtml(htmlValue: string) {
   } catch {
     return null;
   }
-}
-
-function containsEphemeralImageSource(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.some((item) => containsEphemeralImageSource(item));
-  }
-  if (!isObjectRecord(value)) {
-    return false;
-  }
-  const nodeType = String(value.type || "")
-    .trim()
-    .toLowerCase();
-  if (nodeType.includes("image") && isObjectRecord(value.attrs)) {
-    const source = String((value.attrs as Record<string, unknown>).src || "").trim();
-    if (isEphemeralImageSource(source)) {
-      return true;
-    }
-  }
-  return Object.values(value).some((entry) => containsEphemeralImageSource(entry));
 }
 
 function findTrailingMissingImageNodePos(editor: Editor) {
