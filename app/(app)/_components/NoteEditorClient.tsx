@@ -36,7 +36,6 @@ import {
 } from "@/lib/imageNodeIntegrity";
 import {
   ALLOWED_UPLOAD_IMAGE_TYPE_LABEL,
-  getAllowedImageExtensionFromMimeType,
   isAllowedUploadImageMimeType,
 } from "@/lib/imageUploadValidation";
 import {
@@ -109,6 +108,20 @@ import {
   type SlashMenuState as BaseSlashMenuState,
   type SlashRange,
 } from "@/lib/noteEditorSuggestions";
+import {
+  IMAGE_COMPRESSION_QUALITIES,
+  MAX_INLINE_IMAGE_BYTES,
+  MAX_INLINE_IMAGE_DATA_URL_BYTES,
+  MAX_INLINE_IMAGE_DIMENSION,
+  MIN_INLINE_IMAGE_DIMENSION,
+  assertDataUrlSize,
+  canvasToBlob,
+  createImageFileFromBlob,
+  extractImageSourcesFromHtml,
+  extractSingleLinkFromHtml,
+  loadImageElement,
+  readBlobAsDataUrl,
+} from "@/lib/noteEditorImages";
 
 type OverlayNodeType = "noteShape" | "noteTextBox";
 type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
@@ -234,12 +247,7 @@ type FloatingMenuPosition = {
   y: number;
 };
 
-const MAX_INLINE_IMAGE_BYTES = 1_800_000;
-const MAX_INLINE_IMAGE_DATA_URL_BYTES = 2_600_000;
-const MAX_INLINE_IMAGE_DIMENSION = 1800;
-const MIN_INLINE_IMAGE_DIMENSION = 640;
 const NAVIGATION_SAVE_TIMEOUT_MS = 12000;
-const IMAGE_COMPRESSION_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58] as const;
 const UPLOADED_IMAGE_SRC_QUEUE_LIMIT = 30;
 const MISSING_IMAGE_SRC_SAVE_BLOCK_MESSAGE =
   "One or more images failed to attach. Please re-paste the image before leaving this page.";
@@ -630,65 +638,6 @@ function getCurrentTextAlign(editor: Editor | null | undefined): WordTextAlign {
     }
   }
   return "left";
-}
-
-function getImageExtensionFromMimeType(mimeType: string) {
-  const normalized = String(mimeType || "").trim().toLowerCase();
-  return getAllowedImageExtensionFromMimeType(normalized) || "png";
-}
-
-function createImageFileFromBlob(blob: Blob, baseName = "pasted-image") {
-  const normalizedMimeType = String(blob.type || "").toLowerCase();
-  if (!isAllowedUploadImageMimeType(normalizedMimeType)) {
-    throw new Error(`Unsupported image type. Use ${ALLOWED_UPLOAD_IMAGE_TYPE_LABEL}.`);
-  }
-  const extension = getImageExtensionFromMimeType(normalizedMimeType);
-  return new File([blob], `${baseName}.${extension}`, {
-    type: normalizedMimeType,
-    lastModified: Date.now(),
-  });
-}
-
-function extractImageSourcesFromHtml(htmlValue: string) {
-  const html = String(htmlValue || "").trim();
-  if (!html || typeof window === "undefined") {
-    return [] as string[];
-  }
-  try {
-    const parser = new window.DOMParser();
-    const document = parser.parseFromString(html, "text/html");
-    const sources = Array.from(document.querySelectorAll("img[src]"))
-      .map((node) => String(node.getAttribute("src") || "").trim())
-      .filter(Boolean);
-    return Array.from(new Set(sources));
-  } catch {
-    return [] as string[];
-  }
-}
-
-function extractSingleLinkFromHtml(htmlValue: string) {
-  const html = String(htmlValue || "").trim();
-  if (!html || typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const parser = new window.DOMParser();
-    const document = parser.parseFromString(html, "text/html");
-    const links = Array.from(document.querySelectorAll("a[href]"));
-    if (links.length !== 1) {
-      return null;
-    }
-    const link = links[0];
-    const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
-    const bodyText = normalizeText(document.body.textContent || "");
-    const linkText = normalizeText(link.textContent || "");
-    if (bodyText && linkText && bodyText !== linkText) {
-      return null;
-    }
-    return normalizePastedLink(String(link.getAttribute("href") || "").trim());
-  } catch {
-    return null;
-  }
 }
 
 function findTrailingMissingImageNodePos(editor: Editor) {
@@ -1546,52 +1495,6 @@ const MentionHighlightExtension = Extension.create({
     ];
   },
 });
-
-function readBlobAsDataUrl(blob: Blob) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        resolve(result);
-        return;
-      }
-      reject(new Error("Unable to read image data"));
-    };
-    reader.onerror = () => reject(reader.error || new Error("Unable to read image data"));
-    reader.readAsDataURL(blob);
-  });
-}
-
-function assertDataUrlSize(dataUrl: string, maxBytes: number) {
-  const normalized = String(dataUrl || "");
-  if (!normalized) {
-    throw new Error("Unable to read image data");
-  }
-  const byteSize = new Blob([normalized]).size;
-  if (byteSize > maxBytes) {
-    throw new Error("Image is too large. Try a smaller image.");
-  }
-}
-
-function loadImageElement(src: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new window.Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Unable to decode image"));
-    image.src = src;
-  });
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {
-  return new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(
-      (blob) => resolve(blob),
-      type,
-      typeof quality === "number" ? quality : undefined
-    );
-  });
-}
 
 async function optimizeImageForInlineInsert(file: File) {
   const initialDataUrl = await readBlobAsDataUrl(file);
