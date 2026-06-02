@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { loadHelpGuides } from "@/lib/helpGuidesStore";
 import HelpRichContent from "../_components/HelpRichContent";
@@ -22,8 +23,8 @@ export default async function HelpGuidePage(props: {
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = String(authData.user?.id || "").trim();
+  const authUser = await getCurrentRequestUser(supabase, "help.guide.auth");
+  const authUserId = String(authUser?.id || "").trim();
   let isAdmin = false;
   if (authUserId) {
     const { data: profile } = await supabase

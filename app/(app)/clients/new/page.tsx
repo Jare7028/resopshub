@@ -1,5 +1,6 @@
 ﻿import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const statusOptions = ["prospect", "active", "on_hold", "offboarded"] as const;
@@ -39,8 +40,8 @@ export default async function NewClientPage(props: {
   async function createClient(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const creatorId = authData.user?.id;
+    const authUser = await getCurrentRequestUser(supabase, "clients.create.auth");
+    const creatorId = authUser?.id;
     if (!creatorId) {
       redirect("/login");
     }

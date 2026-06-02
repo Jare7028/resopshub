@@ -1,5 +1,6 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { LOGIN_QUICK_READ_COOKIE } from "@/lib/loginQuickRead";
 
@@ -17,9 +18,9 @@ export default async function LoginPage(props: {
   const searchParams = await props.searchParams;
   const returnTo = normalizeReturnTo(searchParams?.return_to);
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
+  const authUser = await getCurrentRequestUser(supabase, "login.auth");
 
-  if (authData.user) {
+  if (authUser) {
     redirect(returnTo || "/clients");
   }
 

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   getLatestScoutRun,
@@ -137,9 +138,7 @@ function ContactCell({ contact }: { contact?: ScoutContact }) {
 export default async function ScoutPage({ searchParams }: ScoutPageProps) {
   const params = (await searchParams) || {};
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentRequestUser(supabase, "scout.page.auth");
 
   if (!user) {
     redirect("/login");

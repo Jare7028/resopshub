@@ -1053,11 +1053,11 @@ async function TasksPageContent({
   async function createTask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user?.id) {
+    const actionAuthUser = await getCurrentRequestUser(supabase, "tasks.create.auth");
+    if (!actionAuthUser?.id) {
       redirect("/login");
     }
-    const authEmail = String(authData.user.email || "").trim();
+    const authEmail = String(actionAuthUser.email || "").trim();
     const { data: actionCurrentUserProfile } = await supabase
       .from("users")
       .select("id,role,status")
@@ -1073,7 +1073,7 @@ async function TasksPageContent({
     const isActionAdminUser =
       actionCurrentUserRole === "admin" && actionCurrentUserStatus !== "disabled";
     const projectAssignmentUserIds = Array.from(
-      new Set([authData.user.id, actionCurrentAppUserId].filter(Boolean))
+      new Set([actionAuthUser.id, actionCurrentAppUserId].filter(Boolean))
     ) as string[];
     const title = String(formData.get("title") || "").trim();
     const taskNotesText = String(formData.get("notes") || "").trim();
@@ -1296,7 +1296,7 @@ async function TasksPageContent({
         dueDate: schedule.dueDate,
         dueTime: schedule.dueTime,
         startDate: schedule.startDate,
-        createdByUserId: authData.user.id,
+        createdByUserId: actionAuthUser.id,
         assigneeUserIds: uniqueAssigneeIds,
         defaultAssigneeUserId: fallbackAssigneeId,
         recurrenceValues: schedule.recurrenceConfig
@@ -1355,7 +1355,7 @@ async function TasksPageContent({
         due_date: null,
         due_time: null,
         assignee_user_id: primaryAssignee || null,
-        created_by_user_id: authData.user.id,
+        created_by_user_id: actionAuthUser.id,
         content: DEFAULT_EDITOR_CONTENT,
         content_text: defaultContentText,
       }));
@@ -1734,7 +1734,7 @@ async function TasksPageContent({
               due_date: null,
               due_time: null,
               assignee_user_id: primarySubtaskAssignee,
-              created_by_user_id: authData.user.id,
+              created_by_user_id: actionAuthUser.id,
               content: subtaskContent.content,
               content_text: subtaskContent.contentText,
             },

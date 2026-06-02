@@ -3,6 +3,7 @@ import {
   buildPostgrestIlikeContainsFilter,
   buildPostgrestOrFilter,
 } from "@/lib/postgrestFilters";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -116,11 +117,11 @@ export default async function SearchPage(props: {
   let searchError: string | null = null;
 
   if (query) {
-    const { data: authData } = await supabase.auth.getUser();
-    if (authData.user) {
+    const authUser = await getCurrentRequestUser(supabase, "search.history.auth");
+    if (authUser) {
       await supabase.from("search_history").upsert(
         {
-          user_id: authData.user.id,
+          user_id: authUser.id,
           query,
           search_type: typeFilter,
           section_id: sectionId,

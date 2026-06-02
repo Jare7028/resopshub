@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam } from "@/lib/queryParams";
 import { TASK_STATUS_OPTIONS, coerceTaskStatusList } from "@/lib/taskStatus";
@@ -74,8 +75,8 @@ export async function getDashboardData(props: {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
 
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "dashboard.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     return {
       state: "blocked",

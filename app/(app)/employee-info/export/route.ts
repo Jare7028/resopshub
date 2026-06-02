@@ -20,6 +20,7 @@ import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isEmployeeInfoRecordVisible,
@@ -405,9 +406,9 @@ export async function GET(request: Request) {
     requestUrl.searchParams.get("display_currency")
   );
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData.user?.id;
-  const authEmail = authData.user?.email || "";
+  const authUser = await getCurrentRequestUser(supabase, "employee_info.export.auth");
+  const authUserId = authUser?.id;
+  const authEmail = authUser?.email || "";
   if (!authUserId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

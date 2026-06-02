@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { computeBillableMinutes } from "@/lib/schedules/billableHours";
 
@@ -82,8 +83,8 @@ export async function GET(
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
+  const authUser = await getCurrentRequestUser(supabase, "schedules.export.auth");
+  if (!authUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

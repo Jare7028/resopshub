@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { withPerfTiming } from "@/lib/perf";
@@ -60,8 +61,8 @@ export default async function ClientsPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = String(authData.user?.email || "").trim();
+  const authUser = await getCurrentRequestUser(supabase, "clients.list.auth");
+  const authEmail = String(authUser?.email || "").trim();
   const { data: currentUser } = authEmail
     ? await supabase.from("users").select("id").eq("email", authEmail).maybeSingle()
     : { data: null as { id: string } | null };
@@ -363,7 +364,7 @@ export default async function ClientsPage(props: {
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="clients"
           columnPreferenceUserId={currentUserId}
-          filterPersistenceUserId={currentUserId || authData.user?.id || null}
+          filterPersistenceUserId={currentUserId || authUser?.id || null}
           hasExplicitFilterParams={hasExplicitFilterParams}
           newClientUrl="/clients/new"
           onDelete={deleteClient}

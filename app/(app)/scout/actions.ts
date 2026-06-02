@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SCOUT_STATUSES, type ScoutStatus } from "@/lib/scout";
 
@@ -23,9 +24,7 @@ function normalizeStatus(value: FormDataEntryValue | null): ScoutStatus {
 
 async function requireUserId() {
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentRequestUser(supabase, "scout.action.auth");
 
   if (!user) {
     redirect("/login");

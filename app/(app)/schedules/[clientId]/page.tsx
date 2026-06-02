@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { computeBillableMinutes } from "@/lib/schedules/billableHours";
 import {
@@ -404,8 +405,8 @@ export default async function ClientSchedulePage({
   })();
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user?.id) redirect("/login");
+  const authUser = await getCurrentRequestUser(supabase, "schedules.detail.auth");
+  if (!authUser?.id) redirect("/login");
 
   async function finishAction(path: string) {
     "use server";
