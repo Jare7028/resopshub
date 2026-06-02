@@ -98,7 +98,7 @@ async function fetchLoginQuickReadTaskRowsFallback(args: {
       )
     );
   } else if (!isSupabaseMissingTableError(taskAssigneesResult.error)) {
-    logQueryError(args.logError, "[quickRead.task_assignees]", taskAssigneesResult.error);
+    logQueryError(args.logError, "quickRead.task_assignees", taskAssigneesResult.error);
   }
 
   const baseTaskQuery = (args.supabase.from("tasks") as TaskTableQuery)
@@ -126,7 +126,7 @@ async function fetchLoginQuickReadTaskRowsFallback(args: {
   }
 
   if (!isSupabaseMissingTableError(tasksResult.error)) {
-    logQueryError(args.logError, "[quickRead.tasks]", tasksResult.error);
+    logQueryError(args.logError, "quickRead.tasks", tasksResult.error);
   }
   return [];
 }
@@ -155,7 +155,7 @@ export async function fetchLoginQuickReadTaskRows(args: {
   if (!isSupabaseMissingFunctionError(rpcResult.error)) {
     logQueryError(
       args.logError,
-      "[quickRead.login_quick_read_tasks]",
+      "quickRead.login_quick_read_tasks",
       rpcResult.error
     );
   }

@@ -658,7 +658,11 @@ export async function POST(req: Request) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[chat.messages.post.mentions.notify]", message);
+      logError("chat.messages.post.mentions.notify", {
+        conversation_id: conversationId,
+        message_id: createdMessage.id,
+        message,
+      });
     }
   }
 
@@ -785,7 +789,11 @@ export async function PATCH(req: Request) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[chat.messages.patch.mentions.notify]", message);
+      logError("chat.messages.patch.mentions.notify", {
+        conversation_id: access.message.conversation_id,
+        message_id: messageId,
+        message,
+      });
     }
   }
 

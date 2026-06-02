@@ -43,7 +43,7 @@ Important counts from static review:
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
-- 78 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`.
+- 71 `console.log/error/warn/info/debug` calls in `app`, `lib`, and `supabase`; 0 remain under `app/api`.
 - 0 `react-hooks/exhaustive-deps` lint disables.
 
 ## Quick Wins
@@ -67,7 +67,8 @@ Updated 2026-06-02:
 - Completed: F-004 task quick-add slice. The default `/tasks` add flow now opens a focused client modal for title, notes, and optional subtasks, backed by a dedicated server action that returns the created task summary without forcing the route-modal flow. The existing `/tasks?tab=add` route remains available as Advanced options for recurrence/templates/full metadata.
 - Open: F-004 follow-up for other route-driven modal workflows outside the default task quick-add path.
 - Completed: F-009 personal image/editor observability slice. Personal image upload/save success paths no longer log as errors, personal image upload failures now use the structured server logger, note editor image/save debug output requires explicit public debug flags, and `lib/vercelLogger.test.ts` covers structured output, log-level filtering, redaction, errors, and bigint serialization.
-- Open: F-009 follow-up for the remaining broad console logging inventory outside the personal image/editor path.
+- Completed: F-009 API route logging slice. `app/api` now has no direct `console.*` calls; quick-read, chat message mention failures, project task lookups, and subtask lookup diagnostics use `logError` with structured context.
+- Open: F-009 follow-up for the remaining broad console logging inventory outside API routes, especially page/server actions, note-editor debug gates, telemetry helpers, and local structured-log shims.
 - Completed: F-007 quick-read date-window slice. `/api/briefing/quick-read` now applies a local next-24-hour `due_date` cutoff to the task query before summarizing overdue and due-soon work, and `lib/loginQuickReadSummary.test.ts` covers cutoff, filtering, sorting, URLs, and fallback titles.
 - Completed: F-007 quick-read assignment RPC slice. `/api/briefing/quick-read` now prefers the bounded `login_quick_read_tasks` RPC, which joins primary and secondary task assignments in SQL with due-date filtering, and falls back to the old bounded compatibility path only when needed.
 - Completed: F-013 build tooling migration. `npm run lint` now runs `eslint .` through an explicit flat config and no longer prints the Next.js `next lint` deprecation warning.
@@ -98,6 +99,7 @@ Latest implementation validation:
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
+- Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 71 calls.
 - `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for linked project `tsylrdpxsouptxmjixmu`. The Forms, Social, and Quick Read RPC migrations are tracked, but remote application still needs the correct DB password or another migration path.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` redirect with no red error screen; direct HTTP smoke returned 307. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/admin/users/update` and `/api/admin/users/delete` both return `401 {"ok":false,"error":"Unauthorized"}`.
@@ -385,9 +387,10 @@ Verification needed:
 
 Evidence:
 
-- Original static scan found 93 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`; after the personal image/editor observability slice this is down to 78.
+- Original static scan found 93 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`; after the personal image/editor and API route logging slices this is down to 71, with 0 direct `console.*` calls remaining under `app/api`.
 - `app/(app)/_components/NoteEditorClient.tsx` still contains image debug log call sites, but they now require `NEXT_PUBLIC_NOTE_IMAGE_DEBUG=1`; save-coordinator debug logging now requires `NEXT_PUBLIC_NOTE_SAVE_DEBUG=1`.
 - `app/api/personal/pages/[pageId]/images/route.ts` no longer logs successful uploads via `console.error`; upload failure paths now use `logWarn`/`logError` from `lib/vercelLogger.ts`.
+- `app/api/briefing/quick-read/route.ts`, `app/api/chat/messages/route.ts`, `app/api/projects/[projectId]/tasks/route.ts`, and `app/api/tasks/[taskId]/subtasks/route.ts` now use structured `logError` diagnostics instead of direct `console.error`.
 - `lib/vercelLogger.test.ts` now covers structured output, redaction, log-level filtering, errors, and bigint serialization.
 
 User/business impact:
@@ -401,6 +404,7 @@ Recommended fix:
 - Done for note editor image/save diagnostics: gate client debug logs behind explicit development/debug flags.
 - Done for the personal image upload path: stop using `console.error` for successful operations.
 - Done for the logger core: add tests for logger formatting, redaction, level filtering, error serialization, and bigint serialization.
+- Done for the API route slice: remove direct `console.*` calls from `app/api` and preserve customer-critical failure context as structured event fields.
 - Continue migrating the remaining console inventory by product area instead of doing one risky mechanical rewrite.
 
 Estimated effort: small to medium.
@@ -409,7 +413,8 @@ Verification needed:
 
 - Production log sample shows no expected-success `error` events for personal image uploads.
 - Simulated personal image upload failures emit one structured warning/error with enough context to debug it.
-- Continue with broader route-level logging checks for task creation and other customer-critical flows.
+- API route static scan stays at 0 direct `console.*` calls.
+- Continue with broader page/server-action logging checks for task creation and other customer-critical flows.
 
 ### F-010 - P2 - Security and Scalability - Security-definer and RLS surface needs an inventory and regression tests
 

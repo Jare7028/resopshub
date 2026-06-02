@@ -169,7 +169,7 @@ describe("fetchLoginQuickReadTaskRows", () => {
 
     expect(result).toEqual({ source: "compatibility", taskRows: [] });
     expect(logError).toHaveBeenCalledWith(
-      "[quickRead.login_quick_read_tasks]",
+      "quickRead.login_quick_read_tasks",
       "RPC failed"
     );
     expect(tasks.eq).toHaveBeenCalledWith(

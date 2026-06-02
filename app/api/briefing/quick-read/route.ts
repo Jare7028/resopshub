@@ -17,6 +17,7 @@ import {
   getLoginQuickReadTaskDueDateCutoff,
   summarizeLoginQuickReadTasks,
 } from "@/lib/loginQuickReadSummary";
+import { logError } from "@/lib/vercelLogger";
 
 type MentionSummaryRow = {
   id: string;
@@ -78,7 +79,7 @@ export async function GET() {
       taskStatusRows = (legacyStatusResult.data || []) as StatusOptionRow[];
     }
   } else if (!isSupabaseMissingTableError(taskStatusResult.error)) {
-    console.error("[quickRead.status_options]", taskStatusResult.error.message);
+    logError("quickRead.status_options", { message: taskStatusResult.error.message });
   }
 
   const hiddenTaskStatusSet = new Set(
@@ -92,7 +93,7 @@ export async function GET() {
     supabase,
     userId: user.id,
     dueDateCutoff: taskDueDateCutoff,
-    logError: (label, message) => console.error(label, message),
+    logError: (event, message) => logError(event, { message }),
   });
 
   const { overdueItems, dueSoonItems } = summarizeLoginQuickReadTasks({
@@ -116,7 +117,7 @@ export async function GET() {
     mentionRows = (mentionsResult.data || []) as MentionSummaryRow[];
     mentionCount = Number(mentionsResult.count || 0);
   } else if (!isSupabaseMissingTableError(mentionsResult.error)) {
-    console.error("[quickRead.mentions]", mentionsResult.error.message);
+    logError("quickRead.mentions", { message: mentionsResult.error.message });
   }
 
   const payload = {

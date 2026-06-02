@@ -10,6 +10,7 @@ import {
   isSupabaseMissingColumnError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import { logError } from "@/lib/vercelLogger";
 
 type RouteContext = {
   params: Promise<{ projectId: string }>;
@@ -68,7 +69,10 @@ export async function GET(_req: Request, context: RouteContext) {
       taskStatusRows = (legacyTaskStatusResult.data || []) as StatusOptionRow[];
     }
   } else if (!isSupabaseMissingTableError(taskStatusResult.error)) {
-    console.error("[projects.tasks.status_options]", taskStatusResult.error.message);
+    logError("projects.tasks.status_options", {
+      project_id: projectId,
+      message: taskStatusResult.error.message,
+    });
   }
 
   const hiddenTaskStatusValues = buildHiddenStatusValues(
@@ -108,7 +112,11 @@ export async function GET(_req: Request, context: RouteContext) {
 
     if (taskAssigneeError) {
       if (!isSupabaseMissingTableError(taskAssigneeError)) {
-        console.error("[projects.tasks.task_assignees]", taskAssigneeError.message);
+        logError("projects.tasks.task_assignees", {
+          project_id: projectId,
+          task_count: taskIds.length,
+          message: taskAssigneeError.message,
+        });
       }
     } else {
       ((taskAssigneeRows || []) as TaskAssigneeRow[]).forEach((row) => {
