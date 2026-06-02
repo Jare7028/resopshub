@@ -26,20 +26,29 @@ export type AuthCapableClient = {
   };
 };
 
+export type CurrentRequestUserOptions = {
+  trustForwardedUserHeaders?: boolean;
+};
+
 export async function getCurrentRequestUser(
   supabase: AuthCapableClient,
-  timingLabel = "auth"
+  timingLabel = "auth",
+  options: CurrentRequestUserOptions = {}
 ) {
-  const headerList = await headers();
-  const forwardedUserId = String(headerList.get(MIDDLEWARE_USER_ID_HEADER) || "").trim();
-  const forwardedUserEmail = String(headerList.get(MIDDLEWARE_USER_EMAIL_HEADER) || "").trim();
+  const trustForwardedUserHeaders = options.trustForwardedUserHeaders ?? true;
 
-  if (UUID_V4ISH_REGEX.test(forwardedUserId)) {
-    return {
-      id: forwardedUserId,
-      email: forwardedUserEmail || null,
-      user_metadata: null,
-    } satisfies CurrentRequestUser;
+  if (trustForwardedUserHeaders) {
+    const headerList = await headers();
+    const forwardedUserId = String(headerList.get(MIDDLEWARE_USER_ID_HEADER) || "").trim();
+    const forwardedUserEmail = String(headerList.get(MIDDLEWARE_USER_EMAIL_HEADER) || "").trim();
+
+    if (UUID_V4ISH_REGEX.test(forwardedUserId)) {
+      return {
+        id: forwardedUserId,
+        email: forwardedUserEmail || null,
+        user_metadata: null,
+      } satisfies CurrentRequestUser;
+    }
   }
 
   const { data: authData } = await withPerfTiming(timingLabel, () => supabase.auth.getUser());

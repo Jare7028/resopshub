@@ -40,7 +40,9 @@ describe("requireApiUser", () => {
     const result = await requireApiUser(client, "api.auth");
 
     expect(result).toEqual({ user, response: null });
-    expect(mockedGetCurrentRequestUser).toHaveBeenCalledWith(client, "api.auth");
+    expect(mockedGetCurrentRequestUser).toHaveBeenCalledWith(client, "api.auth", {
+      trustForwardedUserHeaders: false,
+    });
   });
 
   it("returns a consistent unauthorized JSON response when no user is present", async () => {

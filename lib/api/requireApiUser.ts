@@ -25,7 +25,9 @@ export async function requireApiUser(
   supabase: AuthCapableClient,
   timingLabel?: string
 ): Promise<RequireApiUserResult> {
-  const user = await getCurrentRequestUser(supabase, timingLabel);
+  const user = await getCurrentRequestUser(supabase, timingLabel, {
+    trustForwardedUserHeaders: false,
+  });
   if (!user) {
     return {
       user: null,

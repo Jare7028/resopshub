@@ -47,7 +47,9 @@ export async function requireApiAdmin(
   supabase: AdminProfileClient,
   timingLabel = "api.admin.auth"
 ): Promise<RequireApiAdminResult> {
-  const user = await getCurrentRequestUser(supabase, timingLabel);
+  const user = await getCurrentRequestUser(supabase, timingLabel, {
+    trustForwardedUserHeaders: false,
+  });
   if (!user?.email) {
     return {
       user: null,

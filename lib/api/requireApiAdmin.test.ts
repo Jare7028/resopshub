@@ -56,7 +56,9 @@ describe("requireApiAdmin", () => {
       profile: { id: "admin-profile", role: "admin" },
       response: null,
     });
-    expect(mockedGetCurrentRequestUser).toHaveBeenCalledWith(client, "admin.users.auth");
+    expect(mockedGetCurrentRequestUser).toHaveBeenCalledWith(client, "admin.users.auth", {
+      trustForwardedUserHeaders: false,
+    });
     expect(client.mocks.from).toHaveBeenCalledWith("users");
     expect(client.mocks.select).toHaveBeenCalledWith("id,role");
     expect(client.mocks.eq).toHaveBeenCalledWith("email", "admin@example.com");

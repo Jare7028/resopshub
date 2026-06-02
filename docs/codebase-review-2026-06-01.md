@@ -75,6 +75,7 @@ Updated 2026-06-02:
 - Completed: F-014 stale hook-disable cleanup. The remaining `react-hooks/exhaustive-deps` disables in feature suggestions, clients, and projects were removed by making the saved-default-view effects self-contained with complete dependency lists.
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
 - Completed: F-006 admin API helper slice. `lib/api/requireApiAdmin.ts` centralizes admin-only JSON auth for the admin user update/delete endpoints while preserving the existing `{ ok: false, error }` response shape.
+- Completed: F-006 API auth helper hardening slice. `requireApiUser` and `requireApiAdmin` now force Supabase verification instead of trusting forwarded internal user headers, because `/api` routes are not covered by the middleware matcher.
 - Completed: F-006 admin page/action helper slice. `lib/adminAccess.ts` centralizes admin profile checks for the admin landing page, users page, create-user server action, and user-permissions page/action.
 - Completed: F-006 settings page-edit helper slice. `lib/pageEditAccess.ts` centralizes authenticated page-edit checks and the settings assignment-group, status-option, task-template, task-template subtask, project-template, project-template task link/unlink, and template custom-field actions now use it.
 - Completed: F-006 settings current-user helper slice. The settings page, profile update action, and notification-preference action now use `getCurrentRequestUser`, leaving no direct `supabase.auth.getUser()` calls in `app/(app)/settings/page.tsx`.
@@ -100,7 +101,7 @@ Latest implementation validation:
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 39 files and 190 tests.
+- `npm test`: passed, 39 files and 191 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -300,6 +301,7 @@ Evidence:
 - First implementation slice added `lib/api/requireApiUser.ts` and converted `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks`. Static scan now finds 151 direct `supabase.auth.getUser()` calls, down from the original 155.
 - Second implementation slice added `lib/api/requireApiAdmin.ts` and converted `/api/admin/users/update` plus `/api/admin/users/delete`. Static scan now finds 149 direct `supabase.auth.getUser()` calls.
 - Third implementation slice added `lib/adminAccess.ts` and converted the admin landing page, admin users page, create-user server action, and user-permissions page/action. Static scan now finds 144 direct `supabase.auth.getUser()` calls.
+- API helper hardening slice updated `getCurrentRequestUser` with an explicit forwarded-header trust option and made `requireApiUser`/`requireApiAdmin` pass `trustForwardedUserHeaders: false`, so API routes continue to verify Supabase sessions even though page helpers can reuse middleware-verified headers.
 - Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan found 141 direct `supabase.auth.getUser()` calls after that slice.
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.
@@ -320,6 +322,7 @@ Recommended fix:
 - Use middleware-injected request user data where appropriate, while preserving Supabase `auth.getUser()` verification at trust boundaries.
 - Done for the first API route slice: create `requireApiUser`, keep unauthorized route-handler responses consistent, and test middleware-header short-circuiting plus Supabase fallback behavior.
 - Done for the admin API slice: create `requireApiAdmin`, keep admin route-handler 401/403 responses in the existing `{ ok: false, error }` shape, and convert the admin user update/delete endpoints.
+- Done for the API helper hardening slice: force Supabase auth verification inside `requireApiUser` and `requireApiAdmin` rather than trusting forwarded internal headers on `/api` routes.
 - Done for the admin page/action slice: create `getAdminAccess`, keep page-level redirect/not-found behavior at the call sites, and convert admin landing, user-management, create-user, and page-permission flows.
 - Done for the settings action slices: create `getPageEditAccess`, keep unauthenticated and no-permission redirects or autosave errors at the call sites, and convert assignment-group, status-option, task-template, task-template subtask, project-template, project-template task link/unlink, and template custom-field actions.
 - Done for the settings current-user slice: convert settings page/profile/notification auth gates to `getCurrentRequestUser` instead of direct Supabase auth calls.
@@ -330,6 +333,7 @@ Verification needed:
 
 - Tests for unauthenticated, authenticated/no-permission, and authenticated/allowed states across pages, server actions, and API routes.
 - Added for the first slice: `lib/supabase/currentUser.test.ts` and `lib/api/requireApiUser.test.ts` cover trusted middleware headers, invalid-header fallback, missing users, consistent 401 JSON, and custom unauthorized messages.
+- Added for the API helper hardening slice: `lib/supabase/currentUser.test.ts`, `lib/api/requireApiUser.test.ts`, and `lib/api/requireApiAdmin.test.ts` assert that API auth helpers call `getCurrentRequestUser` with forwarded-header trust disabled.
 - Added for the admin API slice: `lib/api/requireApiAdmin.test.ts` covers admin success, unauthenticated requests, non-admin requests, email-based profile lookup, and response shape. Local smoke confirmed both changed admin endpoints still return the expected unauthenticated 401 JSON.
 - Added for the admin page/action slice: `lib/adminAccess.test.ts` covers admin success, unauthenticated requests, non-admin requests, and email-based profile lookup. Local smoke confirmed converted admin pages still redirect unauthenticated users to `/login`.
 - Added for the settings action slice: `lib/pageEditAccess.test.ts` covers allowed page edits, unauthenticated requests, and forbidden page-edit checks. Local smoke confirmed `/settings` still redirects unauthenticated users to `/login`.
@@ -373,7 +377,7 @@ Verification needed:
 Evidence:
 
 - `npm test` passes 24 files and 138 tests.
-- Latest unit-test suite now passes 39 files and 190 tests after the quick task, admin API/page access, settings page-edit, task table view-state, and quick-read task RPC coverage slices.
+- Latest unit-test suite now passes 39 files and 191 tests after the quick task, admin API/page access, API auth hardening, settings page-edit, task table view-state, and quick-read task RPC coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.

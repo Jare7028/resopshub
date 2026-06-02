@@ -69,6 +69,28 @@ describe("getCurrentRequestUser", () => {
     expect(client.auth.getUser).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores forwarded user headers when header trust is disabled", async () => {
+    const client = createAuthClient({
+      id: "91b0bb1d-4443-4a88-8651-8f9d52df3274",
+      email: "verified@example.com",
+      user_metadata: { source: "supabase" },
+    });
+    mockRequestHeaders({
+      "x-resopshub-user-id": "67baf56a-5f60-4f4d-9c20-4874b9cf7d7b",
+      "x-resopshub-user-email": "spoofed@example.com",
+    });
+
+    await expect(
+      getCurrentRequestUser(client, "test.auth", { trustForwardedUserHeaders: false })
+    ).resolves.toEqual({
+      id: "91b0bb1d-4443-4a88-8651-8f9d52df3274",
+      email: "verified@example.com",
+      user_metadata: { source: "supabase" },
+    });
+    expect(mockedHeaders).not.toHaveBeenCalled();
+    expect(client.auth.getUser).toHaveBeenCalledTimes(1);
+  });
+
   it("returns null when neither middleware headers nor Supabase auth identify a user", async () => {
     const client = createAuthClient(null);
     mockRequestHeaders({});
