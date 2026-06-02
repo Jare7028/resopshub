@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { withPerfTiming } from "@/lib/perf";
 import ConfirmDelete from "../../../_components/ConfirmDelete";
@@ -180,8 +181,7 @@ export default async function ClientNotesPage(props: {
       redirect(`/clients/${clientId}/notes?error=Note%20content%20is%20required`);
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData.user;
+    const user = await getCurrentRequestUser(supabase, "clients.notes.create_legacy.auth");
 
     if (!user) {
       redirect(
@@ -222,8 +222,7 @@ export default async function ClientNotesPage(props: {
       redirect(`/clients/${clientId}/notes?error=Title%20is%20required`);
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData.user;
+    const user = await getCurrentRequestUser(supabase, "clients.notes.create_page.auth");
 
     if (!user) {
       redirect(`/clients/${clientId}/notes?error=You%20must%20be%20signed%20in`);

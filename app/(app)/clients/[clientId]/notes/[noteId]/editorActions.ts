@@ -6,6 +6,7 @@ import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
@@ -32,8 +33,14 @@ export async function updateClientNoteContent(
 ): Promise<{ content: unknown; warnings: string[] }> {
   const supabase = createSupabaseServerClient();
   await assertClientPageEditAccess(supabase, clientId, "notes");
-  const { data: authData } = await supabase.auth.getUser();
-  const editorId = authData.user?.id ?? null;
+  const authUser = await getCurrentRequestUser(
+    supabase,
+    "clients.note_editor.update.auth"
+  );
+  if (!authUser) {
+    throw new Error("Not signed in");
+  }
+  const editorId = authUser.id;
   const now = new Date().toISOString();
   const persistedContent = await normalizeAndPersistNoteImages({
     content,
@@ -140,8 +147,10 @@ export async function createTaskFromClientNote(input: {
 
   const supabase = createSupabaseServerClient();
   await assertClientPageEditAccess(supabase, input.clientId, "tasks");
-  const { data: authData } = await supabase.auth.getUser();
-  const authUser = authData.user;
+  const authUser = await getCurrentRequestUser(
+    supabase,
+    "clients.note_editor.create_task.auth"
+  );
 
   if (!authUser) {
     throw new Error("Not signed in");
