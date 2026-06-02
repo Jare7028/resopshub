@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { withPerfTiming } from "@/lib/perf";
+import { getEmployeeInfoAccess } from "@/lib/employeeInfoAccess";
 import {
   isSupabaseMissingColumnError,
   isSupabaseMissingFunctionError,
@@ -460,40 +461,19 @@ export default async function EmployeeInfoPage(props: {
   const recordLimit = normalizeInventoryRecordLimit(searchParams?.rows);
   const exportNonce = Date.now().toString();
   const supabase = createSupabaseServerClient();
-  const authUser = await getCurrentRequestUser(supabase, "inventory.auth");
-  const authUserId = authUser?.id;
-  if (!authUserId) {
+  const access = await getEmployeeInfoAccess(supabase, {
+    authTimingLabel: "inventory.auth",
+    profileTimingLabel: "inventory.profile",
+    accessRpcName: "can_access_inventory",
+    manageColumnsRpcName: "can_manage_inventory_columns",
+  });
+  if (!access.ok) {
     redirect("/login");
   }
-  const authEmail = authUser.email || "";
+  const currentAppUserId = access.currentAppUserId;
+  const canManageColumns = access.canManageColumns;
 
-  const { data: profile } = await withPerfTiming("inventory.profile", () => {
-    const query = supabase.from("users").select("id,role");
-    return authEmail
-      ? query.eq("email", authEmail).maybeSingle()
-      : query.eq("id", authUserId).maybeSingle();
-  });
-  const currentAppUserId = profile?.id || authUserId;
-  const isAdmin = profile?.role === "admin";
-  let canAccessEmployeeInfo = isAdmin;
-  let canManageColumns = isAdmin;
-
-  const [canAccessResult, canManageColumnsResult] = await Promise.all([
-    supabase.rpc("can_access_inventory"),
-    supabase.rpc("can_manage_inventory_columns"),
-  ]);
-
-  if (!isSupabaseMissingFunctionError(canAccessResult.error) && !canAccessResult.error) {
-    canAccessEmployeeInfo = Boolean(canAccessResult.data);
-  }
-  if (
-    !isSupabaseMissingFunctionError(canManageColumnsResult.error) &&
-    !canManageColumnsResult.error
-  ) {
-    canManageColumns = Boolean(canManageColumnsResult.data);
-  }
-
-  if (!canAccessEmployeeInfo) {
+  if (!access.canAccess) {
     redirect("/dashboard?error=You%20do%20not%20have%20access%20to%20Inventory");
   }
 

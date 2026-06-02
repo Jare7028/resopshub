@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { withPerfTiming } from "@/lib/perf";
+import { getEmployeeInfoAccess } from "@/lib/employeeInfoAccess";
 import {
   isSupabaseMissingColumnError,
   isSupabaseMissingFunctionError,
@@ -581,41 +582,21 @@ export default async function EmployeeInfoPage(props: {
   const recordLimit = normalizeEmployeeInfoRecordLimit(searchParams?.rows);
   const exportNonce = Date.now().toString();
   const supabase = createSupabaseServerClient();
-  const authUser = await getCurrentRequestUser(supabase, "employee_info.auth");
-  const authUserId = authUser?.id;
-  if (!authUserId) {
+  const access = await getEmployeeInfoAccess(supabase, {
+    authTimingLabel: "employee_info.auth",
+    profileTimingLabel: "employee_info.profile",
+    accessRpcName: "can_access_employee_info",
+    manageColumnsRpcName: "can_manage_employee_info_columns",
+  });
+  if (!access.ok) {
     redirect("/login");
   }
-  const authEmail = authUser.email || "";
-
-  const { data: profile } = await withPerfTiming("employee_info.profile", () => {
-    const query = supabase.from("users").select("id,role");
-    return authEmail
-      ? query.eq("email", authEmail).maybeSingle()
-      : query.eq("id", authUserId).maybeSingle();
-  });
-  const currentAppUserId = profile?.id || authUserId;
-  const isAdmin = profile?.role === "admin";
-  let canAccessEmployeeInfo = isAdmin;
-  let canManageColumns = isAdmin;
-
-  const [canAccessResult, canManageColumnsResult] = await Promise.all([
-    supabase.rpc("can_access_employee_info"),
-    supabase.rpc("can_manage_employee_info_columns"),
-  ]);
-
-  if (!isSupabaseMissingFunctionError(canAccessResult.error) && !canAccessResult.error) {
-    canAccessEmployeeInfo = Boolean(canAccessResult.data);
-  }
-  if (
-    !isSupabaseMissingFunctionError(canManageColumnsResult.error) &&
-    !canManageColumnsResult.error
-  ) {
-    canManageColumns = Boolean(canManageColumnsResult.data);
-  }
+  const currentAppUserId = access.currentAppUserId;
+  const isAdmin = access.isAdmin;
+  const canManageColumns = access.canManageColumns;
   const canManageVisibilityRules = isAdmin;
 
-  if (!canAccessEmployeeInfo) {
+  if (!access.canAccess) {
     redirect("/dashboard?error=You%20do%20not%20have%20access%20to%20Employee%20Info");
   }
 

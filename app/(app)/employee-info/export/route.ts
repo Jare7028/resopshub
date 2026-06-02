@@ -17,10 +17,9 @@ import {
 import { evaluateEmployeeFormula, formatFormulaResult } from "@/lib/employeeInfoFormula";
 import {
   isSupabaseMissingColumnError,
-  isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
-import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
+import { getEmployeeInfoAccess } from "@/lib/employeeInfoAccess";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isEmployeeInfoRecordVisible,
@@ -406,28 +405,18 @@ export async function GET(request: Request) {
     requestUrl.searchParams.get("display_currency")
   );
   const supabase = createSupabaseServerClient();
-  const authUser = await getCurrentRequestUser(supabase, "employee_info.export.auth");
-  const authUserId = authUser?.id;
-  const authEmail = authUser?.email || "";
-  if (!authUserId) {
+  const access = await getEmployeeInfoAccess(supabase, {
+    authTimingLabel: "employee_info.export.auth",
+    accessRpcName: "can_access_employee_info",
+  });
+  if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-  const currentAppUserId = profile?.id || authUserId;
-  const isAdmin = profile?.role === "admin";
-  let canAccessEmployeeInfo = isAdmin;
+  const currentAppUserId = access.currentAppUserId;
+  const isAdmin = access.isAdmin;
 
-  const canAccessResult = await supabase.rpc("can_access_employee_info");
-  if (!isSupabaseMissingFunctionError(canAccessResult.error) && !canAccessResult.error) {
-    canAccessEmployeeInfo = Boolean(canAccessResult.data);
-  }
-
-  if (!canAccessEmployeeInfo) {
+  if (!access.canAccess) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

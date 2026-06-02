@@ -17,10 +17,9 @@ import {
 import { evaluateEmployeeFormula, formatFormulaResult } from "@/lib/employeeInfoFormula";
 import {
   isSupabaseMissingColumnError,
-  isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
-import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
+import { getEmployeeInfoAccess } from "@/lib/employeeInfoAccess";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -322,27 +321,15 @@ export async function GET(request: Request) {
     requestUrl.searchParams.get("display_currency")
   );
   const supabase = createSupabaseServerClient();
-  const authUser = await getCurrentRequestUser(supabase, "inventory.export.auth");
-  const authUserId = authUser?.id;
-  const authEmail = authUser?.email || "";
-  if (!authUserId) {
+  const access = await getEmployeeInfoAccess(supabase, {
+    authTimingLabel: "inventory.export.auth",
+    accessRpcName: "can_access_inventory",
+  });
+  if (!access.ok) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin";
-  let canAccessEmployeeInfo = isAdmin;
-
-  const canAccessResult = await supabase.rpc("can_access_inventory");
-  if (!isSupabaseMissingFunctionError(canAccessResult.error) && !canAccessResult.error) {
-    canAccessEmployeeInfo = Boolean(canAccessResult.data);
-  }
-
-  if (!canAccessEmployeeInfo) {
+  if (!access.canAccess) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

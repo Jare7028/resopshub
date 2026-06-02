@@ -29,7 +29,7 @@ Top risks:
 | --- | --- | --- |
 | `npm audit --json` | Passed | 0 vulnerabilities across 573 dependencies after the Next/Vitest upgrades. |
 | `npx tsc --noEmit` | Passed | TypeScript completed with exit code 0. |
-| `npm test` | Passed | 66 test files, 397 tests passed. |
+| `npm test` | Passed | 67 test files, 401 tests passed. |
 | `npm run test:coverage` | Passed | Overall: 73.26% statements, 60.34% branches, 78.52% functions, 76.51% lines. |
 | `npm run build` | Passed | Next.js 15.5.18 build completed. `/tasks` built at 4.36 kB route JS and 130 kB first load JS; `/settings` built at 4.71 kB route JS and 116 kB first load JS; middleware bundle was 82 kB. |
 | `npm run lint` | Passed | `npm run lint` now runs `eslint .` through the flat config. |
@@ -38,7 +38,7 @@ Top risks:
 Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
-- 67 test/spec files in the repo; the latest Vitest run executed 66 test files.
+- 68 test/spec files in the repo; the latest Vitest run executed 67 test files.
 - 2 direct `.auth.getUser()` calls remain, both intentional internals: `lib/supabase/currentUser.ts` and `lib/supabase/middleware.ts`.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
@@ -111,6 +111,7 @@ Updated 2026-06-02:
 - Completed: F-006 remaining app current-user helper sweep. Top-level redirects, login, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export now use `getCurrentRequestUser`; the only direct `.auth.getUser()` calls left are the shared helper and middleware internals.
 - Completed: F-006 middleware permission verification slice. `lib/supabase/middleware.test.ts` now covers public-route skips, prefetch skips, read requests without edit checks, allowed mutation checks, denied mutation 403s, and fail-closed unexpected permission RPC errors.
 - Completed: F-006 project access permission coverage slice. `lib/projectAccess.test.ts` now covers requester profile lookup errors, assignment lookup failures, watcher fallback access, and redirect-friendly error messages for denied project reads.
+- Completed: F-006 inventory/employee-info access gate helper slice. `lib/employeeInfoAccess.ts` now centralizes page/export auth, profile lookup, admin fallback, access RPC, and optional column-management RPC handling for inventory and employee-info; `lib/employeeInfoAccess.test.ts` covers unauthenticated users, email/id profile lookup, RPC booleans, and missing/failing RPC fallback.
 - Open: F-006 follow-up is now deeper access-helper consolidation and broader signed-in behavioral permission coverage; the direct auth-call migration is complete.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Completed: F-008 task mutation/status/recurrence test slice. `app/(app)/tasks/actions.test.ts` now covers inline task mutation RPC payloads, assignment-group expansion, safe return-path revalidation, missing IDs, assignment errors, and RPC errors; `lib/taskSchedule.test.ts` covers recurrence weekday defaults and bounded end dates; `lib/statusOptions.test.ts` covers status metadata, hidden/completed status derivation, colors, and unsafe color rejection.
@@ -193,15 +194,16 @@ Latest implementation validation:
 - `npx vitest run 'app/(app)/tasks/taskTimeline.test.ts'`: passed, 6 tests.
 - `npm test -- --run 'app/(app)/tasks/taskViewUi.test.ts'`: passed, 7 tests.
 - `npm test -- --run lib/taskHover.test.ts lib/noteEditorInline.test.ts 'app/(app)/tasks/taskViewUi.test.ts'`: passed, 16 tests.
+- `npm test -- --run lib/employeeInfoAccess.test.ts`: passed, 4 tests.
 - `npx vitest run 'app/(app)/tasks/taskPageUtils.test.ts'`: passed, 8 tests.
 - `npx vitest run 'app/(app)/tasks/[taskId]/taskDetailUtils.test.ts'`: passed, 5 tests.
 - `npm run test:e2e:list`: passed, 1 Playwright task smoke test discovered.
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 66 files and 397 tests.
+- `npm test`: passed, 67 files and 401 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 130 kB first load JS after the task view UI, shared task-hover helper, and task page utility extractions; `/tasks/[taskId]` built at 3.18 kB route JS and 133 kB first load JS after the task detail utility extraction; `/clients/[clientId]/notes/[noteId]` built at 2.99 kB route JS and 166 kB first load JS after the note-editor state-helper extraction; `/personal/[pageId]` built at 3.05 kB route JS and 170 kB first load JS; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/chat` built at 15 kB route JS and 130 kB first load JS after the chat lookup/priority helper extraction; `/social/[pageId]` built at 3.41 kB route JS and 119 kB first load JS after the expanded social detail helper extraction; `/inventory` built at 11.6 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.1 kB route JS and 118 kB first load JS after the shared table utility, editable-cell helper, preference-state, and filter/sort pipeline extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard and settings utility/group-summary/template relationship/custom-field/status/profile/preference/notification-update/status-action/URL extraction slices; route-modal prefetch cleanup, note-editor context-menu, overlay, inline, image, ribbon primitive, state helper/meta stats/outline/overlay-label helpers, suggestion helper, chat client/derived-state helpers, social detail helper, settings utility, task page/detail utility, and task view UI/shared task-hover helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 130 kB first load JS after the task view UI, shared task-hover helper, and task page utility extractions; `/tasks/[taskId]` built at 3.18 kB route JS and 133 kB first load JS after the task detail utility extraction; `/clients/[clientId]/notes/[noteId]` built at 2.99 kB route JS and 166 kB first load JS after the note-editor state-helper extraction; `/personal/[pageId]` built at 3.05 kB route JS and 170 kB first load JS; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/chat` built at 15 kB route JS and 130 kB first load JS after the chat lookup/priority helper extraction; `/social/[pageId]` built at 3.41 kB route JS and 119 kB first load JS after the expanded social detail helper extraction; `/inventory` built at 11.6 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.1 kB route JS and 118 kB first load JS after the shared table utility, editable-cell helper, preference-state, filter/sort pipeline, and access-gate helper extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard and settings utility/group-summary/template relationship/custom-field/status/profile/preference/notification-update/status-action/URL extraction slices; route-modal prefetch cleanup, note-editor context-menu, overlay, inline, image, ribbon primitive, state helper/meta stats/outline/overlay-label helpers, suggestion helper, chat client/derived-state helpers, social detail helper, settings utility, task page/detail utility, and task view UI/shared task-hover helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -330,7 +332,7 @@ Evidence:
 
 - `app/(app)/tasks/page.tsx:395` renders the add-task flow inside `RouteModalOverlay`.
 - `app/(app)/tasks/page.tsx:1801` renders another task detail overlay.
-- `app/(app)/projects/page.tsx:1265`, `app/(app)/schedules/page.tsx:419`, `app/(app)/schedules/[clientId]/page.tsx:1099`, `app/(app)/social/[pageId]/page.tsx:1670`, and `app/(app)/employee-info/page.tsx:1906` use the same route-modal pattern.
+- `app/(app)/projects/page.tsx:1265`, `app/(app)/schedules/page.tsx:419`, `app/(app)/schedules/[clientId]/page.tsx:1099`, `app/(app)/social/[pageId]/page.tsx:1670`, and `app/(app)/employee-info/page.tsx:1893` use the same route-modal pattern.
 - Recent production timing checks before the latest task optimization showed direct `/tasks?tab=add` around 1.95s and simple submit around 4.5s, with multiple `/tasks/[id]?_rsc` prefetches.
 - After the targeted task optimization, direct add reload improved to about 0.946s, simple submit to about 3.026s, and task detail prefetch count dropped to 0. The pattern is still expensive relative to a local client modal with focused data loading.
 - Implemented task quick-add slice: `app/(app)/tasks/_components/QuickAddTaskModal.tsx`, `app/(app)/tasks/actions.ts`, and `app/(app)/tasks/TasksView.tsx` now support a lightweight default modal and optimistic local insertion. `app/(app)/tasks/page.tsx` still keeps the advanced route-modal form for recurrence/templates/full metadata.
@@ -368,7 +370,8 @@ Evidence:
 - `app/(app)/chat/ChatPageClient.tsx`: 2417 lines after the chat client helper and derived-state extraction slices, down from 2682 in the latest large-file scan.
 - `app/(app)/social/[pageId]/page.tsx`: 2193 lines after the latest social detail helper extraction.
 - `app/(app)/tasks/TasksView.tsx`: 2449 lines after the task table view-state, persisted filter restore, URL/query, preference form-data, view-model, timeline, UI helper, and shared task-hover helper extraction slices, down from 2646 after the quick-add UX slice.
-- `app/(app)/employee-info/page.tsx`: 2040 lines.
+- `app/(app)/inventory/page.tsx`: 1275 lines after the shared access-gate extraction.
+- `app/(app)/employee-info/page.tsx`: 2024 lines after the shared access-gate extraction.
 - `app/(app)/inventory/InventoryTable.tsx`: 1898 lines after the shared table utility, editable-cell helper, and preference-state extractions.
 - `app/(app)/tasks/page.tsx`: 1955 lines.
 - `app/(app)/tasks/[taskId]/page.tsx`: 1930 lines.
@@ -455,6 +458,7 @@ Evidence:
 - Thirty-second implementation slice converted quiz list/detail, assigned quizzes, attempt detail, and review pages to `getCurrentRequestUser`. Static scan now finds 16 direct `.auth.getUser()` calls overall and none under `app/(app)/quizzes`.
 - Thirty-third implementation slice converted the remaining app-level auth checks to `getCurrentRequestUser`, including root/login redirects, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export. Static scan now finds only 2 direct `.auth.getUser()` calls, both intentionally inside `lib/supabase/currentUser.ts` and `lib/supabase/middleware.ts`.
 - Middleware permission verification slice added `lib/supabase/middleware.test.ts`, covering public-route skips, router-prefetch skips, read requests without edit checks, allowed mutation checks, denied mutation 403 responses, and fail-closed unexpected permission RPC errors.
+- Inventory/employee-info access gate helper slice added `lib/employeeInfoAccess.ts` and focused tests; inventory and employee-info page/export entry points now share current-user, profile, admin fallback, access-RPC, and optional column-management RPC handling.
 - Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan found 141 direct `supabase.auth.getUser()` calls after that slice.
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.
@@ -533,7 +537,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 66 files and 397 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard and error coverage, task/project/client table view-state, inventory/employee table utility/editable-cell/filter-sort helpers and preference-state, task preference payloads, persisted task filter restore/payload cloning, task sort-direction and URL-joining extractions, task view-model/timeline/UI/shared-hover helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/overlay-default/overlay-node/state/meta-stat/outline/overlay-label/inline-hover coverage, chat lookup/social detail helpers, and settings utility/template search-param/group-summary/template relationship/custom-field/status/profile/preference/notification-update/status-action/URL slices.
+- Latest unit-test suite now passes 67 files and 401 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard and error coverage, inventory/employee-info access-gate coverage, task/project/client table view-state, inventory/employee table utility/editable-cell/filter-sort helpers and preference-state, task preference payloads, persisted task filter restore/payload cloning, task sort-direction and URL-joining extractions, task view-model/timeline/UI/shared-hover helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/overlay-default/overlay-node/state/meta-stat/outline/overlay-label/inline-hover coverage, chat lookup/social detail helpers, and settings utility/template search-param/group-summary/template relationship/custom-field/status/profile/preference/notification-update/status-action/URL slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -672,6 +676,7 @@ Verification needed:
 Evidence:
 
 - Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 1898 lines after the shared table utility, editable-cell helper, and preference-state extractions, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1735 lines after the shared table utility, editable-cell helper, and preference-state extractions, `app/(app)/tasks/TasksView.tsx` at 2449 lines after task helper extractions, `app/(app)/projects/ProjectsView.tsx` at 1817 lines after the project table view-state extraction, and `app/(app)/clients/ClientsTable.tsx` at 1185 lines after the client table view-state extraction.
+- The inventory page is 1275 lines and the employee-info page is 2024 lines after the shared access-gate helper extraction; their table components remain the larger F-012 UI split targets.
 - `app/(app)/settings/page.tsx` is 4388 lines after the settings utility, group-summary, template relationship, custom-field summary, notification preference/update-payload, profile/status section, status-action parser, template URL, subtask redirect, and project-template link redirect extraction slices and still contains many management forms/actions.
 - Quick-read already uses 600-row caps, showing that unbounded or broad reads have become a product concern.
 - Implemented Forms slice: `app/(app)/forms/page.tsx` now calls `forms_list_page` with `p_limit`/`p_offset` and no longer pulls all forms plus all open submissions into application memory for the list view.
