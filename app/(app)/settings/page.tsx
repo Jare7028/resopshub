@@ -116,6 +116,7 @@ const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 const USER_AVATARS_BUCKET = "user-avatars";
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
 const TASK_STATUS_OPTION_VALIDATION_MESSAGE = `Task statuses must use supported values: ${SUPPORTED_TASK_STATUS_VALUES.join(", ")}.`;
+const SETTINGS_EDIT_PERMISSION_MESSAGE = "You do not have permission to manage settings.";
 
 function toInitials(label: string) {
   const words = label
@@ -2082,8 +2083,17 @@ export default async function SettingsPage(props: {
   async function createStatusOption(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.status_options.create.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=statuses&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
 
     const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
     const entityType: StatusEntityType =
@@ -2150,8 +2160,17 @@ export default async function SettingsPage(props: {
   async function deleteStatusOption(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.status_options.delete.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=statuses&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
@@ -2182,9 +2201,19 @@ export default async function SettingsPage(props: {
   async function updateStatusOption(formData: FormData): Promise<{ ok: boolean; error?: string } | void> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
     const autosave = String(formData.get("autosave") || "").trim() === "1";
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.status_options.update.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      if (autosave) return { ok: false, error: SETTINGS_EDIT_PERMISSION_MESSAGE };
+      redirect(
+        `/settings?tab=statuses&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
