@@ -76,7 +76,9 @@ Updated 2026-06-02:
 - Open: F-006 follow-up for page/server-action permission helpers, especially settings, admin, personal/social pages, and task mutations.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
-- Open: F-005, F-010, F-012, F-015 plus the explicit F-004, F-006, F-007, F-008, and F-009 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
+- Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
+- Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
+- Open: F-005, F-012, F-015 plus the explicit F-004, F-006, F-007, F-008, F-009, and F-010 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
 
 Latest implementation validation:
 
@@ -391,6 +393,7 @@ Verification needed:
 Evidence:
 
 - Static scan found 128 `security definer` occurrences and 52 `enable row level security` occurrences in migrations.
+- The implemented inventory slice found 128 actual security-definer declarations, 52 RLS-enable occurrences, and 225 policy creation statements. All security-definer declarations in migrations have a nearby `set search_path`.
 - Dense modules include schedules, quizzes, social workspace, inventory, task audit, assignment groups, and scout.
 - Examples:
   - `supabase/migrations/20260225140000_schedules_module.sql` has many `security definer` functions and RLS policies.
@@ -404,7 +407,8 @@ User/business impact:
 
 Recommended fix:
 
-- Create a database security inventory listing every `security definer` function, its owner, `search_path`, caller routes, and tenant/user checks.
+- Done for the first slice: create `docs/security-definer-rls-inventory-2026-06-02.md` with migration counts, module grouping, caller surfaces, highest-risk review queue, and live catalog verification SQL.
+- Continue by listing live function owners, final grants, and tenant/user checks from the actual database catalog.
 - Add SQL regression tests for representative allowed/denied access per module.
 - Require new `security definer` functions to include explicit `set search_path` and a documented caller/access model.
 
@@ -412,6 +416,7 @@ Estimated effort: large.
 
 Verification needed:
 
+- Completed for the first slice: static migration scans for security-definer declarations, RLS enables, policy creation, nearby `set search_path`, and `.rpc(...)` app callers.
 - SQL tests prove cross-user and cross-client access is denied for tasks, schedules, quizzes, social pages, inventory, employee info, and chat.
 - Formal Codex Security scan can follow after the inventory exists.
 
