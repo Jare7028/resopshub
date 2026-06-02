@@ -10,10 +10,15 @@ import { sortConversationsByRecentActivity } from "@/lib/chatConversations";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import {
   CHAT_LINK_TYPE_LABELS,
+  buildExistingDirectConversationIdByUserId,
+  buildReadReceiptsByMessageId,
+  buildSearchableConversationTextById,
   chatUrl,
   formatConversationTime,
   formatMessageDayLabel,
   formatMessageTime,
+  getConversationDisplayTitle,
+  getFirstUnreadMessageId,
   getInitials,
   getUserAvatarUrl,
   getUserDisplayName,
@@ -33,19 +38,12 @@ import {
   type ConversationRow,
   type LatestPreview,
   type MessageReactionRow,
+  type MessageReadReceipt,
   type MessageRow,
   type PendingMessagePayload,
   type UserRow,
 } from "@/lib/chatClientUtils";
 import ChatComposer from "./ChatComposer";
-
-type MessageReadReceipt = {
-  userId: string;
-  name: string;
-  avatarUrl: string;
-  hasRead: boolean;
-  lastReadAt: string | null;
-};
 
 const CHAT_POLL_VISIBLE_INTERVAL_MS = 6000;
 const CHAT_POLL_HIDDEN_INTERVAL_MS = 30000;
@@ -201,21 +199,13 @@ export default function ChatPageClient(props: {
   }, [conversationsByPriority, selectedConversationId]);
 
   const searchableConversationTextById = useMemo(() => {
-    return conversationsByPriority.reduce<Record<string, string>>((acc, conversation) => {
-      const title =
-        conversation.type === "group"
-          ? conversation.title || "Untitled group"
-          : (() => {
-              const rowMembers = membersByConversationId[conversation.id] || [];
-              const other = rowMembers.find((member) => member.user_id !== currentUserId);
-              return getUserDisplayName(userById[other?.user_id || ""]);
-            })();
-      const latest = latestByConversationId[conversation.id];
-      const latestSender = latest ? getUserDisplayName(userById[latest.sender_id]) : "";
-      const latestBody = latest ? renderPreviewText(latest) : "";
-      acc[conversation.id] = `${title} ${latestSender} ${latestBody}`.toLowerCase();
-      return acc;
-    }, {});
+    return buildSearchableConversationTextById({
+      conversations: conversationsByPriority,
+      latestByConversationId,
+      membersByConversationId,
+      currentUserId,
+      userById,
+    });
   }, [
     conversationsByPriority,
     currentUserId,
@@ -233,19 +223,11 @@ export default function ChatPageClient(props: {
   }, [conversationsByPriority, searchChats, searchableConversationTextById]);
 
   const existingDirectConversationIdByUserId = useMemo(() => {
-    return conversationsByRecentActivity.reduce<Record<string, string>>((acc, conversation) => {
-      if (conversation.type !== "direct") {
-        return acc;
-      }
-      const rowMembers = membersByConversationId[conversation.id] || [];
-      const otherMember = rowMembers.find((member) => member.user_id !== currentUserId);
-      const otherUserId = String(otherMember?.user_id || "").trim();
-      if (!otherUserId || acc[otherUserId]) {
-        return acc;
-      }
-      acc[otherUserId] = conversation.id;
-      return acc;
-    }, {});
+    return buildExistingDirectConversationIdByUserId({
+      conversations: conversationsByRecentActivity,
+      membersByConversationId,
+      currentUserId,
+    });
   }, [conversationsByRecentActivity, currentUserId, membersByConversationId]);
 
   const selectedDirectExistingConversationId = directTargetUserId
@@ -301,16 +283,11 @@ export default function ChatPageClient(props: {
 
   const firstUnreadMessageId = useMemo(() => {
     if (!selectedConversationId) return null;
-    const anchorValue = unreadAnchorByConversationId[selectedConversationId] || null;
-    if (!anchorValue) return null;
-    const anchorMs = toMs(anchorValue);
-    const firstUnread = selectedMessages.find(
-      (message) =>
-        !message.deleted_at &&
-        message.sender_id !== currentUserId &&
-        toMs(message.created_at) > anchorMs
-    );
-    return firstUnread?.id || null;
+    return getFirstUnreadMessageId({
+      messages: selectedMessages,
+      anchorValue: unreadAnchorByConversationId[selectedConversationId] || null,
+      currentUserId,
+    });
   }, [
     currentUserId,
     selectedConversationId,
@@ -323,38 +300,12 @@ export default function ChatPageClient(props: {
       return {} as Record<string, MessageReadReceipt[]>;
     }
 
-    const rows = membersByConversationId[selectedConversationId] || [];
-    const result: Record<string, MessageReadReceipt[]> = {};
-
-    selectedMessages.forEach((message) => {
-      if (message.sender_id !== currentUserId || message.deleted_at || message.client_status) {
-        return;
-      }
-      const createdMs = toMs(message.created_at);
-      if (!createdMs) {
-        return;
-      }
-
-      const receipts = rows
-        .filter((member) => member.user_id !== message.sender_id)
-        .map((member) => {
-          const memberLastReadAt = member.last_read_at;
-          const memberLastReadMs = toMs(memberLastReadAt);
-          const user = userById[member.user_id] || null;
-          return {
-            userId: member.user_id,
-            name: getUserDisplayName(user),
-            avatarUrl: getUserAvatarUrl(user),
-            hasRead: memberLastReadMs >= createdMs,
-            lastReadAt: memberLastReadAt,
-          };
-        })
-        .sort((left, right) => left.name.localeCompare(right.name));
-
-      result[message.id] = receipts;
+    return buildReadReceiptsByMessageId({
+      messages: selectedMessages,
+      members: membersByConversationId[selectedConversationId] || [],
+      currentUserId,
+      userById,
     });
-
-    return result;
   }, [
     currentUserId,
     membersByConversationId,
@@ -369,12 +320,12 @@ export default function ChatPageClient(props: {
   const seenByUnreadReceipts = seenByReceipts.filter((receipt) => !receipt.hasRead);
 
   function getConversationTitle(conversation: ConversationRow) {
-    if (conversation.type === "group") {
-      return conversation.title || "Untitled group";
-    }
-    const rowMembers = membersByConversationId[conversation.id] || [];
-    const other = rowMembers.find((member) => member.user_id !== currentUserId);
-    return getUserDisplayName(userById[other?.user_id || ""]);
+    return getConversationDisplayTitle({
+      conversation,
+      membersByConversationId,
+      currentUserId,
+      userById,
+    });
   }
 
   const syncUrl = (conversationId: string | null) => {

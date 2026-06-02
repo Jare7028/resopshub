@@ -96,6 +96,14 @@ export type MessageRow = {
   client_retry_payload?: PendingMessagePayload | null;
 };
 
+export type MessageReadReceipt = {
+  userId: string;
+  name: string;
+  avatarUrl: string;
+  hasRead: boolean;
+  lastReadAt: string | null;
+};
+
 export type LatestPreview = {
   id: string;
   conversation_id: string;
@@ -287,4 +295,139 @@ export function messageLinkHref(entityType: LinkEntityType, entityId: string) {
   }
   if (entityType === "client") return `/clients/${entityId}`;
   return "/notes";
+}
+
+export function getConversationDisplayTitle({
+  conversation,
+  membersByConversationId,
+  currentUserId,
+  userById,
+}: {
+  conversation: ConversationRow;
+  membersByConversationId: Record<string, ConversationMemberRow[]>;
+  currentUserId: string;
+  userById: Record<string, UserRow>;
+}) {
+  if (conversation.type === "group") {
+    return conversation.title || "Untitled group";
+  }
+  const rowMembers = membersByConversationId[conversation.id] || [];
+  const other = rowMembers.find((member) => member.user_id !== currentUserId);
+  return getUserDisplayName(userById[other?.user_id || ""]);
+}
+
+export function buildSearchableConversationTextById({
+  conversations,
+  latestByConversationId,
+  membersByConversationId,
+  currentUserId,
+  userById,
+}: {
+  conversations: ConversationRow[];
+  latestByConversationId: Record<string, LatestPreview | null>;
+  membersByConversationId: Record<string, ConversationMemberRow[]>;
+  currentUserId: string;
+  userById: Record<string, UserRow>;
+}) {
+  return conversations.reduce<Record<string, string>>((acc, conversation) => {
+    const title = getConversationDisplayTitle({
+      conversation,
+      membersByConversationId,
+      currentUserId,
+      userById,
+    });
+    const latest = latestByConversationId[conversation.id];
+    const latestSender = latest ? getUserDisplayName(userById[latest.sender_id]) : "";
+    const latestBody = latest ? renderPreviewText(latest) : "";
+    acc[conversation.id] = `${title} ${latestSender} ${latestBody}`.toLowerCase();
+    return acc;
+  }, {});
+}
+
+export function buildExistingDirectConversationIdByUserId({
+  conversations,
+  membersByConversationId,
+  currentUserId,
+}: {
+  conversations: ConversationRow[];
+  membersByConversationId: Record<string, ConversationMemberRow[]>;
+  currentUserId: string;
+}) {
+  return conversations.reduce<Record<string, string>>((acc, conversation) => {
+    if (conversation.type !== "direct") {
+      return acc;
+    }
+    const rowMembers = membersByConversationId[conversation.id] || [];
+    const otherMember = rowMembers.find((member) => member.user_id !== currentUserId);
+    const otherUserId = String(otherMember?.user_id || "").trim();
+    if (!otherUserId || acc[otherUserId]) {
+      return acc;
+    }
+    acc[otherUserId] = conversation.id;
+    return acc;
+  }, {});
+}
+
+export function getFirstUnreadMessageId({
+  messages,
+  anchorValue,
+  currentUserId,
+}: {
+  messages: MessageRow[];
+  anchorValue: string | null | undefined;
+  currentUserId: string;
+}) {
+  if (!anchorValue) return null;
+  const anchorMs = toMs(anchorValue);
+  const firstUnread = messages.find(
+    (message) =>
+      !message.deleted_at &&
+      message.sender_id !== currentUserId &&
+      toMs(message.created_at) > anchorMs
+  );
+  return firstUnread?.id || null;
+}
+
+export function buildReadReceiptsByMessageId({
+  messages,
+  members,
+  currentUserId,
+  userById,
+}: {
+  messages: MessageRow[];
+  members: ConversationMemberRow[];
+  currentUserId: string;
+  userById: Record<string, UserRow>;
+}) {
+  const result: Record<string, MessageReadReceipt[]> = {};
+
+  messages.forEach((message) => {
+    if (message.sender_id !== currentUserId || message.deleted_at || message.client_status) {
+      return;
+    }
+    const createdMs = toMs(message.created_at);
+    if (!createdMs) {
+      return;
+    }
+
+    const receipts = members
+      .filter((member) => member.user_id !== message.sender_id)
+      .map((member) => {
+        const memberLastReadAt = member.last_read_at;
+        const memberLastReadMs = toMs(memberLastReadAt);
+        const user = userById[member.user_id] || null;
+        return {
+          userId: member.user_id,
+          name: getUserDisplayName(user),
+          avatarUrl: getUserAvatarUrl(user),
+          hasRead: memberLastReadMs >= createdMs,
+          lastReadAt: memberLastReadAt,
+        };
+      })
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    result[message.id] = receipts;
+  });
+
+  return result;
 }

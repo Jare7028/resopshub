@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildExistingDirectConversationIdByUserId,
+  buildReadReceiptsByMessageId,
+  buildSearchableConversationTextById,
   chatUrl,
   formatConversationTime,
   formatMessageDayLabel,
   formatMessageTime,
+  getConversationDisplayTitle,
+  getFirstUnreadMessageId,
   getInitials,
   getUserAvatarUrl,
   getUserDisplayName,
@@ -17,7 +22,10 @@ import {
   sortMessagesAsc,
   toMessageSnippet,
   toMs,
+  type ConversationMemberRow,
+  type ConversationRow,
   type MessageRow,
+  type UserRow,
 } from "./chatClientUtils";
 
 function message(overrides: Partial<MessageRow> = {}): MessageRow {
@@ -32,6 +40,39 @@ function message(overrides: Partial<MessageRow> = {}): MessageRow {
     links: [],
     attachments: [],
     reactions: [],
+    ...overrides,
+  };
+}
+
+function conversation(overrides: Partial<ConversationRow> = {}): ConversationRow {
+  return {
+    id: "conversation-1",
+    type: "direct",
+    title: null,
+    created_by: "user-1",
+    created_at: "2026-06-02T09:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function member(overrides: Partial<ConversationMemberRow> = {}): ConversationMemberRow {
+  return {
+    conversation_id: "conversation-1",
+    user_id: "user-1",
+    role: "member",
+    last_read_at: null,
+    is_pinned: false,
+    is_muted: false,
+    ...overrides,
+  };
+}
+
+function user(overrides: Partial<UserRow> = {}): UserRow {
+  return {
+    id: "user-1",
+    full_name: "Jane User",
+    email: "jane@example.com",
+    avatar_url: null,
     ...overrides,
   };
 }
@@ -130,6 +171,182 @@ describe("chat client helpers", () => {
       "/feature-suggestions?open=feature%201"
     );
     expect(messageLinkHref("note", "note-1")).toBe("/notes");
+  });
+
+  it("builds conversation titles, search text, and direct-chat lookup maps", () => {
+    const usersById = {
+      "user-1": user({ id: "user-1", full_name: "Current User" }),
+      "user-2": user({ id: "user-2", full_name: "Sam Teammate" }),
+      "user-3": user({ id: "user-3", full_name: null, email: "lee@example.com" }),
+    };
+    const conversations = [
+      conversation({ id: "direct-1", type: "direct" }),
+      conversation({ id: "direct-2", type: "direct" }),
+      conversation({ id: "group-1", type: "group", title: "" }),
+    ];
+    const membersByConversationId = {
+      "direct-1": [
+        member({ conversation_id: "direct-1", user_id: "user-1" }),
+        member({ conversation_id: "direct-1", user_id: "user-2" }),
+      ],
+      "direct-2": [
+        member({ conversation_id: "direct-2", user_id: "user-1" }),
+        member({ conversation_id: "direct-2", user_id: "user-3" }),
+      ],
+      "group-1": [
+        member({ conversation_id: "group-1", user_id: "user-1" }),
+        member({ conversation_id: "group-1", user_id: "user-2" }),
+      ],
+    };
+
+    expect(
+      getConversationDisplayTitle({
+        conversation: conversations[0],
+        membersByConversationId,
+        currentUserId: "user-1",
+        userById: usersById,
+      })
+    ).toBe("Sam Teammate");
+    expect(
+      getConversationDisplayTitle({
+        conversation: conversations[2],
+        membersByConversationId,
+        currentUserId: "user-1",
+        userById: usersById,
+      })
+    ).toBe("Untitled group");
+
+    expect(
+      buildExistingDirectConversationIdByUserId({
+        conversations,
+        membersByConversationId,
+        currentUserId: "user-1",
+      })
+    ).toEqual({ "user-2": "direct-1", "user-3": "direct-2" });
+
+    expect(
+      buildSearchableConversationTextById({
+        conversations,
+        membersByConversationId,
+        currentUserId: "user-1",
+        userById: usersById,
+        latestByConversationId: {
+          "direct-1": message({
+            id: "latest-1",
+            conversation_id: "direct-1",
+            sender_id: "user-2",
+            body: "Need a callback",
+          }),
+          "direct-2": null,
+          "group-1": message({
+            id: "latest-2",
+            conversation_id: "group-1",
+            sender_id: "user-1",
+            body: "",
+            deleted_at: "2026-06-02T10:00:00.000Z",
+          }),
+        },
+      })
+    ).toMatchObject({
+      "direct-1": "sam teammate sam teammate need a callback",
+      "direct-2": "lee@example.com  ",
+      "group-1": "untitled group current user message deleted",
+    });
+  });
+
+  it("finds unread anchors and builds read receipts for sent messages", () => {
+    const messages = [
+      message({
+        id: "mine",
+        sender_id: "user-1",
+        created_at: "2026-06-02T09:00:00.000Z",
+      }),
+      message({
+        id: "theirs-before",
+        sender_id: "user-2",
+        created_at: "2026-06-02T09:15:00.000Z",
+      }),
+      message({
+        id: "theirs-after",
+        sender_id: "user-2",
+        created_at: "2026-06-02T10:15:00.000Z",
+      }),
+      message({
+        id: "deleted-after",
+        sender_id: "user-2",
+        created_at: "2026-06-02T10:30:00.000Z",
+        deleted_at: "2026-06-02T10:31:00.000Z",
+      }),
+    ];
+
+    expect(
+      getFirstUnreadMessageId({
+        messages,
+        anchorValue: "2026-06-02T10:00:00.000Z",
+        currentUserId: "user-1",
+      })
+    ).toBe("theirs-after");
+    expect(
+      getFirstUnreadMessageId({
+        messages,
+        anchorValue: null,
+        currentUserId: "user-1",
+      })
+    ).toBeNull();
+
+    expect(
+      buildReadReceiptsByMessageId({
+        messages: [
+          messages[0],
+          message({
+            id: "failed",
+            sender_id: "user-1",
+            client_status: "failed",
+          }),
+          message({
+            id: "received",
+            sender_id: "user-2",
+          }),
+        ],
+        members: [
+          member({ user_id: "user-1" }),
+          member({
+            user_id: "user-3",
+            last_read_at: "2026-06-02T09:30:00.000Z",
+          }),
+          member({
+            user_id: "user-2",
+            last_read_at: "2026-06-02T08:30:00.000Z",
+          }),
+        ],
+        currentUserId: "user-1",
+        userById: {
+          "user-2": user({ id: "user-2", full_name: "Ben Reader" }),
+          "user-3": user({
+            id: "user-3",
+            full_name: "Amy Reader",
+            avatar_url: " https://example.com/amy.png ",
+          }),
+        },
+      })
+    ).toEqual({
+      mine: [
+        {
+          userId: "user-3",
+          name: "Amy Reader",
+          avatarUrl: "https://example.com/amy.png",
+          hasRead: true,
+          lastReadAt: "2026-06-02T09:30:00.000Z",
+        },
+        {
+          userId: "user-2",
+          name: "Ben Reader",
+          avatarUrl: "",
+          hasRead: false,
+          lastReadAt: "2026-06-02T08:30:00.000Z",
+        },
+      ],
+    });
   });
 
   it("parses reply prefixes and strips them from previews", () => {
