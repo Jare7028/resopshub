@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { useRouter } from "next/navigation";
 import ConfirmDelete from "../_components/ConfirmDelete";
 import MultiSelect from "../_components/MultiSelect";
-import { setCsvParam } from "@/lib/queryParams";
 import {
   isViewMode,
   readDefaultViewMode,
@@ -24,6 +23,22 @@ import {
 import TableColumnConfigButton, {
   type TableColumnOption,
 } from "../_components/TableColumnConfigButton";
+import {
+  buildClientFilterPersistenceKey,
+  buildClientListQuery,
+  buildClientListUrl,
+  filterAllowedValues,
+  normalizeClientSortDir,
+  normalizeClientSortKey,
+  normalizeStorageList,
+  normalizeVisibleClientColumns,
+  type ClientFilterState,
+  type ClientSortDir,
+  type ClientSortKey,
+  type ClientTableColumnId,
+  type ClientViewMode,
+  type PersistedClientFilterState,
+} from "./clientTableViewState";
 
 type ClientRow = {
   id: string;
@@ -36,89 +51,6 @@ type ClientRow = {
 };
 
 type HeaderMenuKey = "name" | "status" | "industry";
-type ClientSortKey = "name" | "status" | "industry" | "start";
-type ClientSortDir = "asc" | "desc";
-type ClientTableColumnId =
-  | "name"
-  | "active_employees"
-  | "status"
-  | "industry"
-  | "account_owner"
-  | "start"
-  | "delete";
-const CLIENT_REQUIRED_COLUMN_IDS = new Set<ClientTableColumnId>(["name"]);
-const CLIENT_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.client-filters.v1";
-
-type PersistedClientFilterState = {
-  q: string;
-  status: string[];
-  industry: string[];
-  sortKey: ClientSortKey;
-  sortDir: ClientSortDir;
-  view: "table" | "gantt" | "board";
-};
-
-function normalizeVisibleClientColumns(
-  values: string[],
-  knownColumnIds: ClientTableColumnId[]
-) {
-  const knownColumnIdSet = new Set<ClientTableColumnId>(knownColumnIds);
-  const normalized = Array.from(
-    new Set(
-      values.filter((value): value is ClientTableColumnId =>
-        knownColumnIdSet.has(value as ClientTableColumnId)
-      )
-    )
-  );
-  const withRequiredColumns = normalized.slice();
-  CLIENT_REQUIRED_COLUMN_IDS.forEach((requiredColumnId) => {
-    if (!knownColumnIdSet.has(requiredColumnId)) return;
-    if (!withRequiredColumns.includes(requiredColumnId)) {
-      withRequiredColumns.unshift(requiredColumnId);
-    }
-  });
-  return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
-}
-
-function normalizeStorageList(value: unknown) {
-  if (!Array.isArray(value)) return [] as string[];
-  return Array.from(
-    new Set(
-      value
-        .map((item) => String(item || "").trim())
-        .filter(Boolean)
-    )
-  );
-}
-
-function filterAllowedValues(values: string[], allowedValues: Set<string>) {
-  return values.filter((value) => allowedValues.has(value));
-}
-
-function normalizeClientSortKey(value: string | null | undefined, fallback: ClientSortKey) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (
-    normalized === "name" ||
-    normalized === "status" ||
-    normalized === "industry" ||
-    normalized === "start"
-  ) {
-    return normalized;
-  }
-  return fallback;
-}
-
-function normalizeClientSortDir(value: string | null | undefined, fallback: ClientSortDir) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (normalized === "asc" || normalized === "desc") {
-    return normalized;
-  }
-  return fallback;
-}
 
 function toDate(value?: string | null) {
   if (!value) return null;
@@ -170,10 +102,10 @@ export default function ClientsTable({
   clients: ClientRow[];
   activeEmployeeCountByClientId: Record<string, number>;
   statusOptions: readonly string[];
-  initialFilters: { q: string; status: string[]; industry: string[] };
+  initialFilters: ClientFilterState;
   sortKey: ClientSortKey;
   sortDir: ClientSortDir;
-  initialView?: "table" | "board" | "gantt";
+  initialView?: ClientViewMode;
   hasExplicitView?: boolean;
   viewPreferenceScope?: ViewPreferenceScope;
   columnPreferenceUserId?: string | null;
@@ -185,8 +117,8 @@ export default function ClientsTable({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [view, setView] = useState<"table" | "board" | "gantt">(initialView);
-  const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
+  const [view, setView] = useState<ClientViewMode>(initialView);
+  const [defaultView, setDefaultView] = useState<ClientViewMode | null>(null);
   const ganttScrollRef = useRef<HTMLDivElement | null>(null);
   const [ganttViewportWidth, setGanttViewportWidth] = useState(960);
   const [ganttAnchorDate, setGanttAnchorDate] = useState<string>(() =>
@@ -232,15 +164,14 @@ export default function ClientsTable({
   );
   const isClientColumnVisible = (columnId: ClientTableColumnId) =>
     visibleClientColumnSet.has(columnId);
-  const clientFilterPersistenceKey = useMemo(() => {
-    const userId = String(filterPersistenceUserId || "").trim();
-    if (!userId) return null;
-    const rawScope = String(filterPersistenceScope || "/clients")
-      .trim()
-      .toLowerCase();
-    const scope = rawScope || "/clients";
-    return `${CLIENT_FILTER_PERSISTENCE_KEY_PREFIX}:${userId}:${scope}`;
-  }, [filterPersistenceScope, filterPersistenceUserId]);
+  const clientFilterPersistenceKey = useMemo(
+    () =>
+      buildClientFilterPersistenceKey({
+        userId: filterPersistenceUserId,
+        scope: filterPersistenceScope || "/clients",
+      }),
+    [filterPersistenceScope, filterPersistenceUserId]
+  );
   const tableColSpan = clientTableColumnIds.reduce((count, columnId) => {
     return isClientColumnVisible(columnId) ? count + 1 : count;
   }, 0);
@@ -359,16 +290,13 @@ export default function ClientsTable({
   }, [clients]);
 
   const buildQuery = useCallback(
-    (next: typeof filters) => {
-      const params = new URLSearchParams();
-      if (next.q.trim()) params.set("q", next.q.trim());
-      setCsvParam(params, "status", next.status);
-      setCsvParam(params, "industry", next.industry);
-      params.set("sort", sortKey);
-      params.set("dir", sortDir);
-      if (view !== "table") params.set("view", view);
-      return params.toString();
-    },
+    (next: ClientFilterState) =>
+      buildClientListQuery({
+        filters: next,
+        sortKey,
+        sortDir,
+        view,
+      }),
     [sortDir, sortKey, view]
   );
 
@@ -403,14 +331,12 @@ export default function ClientsTable({
         const nextView = isViewMode(parsedView) ? parsedView : view;
 
         const currentQuery = buildQuery(filters);
-        const params = new URLSearchParams();
-        if (nextFilters.q.trim()) params.set("q", nextFilters.q.trim());
-        setCsvParam(params, "status", nextFilters.status);
-        setCsvParam(params, "industry", nextFilters.industry);
-        params.set("sort", nextSortKey);
-        params.set("dir", nextSortDir);
-        if (nextView !== "table") params.set("view", nextView);
-        const restoredQuery = params.toString();
+        const restoredQuery = buildClientListQuery({
+          filters: nextFilters,
+          sortKey: nextSortKey,
+          sortDir: nextSortDir,
+          view: nextView,
+        });
 
         if (restoredQuery !== currentQuery) {
           setFilters(nextFilters);
@@ -472,15 +398,12 @@ export default function ClientsTable({
   ]);
 
   const buildSortUrl = (nextSortKey: ClientSortKey) => {
-    const params = new URLSearchParams();
-    if (filters.q.trim()) params.set("q", filters.q.trim());
-    setCsvParam(params, "status", filters.status);
-    setCsvParam(params, "industry", filters.industry);
-    params.set("sort", nextSortKey);
-    params.set("dir", sortKey === nextSortKey && sortDir === "asc" ? "desc" : "asc");
-    if (view !== "table") params.set("view", view);
-    const query = params.toString();
-    return query ? `/clients?${query}` : "/clients";
+    return buildClientListUrl("/clients", {
+      filters,
+      sortKey: nextSortKey,
+      sortDir: sortKey === nextSortKey && sortDir === "asc" ? "desc" : "asc",
+      view,
+    });
   };
 
   const headerClass = (key: ClientSortKey) =>
@@ -541,14 +464,12 @@ export default function ClientsTable({
 
   const applyView = (nextView: typeof view) => {
     setView(nextView);
-    const params = new URLSearchParams();
-    if (filters.q.trim()) params.set("q", filters.q.trim());
-    setCsvParam(params, "status", filters.status);
-    setCsvParam(params, "industry", filters.industry);
-    params.set("sort", sortKey);
-    params.set("dir", sortDir);
-    if (nextView !== "table") params.set("view", nextView);
-    const query = params.toString();
+    const query = buildClientListQuery({
+      filters,
+      sortKey,
+      sortDir,
+      view: nextView,
+    });
     startTransition(() => {
       router.replace(query ? `/clients?${query}` : "/clients", { scroll: false });
     });
@@ -559,14 +480,12 @@ export default function ClientsTable({
     setDefaultView(savedDefaultView);
     if (!hasExplicitView && savedDefaultView && savedDefaultView !== initialView) {
       setView(savedDefaultView);
-      const params = new URLSearchParams();
-      if (filters.q.trim()) params.set("q", filters.q.trim());
-      setCsvParam(params, "status", filters.status);
-      setCsvParam(params, "industry", filters.industry);
-      params.set("sort", sortKey);
-      params.set("dir", sortDir);
-      if (savedDefaultView !== "table") params.set("view", savedDefaultView);
-      const query = params.toString();
+      const query = buildClientListQuery({
+        filters,
+        sortKey,
+        sortDir,
+        view: savedDefaultView,
+      });
       startTransition(() => {
         router.replace(query ? `/clients?${query}` : "/clients", { scroll: false });
       });
