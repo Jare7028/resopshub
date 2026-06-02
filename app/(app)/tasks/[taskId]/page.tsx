@@ -6,10 +6,7 @@ import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import TaskNotesEditorClient from "./TaskNotesEditorClient";
-import TaskTabs, {
-  normalizeTaskTabKey,
-  type TaskTabKey,
-} from "./_components/TaskTabs";
+import TaskTabs, { normalizeTaskTabKey } from "./_components/TaskTabs";
 import ConfirmDelete from "../../_components/ConfirmDelete";
 import {
   coerceTaskStatusList,
@@ -18,7 +15,7 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
-import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { parseCsvParam } from "@/lib/queryParams";
 import {
   isSupabaseMissingColumnError,
   isSupabaseMissingTableError,
@@ -57,6 +54,17 @@ import {
 } from "@/lib/assignmentGroups";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+import {
+  buildSubtasksReturnParams,
+  buildSubtasksReturnUrl,
+  buildSubtasksToggleUrl,
+  buildTaskUrl,
+  formatDbError,
+  getRelationName,
+  getUserDisplayName,
+  normalizeTaskDueFilter,
+  normalizeTaskSubtaskView,
+} from "./taskDetailUtils";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
@@ -93,49 +101,6 @@ type TaskAuditRow = {
   changed_at: string;
 };
 
-function buildTaskUrl(
-  taskId: string,
-  tab: TaskTabKey,
-  params?: {
-    error?: string;
-    success?: string;
-    addField?: "1" | "0";
-    created?: string;
-  }
-) {
-  const sp = new URLSearchParams();
-
-  if (tab !== "details") {
-    sp.set("tab", tab);
-  }
-  if (params?.error) {
-    sp.set("error", params.error);
-  }
-  if (params?.success) {
-    sp.set("success", params.success);
-  }
-  if (params?.addField === "1") {
-    sp.set("add_field", "1");
-  }
-  if (params?.created) {
-    sp.set("created", params.created);
-  }
-
-  const qs = sp.toString();
-  return qs ? `/tasks/${taskId}?${qs}` : `/tasks/${taskId}`;
-}
-
-function formatDbError(
-  context: string,
-  error: { message: string; code?: string; details?: string | null; hint?: string | null } | null | undefined
-) {
-  if (!error) return context;
-  const parts = [`[${context}]`, error.message];
-  if (error.code) parts.push(`code=${error.code}`);
-  if (error.details) parts.push(`details=${error.details}`);
-  if (error.hint) parts.push(`hint=${error.hint}`);
-  return parts.join(" | ");
-}
 function logSubtaskDebug(
   level: "info" | "warn" | "error",
   event: string,
@@ -303,11 +268,7 @@ export default async function TaskDetailPage(props: {
   const taskClientId = task.client_id;
   const taskProjectId = task.project_id;
   const taskAssigneeUserId = task.assignee_user_id;
-  const viewRaw = String(searchParams?.view || "").trim().toLowerCase();
-  const selectedSubtaskView: "table" | "gantt" | "board" =
-    viewRaw === "gantt" || viewRaw === "board" || viewRaw === "table"
-      ? (viewRaw as "table" | "gantt" | "board")
-      : "table";
+  const selectedSubtaskView = normalizeTaskSubtaskView(searchParams?.view);
   const hasExplicitSubtaskView = typeof searchParams?.view !== "undefined";
   const subtaskSortKey = normalizeTaskSortKey(searchParams?.sort);
   const subtaskSortDir = normalizeTaskSortDir(searchParams?.dir);
@@ -316,7 +277,10 @@ export default async function TaskDetailPage(props: {
   const selectedAssigneesRaw = parseCsvParam(searchParams?.assignee);
   const selectedClientIdsRaw = parseCsvParam(searchParams?.client);
   const selectedProjectIdsRaw = parseCsvParam(searchParams?.project);
-  let selectedDue = (searchParams?.due || "all").trim();
+  const allowedDueValues = new Set<string>(
+    dueDateFilters.map((filter) => filter.value)
+  );
+  const selectedDue = normalizeTaskDueFilter(searchParams?.due, allowedDueValues);
   const hideCompleted = (searchParams?.hide ?? "1").trim() !== "0";
   const createdSubtaskId = String(searchParams?.created || "").trim();
   const headerList = await headers();
@@ -342,20 +306,6 @@ export default async function TaskDetailPage(props: {
     { appBaseUrl }
   );
 
-  const getRelationName = (
-    relation:
-      | { name?: string | null }
-      | { name?: string | null }[]
-      | null
-      | undefined,
-    fallback: string
-  ) => {
-    if (Array.isArray(relation)) {
-      return relation[0]?.name ?? fallback;
-    }
-    return relation?.name ?? fallback;
-  };
-
   const [{ data: users }, assignmentGroupsResult, { data: clients }, { data: projects }] =
     await Promise.all([
       supabase.from("users").select("id,full_name,email").order("full_name", { ascending: true }),
@@ -372,12 +322,6 @@ export default async function TaskDetailPage(props: {
     memberCount: group.memberCount,
   }));
 
-  const allowedDueValues = new Set<string>(
-    dueDateFilters.map((filter) => filter.value)
-  );
-  if (!allowedDueValues.has(selectedDue)) {
-    selectedDue = "all";
-  }
   const selectedStatuses = coerceTaskStatusList(selectedStatusesRaw).filter((status) =>
     statusOptions.includes(status)
   );
@@ -399,26 +343,24 @@ export default async function TaskDetailPage(props: {
   const projectIdSet = new Set((projects || []).map((project) => project.id));
   const selectedProjectIds = selectedProjectIdsRaw.filter((id) => projectIdSet.has(id));
 
-  const subtasksReturnParams = new URLSearchParams();
-  subtasksReturnParams.set("tab", "subtasks");
-  setCsvParam(subtasksReturnParams, "status", selectedStatuses);
-  setCsvParam(subtasksReturnParams, "priority", selectedPriorities);
-  setCsvParam(subtasksReturnParams, "assignee", selectedAssignees);
-  if (selectedDue !== "all") {
-    subtasksReturnParams.set("due", selectedDue);
-  }
-  setCsvParam(subtasksReturnParams, "client", selectedClientIds);
-  setCsvParam(subtasksReturnParams, "project", selectedProjectIds);
-  subtasksReturnParams.set("hide", hideCompleted ? "1" : "0");
-  subtasksReturnParams.set("sort", subtaskSortKey);
-  subtasksReturnParams.set("dir", subtaskSortDir);
-  if (selectedSubtaskView !== "table") {
-    subtasksReturnParams.set("view", selectedSubtaskView);
-  }
-  const subtasksReturnTo = `/tasks/${taskId}?${subtasksReturnParams.toString()}`;
-  const subtasksToggleParams = new URLSearchParams(subtasksReturnParams);
-  subtasksToggleParams.set("hide", hideCompleted ? "0" : "1");
-  const subtasksToggleUrl = `/tasks/${taskId}?${subtasksToggleParams.toString()}`;
+  const subtasksReturnParams = buildSubtasksReturnParams({
+    selectedStatuses,
+    selectedPriorities,
+    selectedAssignees,
+    selectedDue,
+    selectedClientIds,
+    selectedProjectIds,
+    hideCompleted,
+    sortKey: subtaskSortKey,
+    sortDir: subtaskSortDir,
+    selectedSubtaskView,
+  });
+  const subtasksReturnTo = buildSubtasksReturnUrl(taskId, subtasksReturnParams);
+  const subtasksToggleUrl = buildSubtasksToggleUrl(
+    taskId,
+    subtasksReturnParams,
+    hideCompleted
+  );
 
   const { data: taskAssignees } = await supabase
     .from("task_assignees")
@@ -448,10 +390,6 @@ export default async function TaskDetailPage(props: {
   const lastEditedByLabel = task.last_edited_by_user_id
     ? assigneeMap.get(task.last_edited_by_user_id) || "Unknown user"
     : null;
-  const getUserDisplayName = (userId: string | null) => {
-    if (!userId) return "System";
-    return assigneeMap.get(userId) || "Unknown user";
-  };
 
   const subtasksById: Record<string, string[]> = {};
   const openSubtaskCountByTaskId: Record<string, number> = {};
@@ -1984,7 +1922,9 @@ export default async function TaskDetailPage(props: {
                     {auditRows.map((row) => (
                       <tr key={row.id}>
                         <td className="px-6 py-3">{row.change_summary}</td>
-                        <td className="px-6 py-3">{getUserDisplayName(row.changed_by_user_id)}</td>
+                        <td className="px-6 py-3">
+                          {getUserDisplayName(row.changed_by_user_id, assigneeMap)}
+                        </td>
                         <td className="px-6 py-3">
                           {row.changed_at ? new Date(row.changed_at).toLocaleString("en-US") : "--"}
                         </td>
