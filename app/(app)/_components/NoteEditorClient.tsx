@@ -144,7 +144,9 @@ import {
   buildNoteEditorReviewStats,
   findTrailingMissingImageNodePos,
   getActiveTableColumnType,
+  getContextMenuOverlayDeleteLabel,
   getCurrentTextAlign,
+  getSelectedOverlayLabel,
   getSuggestedTaskTitle,
   type CopiedFormatSnapshot,
 } from "./NoteEditorStateHelpers";
@@ -4842,11 +4844,7 @@ export default function NoteEditorClient({
   const isReviewTab = activeRibbonTab === "review";
   const isViewTab = activeRibbonTab === "view";
   const editorRibbonTabIsActive = !suppressToolbarGroups;
-  const selectedOverlayLabel = selectedOverlayNode
-    ? selectedOverlayNode.node.type.name === "noteShape"
-      ? "Shape selected"
-      : "Text box selected"
-    : "No shape or text box selected";
+  const selectedOverlayLabel = getSelectedOverlayLabel(selectedOverlayNode?.nodeType);
 
   if (!editor) {
     return (
@@ -4858,12 +4856,9 @@ export default function NoteEditorClient({
 
   const activeSlashItem = slashMenu.items[slashMenu.index];
   const activeMentionItem = mentionMenu.items[mentionMenu.index];
-  const contextMenuOverlayDeleteLabel =
-    contextMenu.overlayNodeType === "noteShape"
-      ? "Delete shape"
-      : contextMenu.overlayNodeType === "noteTextBox"
-      ? "Delete text box"
-      : "Delete item";
+  const contextMenuOverlayDeleteLabel = getContextMenuOverlayDeleteLabel(
+    contextMenu.overlayNodeType
+  );
   const fillHeightEditor = editorHeightMode === "fill";
   const editorContentStyle = fillHeightEditor ? { minHeight: "100%" } : undefined;
 

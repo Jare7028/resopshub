@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { normalizeInlineText } from "@/lib/noteEditorInline";
+import type { OverlayNodeType } from "@/lib/noteEditorOverlays";
 import {
   NOTE_TABLE_COLUMN_TYPES,
   type NoteTableColumnType,
@@ -109,6 +110,30 @@ export function buildNoteEditorOutlineHeadings(
     return true;
   });
   return headings;
+}
+
+export function getSelectedOverlayLabel(
+  overlayNodeType: OverlayNodeType | null | undefined
+) {
+  if (overlayNodeType === "noteShape") {
+    return "Shape selected";
+  }
+  if (overlayNodeType === "noteTextBox") {
+    return "Text box selected";
+  }
+  return "No shape or text box selected";
+}
+
+export function getContextMenuOverlayDeleteLabel(
+  overlayNodeType: OverlayNodeType | null | undefined
+) {
+  if (overlayNodeType === "noteShape") {
+    return "Delete shape";
+  }
+  if (overlayNodeType === "noteTextBox") {
+    return "Delete text box";
+  }
+  return "Delete item";
 }
 
 export function getActiveTableColumnType(

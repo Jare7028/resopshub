@@ -7,8 +7,10 @@ import {
   buildNoteEditorReviewStats,
   findTrailingMissingImageNodePos,
   getActiveTableColumnType,
+  getContextMenuOverlayDeleteLabel,
   getCurrentLineText,
   getCurrentTextAlign,
+  getSelectedOverlayLabel,
   getSelectedText,
   getSuggestedTaskTitle,
 } from "./NoteEditorStateHelpers";
@@ -77,6 +79,15 @@ describe("note editor state helpers", () => {
       { id: "heading-5-0", label: "First heading", level: 1 },
       { id: "heading-12-1", label: "Deep heading", level: 3 },
     ]);
+  });
+
+  it("builds overlay action labels from overlay node types", () => {
+    expect(getSelectedOverlayLabel("noteShape")).toBe("Shape selected");
+    expect(getSelectedOverlayLabel("noteTextBox")).toBe("Text box selected");
+    expect(getSelectedOverlayLabel(null)).toBe("No shape or text box selected");
+    expect(getContextMenuOverlayDeleteLabel("noteShape")).toBe("Delete shape");
+    expect(getContextMenuOverlayDeleteLabel("noteTextBox")).toBe("Delete text box");
+    expect(getContextMenuOverlayDeleteLabel(undefined)).toBe("Delete item");
   });
 
   it("detects the active table column type only inside supported table cells", () => {
