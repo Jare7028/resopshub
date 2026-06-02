@@ -7,6 +7,7 @@ import {
   buildPostgrestOrFilter,
 } from "@/lib/postgrestFilters";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isSupabaseMissingColumnError,
@@ -107,8 +108,8 @@ export default async function FeatureSuggestionsPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "feature_suggestions.page.auth");
+  const authEmail = authUser?.email;
 
   if (!authEmail) {
     redirect("/login");
@@ -346,9 +347,12 @@ export default async function FeatureSuggestionsPage(props: {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Title%20is%20required`);
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
-    const authUserId = authData.user?.id || null;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "feature_suggestions.create.auth"
+    );
+    const authEmail = authUser?.email;
+    const authUserId = authUser?.id || null;
 
     if (!authEmail) {
       redirect("/login");
@@ -422,8 +426,11 @@ export default async function FeatureSuggestionsPage(props: {
       redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Missing%20suggestion%20id`);
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "feature_suggestions.votes.toggle.auth"
+    );
+    const authEmail = authUser?.email;
 
     if (!authEmail) {
       redirect("/login");

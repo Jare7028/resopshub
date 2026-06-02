@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import MentionCommentForm from "@/app/(app)/_components/MentionCommentForm";
 import MentionText from "@/app/(app)/_components/MentionText";
 import MentionTextareaField from "@/app/(app)/_components/MentionTextareaField";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { isSupabaseMissingColumnError } from "@/lib/supabaseErrors";
@@ -52,8 +53,8 @@ export default async function FeatureSuggestionDetailPage(props: {
     returnToRaw.startsWith("/feature-suggestions") ? returnToRaw : "/feature-suggestions";
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "feature_suggestion.detail.auth");
+  const authEmail = authUser?.email;
 
   if (!authEmail) {
     redirect("/login");
@@ -200,8 +201,14 @@ export default async function FeatureSuggestionDetailPage(props: {
   async function updateSuggestion(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const authUserId = authData.user?.id || null;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "feature_suggestion.detail.update.auth"
+    );
+    if (!authUser) {
+      redirect("/login");
+    }
+    const authUserId = authUser.id;
 
     const title = String(formData.get("title") || "").trim();
     const details = String(formData.get("details") || "").trim();
@@ -298,9 +305,12 @@ export default async function FeatureSuggestionDetailPage(props: {
       redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
-    const authUserId = authData.user?.id || null;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "feature_suggestion.detail.comments.create.auth"
+    );
+    const authEmail = authUser?.email;
+    const authUserId = authUser?.id || null;
 
     if (!authEmail) {
       redirect("/login");
@@ -362,8 +372,11 @@ export default async function FeatureSuggestionDetailPage(props: {
     const detailParams = new URLSearchParams();
     detailParams.set("return_to", returnTo);
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "feature_suggestion.detail.votes.toggle.auth"
+    );
+    const authEmail = authUser?.email;
 
     if (!authEmail) {
       redirect("/login");
