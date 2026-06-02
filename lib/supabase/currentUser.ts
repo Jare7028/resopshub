@@ -12,7 +12,7 @@ export type CurrentRequestUser = {
   user_metadata?: Record<string, unknown> | null;
 };
 
-type AuthCapableClient = {
+export type AuthCapableClient = {
   auth: {
     getUser: () => Promise<{
       data: {

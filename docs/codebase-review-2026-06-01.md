@@ -38,13 +38,13 @@ Top risks:
 Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
-- 24 test files.
-- 155 direct `supabase.auth.getUser()` calls.
+- 31 test files.
+- 151 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
-- 93 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`.
-- 4 `react-hooks/exhaustive-deps` lint disables.
+- 78 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`.
+- 3 `react-hooks/exhaustive-deps` lint disables.
 
 ## Quick Wins
 
@@ -58,7 +58,7 @@ Important counts from static review:
 
 ## Implementation Progress
 
-Updated 2026-06-01:
+Updated 2026-06-02:
 
 - Completed: F-001 dependency security upgrades. `npm audit --json` now reports 0 vulnerabilities.
 - Completed: F-002 for the user-facing search/filter paths called out in the finding. Search suggestions, search fallback, mentions, forms, and feature suggestions now use a shared PostgREST filter helper with regression tests.
@@ -72,12 +72,14 @@ Updated 2026-06-01:
 - Open: F-007 follow-up for replacing the remaining broad `task_assignees` lookup with an RPC/view that joins assignments and task due dates directly.
 - Completed: F-013 build tooling migration. `npm run lint` now runs `eslint .` through an explicit flat config and no longer prints the Next.js `next lint` deprecation warning.
 - Partially completed: F-014 stale hook-disable cleanup. The unused `react-hooks/exhaustive-deps` disable in `app/(app)/tasks/TasksView.tsx` was removed during the lint migration; the remaining table/view disables still need separate review.
-- Open: F-005 through F-015 except F-011. These remain the main refactor, test, observability, docs, and tooling backlog.
+- Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
+- Open: F-006 follow-up for page/server-action permission helpers, especially settings, admin, personal/social pages, and task mutations.
+- Open: F-005, F-008, F-010, F-012, F-014, F-015 plus the explicit F-004, F-006, F-007, and F-009 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npm test`: passed, 29 files and 156 tests.
+- `npm test`: passed, 31 files and 162 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -264,6 +266,7 @@ Evidence:
 - `app/(app)/settings/page.tsx` alone has repeated auth calls at lines including `216`, `766`, `875`, `932`, `1070`, `1233`, `1277`, `1315`, `1355`, `1637`, `1772`, `1810`, `1958`, `2036`, `2091`, `2159`, `2191`, `2477`, `2538`, and `2605`.
 - Middleware does useful page permission work in `lib/supabase/middleware.ts:107` via `can_edit_page`.
 - `lib/supabase/currentUser.ts` already provides a middleware-header-aware helper, but the pattern is not consistently used everywhere.
+- First implementation slice added `lib/api/requireApiUser.ts` and converted `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks`. Static scan now finds 151 direct `supabase.auth.getUser()` calls, down from the original 155.
 
 User/business impact:
 
@@ -275,12 +278,14 @@ Recommended fix:
 - Standardize on `requireCurrentUser`, `requirePageAccess`, and `requirePageEditAccess` helpers for server components, server actions, and route handlers.
 - Return consistent error shapes from API routes.
 - Use middleware-injected request user data where appropriate, while preserving Supabase `auth.getUser()` verification at trust boundaries.
+- Done for the first API route slice: create `requireApiUser`, keep unauthorized route-handler responses consistent, and test middleware-header short-circuiting plus Supabase fallback behavior.
 
 Estimated effort: medium.
 
 Verification needed:
 
 - Tests for unauthenticated, authenticated/no-permission, and authenticated/allowed states across pages, server actions, and API routes.
+- Added for the first slice: `lib/supabase/currentUser.test.ts` and `lib/api/requireApiUser.test.ts` cover trusted middleware headers, invalid-header fallback, missing users, consistent 401 JSON, and custom unauthorized messages.
 - Manual checks for admin, tasks, projects, employee info, inventory, personal pages, social pages, and chat.
 
 ### F-007 - P2 - Performance - Login quick-read does multiple broad reads immediately after sign-in

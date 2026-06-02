@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isSupabaseMissingColumnError,
@@ -46,14 +47,12 @@ function extractSourceUrl(metadata: Record<string, unknown> | null | undefined) 
 
 export async function GET() {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
-
-  if (!user) {
-    const response = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    clearLoginQuickReadCookie(response);
-    return response;
+  const auth = await requireApiUser(supabase, "quick-read.auth");
+  if (!auth.user) {
+    clearLoginQuickReadCookie(auth.response);
+    return auth.response;
   }
+  const user = auth.user;
 
   const now = new Date();
   const taskDueDateCutoff = getLoginQuickReadTaskDueDateCutoff(now);
