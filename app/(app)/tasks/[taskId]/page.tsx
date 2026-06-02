@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath, unstable_noStore as noStore } from "next/cache";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import TaskNotesEditorClient from "./TaskNotesEditorClient";
 import TaskTabs, {
@@ -178,9 +179,9 @@ export default async function TaskDetailPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData.user?.id;
-  const authEmail = String(authData.user?.email || "").trim().toLowerCase();
+  const authUser = await getCurrentRequestUser(supabase, "tasks.detail.auth");
+  const authUserId = authUser?.id;
+  const authEmail = String(authUser?.email || "").trim().toLowerCase();
   if (!authUserId) {
     redirect("/login");
   }
@@ -1058,8 +1059,11 @@ export default async function TaskDetailPage(props: {
   async function createSubtask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user?.id) {
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "tasks.detail.create_subtask.auth"
+    );
+    if (!authUser?.id) {
       redirect("/login");
     }
     const createAttemptId = randomUUID();
@@ -1087,7 +1091,7 @@ export default async function TaskDetailPage(props: {
     logSubtaskDebug("info", "create_subtask_start", {
       createAttemptId,
       taskId,
-      userId: authData.user.id,
+      userId: authUser.id,
       titleLength: title.length,
       status,
       priority,
@@ -1104,7 +1108,7 @@ export default async function TaskDetailPage(props: {
       logSubtaskDebug("warn", "create_subtask_validation_failed", {
         createAttemptId,
         taskId,
-        userId: authData.user.id,
+        userId: authUser.id,
         reason: "title_required",
         elapsedMs: Date.now() - startedAtMs,
       });
@@ -1127,7 +1131,7 @@ export default async function TaskDetailPage(props: {
         dueDate: dueDate || null,
         dueTime: dueTime || null,
         startDate: startDate || null,
-        createdByUserId: authData.user.id,
+        createdByUserId: authUser.id,
         assigneeUserId: assignee,
         assigneeUserIds: assigneeIds,
         defaultAssigneeUserId: defaultAssigneeUserId || null,
@@ -1137,7 +1141,7 @@ export default async function TaskDetailPage(props: {
       logSubtaskDebug("error", "create_subtask_failed", {
         createAttemptId,
         taskId,
-        userId: authData.user.id,
+        userId: authUser.id,
         elapsedMs: Date.now() - startedAtMs,
         error:
           error instanceof TaskCreateDbError
@@ -1173,7 +1177,7 @@ export default async function TaskDetailPage(props: {
     logSubtaskDebug("info", "create_subtask_success", {
       createAttemptId,
       taskId,
-      userId: authData.user.id,
+      userId: authUser.id,
       createdSubtaskId: newSubtaskId,
       elapsedMs: Date.now() - startedAtMs,
     });

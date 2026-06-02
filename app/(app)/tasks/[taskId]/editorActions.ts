@@ -6,6 +6,7 @@ import { syncMentionAssignmentsFromTextChange } from "@/lib/mentionAssignments";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
@@ -14,9 +15,12 @@ export async function updateTaskContent(
   content: unknown
 ): Promise<{ content: unknown; warnings: string[] }> {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
+  const authUser = await getCurrentRequestUser(supabase, "tasks.editor.update.auth");
+  if (!authUser) {
+    throw new Error("Not signed in");
+  }
   const now = new Date().toISOString();
-  const editorId = authData.user?.id ?? null;
+  const editorId = authUser.id;
   const persistedContent = await normalizeAndPersistNoteImages({
     content,
     scope: "task_note",
@@ -115,8 +119,10 @@ export async function createTaskFromTaskNote(input: {
   };
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUser = authData.user;
+  const authUser = await getCurrentRequestUser(
+    supabase,
+    "tasks.editor.create_task.auth"
+  );
 
   if (!authUser) {
     throw new Error("Not signed in");
