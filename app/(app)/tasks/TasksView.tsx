@@ -1410,15 +1410,9 @@ export default function TasksView({
                   sortKey,
                   sortDir,
                   view,
-                  hideCompleted
+                  hideCompleted,
+                  !includeWatching
                 );
-                const params = new URLSearchParams(query);
-                if (includeWatching) {
-                  params.delete("watch");
-                } else {
-                  params.set("watch", "1");
-                }
-                const nextQuery = params.toString();
                 saveTaskPreferences(
                   filters,
                   sortKey,
@@ -1428,7 +1422,9 @@ export default function TasksView({
                   !includeWatching
                 );
                 startTransition(() => {
-                  router.replace(buildTaskListUrlFromQuery({ basePath, query: nextQuery }), { scroll: false });
+                  router.replace(buildTaskListUrlFromQuery({ basePath, query }), {
+                    scroll: false,
+                  });
                 });
               }}
               className={`inline-flex min-h-11 items-center rounded-md border px-3 py-1.5 text-xs font-semibold ${
