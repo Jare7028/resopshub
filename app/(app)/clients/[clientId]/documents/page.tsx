@@ -1,6 +1,7 @@
 ﻿import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   ensureClientPageEditAccess,
@@ -55,8 +56,11 @@ export default async function ClientDocumentsPage(props: {
       pageKey: "documents",
       redirectPath: `/clients/${clientId}/documents`,
     });
-    const { data: authData } = await supabase.auth.getUser();
-    const uploaderId = authData.user?.id;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "clients.documents.upload.auth"
+    );
+    const uploaderId = authUser?.id;
     if (!uploaderId) {
       redirect("/login");
     }
@@ -113,8 +117,11 @@ export default async function ClientDocumentsPage(props: {
       pageKey: "documents",
       redirectPath: `/clients/${clientId}/documents`,
     });
-    const { data: authData } = await supabase.auth.getUser();
-    const uploaderId = authData.user?.id;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "clients.documents.link.auth"
+    );
+    const uploaderId = authUser?.id;
     if (!uploaderId) {
       redirect("/login");
     }
