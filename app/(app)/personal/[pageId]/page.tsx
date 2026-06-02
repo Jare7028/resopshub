@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { randomBytes } from "crypto";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import {
@@ -257,8 +258,7 @@ export default async function PersonalPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
+  const user = await getCurrentRequestUser(supabase, "personal.page.auth");
 
   if (!user) {
     redirect("/login");
@@ -487,8 +487,11 @@ export default async function PersonalPage(props: {
   async function updatePageDetails(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const editorId = authData.user?.id ?? null;
+    const currentUser = await getCurrentRequestUser(supabase, "personal.page.details.auth");
+    if (!currentUser) {
+      redirect("/login");
+    }
+    const editorId = currentUser.id;
     const title = String(formData.get("title") || "").trim();
     const sectionId = String(formData.get("section_id") || "").trim();
     const now = new Date().toISOString();
@@ -552,14 +555,13 @@ export default async function PersonalPage(props: {
   async function deletePersonalPage() {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData.user;
+    const currentUser = await getCurrentRequestUser(supabase, "personal.page.delete.auth");
 
-    if (!user) {
+    if (!currentUser) {
       redirect("/login");
     }
 
-    if (pageOwnerId !== user.id) {
+    if (pageOwnerId !== currentUser.id) {
       const sp = new URLSearchParams();
       sp.set("tab", "details");
       sp.set("error", "Only the page owner can delete it");
@@ -582,8 +584,10 @@ export default async function PersonalPage(props: {
   async function savePageAsTemplate(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
+    const currentUser = await getCurrentRequestUser(
+      supabase,
+      "personal.page.templates.save.auth"
+    );
     if (!currentUser) {
       redirect("/login");
     }
@@ -628,8 +632,10 @@ export default async function PersonalPage(props: {
   async function applyTemplateToPage(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
+    const currentUser = await getCurrentRequestUser(
+      supabase,
+      "personal.page.templates.apply.auth"
+    );
     if (!currentUser) {
       redirect("/login");
     }
@@ -1019,10 +1025,12 @@ export default async function PersonalPage(props: {
   async function linkPageToClientNote(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData.user;
+    const currentUser = await getCurrentRequestUser(
+      supabase,
+      "personal.page.client_note.link.auth"
+    );
 
-    if (!user) {
+    if (!currentUser) {
       redirect("/login");
     }
 
@@ -1051,7 +1059,7 @@ export default async function PersonalPage(props: {
       content_json: sourceContent,
       source_personal_page_id: pageId,
       last_edited_at: now,
-      last_edited_by_user_id: user.id,
+      last_edited_by_user_id: currentUser.id,
     };
 
     const { data: existingCandidate } = await supabase
@@ -1087,7 +1095,7 @@ export default async function PersonalPage(props: {
         client_id: clientId,
         project_id: null,
         ...notePayload,
-        user_id: user.id,
+        user_id: currentUser.id,
       };
       const { data: insertedNote, error: insertError } = await supabase
         .from("notes")
@@ -1147,8 +1155,10 @@ export default async function PersonalPage(props: {
       );
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
+    const currentUser = await getCurrentRequestUser(
+      supabase,
+      "personal.page.external_share.create.auth"
+    );
     if (!currentUser) {
       redirect("/login");
     }
@@ -1202,8 +1212,10 @@ export default async function PersonalPage(props: {
       );
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
+    const currentUser = await getCurrentRequestUser(
+      supabase,
+      "personal.page.external_share.toggle.auth"
+    );
     if (!currentUser) {
       redirect("/login");
     }
