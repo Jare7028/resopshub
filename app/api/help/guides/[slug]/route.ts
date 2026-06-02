@@ -7,6 +7,7 @@ import {
 } from "@/app/(app)/help/_lib/guideSingleDoc";
 import { loadHelpGuides } from "@/lib/helpGuidesStore";
 import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 
@@ -22,8 +23,10 @@ function normalizeStorageSlug(value: unknown) {
 
 async function requireAdmin() {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = String(authData.user?.id || "").trim();
+  const authUser = await getCurrentRequestUser(supabase, "help.guides.auth", {
+    trustForwardedUserHeaders: false,
+  });
+  const authUserId = String(authUser?.id || "").trim();
 
   if (!authUserId) {
     return {

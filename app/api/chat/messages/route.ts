@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { toEmployeeInfoColumnKey } from "@/lib/employeeInfo";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -322,11 +323,9 @@ function linkHref(link: DbMessageLinkRow, noteClientById: Record<string, string 
 
 export async function GET(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.messages.list.auth");
+  if (auth.response) return auth.response;
+  const userId = auth.user.id;
 
   const url = new URL(req.url);
   const conversationId = String(url.searchParams.get("conversation_id") || "").trim();
@@ -390,11 +389,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.messages.create.auth");
+  if (auth.response) return auth.response;
+  const userId = auth.user.id;
 
   const json = (await req.json().catch(() => null)) as
     | {
@@ -538,10 +535,10 @@ export async function POST(req: Request) {
   let senderMirrorUser = {
     id: userId,
     full_name:
-      typeof authData.user?.user_metadata?.full_name === "string"
-        ? authData.user.user_metadata.full_name
+      typeof auth.user.user_metadata?.full_name === "string"
+        ? auth.user.user_metadata.full_name
         : null,
-    email: authData.user?.email || null,
+    email: auth.user.email || null,
     phone: null as string | null,
   };
   let recipientMirrorUsers: Array<{
@@ -707,11 +704,9 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.messages.update.auth");
+  if (auth.response) return auth.response;
+  const userId = auth.user.id;
 
   const json = (await req.json().catch(() => null)) as
     | {
@@ -803,11 +798,9 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.messages.delete.auth");
+  if (auth.response) return auth.response;
+  const userId = auth.user.id;
 
   const json = (await req.json().catch(() => null)) as
     | {
