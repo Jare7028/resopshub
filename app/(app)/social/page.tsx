@@ -6,10 +6,16 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+import { withPerfTiming } from "@/lib/perf";
 import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import {
+  buildSocialListUrl,
+  normalizeSocialPageNumber,
+  SOCIAL_PAGE_SIZE,
+} from "./socialListPageUtils";
 
 type SocialPageRow = {
   id: string;
@@ -45,6 +51,25 @@ type SocialPageSummaryRow = {
   unread_count: number;
 };
 
+type SocialLandingPageRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  member_count: number | string | null;
+  post_total: number | string | null;
+  latest_post_at: string | null;
+  unread_count: number | string | null;
+  my_role: "member" | "manager" | null;
+  owner_label: string | null;
+  owner_avatar_url: string | null;
+  total_count: number | string | null;
+  posts_last_7d: number | string | null;
+  active_pages_last_7d: number | string | null;
+};
+
 function toDisplayDate(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Unknown";
@@ -57,10 +82,12 @@ function toTimestamp(value: string) {
 }
 
 export default async function SocialPage(props: {
-  searchParams?: Promise<{ error?: string; success?: string }>;
+  searchParams?: Promise<{ error?: string; success?: string; page?: string }>;
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
+  const currentPage = normalizeSocialPageNumber(searchParams?.page);
+  const socialOffset = (currentPage - 1) * SOCIAL_PAGE_SIZE;
   const { data: authData } = await supabase.auth.getUser();
   const authUserId = String(authData.user?.id || "").trim();
   const authEmail = authData.user?.email;
@@ -96,140 +123,240 @@ export default async function SocialPage(props: {
     ? true
     : Boolean(canEditResult.data);
 
-  const { data: pagesRaw, error: pagesError } = await supabase
-    .from("social_pages")
-    .select("id,name,description,created_by,created_at,updated_at")
-    .order("updated_at", { ascending: false });
-
-  const pagesSchemaMissing = isSupabaseMissingTableError(pagesError);
-  const pages = pagesSchemaMissing
-    ? []
-    : ((pagesRaw || []) as SocialPageRow[]);
-
-  const pageIds = pages.map((page) => page.id);
   const oneWeekAgoTimestamp = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const oneWeekAgoIso = new Date(oneWeekAgoTimestamp).toISOString();
 
-  const [myMembershipResult, summaryResult, postsLast7dResult] = pageIds.length
-    ? await Promise.all([
-        supabase
-          .from("social_page_members")
-          .select("page_id,user_id,role")
-          .eq("user_id", currentUser.id)
-          .in("page_id", pageIds),
-        supabase.rpc("social_page_summaries_for_user", { p_user_id: currentUser.id }),
-        supabase
-          .from("social_posts")
-          .select("id", { head: true, count: "exact" })
-          .in("page_id", pageIds)
-          .gte("created_at", oneWeekAgoIso),
-      ])
-    : [
-        { data: [] as SocialPageMemberRow[], error: null },
-        { data: [] as SocialPageSummaryRow[], error: null },
-        { count: 0, error: null } as { count: number | null; error: null },
-      ];
-
-  const myMembershipRows = (myMembershipResult.data || []) as SocialPageMemberRow[];
-  const summaryRowsRaw = (summaryResult.data || []) as SocialPageSummaryRow[];
-
-  let summaryRows = summaryRowsRaw;
+  let pagesSchemaMissing = false;
+  let pages: SocialPageRow[] = [];
+  let myMembershipRows: SocialPageMemberRow[] = [];
+  let summaryRows: SocialPageSummaryRow[] = [];
   let summaryWarning: string | null = null;
-
-  if (summaryResult.error && isSupabaseMissingFunctionError(summaryResult.error)) {
-    const [membersFallbackResult, postsFallbackResult, pageReadsFallbackResult] = pageIds.length
-      ? await Promise.all([
-          supabase
-            .from("social_page_members")
-            .select("page_id,user_id,role")
-            .in("page_id", pageIds),
-          supabase
-            .from("social_posts")
-            .select("page_id,created_at")
-            .in("page_id", pageIds),
-          supabase
-            .from("social_page_reads")
-            .select("page_id,user_id,last_read_at")
-            .eq("user_id", currentUser.id)
-            .in("page_id", pageIds),
-        ])
-      : [
-          { data: [] as SocialPageMemberRow[], error: null },
-          { data: [] as SocialPostRow[], error: null },
-          { data: [] as SocialPageReadRow[], error: null },
-        ];
-
-    const membersFallback = (membersFallbackResult.data || []) as SocialPageMemberRow[];
-    const postsFallback = (postsFallbackResult.data || []) as SocialPostRow[];
-    const pageReadsFallback = isSupabaseMissingTableError(pageReadsFallbackResult.error)
-      ? []
-      : ((pageReadsFallbackResult.data || []) as SocialPageReadRow[]);
-
-    const memberIdsByPage = new Map<string, Set<string>>();
-    pages.forEach((page) => {
-      memberIdsByPage.set(page.id, new Set([page.created_by]));
-    });
-    membersFallback.forEach((member) => {
-      const bucket = memberIdsByPage.get(member.page_id) || new Set<string>();
-      bucket.add(member.user_id);
-      memberIdsByPage.set(member.page_id, bucket);
-    });
-
-    const postStatsByPage = new Map<string, { total: number; latest: string | null }>();
-    postsFallback.forEach((post) => {
-      const current = postStatsByPage.get(post.page_id) || { total: 0, latest: null };
-      const latest = !current.latest || post.created_at > current.latest ? post.created_at : current.latest;
-      postStatsByPage.set(post.page_id, {
-        total: current.total + 1,
-        latest,
-      });
-    });
-
-    const pageReadByPage = new Map<string, string>();
-    pageReadsFallback.forEach((read) => {
-      pageReadByPage.set(read.page_id, read.last_read_at);
-    });
-
-    const unreadCountByPage = new Map<string, number>();
-    postsFallback.forEach((post) => {
-      const lastReadAt = pageReadByPage.get(post.page_id);
-      const isUnread = !lastReadAt || toTimestamp(post.created_at) > toTimestamp(lastReadAt);
-      if (!isUnread) return;
-      unreadCountByPage.set(post.page_id, (unreadCountByPage.get(post.page_id) || 0) + 1);
-    });
-
-    summaryRows = pages.map((page) => {
-      const postStats = postStatsByPage.get(page.id) || { total: 0, latest: null };
-      return {
-        page_id: page.id,
-        member_count: memberIdsByPage.get(page.id)?.size || 1,
-        post_total: postStats.total,
-        latest_post_at: postStats.latest,
-        unread_count: unreadCountByPage.get(page.id) || 0,
-      };
-    });
-  } else if (summaryResult.error) {
-    summaryWarning = `Could not load Social page summaries (${summaryResult.error.message}).`;
-  }
-
-  const ownerIds = Array.from(new Set(pages.map((page) => page.created_by)));
-  const { data: ownerUsers } = ownerIds.length
-    ? await supabase.from("users").select("id,full_name,email,avatar_url").in("id", ownerIds)
-    : {
-        data: [] as Array<{
-          id: string;
-          full_name: string | null;
-          email: string | null;
-          avatar_url: string | null;
-        }>,
-      };
+  let socialPerfWarning: string | null = null;
+  let totalSocialPages = 0;
+  let postsLast7d = 0;
+  let activePagesLast7d = 0;
 
   const ownerLabelById = new Map<string, string>();
   const ownerAvatarById = new Map<string, string>();
-  (ownerUsers || []).forEach((owner) => {
-    ownerLabelById.set(owner.id, owner.full_name || owner.email || "Unknown user");
-    ownerAvatarById.set(owner.id, String(owner.avatar_url || "").trim());
-  });
+  const landingResult = await withPerfTiming("social.page.social_landing_page", () =>
+    supabase.rpc("social_landing_page", {
+      p_user_id: currentUser.id,
+      p_limit: SOCIAL_PAGE_SIZE,
+      p_offset: socialOffset,
+    })
+  );
+
+  const canUseLandingFallback =
+    landingResult.error &&
+    (isSupabaseMissingFunctionError(landingResult.error) ||
+      isSupabaseMissingTableError(landingResult.error));
+
+  if (!landingResult.error) {
+    const landingRows = (landingResult.data || []) as SocialLandingPageRow[];
+    pages = landingRows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      created_by: row.created_by,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+    summaryRows = landingRows.map((row) => ({
+      page_id: row.id,
+      member_count: Number(row.member_count || 1),
+      post_total: Number(row.post_total || 0),
+      latest_post_at: row.latest_post_at,
+      unread_count: Number(row.unread_count || 0),
+    }));
+    myMembershipRows = landingRows
+      .filter((row) => row.my_role === "member" || row.my_role === "manager")
+      .map((row) => ({
+        page_id: row.id,
+        user_id: currentUser.id,
+        role: row.my_role as "member" | "manager",
+      }));
+    landingRows.forEach((row) => {
+      ownerLabelById.set(row.created_by, row.owner_label || "Unknown user");
+      ownerAvatarById.set(row.created_by, String(row.owner_avatar_url || "").trim());
+    });
+    totalSocialPages = Number(landingRows[0]?.total_count || 0);
+    postsLast7d = Number(landingRows[0]?.posts_last_7d || 0);
+    activePagesLast7d = Number(landingRows[0]?.active_pages_last_7d || 0);
+  } else if (canUseLandingFallback) {
+    pagesSchemaMissing = isSupabaseMissingTableError(landingResult.error);
+    if (!pagesSchemaMissing) {
+      socialPerfWarning =
+        "Social is running in compatibility mode. Run sql/social_landing_page_rpc.sql in Supabase to speed up the Social landing page.";
+    }
+
+    const pagesResult = await withPerfTiming("social.page.fallback.pages", () =>
+      supabase
+        .from("social_pages")
+        .select("id,name,description,created_by,created_at,updated_at", { count: "exact" })
+        .order("updated_at", { ascending: false })
+        .range(socialOffset, socialOffset + SOCIAL_PAGE_SIZE - 1)
+    );
+
+    pagesSchemaMissing = pagesSchemaMissing || isSupabaseMissingTableError(pagesResult.error);
+    if (pagesResult.error && !pagesSchemaMissing) {
+      summaryWarning = `Could not load Social pages (${pagesResult.error.message}).`;
+    }
+    pages = pagesSchemaMissing ? [] : ((pagesResult.data || []) as SocialPageRow[]);
+    totalSocialPages = pagesResult.count || pages.length;
+
+    const pageIds = pages.map((page) => page.id);
+    const [myMembershipResult, summaryResult, postsLast7dResult] = pageIds.length
+      ? await Promise.all([
+          withPerfTiming("social.page.fallback.my_membership", () =>
+            supabase
+              .from("social_page_members")
+              .select("page_id,user_id,role")
+              .eq("user_id", currentUser.id)
+              .in("page_id", pageIds)
+          ),
+          withPerfTiming("social.page.fallback.summaries", () =>
+            supabase.rpc("social_page_summaries_for_user", { p_user_id: currentUser.id })
+          ),
+          withPerfTiming("social.page.fallback.posts_7d", () =>
+            supabase
+              .from("social_posts")
+              .select("id", { head: true, count: "exact" })
+              .in("page_id", pageIds)
+              .gte("created_at", oneWeekAgoIso)
+          ),
+        ])
+      : [
+          { data: [] as SocialPageMemberRow[], error: null },
+          { data: [] as SocialPageSummaryRow[], error: null },
+          { count: 0, error: null } as { count: number | null; error: null },
+        ];
+
+    myMembershipRows = (myMembershipResult.data || []) as SocialPageMemberRow[];
+    const summaryRowsRaw = (summaryResult.data || []) as SocialPageSummaryRow[];
+    summaryRows = summaryRowsRaw;
+
+    if (summaryResult.error && isSupabaseMissingFunctionError(summaryResult.error)) {
+      const [membersFallbackResult, postsFallbackResult, pageReadsFallbackResult] = pageIds.length
+        ? await Promise.all([
+            withPerfTiming("social.page.fallback.all_members", () =>
+              supabase
+                .from("social_page_members")
+                .select("page_id,user_id,role")
+                .in("page_id", pageIds)
+            ),
+            withPerfTiming("social.page.fallback.posts", () =>
+              supabase
+                .from("social_posts")
+                .select("page_id,created_at")
+                .in("page_id", pageIds)
+            ),
+            withPerfTiming("social.page.fallback.reads", () =>
+              supabase
+                .from("social_page_reads")
+                .select("page_id,user_id,last_read_at")
+                .eq("user_id", currentUser.id)
+                .in("page_id", pageIds)
+            ),
+          ])
+        : [
+            { data: [] as SocialPageMemberRow[], error: null },
+            { data: [] as SocialPostRow[], error: null },
+            { data: [] as SocialPageReadRow[], error: null },
+          ];
+
+      const membersFallback = (membersFallbackResult.data || []) as SocialPageMemberRow[];
+      const postsFallback = (postsFallbackResult.data || []) as SocialPostRow[];
+      const pageReadsFallback = isSupabaseMissingTableError(pageReadsFallbackResult.error)
+        ? []
+        : ((pageReadsFallbackResult.data || []) as SocialPageReadRow[]);
+
+      const memberIdsByPage = new Map<string, Set<string>>();
+      pages.forEach((page) => {
+        memberIdsByPage.set(page.id, new Set([page.created_by]));
+      });
+      membersFallback.forEach((member) => {
+        const bucket = memberIdsByPage.get(member.page_id) || new Set<string>();
+        bucket.add(member.user_id);
+        memberIdsByPage.set(member.page_id, bucket);
+      });
+
+      const postStatsByPage = new Map<string, { total: number; latest: string | null }>();
+      postsFallback.forEach((post) => {
+        const current = postStatsByPage.get(post.page_id) || { total: 0, latest: null };
+        const latest =
+          !current.latest || post.created_at > current.latest
+            ? post.created_at
+            : current.latest;
+        postStatsByPage.set(post.page_id, {
+          total: current.total + 1,
+          latest,
+        });
+      });
+
+      const pageReadByPage = new Map<string, string>();
+      pageReadsFallback.forEach((read) => {
+        pageReadByPage.set(read.page_id, read.last_read_at);
+      });
+
+      const unreadCountByPage = new Map<string, number>();
+      postsFallback.forEach((post) => {
+        const lastReadAt = pageReadByPage.get(post.page_id);
+        const isUnread = !lastReadAt || toTimestamp(post.created_at) > toTimestamp(lastReadAt);
+        if (!isUnread) return;
+        unreadCountByPage.set(post.page_id, (unreadCountByPage.get(post.page_id) || 0) + 1);
+      });
+
+      summaryRows = pages.map((page) => {
+        const postStats = postStatsByPage.get(page.id) || { total: 0, latest: null };
+        return {
+          page_id: page.id,
+          member_count: memberIdsByPage.get(page.id)?.size || 1,
+          post_total: postStats.total,
+          latest_post_at: postStats.latest,
+          unread_count: unreadCountByPage.get(page.id) || 0,
+        };
+      });
+    } else if (summaryResult.error) {
+      summaryWarning = `Could not load Social page summaries (${summaryResult.error.message}).`;
+    }
+
+    const ownerIds = Array.from(new Set(pages.map((page) => page.created_by)));
+    const { data: ownerUsers } = ownerIds.length
+      ? await withPerfTiming("social.page.fallback.owners", () =>
+          supabase.from("users").select("id,full_name,email,avatar_url").in("id", ownerIds)
+        )
+      : {
+          data: [] as Array<{
+            id: string;
+            full_name: string | null;
+            email: string | null;
+            avatar_url: string | null;
+          }>,
+        };
+    (ownerUsers || []).forEach((owner) => {
+      ownerLabelById.set(owner.id, owner.full_name || owner.email || "Unknown user");
+      ownerAvatarById.set(owner.id, String(owner.avatar_url || "").trim());
+    });
+
+    postsLast7d = postsLast7dResult.count || 0;
+    activePagesLast7d = pages.filter((page) => {
+      const latest = summaryRows.find((row) => row.page_id === page.id)?.latest_post_at;
+      return latest ? toTimestamp(latest) >= oneWeekAgoTimestamp : false;
+    }).length;
+  } else {
+    summaryWarning = `Could not load Social pages (${landingResult.error.message}).`;
+  }
+
+  if (!pages.length && currentPage > 1) {
+    redirect(buildSocialListUrl());
+  }
+
+  const previousPageUrl =
+    currentPage > 1 ? buildSocialListUrl(currentPage - 1) : null;
+  const nextPageUrl =
+    currentPage * SOCIAL_PAGE_SIZE < totalSocialPages
+      ? buildSocialListUrl(currentPage + 1)
+      : null;
 
   const membershipByPage = new Map<string, SocialPageMemberRow>();
   myMembershipRows.forEach((member) => {
@@ -240,12 +367,6 @@ export default async function SocialPage(props: {
   summaryRows.forEach((row) => {
     summaryByPage.set(row.page_id, row);
   });
-
-  const postsLast7d = postsLast7dResult.count || 0;
-  const activePagesLast7d = pages.filter((page) => {
-    const latest = summaryByPage.get(page.id)?.latest_post_at;
-    return latest ? toTimestamp(latest) >= oneWeekAgoTimestamp : false;
-  }).length;
 
   const socialPermissionWarning =
     canEditResult.error && !isSupabaseMissingFunctionError(canEditResult.error)
@@ -258,15 +379,9 @@ export default async function SocialPage(props: {
     });
   }
 
-  if (summaryResult.error && !isSupabaseMissingFunctionError(summaryResult.error)) {
-    logWarn("social.page.summary_query.warning", {
-      error: summaryResult.error,
-    });
-  }
-
-  if (postsLast7dResult.error && !isSupabaseMissingTableError(postsLast7dResult.error)) {
-    logWarn("social.page.posts_last_7d_query.warning", {
-      error: postsLast7dResult.error,
+  if (landingResult.error && !canUseLandingFallback) {
+    logWarn("social.page.landing_query.warning", {
+      error: landingResult.error,
     });
   }
 
@@ -435,11 +550,20 @@ export default async function SocialPage(props: {
 
   return (
     <div className="space-y-7">
-      {(searchParams?.error || searchParams?.success || socialPermissionWarning || summaryWarning) && (
+      {(searchParams?.error ||
+        searchParams?.success ||
+        socialPermissionWarning ||
+        socialPerfWarning ||
+        summaryWarning) && (
         <div className="space-y-2">
           {socialPermissionWarning ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
               {socialPermissionWarning}
+            </p>
+          ) : null}
+          {socialPerfWarning ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+              {socialPerfWarning}
             </p>
           ) : null}
           {summaryWarning ? (
@@ -463,7 +587,7 @@ export default async function SocialPage(props: {
       <section className="grid gap-3 md:grid-cols-3">
         <article className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pages</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900">{pages.length}</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">{totalSocialPages}</p>
         </article>
         <article className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Posts (7d)</p>
@@ -531,7 +655,7 @@ export default async function SocialPage(props: {
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-slate-900">Your social pages</h2>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-              {pages.length} total
+              {totalSocialPages} total
             </span>
           </div>
 
@@ -630,6 +754,33 @@ export default async function SocialPage(props: {
               No social pages yet. Create one to start posting updates and comments.
             </div>
           )}
+          {totalSocialPages > SOCIAL_PAGE_SIZE ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4 text-sm">
+              <p className="text-slate-500">
+                Showing {(currentPage - 1) * SOCIAL_PAGE_SIZE + 1}-
+                {Math.min(currentPage * SOCIAL_PAGE_SIZE, totalSocialPages)} of{" "}
+                {totalSocialPages}
+              </p>
+              <div className="flex items-center gap-2">
+                {previousPageUrl ? (
+                  <Link
+                    href={previousPageUrl}
+                    className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Previous
+                  </Link>
+                ) : null}
+                {nextPageUrl ? (
+                  <Link
+                    href={nextPageUrl}
+                    className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Next
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </article>
       </section>
     </div>

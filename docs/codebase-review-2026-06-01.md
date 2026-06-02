@@ -81,19 +81,21 @@ Updated 2026-06-02:
 - Completed: F-015 production operations README slice. `README.md` now covers local setup, environment variables, validation commands, Supabase migrations, Vercel deployment, cron, smoke checks, observability, high-risk modules, and related docs.
 - Open: F-015 follow-up for CI/deploy-specific screenshots or Vercel dashboard links if the team wants a more visual runbook.
 - Completed: F-012 Forms list scalability slice. `/forms` now uses a bounded `forms_list_page` RPC with open-submission counts, total count, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602120000_forms_list_page_rpc.sql`, with manual SQL in `sql/forms_list_page_rpc.sql`.
-- Open: F-012 follow-up for Social landing pagination/summary scoping, large-file table refactors, and production timing/EXPLAIN checks after the Forms RPC is applied.
+- Completed: F-012 Social landing scalability slice. `/social` now uses a bounded `social_landing_page` RPC with page summaries, owner display data, total page count, 7-day counters, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602130000_social_landing_page_rpc.sql`, with manual SQL in `sql/social_landing_page_rpc.sql`.
+- Open: F-012 follow-up for large-file table refactors plus production timing/EXPLAIN checks after the Forms and Social RPCs are applied.
 - Open: F-005 plus the explicit F-004, F-006, F-007, F-008, F-009, F-010, F-012, and F-015 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, scalability, and cleanup backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npm test`: passed, 33 files and 170 tests.
+- `npm test`: passed, 34 files and 172 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
-- `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for the linked project. The Forms migration is tracked, but remote application still needs the correct DB password or another migration path.
+- `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for the linked project. The Forms and Social migrations are tracked, but remote application still needs the correct DB password or another migration path.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` 307 redirect. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
 - Local in-app browser smoke for `/forms` reached the expected unauthenticated `/forms` -> `/login` redirect with no red error screen.
+- Local in-app browser smoke for `/social` reached the expected unauthenticated `/social` -> `/login` redirect with no red error screen.
 - Local HTTP smoke on a temporary dev server returned the expected unauthenticated 307 redirects for `/clients`, `/projects`, and `/feature-suggestions` after the hook-disable cleanup.
 
 ## Suggested Order of Implementation
@@ -461,7 +463,7 @@ Evidence:
 - `app/(app)/settings/page.tsx` is 4304 lines and contains many management forms/actions.
 - Quick-read already uses 600-row caps, showing that unbounded or broad reads have become a product concern.
 - Implemented Forms slice: `app/(app)/forms/page.tsx` now calls `forms_list_page` with `p_limit`/`p_offset` and no longer pulls all forms plus all open submissions into application memory for the list view.
-- Remaining open example: `app/(app)/social/page.tsx` still reads every accessible social page, then requests membership/summary/post data across the full page ID set.
+- Implemented Social slice: `app/(app)/social/page.tsx` now calls `social_landing_page` with `p_limit`/`p_offset` and no longer pulls every accessible social page plus membership/summary/post data across the full page ID set for the landing view.
 
 User/business impact:
 
@@ -474,7 +476,8 @@ Recommended fix:
 - Use server-side pagination or cursor pagination by default.
 - Move expensive counts into RPCs or cached summary tables where exact live counts are not necessary.
 - Done for Forms: add `forms_list_page`, indexed open-submission counts, page controls, and a bounded fallback.
-- Continue with Social landing pagination and summary scoping before broader table refactors.
+- Done for Social landing: add `social_landing_page`, indexed page ordering, summary counters, page controls, and a bounded fallback.
+- Continue with large table/component refactors and production query-plan checks.
 
 Estimated effort: medium to large.
 
@@ -483,7 +486,7 @@ Verification needed:
 - Seed or staging account with large datasets.
 - Timing budgets for inventory, employee info, tasks, projects, forms, social, and chat.
 - Query plans for the slowest Supabase queries.
-- Forms RPC migration needs to be applied to the remote Supabase database before production stops using the compatibility fallback.
+- Forms and Social RPC migrations need to be applied to the remote Supabase database before production stops using compatibility fallbacks.
 
 ### F-013 - P3 - Build Tooling - `next lint` is deprecated
 
