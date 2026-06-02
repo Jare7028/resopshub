@@ -43,6 +43,7 @@ import {
 import MultiSelect from "../_components/MultiSelect";
 import TableColumnConfigButton from "../_components/TableColumnConfigButton";
 import {
+  buildPersistedTaskFilterState,
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
   buildTaskListUrlFromQuery,
@@ -936,19 +937,14 @@ export default function TasksView({
     if (typeof window === "undefined") return;
     if (!taskFilterPersistenceKey || !hasLoadedPersistedFilters) return;
 
-    const payload: PersistedTaskFilterState = {
-      status: filters.status,
-      priority: filters.priority,
-      assignee: filters.assignee,
-      due: filters.due,
-      client: filters.client,
-      project: filters.project,
+    const payload = buildPersistedTaskFilterState({
+      filters,
       hideCompleted,
       includeWatching,
       sortKey,
       sortDir,
       view,
-    };
+    });
 
     try {
       window.localStorage.setItem(taskFilterPersistenceKey, JSON.stringify(payload));

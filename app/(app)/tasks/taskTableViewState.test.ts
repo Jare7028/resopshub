@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPersistedTaskFilterState,
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
   buildTaskListUrl,
@@ -149,6 +150,42 @@ describe("task table view state helpers", () => {
         nextSortKey: "priority",
       })
     ).toBe("asc");
+  });
+
+  it("builds persisted task filter state with copied list fields", () => {
+    const filters: TaskFilterState = {
+      status: ["open"],
+      priority: ["high"],
+      assignee: ["user-1"],
+      due: "overdue",
+      client: ["client-1"],
+      project: ["project-1"],
+    };
+    const persisted = buildPersistedTaskFilterState({
+      filters,
+      sortKey: "due",
+      sortDir: "asc",
+      view: "board",
+      hideCompleted: false,
+      includeWatching: true,
+    });
+
+    filters.status.push("closed");
+    filters.assignee.push("user-2");
+
+    expect(persisted).toEqual({
+      status: ["open"],
+      priority: ["high"],
+      assignee: ["user-1"],
+      due: "overdue",
+      client: ["client-1"],
+      project: ["project-1"],
+      hideCompleted: false,
+      includeWatching: true,
+      sortKey: "due",
+      sortDir: "asc",
+      view: "board",
+    });
   });
 
   it("builds task preference form data with normalized CSV fields", () => {

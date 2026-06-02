@@ -51,7 +51,7 @@ type BuildTaskListQueryInput = {
   fixedParams?: Record<string, string | null | undefined>;
 };
 
-type BuildTaskPreferenceFormDataInput = {
+type TaskViewStatePayloadInput = {
   filters: TaskFilterState;
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
@@ -220,6 +220,29 @@ export function getNextTaskSortDir({
   return currentSortKey === nextSortKey && currentSortDir === "asc" ? "desc" : "asc";
 }
 
+export function buildPersistedTaskFilterState({
+  filters,
+  sortKey,
+  sortDir,
+  view,
+  hideCompleted,
+  includeWatching,
+}: TaskViewStatePayloadInput): PersistedTaskFilterState {
+  return {
+    status: filters.status.slice(),
+    priority: filters.priority.slice(),
+    assignee: filters.assignee.slice(),
+    due: filters.due,
+    client: filters.client.slice(),
+    project: filters.project.slice(),
+    hideCompleted,
+    includeWatching,
+    sortKey,
+    sortDir,
+    view,
+  };
+}
+
 export function buildTaskPreferenceFormData({
   filters,
   sortKey,
@@ -227,7 +250,7 @@ export function buildTaskPreferenceFormData({
   view,
   hideCompleted,
   includeWatching,
-}: BuildTaskPreferenceFormDataInput) {
+}: TaskViewStatePayloadInput) {
   const formData = new FormData();
   const setCsvField = (key: string, values: string[]) => {
     const cleaned = Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
