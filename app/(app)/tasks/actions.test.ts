@@ -8,13 +8,25 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase/currentUser", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/supabase/currentUser")>(
+    "@/lib/supabase/currentUser"
+  );
+  return {
+    ...actual,
+    getCurrentRequestUser: vi.fn(),
+  };
+});
+
 import { revalidatePath } from "next/cache";
 import { plainTextToTiptapDoc } from "@/lib/plainTextToTiptapDoc";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { quickCreateTaskAction } from "./actions";
 
 const mockedCreateSupabaseServerClient = vi.mocked(createSupabaseServerClient);
 const mockedRevalidatePath = vi.mocked(revalidatePath);
+const mockedGetCurrentRequestUser = vi.mocked(getCurrentRequestUser);
 
 type AuthUser = {
   id: string;
@@ -87,6 +99,15 @@ function createSupabaseMock({
 
   mockedCreateSupabaseServerClient.mockReturnValue(
     supabase as unknown as ReturnType<typeof createSupabaseServerClient>
+  );
+  mockedGetCurrentRequestUser.mockResolvedValue(
+    authUser
+      ? {
+          id: authUser.id,
+          email: authUser.email ?? null,
+          user_metadata: null,
+        }
+      : null
   );
 
   return { insertCalls, profileResult, supabase };

@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeTaskStatusOrDefault } from "@/lib/taskStatus";
 import { resolveAssignmentTargetsToUserIds } from "@/lib/assignmentGroups";
@@ -87,8 +88,7 @@ export async function quickCreateTaskAction(
   formData: FormData
 ): Promise<QuickCreateTaskResult> {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUser = authData.user;
+  const authUser = await getCurrentRequestUser(supabase, "tasks.quickCreate.auth");
   if (!authUser?.id) {
     return { ok: false, error: "Unauthorized" };
   }
@@ -326,8 +326,10 @@ function normalizeViewMode(value: unknown) {
 
 export async function saveTaskTablePreferencesAction(formData: FormData) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUser = authData.user;
+  const authUser = await getCurrentRequestUser(
+    supabase,
+    "tasks.table_preferences.auth"
+  );
   if (!authUser?.id) {
     return { ok: false, error: "Unauthorized" };
   }

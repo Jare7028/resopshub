@@ -39,7 +39,7 @@ Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
 - 39 test files.
-- 58 direct `supabase.auth.getUser()` calls.
+- 56 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
@@ -90,7 +90,8 @@ Updated 2026-06-02:
 - Completed: F-006 client overview current-user helper slice. Client overview page load, member/page-access actions, and legacy note creation now use `getCurrentRequestUser` while preserving client page edit/access checks.
 - Completed: F-006 feature-suggestions current-user helper slice. Feature suggestion list/detail pages and create/update/comment/vote actions now use `getCurrentRequestUser`; suggestion detail update now requires an authenticated actor before mention notification.
 - Completed: F-006 personal editor current-user helper slice. Personal editor content save, context-menu favorites, and create-task actions now use `getCurrentRequestUser`; content save now rejects unauthenticated requests instead of writing a null editor id.
-- Open: F-006 follow-up for the remaining page/server-action permission helpers, especially social pages, task mutations, remaining client subpages, forms, and quizzes.
+- Completed: F-006 task action current-user helper slice. Quick task creation and saved task table preferences now use `getCurrentRequestUser`; quick-create unit tests mock the helper and still cover authorization, disabled profiles, validation, notes, subtasks, and revalidation.
+- Open: F-006 follow-up for the remaining page/server-action permission helpers, especially social pages, task detail mutations/pages, remaining client subpages, forms, and quizzes.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
@@ -326,6 +327,7 @@ Evidence:
 - Nineteenth implementation slice converted client overview page load, member/page-access actions, and legacy note creation to `getCurrentRequestUser`. Static scan now finds 68 direct `supabase.auth.getUser()` calls overall and none in `app/(app)/clients/[clientId]/page.tsx`.
 - Twentieth implementation slice converted feature suggestion list/detail pages and create/update/comment/vote actions to `getCurrentRequestUser`. Static scan now finds 61 direct `supabase.auth.getUser()` calls overall and none under `app/(app)/feature-suggestions`.
 - Twenty-first implementation slice converted personal editor content save, context-menu favorites, and create-task actions to `getCurrentRequestUser`. Static scan now finds 58 direct `supabase.auth.getUser()` calls overall and none in `app/(app)/personal/[pageId]/editorActions.ts`.
+- Twenty-second implementation slice converted quick task creation and saved task table preferences to `getCurrentRequestUser`. Static scan now finds 56 direct `supabase.auth.getUser()` calls overall and none in `app/(app)/tasks/actions.ts`.
 - Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan found 141 direct `supabase.auth.getUser()` calls after that slice.
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.
