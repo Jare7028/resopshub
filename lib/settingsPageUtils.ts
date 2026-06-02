@@ -51,6 +51,60 @@ export type StatusOptionsResult = {
   } | null;
 };
 
+export type SettingsTemplatesTab = "tasks" | "projects";
+export type TaskTemplatePanel = "details" | "custom-fields" | "subtasks";
+export type ProjectTemplatePanel = "details" | "custom-fields" | "tasks";
+
+export type SettingsTemplateSearchParams = {
+  templates?: string | null;
+  task_template_id?: string | null;
+  project_template_id?: string | null;
+  task_template_panel?: string | null;
+  project_template_panel?: string | null;
+};
+
+export function normalizeSettingsTemplateSearchParams(
+  searchParams: SettingsTemplateSearchParams | null | undefined
+) {
+  const templatesTabRaw = String(searchParams?.templates || "")
+    .trim()
+    .toLowerCase();
+  const templatesTab: SettingsTemplatesTab =
+    templatesTabRaw === "projects" ? "projects" : "tasks";
+  const selectedTaskTemplateId = String(searchParams?.task_template_id || "").trim();
+  const selectedProjectTemplateId = String(searchParams?.project_template_id || "").trim();
+  const taskTemplatePanelRaw = String(searchParams?.task_template_panel || "")
+    .trim()
+    .toLowerCase();
+  const taskTemplatePanel: TaskTemplatePanel =
+    taskTemplatePanelRaw === "custom-fields"
+      ? "custom-fields"
+      : taskTemplatePanelRaw === "subtasks"
+        ? "subtasks"
+        : "details";
+  const projectTemplatePanelRaw = String(searchParams?.project_template_panel || "")
+    .trim()
+    .toLowerCase();
+  const projectTemplatePanel: ProjectTemplatePanel =
+    projectTemplatePanelRaw === "custom-fields"
+      ? "custom-fields"
+      : projectTemplatePanelRaw === "tasks"
+        ? "tasks"
+        : "details";
+
+  return {
+    templatesTab,
+    selectedTaskTemplateId,
+    selectedProjectTemplateId,
+    taskTemplatePanel,
+    projectTemplatePanel,
+    taskTemplatePanelQuery: `&task_template_panel=${encodeURIComponent(taskTemplatePanel)}`,
+    projectTemplatePanelQuery: `&project_template_panel=${encodeURIComponent(
+      projectTemplatePanel
+    )}`,
+  };
+}
+
 export const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
   task_assigned: true,
   task_updated: true,

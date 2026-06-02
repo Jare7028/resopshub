@@ -46,6 +46,7 @@ import {
   defaultPrefs,
   formatDbError,
   isUuid,
+  normalizeSettingsTemplateSearchParams,
   prefValue,
   statusColorValue,
   toInitials,
@@ -76,35 +77,15 @@ export default async function SettingsPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const activeTab = normalizeSettingsTabKey(searchParams?.tab);
-  const templatesTabRaw = String(searchParams?.templates || "")
-    .trim()
-    .toLowerCase();
-  const templatesTab: "tasks" | "projects" =
-    templatesTabRaw === "projects" ? "projects" : "tasks";
-  const selectedTaskTemplateId = String(searchParams?.task_template_id || "").trim();
-  const selectedProjectTemplateId = String(searchParams?.project_template_id || "").trim();
-  const taskTemplatePanelRaw = String(searchParams?.task_template_panel || "")
-    .trim()
-    .toLowerCase();
-  const taskTemplatePanel: "details" | "custom-fields" | "subtasks" =
-    taskTemplatePanelRaw === "custom-fields"
-      ? "custom-fields"
-      : taskTemplatePanelRaw === "subtasks"
-      ? "subtasks"
-      : "details";
-  const projectTemplatePanelRaw = String(searchParams?.project_template_panel || "")
-    .trim()
-    .toLowerCase();
-  const projectTemplatePanel: "details" | "custom-fields" | "tasks" =
-    projectTemplatePanelRaw === "custom-fields"
-      ? "custom-fields"
-      : projectTemplatePanelRaw === "tasks"
-      ? "tasks"
-      : "details";
-  const taskTemplatePanelQuery = `&task_template_panel=${encodeURIComponent(taskTemplatePanel)}`;
-  const projectTemplatePanelQuery = `&project_template_panel=${encodeURIComponent(
-    projectTemplatePanel
-  )}`;
+  const {
+    templatesTab,
+    selectedTaskTemplateId,
+    selectedProjectTemplateId,
+    taskTemplatePanel,
+    projectTemplatePanel,
+    taskTemplatePanelQuery,
+    projectTemplatePanelQuery,
+  } = normalizeSettingsTemplateSearchParams(searchParams);
 
   const supabase = createSupabaseServerClient();
   const user = await getCurrentRequestUser(supabase, "settings.auth");

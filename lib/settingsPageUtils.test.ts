@@ -9,6 +9,7 @@ import {
   defaultPrefs,
   formatDbError,
   isUuid,
+  normalizeSettingsTemplateSearchParams,
   prefValue,
   statusColorValue,
   toInitials,
@@ -74,5 +75,43 @@ describe("settings page helpers", () => {
     ).toBe(
       "[settings.action] | Insert failed | code=23505 | details=duplicate key | hint=try another name"
     );
+  });
+
+  it("normalizes template search params", () => {
+    expect(normalizeSettingsTemplateSearchParams(undefined)).toEqual({
+      templatesTab: "tasks",
+      selectedTaskTemplateId: "",
+      selectedProjectTemplateId: "",
+      taskTemplatePanel: "details",
+      projectTemplatePanel: "details",
+      taskTemplatePanelQuery: "&task_template_panel=details",
+      projectTemplatePanelQuery: "&project_template_panel=details",
+    });
+
+    expect(
+      normalizeSettingsTemplateSearchParams({
+        templates: " PROJECTS ",
+        task_template_id: " task-1 ",
+        project_template_id: " project-1 ",
+        task_template_panel: "subtasks",
+        project_template_panel: "tasks",
+      })
+    ).toMatchObject({
+      templatesTab: "projects",
+      selectedTaskTemplateId: "task-1",
+      selectedProjectTemplateId: "project-1",
+      taskTemplatePanel: "subtasks",
+      projectTemplatePanel: "tasks",
+    });
+
+    expect(
+      normalizeSettingsTemplateSearchParams({
+        task_template_panel: "bad",
+        project_template_panel: "custom-fields",
+      })
+    ).toMatchObject({
+      taskTemplatePanel: "details",
+      projectTemplatePanel: "custom-fields",
+    });
   });
 });

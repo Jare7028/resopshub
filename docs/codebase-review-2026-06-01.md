@@ -15,9 +15,9 @@ Priority scoring combines customer impact, security exposure, scalability risk, 
 
 Top risks:
 
-1. The dependency audit is not clean. `next@15.5.15` is below available security fixes, and `vitest@4.0.18` / `@vitest/coverage-v8@4.0.18` are flagged by `npm audit`.
+1. The original dependency audit risk has been remediated: the repo now uses `next@15.5.18`, `vitest@4.1.8`, and `@vitest/coverage-v8@4.1.8`, and the latest `npm audit --json` reports 0 vulnerabilities.
 2. Several Supabase `.or()` filters interpolate user input directly into PostgREST filter strings. This is a security and correctness risk, especially in search-style routes.
-3. Image upload validation is inconsistent. Some routes accept any `image/*`, while social uploads already use a safer explicit allow-list.
+3. Upload MIME handling is now centralized, but editor HTML/SVG handling and upload regression coverage remain important security follow-ups.
 4. The task creation and route-modal pattern has improved, but the wider app still uses route-driven popouts for heavy pages. That keeps customer workflows exposed to full server navigations and unnecessary data loading.
 5. The codebase has several very large page/client files. This makes performance work slower, increases regression risk, and hides duplicated data/action patterns.
 6. Permission/auth code is present in the right broad areas, but it is repeated heavily and mixed with page logic. Centralizing it would reduce bugs and speed up future work.
@@ -27,18 +27,18 @@ Top risks:
 
 | Check | Result | Notes |
 | --- | --- | --- |
-| `npm audit --json` | Failed | 5 vulnerabilities: 2 critical, 1 high, 2 moderate. See finding F-001. |
+| `npm audit --json` | Passed | 0 vulnerabilities across 573 dependencies after the Next/Vitest upgrades. |
 | `npx tsc --noEmit` | Passed | TypeScript completed with exit code 0. |
-| `npm test` | Passed | 24 test files, 138 tests passed. |
+| `npm test` | Passed | 65 test files, 368 tests passed. |
 | `npm run test:coverage` | Passed | Overall: 73.26% statements, 60.34% branches, 78.52% functions, 76.51% lines. |
-| `npm run build` | Passed | Next.js 15.5.15 build completed. `/tasks` built at 4.91 kB route JS and 127 kB first load JS; middleware bundle was 82.2 kB. |
-| `npm run lint` | Passed | `next lint` is deprecated and needs migration before Next 16. |
+| `npm run build` | Passed | Next.js 15.5.18 build completed. `/tasks` built at 4.36 kB route JS and 130 kB first load JS; `/settings` built at 4.71 kB route JS and 116 kB first load JS; middleware bundle was 82 kB. |
+| `npm run lint` | Passed | `npm run lint` now runs `eslint .` through the flat config. |
 | Static scans | Completed | Searched service-role usage, auth calls, unsafe HTML/SVG handling, `.or()` filters, large files, console noise, lint disables, RLS/security-definer surface, API routes, and route-modal patterns. |
 
 Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
-- 39 test files.
+- 66 test/spec files in the repo; the latest Vitest run executed 65 test files.
 - 2 direct `.auth.getUser()` calls remain, both intentional internals: `lib/supabase/currentUser.ts` and `lib/supabase/middleware.ts`.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
@@ -48,13 +48,12 @@ Important counts from static review:
 
 ## Quick Wins
 
-1. Upgrade `next` from `15.5.15` to `15.5.18`, then rebuild and redeploy.
-2. Upgrade `vitest` and `@vitest/coverage-v8` from `4.0.18` to a non-vulnerable release.
-3. Replace user-input `.or()` string interpolation with RPCs or a shared PostgREST filter escaping helper.
-4. Apply the social upload MIME allow-list pattern to chat, personal-page, note, and avatar uploads.
-5. Remove debug image/editor logs or put them behind a structured logger and environment-controlled log level.
-6. Migrate `next lint` to ESLint CLI before the next framework upgrade.
-7. Add a Playwright smoke test for login, `/tasks`, quick add task, open task, and save task notes.
+1. Keep `npm audit --json` in release validation; the current run reports 0 vulnerabilities.
+2. Replace remaining user-input `.or()` string interpolation with RPCs or a shared PostgREST filter escaping helper.
+3. Add a Playwright smoke test for login, `/tasks`, quick add task, open task, and save task notes.
+4. Record the first authenticated production/staging task smoke run after credentials are available.
+5. Continue splitting the largest page/client components into smaller tested helpers.
+6. Run live Supabase catalog/RLS verification once the remote DB password issue is resolved.
 
 ## Implementation Progress
 
@@ -147,7 +146,7 @@ Updated 2026-06-02:
 - Completed: F-005 note-editor state helper extraction slice. `app/(app)/_components/NoteEditorStateHelpers.ts` now owns active table-column detection, text alignment detection, missing-image node lookup, selected/current-line text normalization, suggested task title fallback, and the copied-format snapshot type; the table-column contract now lives in plain TS at `lib/noteEditorTableColumns.ts`.
 - Completed: F-005 chat client helper extraction slice. `lib/chatClientUtils.ts` now owns message sorting/merging, sync cursors, conversation-member normalization, display labels, reply parsing, snippets, link URL helpers, conversation lookup maps, pinned/muted priority ordering, conversation search/title derivation, direct-chat lookup, unread anchor resolution, and read-receipt derivation used by `ChatPageClient`, with focused unit coverage.
 - Completed: F-005 social detail helper extraction slice. `lib/socialDetailUtils.ts` now owns social row types, reaction constants, post-image JSON normalization, filter/panel/role normalization, user/view labels, member availability, grouped row maps, reaction summaries, viewer labels, date helpers, and social detail URL construction with focused unit coverage.
-- Completed: F-005 settings page utility extraction slice. `lib/settingsPageUtils.ts` now owns settings notification preference defaults/types, avatar/status constants, checkbox/status-color/UUID helpers, preference fallback handling, initials, default content text, and DB error formatting with focused unit coverage.
+- Completed: F-005 settings page utility extraction slice. `lib/settingsPageUtils.ts` now owns settings notification preference defaults/types, avatar/status constants, checkbox/status-color/UUID helpers, template search-param normalization, preference fallback handling, initials, default content text, and DB error formatting with focused unit coverage.
 - Open: F-005 follow-up for `NoteEditorClient`, remaining settings server-action/form splits, remaining chat/social detail splits, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
 - Open: The explicit F-004, F-006, F-008, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, docs, scalability, and cleanup backlog.
 
@@ -229,16 +228,15 @@ Latest implementation validation:
 
 Evidence:
 
-- `package.json:38` pins `next` to `15.5.15`.
-- `package.json:47` pins `@vitest/coverage-v8` to `^4.0.18`.
-- `package.json:52` pins `vitest` to `^4.0.18`.
-- `npm audit --json` reported 5 vulnerabilities: 2 critical, 1 high, 2 moderate.
-- Audit packages:
+- Original review: `package.json` pinned `next` to `15.5.15`, `@vitest/coverage-v8` to `^4.0.18`, and `vitest` to `^4.0.18`.
+- Original `npm audit --json` reported 5 vulnerabilities: 2 critical, 1 high, 2 moderate.
+- Original audit packages:
   - `next`: high, fix available at `15.5.18`.
   - `postcss`: moderate via Next, fix available through `next@15.5.18`.
   - `vitest`: critical, affected range `<4.1.0`.
   - `@vitest/coverage-v8`: critical via Vitest.
   - `ws`: moderate, affected range `8.0.0 - 8.20.0`.
+- Current status: `package.json` declares `next@15.5.18`, `vitest@4.1.8`, and `@vitest/coverage-v8@4.1.8`; `npm audit --json` passes with 0 vulnerabilities.
 
 User/business impact:
 
@@ -247,16 +245,16 @@ User/business impact:
 
 Recommended fix:
 
-- Upgrade `next` to `15.5.18` and regenerate `package-lock.json`.
-- Upgrade `vitest` and `@vitest/coverage-v8` to a release outside the audited vulnerable range.
-- Re-run `npm audit --json`, `npx tsc --noEmit`, `npm test`, `npm run test:coverage`, and `npm run build`.
-- Deploy quickly after framework upgrade passes.
+- Done: upgraded `next` to `15.5.18` and regenerated `package-lock.json`.
+- Done: upgraded `vitest` and `@vitest/coverage-v8` to `4.1.8`.
+- Done locally: re-ran `npm audit --json`, `npx tsc --noEmit`, `npm test`, `npm run lint`, and `npm run build`.
+- Deploy quickly after framework upgrades pass in CI/staging.
 
 Estimated effort: small.
 
 Verification needed:
 
-- `npm audit --json` shows no high or critical findings.
+- Done locally: `npm audit --json` shows 0 vulnerabilities.
 - Production smoke test covers login, `/tasks`, task add, task detail, chat, settings, and one API mutation.
 
 ### F-002 - P1 - Security and Data Integrity - User input is interpolated into Supabase `.or()` filter strings
@@ -399,7 +397,7 @@ Recommended fix:
 - Done for the note-editor state-helper slice: `app/(app)/_components/NoteEditorStateHelpers.ts` extracts editor state/selection helpers and copied-format typing; `app/(app)/_components/NoteEditorStateHelpers.test.ts` covers table-column fallback, text alignment fallback, missing-image position lookup, selected text normalization, and suggested task title fallback.
 - Done for the chat client helper slices: `lib/chatClientUtils.ts` extracts deterministic message/conversation helpers from `ChatPageClient`; `lib/chatClientUtils.test.ts` covers sorting, merging, sync cursors, user display labels, URL construction, reply parsing, snippets, invalid date handling, conversation title/search text, direct-chat lookup, first unread message resolution, and read receipts.
 - Done for the social detail helper slice: `lib/socialDetailUtils.ts` extracts deterministic social detail helpers from `app/(app)/social/[pageId]/page.tsx`; `lib/socialDetailUtils.test.ts` covers image JSON normalization, people/view labels, member availability, grouped row maps, reaction summaries, filter/role/panel normalization, URL construction, reaction constants, and date guards.
-- Done for the settings page utility slice: `lib/settingsPageUtils.ts` extracts deterministic settings helpers from `app/(app)/settings/page.tsx`; `lib/settingsPageUtils.test.ts` covers defaults/constants, checkbox parsing, status color normalization, preference fallbacks, UUID validation, initials, and DB error formatting.
+- Done for the settings page utility slice: `lib/settingsPageUtils.ts` extracts deterministic settings helpers from `app/(app)/settings/page.tsx`; `lib/settingsPageUtils.test.ts` covers defaults/constants, checkbox parsing, status color normalization, template search-param normalization, preference fallbacks, UUID validation, initials, and DB error formatting.
 - Done for the inventory/employee-info shared table utility slice: `lib/employeeInfoTableUtils.ts` extracts duplicated option parsing, date/number parsing, empty-cell styling helpers, column token matching, and sort comparison used by both editable table components; `lib/employeeInfoTableUtils.test.ts` covers the extracted behavior.
 - Done for the inventory/employee-info preference-state slice: `lib/tablePreferenceState.ts` extracts duplicated localStorage visibility/filter normalization and serialization; the two feature wrappers now preserve their separate keys/events and inventory's legacy new-column visibility behavior.
 
@@ -526,7 +524,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 63 files and 348 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility and preference-state, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/state coverage, chat derived-state/social helpers, and settings utility slices.
+- Latest unit-test suite now passes 65 files and 368 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility and preference-state, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/state coverage, chat lookup/social detail helpers, and settings utility/template search-param slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -665,7 +663,7 @@ Verification needed:
 Evidence:
 
 - Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 1951 lines after the shared table utility and preference-state extractions, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1787 lines after the shared table utility and preference-state extractions, `app/(app)/tasks/TasksView.tsx` at 2399 lines after task helper extractions, `app/(app)/projects/ProjectsView.tsx` at 1817 lines after the project table view-state extraction, and `app/(app)/clients/ClientsTable.tsx` at 1185 lines after the client table view-state extraction.
-- `app/(app)/settings/page.tsx` is 4398 lines after the settings utility extraction and still contains many management forms/actions.
+- `app/(app)/settings/page.tsx` is 4379 lines after the settings utility extraction and still contains many management forms/actions.
 - Quick-read already uses 600-row caps, showing that unbounded or broad reads have become a product concern.
 - Implemented Forms slice: `app/(app)/forms/page.tsx` now calls `forms_list_page` with `p_limit`/`p_offset` and no longer pulls all forms plus all open submissions into application memory for the list view.
 - Implemented Social slice: `app/(app)/social/page.tsx` now calls `social_landing_page` with `p_limit`/`p_offset` and no longer pulls every accessible social page plus membership/summary/post data across the full page ID set for the landing view.
@@ -799,12 +797,12 @@ Phase 4: Component and module cleanup.
 
 ## Security and Dependency Upgrade List
 
-Immediate:
+Immediate dependency work:
 
-- `next@15.5.15` -> `next@15.5.18`.
-- `vitest@4.0.18` -> non-vulnerable release outside `<4.1.0`.
-- `@vitest/coverage-v8@4.0.18` -> version compatible with the upgraded Vitest.
-- Verify transitive `postcss` and `ws` findings are removed or separately overridden/upgraded.
+- Completed: `next@15.5.18`.
+- Completed: `vitest@4.1.8`.
+- Completed: `@vitest/coverage-v8@4.1.8`.
+- Completed: transitive `postcss` and `ws` audit findings are gone; latest `npm audit --json` reports 0 vulnerabilities.
 
 Security follow-ups:
 
