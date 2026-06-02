@@ -63,7 +63,26 @@ Current scripts:
 - `npm run lint`: ESLint CLI.
 - `npm test`: Vitest test suite.
 - `npm run test:coverage`: coverage report.
+- `npm run test:e2e`: Playwright smoke tests for authenticated browser flows.
+- `npm run test:e2e:list`: validate Playwright test discovery without running browsers.
 - `npm run scout:sync`: sync scout data from legacy source using service-role credentials.
+
+Authenticated E2E task smoke:
+
+```bash
+npx playwright install chromium
+npx playwright codegen http://localhost:3000/login --save-storage=.tmp/e2e-auth.json
+E2E_STORAGE_STATE=.tmp/e2e-auth.json npm run test:e2e
+```
+
+For preview/staging:
+
+```bash
+E2E_BASE_URL=https://your-preview-url E2E_STORAGE_STATE=.tmp/e2e-auth.json npm run test:e2e
+```
+
+`E2E_EMAIL` and `E2E_PASSWORD` can be used instead of `E2E_STORAGE_STATE` in CI,
+but keep them in the CI secret store only.
 
 ## Supabase Migrations
 

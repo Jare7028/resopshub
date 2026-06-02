@@ -107,7 +107,8 @@ Updated 2026-06-02:
 - Open: F-006 follow-up is now deeper access-helper consolidation and broader signed-in behavioral permission coverage; the direct auth-call migration is complete.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Completed: F-008 task mutation/status/recurrence test slice. `app/(app)/tasks/actions.test.ts` now covers inline task mutation RPC payloads, assignment-group expansion, safe return-path revalidation, missing IDs, assignment errors, and RPC errors; `lib/taskSchedule.test.ts` covers recurrence weekday defaults and bounded end dates; `lib/statusOptions.test.ts` covers status metadata, hidden/completed status derivation, colors, and unsafe color rejection.
-- Open: F-008 follow-up for signed-in browser smoke coverage.
+- Completed: F-008 signed-in task smoke harness slice. `playwright.config.ts` and `tests/e2e/tasks.smoke.spec.ts` now cover login/session reuse, `/tasks` load, quick-add title/notes/subtask creation, task detail navigation, and notes autosave while checking for Next.js red error overlays and uncaught page errors.
+- Open: F-008 follow-up to wire `npm run test:e2e` into CI or a staging job with `E2E_STORAGE_STATE` or `E2E_EMAIL`/`E2E_PASSWORD` secrets, then record the first authenticated run.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
 - Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
 - Completed: F-015 production operations README slice. `README.md` now covers local setup, environment variables, validation commands, Supabase migrations, Vercel deployment, cron, smoke checks, observability, high-risk modules, and related docs.
@@ -130,6 +131,8 @@ Latest implementation validation:
 - `npx vitest run 'app/(app)/tasks/actions.test.ts' lib/taskSchedule.test.ts lib/statusOptions.test.ts`: passed, 18 tests.
 - `npx vitest run lib/supabase/middleware.test.ts`: passed, 6 tests.
 - `npx vitest run 'app/(app)/tasks/taskTimeline.test.ts'`: passed, 6 tests.
+- `npm run test:e2e:list`: passed, 1 Playwright task smoke test discovered.
+- `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
 - `npm test`: passed, 43 files and 215 tests.
