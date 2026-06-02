@@ -1436,6 +1436,18 @@ export default async function SettingsPage(props: {
   async function createTemplateCustomField(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.template_custom_fields.create.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
+
     const entityType = String(formData.get("entity_type") || "").trim();
     const entityId = String(formData.get("entity_id") || "").trim();
     const label = String(formData.get("label") || "").trim();
@@ -1547,6 +1559,18 @@ export default async function SettingsPage(props: {
   async function deleteTemplateCustomField(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.template_custom_fields.delete.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
+
     const id = String(formData.get("id") || "").trim();
     const entityType = String(formData.get("entity_type") || "").trim();
     const entityId = String(formData.get("entity_id") || "").trim();
@@ -1580,6 +1604,18 @@ export default async function SettingsPage(props: {
   async function saveTemplateCustomFieldValues(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.template_custom_field_values.save.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
+
     const entityType = String(formData.get("entity_type") || "").trim();
     const entityId = String(formData.get("entity_id") || "").trim();
     if (

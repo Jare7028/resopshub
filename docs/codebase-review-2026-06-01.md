@@ -76,8 +76,8 @@ Updated 2026-06-02:
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
 - Completed: F-006 admin API helper slice. `lib/api/requireApiAdmin.ts` centralizes admin-only JSON auth for the admin user update/delete endpoints while preserving the existing `{ ok: false, error }` response shape.
 - Completed: F-006 admin page/action helper slice. `lib/adminAccess.ts` centralizes admin profile checks for the admin landing page, users page, create-user server action, and user-permissions page/action.
-- Completed: F-006 settings page-edit helper slice. `lib/pageEditAccess.ts` centralizes authenticated page-edit checks and the settings assignment-group, status-option, task-template, and project-template create/update/delete actions now use it.
-- Open: F-006 follow-up for the remaining page/server-action permission helpers, especially the rest of settings subtask/custom-field/profile/notification actions, personal/social pages, employee/inventory actions, and task mutations.
+- Completed: F-006 settings page-edit helper slice. `lib/pageEditAccess.ts` centralizes authenticated page-edit checks and the settings assignment-group, status-option, task-template, project-template, and template custom-field actions now use it.
+- Open: F-006 follow-up for the remaining page/server-action permission helpers, especially the rest of settings subtask/profile/notification actions, personal/social pages, employee/inventory actions, and task mutations.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
@@ -303,6 +303,7 @@ Evidence:
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.
 - Seventh implementation slice extended `lib/pageEditAccess.ts` usage to settings project-template create/update/delete server actions. Static scan now finds 132 direct `supabase.auth.getUser()` calls.
+- Eighth implementation slice added settings page-edit checks to template custom-field create/delete/save server actions. This closes missing permission checks rather than reducing the direct auth-call count.
 
 User/business impact:
 
@@ -317,7 +318,7 @@ Recommended fix:
 - Done for the first API route slice: create `requireApiUser`, keep unauthorized route-handler responses consistent, and test middleware-header short-circuiting plus Supabase fallback behavior.
 - Done for the admin API slice: create `requireApiAdmin`, keep admin route-handler 401/403 responses in the existing `{ ok: false, error }` shape, and convert the admin user update/delete endpoints.
 - Done for the admin page/action slice: create `getAdminAccess`, keep page-level redirect/not-found behavior at the call sites, and convert admin landing, user-management, create-user, and page-permission flows.
-- Done for the settings action slices: create `getPageEditAccess`, keep unauthenticated and no-permission redirects or autosave errors at the call sites, and convert assignment-group, status-option, task-template, and project-template create/update/delete actions.
+- Done for the settings action slices: create `getPageEditAccess`, keep unauthenticated and no-permission redirects or autosave errors at the call sites, and convert assignment-group, status-option, task-template, project-template, and template custom-field actions.
 
 Estimated effort: medium.
 
