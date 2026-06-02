@@ -64,6 +64,7 @@ export default async function HelpGuidePage(props: {
           {isAdmin && !isEditMode ? (
             <Link
               href={`/help/${guide.slug}?edit=1`}
+              prefetch={false}
               className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
             >
               Edit guide page
