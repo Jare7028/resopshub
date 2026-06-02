@@ -1302,8 +1302,19 @@ export default async function SettingsPage(props: {
   async function createProjectTemplate(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.project_templates.create.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const name = String(formData.get("name") || "").trim();
     const description = String(formData.get("description") || "").trim();
@@ -1319,7 +1330,7 @@ export default async function SettingsPage(props: {
         name,
         description: description || null,
         status,
-        created_by: authData.user.id,
+        created_by: editAccess.user.id,
       })
       .select("id")
       .single();
@@ -1340,8 +1351,19 @@ export default async function SettingsPage(props: {
   async function updateProjectTemplate(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.project_templates.update.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     const name = String(formData.get("name") || "").trim();
@@ -1380,8 +1402,19 @@ export default async function SettingsPage(props: {
   async function deleteProjectTemplate(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.project_templates.delete.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     if (!id) {
