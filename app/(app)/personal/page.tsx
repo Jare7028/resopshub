@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -103,8 +104,7 @@ export default async function PersonalHome(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
+  const user = await getCurrentRequestUser(supabase, "personal.workspace.auth");
 
   if (!user) {
     redirect("/login");
@@ -240,8 +240,10 @@ export default async function PersonalHome(props: {
   async function createPage(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const currentUser = authData.user;
+    const currentUser = await getCurrentRequestUser(
+      supabase,
+      "personal.workspace.create_page.auth"
+    );
 
     if (!currentUser) {
       redirect("/login");

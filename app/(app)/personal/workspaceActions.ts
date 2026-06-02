@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isSupabaseMissingColumnError,
@@ -34,8 +35,8 @@ function normalizeZoomPercent(value: unknown) {
 
 async function requireAuthUser() {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
+  const authUser = await getCurrentRequestUser(supabase, "personal.workspace_state.auth");
+  const userId = authUser?.id;
   if (!userId) {
     throw new Error("Not signed in");
   }
