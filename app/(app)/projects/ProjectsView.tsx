@@ -12,7 +12,6 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import { setCsvParam } from "@/lib/queryParams";
 import { formatTaskStatusLabel } from "@/lib/taskStatus";
 import { defaultStatusColorHex } from "@/lib/statusOptions";
 import AssigneeMultiSelect from "../tasks/_components/AssigneeMultiSelect";
@@ -37,6 +36,23 @@ import { FilterIcon, FilterMenuMulti } from "../_components/TableHeaderFilters";
 import TableColumnConfigButton, {
   type TableColumnOption,
 } from "../_components/TableColumnConfigButton";
+import {
+  buildProjectFilterPersistenceKey,
+  buildProjectListQuery,
+  filterAllowedValues,
+  normalizeProjectSortDir,
+  normalizeProjectSortKey,
+  normalizeStorageList,
+  normalizeVisibleProjectColumns,
+  type PersistedProjectFilterState,
+  type ProjectFilterState,
+  type ProjectSortDir,
+  type ProjectSortKey,
+  type ProjectTableColumnId,
+  type ProjectViewMode,
+} from "./projectTableViewState";
+
+export type { ProjectSortDir, ProjectSortKey } from "./projectTableViewState";
 
 type UserOption = {
   id: string;
@@ -89,18 +105,6 @@ type OpenProjectTasksPayload = {
 
 const EMPTY_OPEN_TASKS_BY_PROJECT_ID: Record<string, OpenProjectTaskRow[]> = {};
 
-export type ProjectSortKey =
-  | "name"
-  | "client"
-  | "status"
-  | "assignees"
-  | "start"
-  | "end"
-  | "open_tasks"
-  | "created";
-
-export type ProjectSortDir = "asc" | "desc";
-
 type ProjectsViewProps = {
   projects: ProjectRow[];
   users: UserOption[];
@@ -113,12 +117,8 @@ type ProjectsViewProps = {
   statusColorMap?: Record<string, string>;
   taskStatusOptions: readonly string[];
   taskStatusColorMap?: Record<string, string>;
-  initialView?: "table" | "gantt" | "board";
-  initialFilters: {
-    client: string[];
-    status: string[];
-    assignee: string[];
-  };
+  initialView?: ProjectViewMode;
+  initialFilters: ProjectFilterState;
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   hideCompleted: boolean;
   toggleUrl: string;
@@ -139,28 +139,6 @@ type ProjectsViewProps = {
 };
 
 type HeaderMenuKey = "client" | "status" | "assignees";
-type ProjectTableColumnId =
-  | "project"
-  | "open_tasks"
-  | "client"
-  | "status"
-  | "assignees"
-  | "start"
-  | "end";
-const PROJECT_REQUIRED_COLUMN_IDS = new Set<ProjectTableColumnId>(["project"]);
-const PROJECT_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.project-filters.v1";
-
-type PersistedProjectFilterState = {
-  client: string[];
-  status: string[];
-  assignee: string[];
-  hideCompleted: boolean;
-  includeWatching: boolean;
-  sortKey: ProjectSortKey;
-  sortDir: ProjectSortDir;
-  view: "table" | "gantt" | "board";
-};
-
 function formatProjectStatusLabel(value: string | null | undefined) {
   const normalized = String(value || "")
     .trim()
@@ -193,72 +171,6 @@ function diffDays(start: Date, end: Date) {
 
 function formatTick(date: Date) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function normalizeVisibleProjectColumns(
-  values: string[],
-  knownColumnIds: ProjectTableColumnId[]
-) {
-  const knownColumnIdSet = new Set<ProjectTableColumnId>(knownColumnIds);
-  const normalized = Array.from(
-    new Set(
-      values.filter((value): value is ProjectTableColumnId =>
-        knownColumnIdSet.has(value as ProjectTableColumnId)
-      )
-    )
-  );
-  const withRequiredColumns = normalized.slice();
-  PROJECT_REQUIRED_COLUMN_IDS.forEach((requiredColumnId) => {
-    if (!knownColumnIdSet.has(requiredColumnId)) return;
-    if (!withRequiredColumns.includes(requiredColumnId)) {
-      withRequiredColumns.unshift(requiredColumnId);
-    }
-  });
-  return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
-}
-
-function normalizeStorageList(value: unknown) {
-  if (!Array.isArray(value)) return [] as string[];
-  return Array.from(
-    new Set(
-      value
-        .map((item) => String(item || "").trim())
-        .filter(Boolean)
-    )
-  );
-}
-
-function filterAllowedValues(values: string[], allowedValues: Set<string>) {
-  return values.filter((value) => allowedValues.has(value));
-}
-
-function normalizeProjectSortKey(value: string | null | undefined, fallback: ProjectSortKey) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (
-    normalized === "name" ||
-    normalized === "client" ||
-    normalized === "status" ||
-    normalized === "assignees" ||
-    normalized === "start" ||
-    normalized === "end" ||
-    normalized === "open_tasks" ||
-    normalized === "created"
-  ) {
-    return normalized as ProjectSortKey;
-  }
-  return fallback;
-}
-
-function normalizeProjectSortDir(value: string | null | undefined, fallback: ProjectSortDir) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (normalized === "asc" || normalized === "desc") {
-    return normalized;
-  }
-  return fallback;
 }
 
 export default function ProjectsView({
@@ -392,15 +304,14 @@ export default function ProjectsView({
     (columnId: ProjectTableColumnId) => visibleProjectColumnSet.has(columnId),
     [visibleProjectColumnSet]
   );
-  const projectFilterPersistenceKey = useMemo(() => {
-    const userId = String(filterPersistenceUserId || "").trim();
-    if (!userId) return null;
-    const rawScope = String(filterPersistenceScope || basePath || "/projects")
-      .trim()
-      .toLowerCase();
-    const scope = rawScope || "/projects";
-    return `${PROJECT_FILTER_PERSISTENCE_KEY_PREFIX}:${userId}:${scope}`;
-  }, [basePath, filterPersistenceScope, filterPersistenceUserId]);
+  const projectFilterPersistenceKey = useMemo(
+    () =>
+      buildProjectFilterPersistenceKey({
+        userId: filterPersistenceUserId,
+        scope: filterPersistenceScope || basePath || "/projects",
+      }),
+    [basePath, filterPersistenceScope, filterPersistenceUserId]
+  );
 
   const initialKey = useMemo(() => JSON.stringify(initialFilters), [initialFilters]);
   useEffect(() => {
@@ -598,24 +509,21 @@ export default function ProjectsView({
 
   const buildQuery = useCallback(
     (
-      nextFilters: typeof filters,
+      nextFilters: ProjectFilterState,
       nextSortKey: ProjectSortKey,
       nextSortDir: ProjectSortDir,
-      nextView: typeof view,
+      nextView: ProjectViewMode,
       nextHideCompleted: boolean,
       nextIncludeWatching: boolean
-    ) => {
-      const params = new URLSearchParams();
-      setCsvParam(params, "client", nextFilters.client);
-      setCsvParam(params, "status", nextFilters.status);
-      setCsvParam(params, "assignee", nextFilters.assignee);
-      params.set("hide", nextHideCompleted ? "1" : "0");
-      if (nextIncludeWatching) params.set("watch", "1");
-      params.set("sort", nextSortKey);
-      params.set("dir", nextSortDir);
-      if (nextView !== "table") params.set("view", nextView);
-      return params.toString();
-    },
+    ) =>
+      buildProjectListQuery({
+        filters: nextFilters,
+        sortKey: nextSortKey,
+        sortDir: nextSortDir,
+        view: nextView,
+        hideCompleted: nextHideCompleted,
+        includeWatching: nextIncludeWatching,
+      }),
     []
   );
 
