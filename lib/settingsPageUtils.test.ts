@@ -9,6 +9,7 @@ import {
   buildSettingsProjectTemplateTaskReturnUrl,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateEntityUrl,
+  buildSettingsTemplateRelationshipSummary,
   buildSettingsUserNameLookup,
   checkbox,
   defaultContentText,
@@ -248,5 +249,60 @@ describe("settings page helpers", () => {
         message: { kind: "error", value: "Missing link id" },
       })
     ).toBe("/settings?tab=templates&templates=projects&error=Missing%20link%20id");
+  });
+
+  it("builds template relationship maps and selected task-template summaries", () => {
+    const summary = buildSettingsTemplateRelationshipSummary({
+      taskTemplates: [
+        { id: "task-a", name: "Task A" },
+        { id: "task-b", name: "Task B" },
+      ],
+      projectTemplates: [
+        { id: "project-z", name: "Zulu" },
+        { id: "project-a", name: "Alpha" },
+        { id: "project-m", name: "Mike" },
+      ],
+      taskTemplateSubtasks: [
+        { id: "sub-1", task_template_id: "task-a", title: "First" },
+        { id: "sub-2", task_template_id: "task-a", title: "Second" },
+      ],
+      projectTemplateTasks: [
+        { id: "link-z", project_template_id: "project-z", task_template_id: "task-a" },
+        { id: "link-a", project_template_id: "project-a", task_template_id: "task-a" },
+        { id: "link-b", project_template_id: "project-m", task_template_id: "task-b" },
+      ],
+      taskTemplateAssignees: [
+        { task_template_id: "task-a", user_id: "user-2" },
+        { task_template_id: "task-a", user_id: "user-1" },
+      ],
+      taskTemplateSubtaskAssignees: [
+        { task_template_subtask_id: "sub-1", user_id: "user-3" },
+      ],
+      selectedTaskTemplateId: "task-a",
+    });
+
+    expect(summary.subtasksByTemplateId["task-a"].map((row) => row.id)).toEqual([
+      "sub-1",
+      "sub-2",
+    ]);
+    expect(summary.tasksByProjectTemplateId["project-m"].map((row) => row.id)).toEqual([
+      "link-b",
+    ]);
+    expect(summary.assigneeIdsByTaskTemplateId["task-a"]).toEqual(["user-2", "user-1"]);
+    expect(summary.assigneeIdsByTaskTemplateSubtaskId["sub-1"]).toEqual(["user-3"]);
+    expect(summary.taskTemplateById["task-b"]?.name).toBe("Task B");
+    expect(summary.projectTemplateById["project-a"]?.name).toBe("Alpha");
+    expect(summary.selectedTaskTemplateAssigneeIds).toEqual(["user-2", "user-1"]);
+    expect(summary.selectedTaskTemplateProjectLinks.map((link) => link.id)).toEqual([
+      "link-a",
+      "link-z",
+    ]);
+    expect(Array.from(summary.selectedTaskTemplateLinkedProjectTemplateIds)).toEqual([
+      "project-a",
+      "project-z",
+    ]);
+    expect(summary.availableProjectTemplatesForTaskTemplate.map((project) => project.id)).toEqual([
+      "project-m",
+    ]);
   });
 });

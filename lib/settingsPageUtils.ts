@@ -64,6 +64,34 @@ export type SettingsAssignmentGroupRow = {
   memberUserIds: readonly string[];
 };
 
+export type SettingsTaskTemplateRecord = {
+  id: string;
+};
+
+export type SettingsProjectTemplateRecord = {
+  id: string;
+  name: string;
+};
+
+export type SettingsTaskTemplateSubtaskRecord = {
+  task_template_id: string;
+};
+
+export type SettingsProjectTemplateTaskRecord = {
+  project_template_id: string;
+  task_template_id: string;
+};
+
+export type SettingsTaskTemplateAssigneeRecord = {
+  task_template_id: string;
+  user_id: string;
+};
+
+export type SettingsTaskTemplateSubtaskAssigneeRecord = {
+  task_template_subtask_id: string;
+  user_id: string;
+};
+
 export type SettingsTemplatesTab = "tasks" | "projects";
 export type TaskTemplatePanel = "details" | "custom-fields" | "subtasks";
 export type ProjectTemplatePanel = "details" | "custom-fields" | "tasks";
@@ -169,6 +197,111 @@ export function buildSettingsAssignmentGroupSummary(
     memberLabelsByGroupId,
     totalMemberSlots,
     uniqueMemberCount,
+  };
+}
+
+export function buildSettingsTemplateRelationshipSummary<
+  TaskTemplate extends SettingsTaskTemplateRecord,
+  ProjectTemplate extends SettingsProjectTemplateRecord,
+  TaskTemplateSubtask extends SettingsTaskTemplateSubtaskRecord,
+  ProjectTemplateTask extends SettingsProjectTemplateTaskRecord,
+  TaskTemplateAssignee extends SettingsTaskTemplateAssigneeRecord,
+  TaskTemplateSubtaskAssignee extends SettingsTaskTemplateSubtaskAssigneeRecord,
+>(params: {
+  taskTemplates: readonly TaskTemplate[];
+  projectTemplates: readonly ProjectTemplate[];
+  taskTemplateSubtasks: readonly TaskTemplateSubtask[];
+  projectTemplateTasks: readonly ProjectTemplateTask[];
+  taskTemplateAssignees: readonly TaskTemplateAssignee[];
+  taskTemplateSubtaskAssignees: readonly TaskTemplateSubtaskAssignee[];
+  selectedTaskTemplateId?: string | null;
+}) {
+  const subtasksByTemplateId = params.taskTemplateSubtasks.reduce<
+    Record<string, TaskTemplateSubtask[]>
+  >((acc, row) => {
+    acc[row.task_template_id] ||= [];
+    acc[row.task_template_id].push(row);
+    return acc;
+  }, {});
+  const tasksByProjectTemplateId = params.projectTemplateTasks.reduce<
+    Record<string, ProjectTemplateTask[]>
+  >((acc, row) => {
+    acc[row.project_template_id] ||= [];
+    acc[row.project_template_id].push(row);
+    return acc;
+  }, {});
+  const assigneeIdsByTaskTemplateId = params.taskTemplateAssignees.reduce<
+    Record<string, string[]>
+  >((acc, row) => {
+    acc[row.task_template_id] ||= [];
+    acc[row.task_template_id].push(row.user_id);
+    return acc;
+  }, {});
+  const assigneeIdsByTaskTemplateSubtaskId =
+    params.taskTemplateSubtaskAssignees.reduce<Record<string, string[]>>(
+      (acc, row) => {
+        acc[row.task_template_subtask_id] ||= [];
+        acc[row.task_template_subtask_id].push(row.user_id);
+        return acc;
+      },
+      {}
+    );
+  const taskTemplateById = params.taskTemplates.reduce<Record<string, TaskTemplate>>(
+    (acc, template) => {
+      acc[template.id] = template;
+      return acc;
+    },
+    {}
+  );
+  const projectTemplateById = params.projectTemplates.reduce<
+    Record<string, ProjectTemplate>
+  >((acc, template) => {
+    acc[template.id] = template;
+    return acc;
+  }, {});
+  const projectTemplateLinksByTaskTemplateId = params.projectTemplateTasks.reduce<
+    Record<string, ProjectTemplateTask[]>
+  >((acc, row) => {
+    acc[row.task_template_id] ||= [];
+    acc[row.task_template_id].push(row);
+    return acc;
+  }, {});
+  const selectedTaskTemplateId = String(params.selectedTaskTemplateId || "").trim();
+  const selectedTaskTemplateAssigneeIds = selectedTaskTemplateId
+    ? assigneeIdsByTaskTemplateId[selectedTaskTemplateId] || []
+    : [];
+  const selectedTaskTemplateProjectLinks = selectedTaskTemplateId
+    ? [...(projectTemplateLinksByTaskTemplateId[selectedTaskTemplateId] || [])].sort(
+        (left, right) => {
+          const leftName =
+            projectTemplateById[left.project_template_id]?.name || left.project_template_id;
+          const rightName =
+            projectTemplateById[right.project_template_id]?.name || right.project_template_id;
+          return leftName.localeCompare(rightName, undefined, { sensitivity: "base" });
+        }
+      )
+    : [];
+  const selectedTaskTemplateLinkedProjectTemplateIds = new Set(
+    selectedTaskTemplateProjectLinks.map((link) => link.project_template_id)
+  );
+  const availableProjectTemplatesForTaskTemplate = selectedTaskTemplateId
+    ? params.projectTemplates.filter(
+        (template) => !selectedTaskTemplateLinkedProjectTemplateIds.has(template.id)
+      )
+    : [];
+
+  return {
+    subtasksByTemplateId,
+    tasksByProjectTemplateId,
+    assigneeIdsByTaskTemplateId,
+    assigneeIdsByTaskTemplateSubtaskId,
+    taskTemplateById,
+    projectTemplateById,
+    projectTemplateLinksByTaskTemplateId,
+    selectedTaskTemplateAssigneeIds,
+    selectedTaskTemplateProjectLinks,
+    selectedTaskTemplateLinkedProjectTemplateIds,
+    availableProjectTemplatesForTaskTemplate,
   };
 }
 

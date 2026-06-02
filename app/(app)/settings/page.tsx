@@ -46,6 +46,7 @@ import {
   buildSettingsProjectTemplateTaskReturnUrl,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateEntityUrl,
+  buildSettingsTemplateRelationshipSummary,
   buildSettingsUserNameLookup,
   checkbox,
   defaultContentText,
@@ -541,80 +542,24 @@ export default async function SettingsPage(props: {
       )
     : [];
 
-  const subtasksByTemplateId = taskTemplateSubtasks.reduce<Record<string, TaskTemplateSubtaskRow[]>>(
-    (acc, row) => {
-      acc[row.task_template_id] ||= [];
-      acc[row.task_template_id].push(row);
-      return acc;
-    },
-    {}
-  );
-
-  const tasksByProjectTemplateId = projectTemplateTasks.reduce<Record<string, ProjectTemplateTaskRow[]>>(
-    (acc, row) => {
-      acc[row.project_template_id] ||= [];
-      acc[row.project_template_id].push(row);
-      return acc;
-    },
-    {}
-  );
-
-  const assigneeIdsByTaskTemplateId = taskTemplateAssignees.reduce<Record<string, string[]>>(
-    (acc, row) => {
-      acc[row.task_template_id] ||= [];
-      acc[row.task_template_id].push(row.user_id);
-      return acc;
-    },
-    {}
-  );
-  const assigneeIdsByTaskTemplateSubtaskId = taskTemplateSubtaskAssignees.reduce<
-    Record<string, string[]>
-  >((acc, row) => {
-    acc[row.task_template_subtask_id] ||= [];
-    acc[row.task_template_subtask_id].push(row.user_id);
-    return acc;
-  }, {});
-
-  const taskTemplateById = taskTemplates.reduce<Record<string, TaskTemplateRow>>((acc, tpl) => {
-    acc[tpl.id] = tpl;
-    return acc;
-  }, {});
-  const projectTemplateById = projectTemplates.reduce<Record<string, ProjectTemplateRow>>(
-    (acc, tpl) => {
-      acc[tpl.id] = tpl;
-      return acc;
-    },
-    {}
-  );
-  const projectTemplateLinksByTaskTemplateId = projectTemplateTasks.reduce<
-    Record<string, ProjectTemplateTaskRow[]>
-  >((acc, row) => {
-    acc[row.task_template_id] ||= [];
-    acc[row.task_template_id].push(row);
-    return acc;
-  }, {});
-  const selectedTaskTemplateAssigneeIds = selectedTaskTemplate
-    ? assigneeIdsByTaskTemplateId[selectedTaskTemplate.id] || []
-    : [];
-  const selectedTaskTemplateProjectLinks = selectedTaskTemplate
-    ? [...(projectTemplateLinksByTaskTemplateId[selectedTaskTemplate.id] || [])].sort(
-        (left, right) => {
-          const leftName =
-            projectTemplateById[left.project_template_id]?.name || left.project_template_id;
-          const rightName =
-            projectTemplateById[right.project_template_id]?.name || right.project_template_id;
-          return leftName.localeCompare(rightName, undefined, { sensitivity: "base" });
-        }
-      )
-    : [];
-  const selectedTaskTemplateLinkedProjectTemplateIds = new Set(
-    selectedTaskTemplateProjectLinks.map((link) => link.project_template_id)
-  );
-  const availableProjectTemplatesForTaskTemplate = selectedTaskTemplate
-    ? projectTemplates.filter(
-        (tpl) => !selectedTaskTemplateLinkedProjectTemplateIds.has(tpl.id)
-      )
-    : [];
+  const {
+    subtasksByTemplateId,
+    tasksByProjectTemplateId,
+    assigneeIdsByTaskTemplateSubtaskId,
+    taskTemplateById,
+    projectTemplateById,
+    selectedTaskTemplateAssigneeIds,
+    selectedTaskTemplateProjectLinks,
+    availableProjectTemplatesForTaskTemplate,
+  } = buildSettingsTemplateRelationshipSummary({
+    taskTemplates,
+    projectTemplates,
+    taskTemplateSubtasks,
+    projectTemplateTasks,
+    taskTemplateAssignees,
+    taskTemplateSubtaskAssignees,
+    selectedTaskTemplateId: selectedTaskTemplate?.id,
+  });
 
   async function updateProfile(formData: FormData) {
     "use server";
