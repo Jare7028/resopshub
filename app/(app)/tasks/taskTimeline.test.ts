@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTaskTimelineData,
+  buildTimelineBarLayout,
   buildTimelineTicks,
   buildTodayMarker,
   diffTimelineDays,
@@ -73,6 +74,26 @@ describe("task timeline helpers", () => {
       leftPercent: 50,
     });
     expect(buildTodayMarker(rangeStart, 10, new Date(2026, 5, 20))).toBeNull();
+  });
+
+  it("builds timeline bar layouts from calendar-day offsets", () => {
+    expect(
+      buildTimelineBarLayout({
+        rangeStart: new Date(2026, 5, 1),
+        rangeDays: 10,
+        start: new Date(2026, 5, 3),
+        end: new Date(2026, 5, 5),
+      })
+    ).toEqual({ leftPercent: 20, widthPercent: 30 });
+
+    expect(
+      buildTimelineBarLayout({
+        rangeStart: new Date(2026, 5, 1),
+        rangeDays: 0,
+        start: new Date(2026, 5, 1),
+        end: new Date(2026, 4, 30),
+      })
+    ).toEqual({ leftPercent: 0, widthPercent: 100 });
   });
 
   it("diffs calendar days without daylight-saving drift", () => {

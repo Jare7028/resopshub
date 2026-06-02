@@ -62,7 +62,7 @@ import {
 } from "./taskTableViewState";
 import {
   buildTaskTimelineData,
-  diffTimelineDays,
+  buildTimelineBarLayout,
   buildTimelineTicks,
   buildTodayMarker,
 } from "./taskTimeline";
@@ -2220,10 +2220,12 @@ export default function TasksView({
               </div>
 
               {ganttData.tasks.map((task) => {
-                const startOffset = diffTimelineDays(ganttData.rangeStart, task.start);
-                const duration = Math.max(1, diffTimelineDays(task.start, task.end) + 1);
-                const leftPercent = (startOffset / ganttData.rangeDays) * 100;
-                const widthPercent = (duration / ganttData.rangeDays) * 100;
+                const { leftPercent, widthPercent } = buildTimelineBarLayout({
+                  rangeStart: ganttData.rangeStart,
+                  rangeDays: ganttData.rangeDays,
+                  start: task.start,
+                  end: task.end,
+                });
                 const barColor = getTaskStatusColor(task.status);
 
                 return (

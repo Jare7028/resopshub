@@ -104,3 +104,23 @@ export function buildTodayMarker(
   if (todayOffset < 0 || todayOffset > rangeDays - 1) return null;
   return { leftPercent: (todayOffset / rangeDays) * 100 };
 }
+
+export function buildTimelineBarLayout({
+  rangeStart,
+  rangeDays,
+  start,
+  end,
+}: {
+  rangeStart: Date;
+  rangeDays: number;
+  start: Date;
+  end: Date;
+}) {
+  const safeRangeDays = Math.max(1, rangeDays);
+  const startOffset = diffTimelineDays(rangeStart, start);
+  const duration = Math.max(1, diffTimelineDays(start, end) + 1);
+  return {
+    leftPercent: (startOffset / safeRangeDays) * 100,
+    widthPercent: (duration / safeRangeDays) * 100,
+  };
+}
