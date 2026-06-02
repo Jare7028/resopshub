@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
+import { getAdminAccess } from "@/lib/adminAccess";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 
@@ -26,24 +27,16 @@ function messagePath(userId: string, kind: "error" | "success", message: string)
 
 async function requireAdminActorForAction() {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email || "";
-
-  if (!authEmail) {
+  const adminAccess = await getAdminAccess(supabase, "admin.user_permissions.action.auth");
+  if (!adminAccess.ok && adminAccess.reason === "unauthenticated") {
     return { supabase, actorId: null as string | null, failurePath: "/login" };
   }
 
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-
-  if (currentUser?.role !== "admin") {
+  if (!adminAccess.ok) {
     return { supabase, actorId: null as string | null, failurePath: "/clients" };
   }
 
-  return { supabase, actorId: currentUser.id as string, failurePath: null as string | null };
+  return { supabase, actorId: adminAccess.profile.id, failurePath: null as string | null };
 }
 
 export default async function AdminUserPermissionsPage({
@@ -62,20 +55,12 @@ export default async function AdminUserPermissionsPage({
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email || "";
-
-  if (!authEmail) {
+  const adminAccess = await getAdminAccess(supabase, "admin.user_permissions.page.auth");
+  if (!adminAccess.ok && adminAccess.reason === "unauthenticated") {
     redirect("/login");
   }
 
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-
-  if (currentUser?.role !== "admin") {
+  if (!adminAccess.ok) {
     redirect("/clients");
   }
 

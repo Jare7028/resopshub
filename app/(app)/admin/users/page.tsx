@@ -1,6 +1,7 @@
 ﻿import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getAdminAccess } from "@/lib/adminAccess";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import AdminUsersTable from "./AdminUsersTable";
@@ -16,20 +17,12 @@ export default async function AdminUsersPage({
   const resolvedSearchParams = await searchParams;
   const adminEnabled = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
-
-  if (!authEmail) {
+  const adminAccess = await getAdminAccess(supabase, "admin.users.page.auth");
+  if (!adminAccess.ok && adminAccess.reason === "unauthenticated") {
     notFound();
   }
 
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-
-  if (currentUser?.role !== "admin") {
+  if (!adminAccess.ok) {
     redirect("/clients");
   }
 
@@ -54,16 +47,8 @@ export default async function AdminUsersPage({
     }
 
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email || "";
-
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", authEmail)
-      .maybeSingle();
-
-    if (currentUser?.role !== "admin") {
+    const adminAccess = await getAdminAccess(supabase, "admin.users.create.auth");
+    if (!adminAccess.ok) {
       redirect("/clients");
     }
 
@@ -207,7 +192,7 @@ export default async function AdminUsersPage({
           users={users || []}
           roleOptions={roleOptions}
           statusOptions={statusOptions}
-          currentUserId={currentUser?.id || ""}
+          currentUserId={adminAccess.profile.id}
         />
       </section>
     </div>

@@ -1,23 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getAdminAccess } from "@/lib/adminAccess";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function AdminPage() {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email || "";
-
-  if (!authEmail) {
+  const adminAccess = await getAdminAccess(supabase, "admin.page.auth");
+  if (!adminAccess.ok && adminAccess.reason === "unauthenticated") {
     redirect("/login");
   }
 
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-
-  if (currentUser?.role !== "admin") {
+  if (!adminAccess.ok) {
     redirect("/clients");
   }
 
