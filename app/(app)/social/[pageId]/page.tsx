@@ -15,208 +15,39 @@ import {
 } from "@/lib/assignmentGroups";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+import {
+  SOCIAL_POSTS_PAGE_SIZE,
+  SOCIAL_REACTION_OPTION_SET,
+  SOCIAL_REACTION_OPTIONS,
+  buildSocialDetailUrl,
+  normalizePostFilter,
+  normalizeRole,
+  normalizeSocialPanel,
+  parsePostImagesJson,
+  toAvatarUrl,
+  toDateTimeLabel,
+  toInitials,
+  toTime,
+  toUserLabel,
+  toViewerSummary,
+  type SocialCommentReactionRow,
+  type SocialPageMemberRow,
+  type SocialPageReadRow,
+  type SocialPageRow,
+  type SocialPostCommentRow,
+  type SocialPostFilter,
+  type SocialPostImageRow,
+  type SocialPostReactionRow,
+  type SocialPostRow,
+  type SocialPostViewRow,
+  type SocialUserRow,
+} from "@/lib/socialDetailUtils";
 import MentionText from "../../_components/MentionText";
 import MentionTextareaField from "../../_components/MentionTextareaField";
 import RouteModalOverlay from "../../_components/RouteModalOverlay";
 import SocialCommentComposer from "../_components/SocialCommentComposer";
 import SocialPostComposer from "../_components/SocialPostComposer";
 import SocialReadTracker from "../_components/SocialReadTracker";
-
-type SocialPageRow = {
-  id: string;
-  name: string;
-  description: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type SocialPageMemberRow = {
-  id: string;
-  page_id: string;
-  user_id: string;
-  role: "member" | "manager";
-  created_at: string;
-};
-
-type SocialPostRow = {
-  id: string;
-  page_id: string;
-  user_id: string;
-  body: string;
-  is_pinned: boolean;
-  pinned_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type SocialPostImageRow = {
-  id: string;
-  post_id: string;
-  storage_path: string;
-  url: string;
-  filename: string | null;
-  mime_type: string | null;
-  size_bytes: number | null;
-  position: number;
-};
-
-type SocialPostCommentRow = {
-  id: string;
-  post_id: string;
-  user_id: string;
-  body: string;
-  parent_comment_id: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type SocialPostViewRow = {
-  post_id: string;
-  user_id: string;
-  viewed_at: string;
-};
-
-type SocialPostReactionRow = {
-  post_id: string;
-  user_id: string;
-  emoji: string;
-  created_at: string;
-};
-
-type SocialCommentReactionRow = {
-  comment_id: string;
-  user_id: string;
-  emoji: string;
-  created_at: string;
-};
-
-type SocialPageReadRow = {
-  page_id: string;
-  user_id: string;
-  last_read_at: string;
-};
-
-type UserRow = {
-  id: string;
-  full_name: string | null;
-  email: string | null;
-  status: string | null;
-  avatar_url: string | null;
-};
-
-type PostImageInput = {
-  storage_path: string;
-  url: string;
-  filename: string;
-  mime_type: string;
-  size_bytes: number;
-};
-
-type SocialPostFilter = "all" | "pinned" | "mine" | "unread";
-type SocialDetailPanel = "none" | "compose" | "edit";
-
-const SOCIAL_REACTION_OPTIONS = ["👍", "❤️", "🎉", "🔥", "👏"] as const;
-const SOCIAL_POSTS_PAGE_SIZE = 20;
-const SOCIAL_REACTION_OPTION_SET = new Set<string>(SOCIAL_REACTION_OPTIONS);
-
-function parsePostImagesJson(raw: string): PostImageInput[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-
-  if (!Array.isArray(parsed)) return [];
-
-  const uniquePaths = new Set<string>();
-  const normalized = parsed
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const storagePath = String(row.storage_path || "").trim();
-      const url = String(row.url || "").trim();
-      if (!storagePath || !url) return null;
-
-      const filename = String(row.filename || "image").trim() || "image";
-      const mimeType = String(row.mime_type || "application/octet-stream").trim() || "application/octet-stream";
-      const sizeRaw = Number(row.size_bytes);
-      const sizeBytes = Number.isFinite(sizeRaw) && sizeRaw > 0 ? Math.round(sizeRaw) : 0;
-
-      return {
-        storage_path: storagePath,
-        url,
-        filename,
-        mime_type: mimeType,
-        size_bytes: sizeBytes,
-      } satisfies PostImageInput;
-    })
-    .filter((item): item is PostImageInput => Boolean(item))
-    .filter((item) => {
-      if (uniquePaths.has(item.storage_path)) return false;
-      uniquePaths.add(item.storage_path);
-      return true;
-    });
-
-  return normalized.slice(0, 6);
-}
-
-function toUserLabel(user: { full_name: string | null; email: string | null } | null | undefined) {
-  if (!user) return "Unknown user";
-  return user.full_name || user.email || "Unknown user";
-}
-
-function toInitials(label: string) {
-  const words = label
-    .split(/\s+/)
-    .map((word) => word.trim())
-    .filter(Boolean)
-    .slice(0, 2);
-
-  if (!words.length) return "NA";
-  return words.map((word) => word.charAt(0).toUpperCase()).join("");
-}
-
-function toAvatarUrl(user: { avatar_url: string | null } | null | undefined) {
-  return String(user?.avatar_url || "").trim();
-}
-
-function toDateTimeLabel(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Unknown";
-  return parsed.toLocaleString();
-}
-
-function toViewerSummary(viewerLabels: string[]) {
-  if (!viewerLabels.length) return "No views yet";
-  if (viewerLabels.length === 1) return `Seen by ${viewerLabels[0]}`;
-  if (viewerLabels.length === 2) return `Seen by ${viewerLabels[0]} and ${viewerLabels[1]}`;
-  return `Seen by ${viewerLabels[0]}, ${viewerLabels[1]} +${viewerLabels.length - 2}`;
-}
-
-function toTime(value: string | null | undefined) {
-  if (!value) return 0;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
-}
-
-function normalizePostFilter(value: string): SocialPostFilter {
-  if (value === "pinned") return "pinned";
-  if (value === "mine") return "mine";
-  if (value === "unread") return "unread";
-  return "all";
-}
-
-function normalizeRole(value: string): "member" | "manager" {
-  return value === "manager" ? "manager" : "member";
-}
-
-function normalizeSocialPanel(value: string): SocialDetailPanel {
-  if (value === "compose") return "compose";
-  if (value === "edit") return "edit";
-  return "none";
-}
 
 async function resolveActingUser(supabaseClient: ReturnType<typeof createSupabaseServerClient>) {
   const authUser = await getCurrentRequestUser(supabaseClient, "social.detail.actor.auth");
@@ -251,26 +82,6 @@ async function resolveActingUser(supabaseClient: ReturnType<typeof createSupabas
     authEmail: resolvedAuthEmail,
     userId: user.id,
   };
-}
-
-function buildSocialDetailUrl(
-  pageId: string,
-  extra?: { error?: string; success?: string },
-  options?: { q?: string; filter?: SocialPostFilter; p?: number; panel?: SocialDetailPanel | null }
-) {
-  const params = new URLSearchParams();
-  const q = String(options?.q || "").trim();
-  const filter = options?.filter || "all";
-  const page = Math.max(1, Number(options?.p || 1));
-  const panel = options?.panel && options.panel !== "none" ? options.panel : null;
-  if (q) params.set("q", q);
-  if (filter !== "all") params.set("filter", filter);
-  if (page > 1) params.set("p", String(page));
-  if (panel) params.set("panel", panel);
-  if (extra?.error) params.set("error", extra.error);
-  if (extra?.success) params.set("success", extra.success);
-  const query = params.toString();
-  return query ? `/social/${pageId}?${query}` : `/social/${pageId}`;
 }
 
 export default async function SocialPageDetail(props: {
@@ -488,20 +299,20 @@ export default async function SocialPageDetail(props: {
           .from("users")
           .select("id,full_name,email,status,avatar_url")
           .in("id", actorIds)
-      : Promise.resolve({ data: [] as UserRow[], error: null }),
+      : Promise.resolve({ data: [] as SocialUserRow[], error: null }),
     canManagePage
       ? supabase
           .from("users")
           .select("id,full_name,email,status,avatar_url")
           .eq("status", "active")
           .order("full_name", { ascending: true })
-      : Promise.resolve({ data: [] as UserRow[], error: null }),
+      : Promise.resolve({ data: [] as SocialUserRow[], error: null }),
   ]);
 
-  const participantUsers = (participantsResult.data || []) as UserRow[];
-  const allUsers = (allUsersResult.data || []) as UserRow[];
+  const participantUsers = (participantsResult.data || []) as SocialUserRow[];
+  const allUsers = (allUsersResult.data || []) as SocialUserRow[];
 
-  const userById = new Map<string, UserRow>();
+  const userById = new Map<string, SocialUserRow>();
   participantUsers.forEach((user) => userById.set(user.id, user));
   allUsers.forEach((user) => {
     if (!userById.has(user.id)) {
