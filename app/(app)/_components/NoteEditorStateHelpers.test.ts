@@ -1,6 +1,9 @@
 import type { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 import {
+  EMPTY_NOTE_EDITOR_REVIEW_STATS,
+  buildNoteEditorMetaTooltip,
+  buildNoteEditorReviewStats,
   findTrailingMissingImageNodePos,
   getActiveTableColumnType,
   getCurrentLineText,
@@ -18,6 +21,41 @@ function node(name: string, attrs: Record<string, unknown> = {}) {
 }
 
 describe("note editor state helpers", () => {
+  it("builds note editor meta tooltip text from saved labels", () => {
+    expect(
+      buildNoteEditorMetaTooltip({
+        lastEditedAtLabel: " 2 minutes ago ",
+        lastEditedByLabel: " Morgan ",
+      })
+    ).toBe("Last edited: 2 minutes ago\nEdited by: Morgan");
+    expect(
+      buildNoteEditorMetaTooltip({
+        lastEditedAtLabel: "",
+        lastEditedByLabel: "Alex",
+      })
+    ).toBe("Edited by: Alex");
+    expect(buildNoteEditorMetaTooltip({})).toBe("");
+  });
+
+  it("builds note editor review stats from plain text", () => {
+    expect(buildNoteEditorReviewStats(" \n\t ")).toBe(EMPTY_NOTE_EDITOR_REVIEW_STATS);
+    expect(
+      buildNoteEditorReviewStats(
+        "Hello @Morgan, check /tasks/01234567-89ab-4def-8123-456789abcdef and @alex."
+      )
+    ).toEqual({
+      words: 6,
+      readingMinutes: 1,
+      mentions: 2,
+      linkedTaskRefs: 1,
+    });
+    expect(buildNoteEditorReviewStats(Array.from({ length: 221 }, () => "word").join(" ")))
+      .toMatchObject({
+        words: 221,
+        readingMinutes: 2,
+      });
+  });
+
   it("detects the active table column type only inside supported table cells", () => {
     expect(getActiveTableColumnType(null)).toBe("text");
     expect(

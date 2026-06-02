@@ -20,6 +20,53 @@ export type CopiedFormatSnapshot = {
   highlight: boolean;
 };
 
+export type NoteEditorReviewStats = {
+  words: number;
+  readingMinutes: number;
+  mentions: number;
+  linkedTaskRefs: number;
+};
+
+export const EMPTY_NOTE_EDITOR_REVIEW_STATS: NoteEditorReviewStats = {
+  words: 0,
+  readingMinutes: 0,
+  mentions: 0,
+  linkedTaskRefs: 0,
+};
+
+export function buildNoteEditorMetaTooltip(params: {
+  lastEditedAtLabel?: string | null;
+  lastEditedByLabel?: string | null;
+}) {
+  const lastEditedAtLabel = String(params.lastEditedAtLabel || "").trim();
+  const lastEditedByLabel = String(params.lastEditedByLabel || "").trim();
+  if (!lastEditedAtLabel && !lastEditedByLabel) {
+    return "";
+  }
+  const parts: string[] = [];
+  if (lastEditedAtLabel) {
+    parts.push(`Last edited: ${lastEditedAtLabel}`);
+  }
+  if (lastEditedByLabel) {
+    parts.push(`Edited by: ${lastEditedByLabel}`);
+  }
+  return parts.join("\n");
+}
+
+export function buildNoteEditorReviewStats(rawText: string): NoteEditorReviewStats {
+  const plainText = normalizeInlineText(rawText);
+  if (!plainText) {
+    return EMPTY_NOTE_EDITOR_REVIEW_STATS;
+  }
+  const words = plainText.split(/\s+/).filter(Boolean).length;
+  return {
+    words,
+    readingMinutes: Math.max(1, Math.ceil(words / 220)),
+    mentions: (plainText.match(/@[a-z0-9._-]+/gi) || []).length,
+    linkedTaskRefs: (plainText.match(/\/tasks\/[a-f0-9-]+/gi) || []).length,
+  };
+}
+
 export function getActiveTableColumnType(
   editor: Editor | null | undefined
 ): NoteTableColumnType {

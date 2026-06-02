@@ -138,6 +138,9 @@ import {
   type WordTextAlign,
 } from "./NoteEditorRibbonPrimitives";
 import {
+  EMPTY_NOTE_EDITOR_REVIEW_STATS,
+  buildNoteEditorMetaTooltip,
+  buildNoteEditorReviewStats,
   findTrailingMissingImageNodePos,
   getActiveTableColumnType,
   getCurrentTextAlign,
@@ -4819,37 +4822,18 @@ export default function NoteEditorClient({
     return actions;
   }, [editor]);
 
-  const metaTooltip = useMemo(() => {
-    if (!lastEditedAtLabel && !lastEditedByLabel) {
-      return "";
-    }
-    const parts: string[] = [];
-    if (lastEditedAtLabel) {
-      parts.push(`Last edited: ${lastEditedAtLabel}`);
-    }
-    if (lastEditedByLabel) {
-      parts.push(`Edited by: ${lastEditedByLabel}`);
-    }
-    return parts.join("\n");
-  }, [lastEditedAtLabel, lastEditedByLabel]);
+  const metaTooltip = useMemo(
+    () => buildNoteEditorMetaTooltip({ lastEditedAtLabel, lastEditedByLabel }),
+    [lastEditedAtLabel, lastEditedByLabel]
+  );
 
   const selectedOverlayNode = editor ? resolveSelectedOverlayNode(editor) : null;
   const canLayoutOverlay = Boolean(selectedOverlayNode);
   const reviewStats = editor
-    ? (() => {
-        const plainText = normalizeInlineText(editor.state.doc.textBetween(0, editor.state.doc.content.size, " "));
-        const words = plainText ? plainText.split(/\s+/).filter(Boolean).length : 0;
-        const readingMinutes = words ? Math.max(1, Math.ceil(words / 220)) : 0;
-        const mentions = (plainText.match(/@[a-z0-9._-]+/gi) || []).length;
-        const linkedTaskRefs = (plainText.match(/\/tasks\/[a-f0-9-]+/gi) || []).length;
-        return {
-          words,
-          readingMinutes,
-          mentions,
-          linkedTaskRefs,
-        };
-      })()
-    : { words: 0, readingMinutes: 0, mentions: 0, linkedTaskRefs: 0 };
+    ? buildNoteEditorReviewStats(
+        editor.state.doc.textBetween(0, editor.state.doc.content.size, " ")
+      )
+    : EMPTY_NOTE_EDITOR_REVIEW_STATS;
   const outlineHeadings = editor
     ? (() => {
         const headings: Array<{ id: string; label: string; level: number }> = [];
