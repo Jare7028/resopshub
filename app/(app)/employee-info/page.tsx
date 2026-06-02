@@ -889,8 +889,8 @@ export default async function EmployeeInfoPage(props: {
   async function createRecord(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "employee_info.records.create.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
@@ -903,9 +903,9 @@ export default async function EmployeeInfoPage(props: {
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
-    const actorUserId = currentUser?.id || auth.user.id;
+    const actorUserId = currentUser?.id || actionUser.id;
     const actorIsAdmin = currentUser?.role === "admin";
     const visibilityRuleResult = await readVisibilityRuleForUser({
       supabase,
@@ -968,8 +968,8 @@ export default async function EmployeeInfoPage(props: {
   async function updateCell(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "employee_info.cells.update.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
     const recordId = String(formData.get("record_id") || "").trim();
@@ -986,9 +986,9 @@ export default async function EmployeeInfoPage(props: {
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
-    const actorUserId = currentUser?.id || auth.user.id;
+    const actorUserId = currentUser?.id || actionUser.id;
     const actorIsAdmin = currentUser?.role === "admin";
     const visibilityRuleResult = await readVisibilityRuleForUser({
       supabase,
@@ -1176,14 +1176,14 @@ export default async function EmployeeInfoPage(props: {
   async function createColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.create.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
@@ -1254,7 +1254,7 @@ export default async function EmployeeInfoPage(props: {
           ? { currency_code: currencyCode }
           : [],
       position: nextPosition,
-      created_by_user_id: currentUser?.id || auth.user.id,
+      created_by_user_id: currentUser?.id || actionUser.id,
     };
 
     const { error } = await supabase.from("employee_info_columns").insert(payload);
@@ -1268,15 +1268,15 @@ export default async function EmployeeInfoPage(props: {
   async function updateColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.update.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
@@ -1524,15 +1524,15 @@ export default async function EmployeeInfoPage(props: {
   async function deleteColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.delete.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
@@ -1562,15 +1562,15 @@ export default async function EmployeeInfoPage(props: {
   async function moveColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.move.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
@@ -1647,14 +1647,17 @@ export default async function EmployeeInfoPage(props: {
   async function updateVisibilityRule(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(
+      supabase,
+      "employee_info.visibility_rules.update.auth"
+    );
+    if (!actionUser?.id) {
       redirect("/login");
     }
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageVisibilityRules = currentUser?.role === "admin";
     const isAdminResult = await supabase.rpc("is_admin");
@@ -1744,7 +1747,7 @@ export default async function EmployeeInfoPage(props: {
         allowed_client_ids: allowedClientIds,
         role_column_id: roleColumnId,
         allowed_role_values: allowedRoleValues,
-        created_by_user_id: currentUser?.id || auth.user.id,
+        created_by_user_id: currentUser?.id || actionUser.id,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" }
@@ -1769,14 +1772,17 @@ export default async function EmployeeInfoPage(props: {
   async function clearVisibilityRule(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(
+      supabase,
+      "employee_info.visibility_rules.clear.auth"
+    );
+    if (!actionUser?.id) {
       redirect("/login");
     }
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageVisibilityRules = currentUser?.role === "admin";
     const isAdminResult = await supabase.rpc("is_admin");
