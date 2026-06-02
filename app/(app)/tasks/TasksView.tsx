@@ -79,6 +79,18 @@ import {
   normalizeTaskStatusKey,
   shouldHideHiddenTaskStatuses,
 } from "./taskViewModel";
+import {
+  TASK_NOTES_HOVER_CLOSE_DELAY_MS,
+  TASK_NOTES_HOVER_OPEN_DELAY_MS,
+  buildTaskPaginationSummary,
+  computeAnchoredPanelPosition,
+  computeTaskNotesHoverPosition,
+  getTaskHeaderMenuPanelWidth,
+  type HeaderMenuKey,
+  type TaskHoverAnchor,
+  type TaskNotesHoverPayload,
+  type TaskNotesHoverState,
+} from "./taskViewUi";
 
 type UserOption = {
   id: string;
@@ -181,33 +193,7 @@ type TasksViewProps = {
   onQuickCreate?: (formData: FormData) => Promise<QuickCreateTaskResult>;
 };
 
-type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
-
-type TaskHoverAnchor = {
-  left: number;
-  bottom: number;
-};
-
-type TaskNotesHoverState = {
-  open: boolean;
-  taskId: string | null;
-  x: number;
-  y: number;
-  loading: boolean;
-  error: string;
-  notesPreview: string | null;
-};
-
-type TaskNotesHoverPayload = {
-  notesPreview: string | null;
-};
-
 type QuickCreateTaskSuccess = Extract<QuickCreateTaskResult, { ok: true }>;
-
-const TASK_NOTES_HOVER_OPEN_DELAY_MS = 120;
-const TASK_NOTES_HOVER_CLOSE_DELAY_MS = 120;
-const TASK_NOTES_HOVER_WIDTH = 320;
-const TASK_NOTES_HOVER_HEIGHT = 220;
 
 export default function TasksView({
   tasks,
@@ -541,8 +527,6 @@ export default function TasksView({
       return;
     }
 
-    const getMenuPanelWidth = (menuKey: HeaderMenuKey) => (menuKey === "due" ? 256 : 288);
-
     const closeOpenMenu = () => {
       setOpenMenu(null);
       setOpenMenuPosition(null);
@@ -552,14 +536,13 @@ export default function TasksView({
     const syncOpenMenuPosition = () => {
       if (!openMenuAnchorRef.current || typeof window === "undefined") return;
       const rect = openMenuAnchorRef.current.getBoundingClientRect();
-      const panelWidth = getMenuPanelWidth(openMenu);
-      const viewportPadding = 8;
-      const left = Math.min(
-        Math.max(viewportPadding, rect.right - panelWidth),
-        Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+      setOpenMenuPosition(
+        computeAnchoredPanelPosition({
+          rect,
+          panelWidth: getTaskHeaderMenuPanelWidth(openMenu),
+          viewportWidth: window.innerWidth,
+        })
       );
-      const top = Math.max(viewportPadding, rect.bottom + 8);
-      setOpenMenuPosition({ left, top });
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -660,15 +643,16 @@ export default function TasksView({
     if (typeof window === "undefined") {
       return;
     }
-    const nextX = Math.max(
-      12,
-      Math.min(window.innerWidth - TASK_NOTES_HOVER_WIDTH - 12, Math.round(anchor.left))
-    );
-    const nextY = Math.max(
-      12,
-      Math.min(window.innerHeight - TASK_NOTES_HOVER_HEIGHT - 12, Math.round(anchor.bottom + 8))
-    );
-    setTaskNotesHover((prev) => ({ ...prev, x: nextX, y: nextY }));
+    const nextPosition = computeTaskNotesHoverPosition({
+      anchor,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    });
+    setTaskNotesHover((prev) => ({
+      ...prev,
+      x: nextPosition.x,
+      y: nextPosition.y,
+    }));
   }, []);
 
   const fetchTaskNotesHoverData = useCallback((taskId: string) => {
@@ -1310,25 +1294,17 @@ export default function TasksView({
     return usersById[userIds[0]] || "Assigned";
   };
 
-  const getMenuPanelWidth = useCallback(
-    (menuKey: HeaderMenuKey) => (menuKey === "due" ? 256 : 288),
-    []
-  );
-
   const computeHeaderMenuPosition = useCallback(
     (trigger: HTMLElement, menuKey: HeaderMenuKey) => {
       if (typeof window === "undefined") return null;
       const rect = trigger.getBoundingClientRect();
-      const panelWidth = getMenuPanelWidth(menuKey);
-      const viewportPadding = 8;
-      const left = Math.min(
-        Math.max(viewportPadding, rect.right - panelWidth),
-        Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
-      );
-      const top = Math.max(viewportPadding, rect.bottom + 8);
-      return { left, top };
+      return computeAnchoredPanelPosition({
+        rect,
+        panelWidth: getTaskHeaderMenuPanelWidth(menuKey),
+        viewportWidth: window.innerWidth,
+      });
     },
-    [getMenuPanelWidth]
+    []
   );
 
   const toggleHeaderMenu = useCallback(
@@ -1349,17 +1325,19 @@ export default function TasksView({
   const tableColSpan = taskTableColumnIds.reduce((count, columnId) => {
     return isTaskColumnVisible(columnId) ? count + 1 : count;
   }, 0);
-  const normalizedPage = Math.max(1, currentPage);
-  const normalizedPageSize = Math.max(1, pageSize);
-  const normalizedTotalCount = Math.max(0, totalTaskCount + locallyVisibleQuickTaskCount);
-  const showingFrom = normalizedTotalCount
-    ? (normalizedPage - 1) * normalizedPageSize + 1
-    : 0;
-  const showingTo = normalizedTotalCount
-    ? Math.min(normalizedPage * normalizedPageSize, normalizedTotalCount)
-    : 0;
-  const hasPreviousPage = normalizedPage > 1;
-  const hasNextPage = showingTo < normalizedTotalCount;
+  const {
+    normalizedPage,
+    normalizedTotalCount,
+    showingFrom,
+    showingTo,
+    hasPreviousPage,
+    hasNextPage,
+  } = buildTaskPaginationSummary({
+    currentPage,
+    pageSize,
+    totalTaskCount,
+    locallyVisibleQuickTaskCount,
+  });
   const buildPageUrl = (page: number) => {
     const query = buildQuery(
       filters,
