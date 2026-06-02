@@ -26,7 +26,6 @@ import {
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
 import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
-import { defaultStatusColorHex } from "@/lib/statusOptions";
 import {
   statusBarStyle,
   statusDotStyle,
@@ -48,9 +47,7 @@ import {
   FilterMenuSingle,
 } from "../_components/TableHeaderFilters";
 import MultiSelect from "../_components/MultiSelect";
-import TableColumnConfigButton, {
-  type TableColumnOption,
-} from "../_components/TableColumnConfigButton";
+import TableColumnConfigButton from "../_components/TableColumnConfigButton";
 import {
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
@@ -82,10 +79,16 @@ import {
 import {
   TASK_NOTES_HOVER_CLOSE_DELAY_MS,
   TASK_NOTES_HOVER_OPEN_DELAY_MS,
+  buildTaskEntityNameLookup,
   buildTaskPaginationSummary,
+  buildTaskStatusColorLookup,
+  buildTaskTableColumns,
+  buildTaskUserNameLookup,
   computeAnchoredPanelPosition,
   computeTaskNotesHoverPosition,
+  getTaskAssigneeLabel,
   getTaskHeaderMenuPanelWidth,
+  resolveTaskStatusColor,
   type HeaderMenuKey,
   type TaskHoverAnchor,
   type TaskNotesHoverPayload,
@@ -322,41 +325,19 @@ export default function TasksView({
   const enableTaskNotesHover = basePath === "/tasks" && view === "table";
   const supportsNextSubtaskDueDateColumn = basePath === "/tasks";
   const showNextSubtaskDueDateColumn = supportsNextSubtaskDueDateColumn && view === "table";
-  const taskStatusColorLookup = useMemo(() => {
-    const lookup: Record<string, string> = {};
-    statusOptions.forEach((status) => {
-      const normalized = normalizeTaskStatusKey(status);
-      lookup[normalized] =
-        statusColorMap[normalized] ||
-        statusColorMap[status] ||
-        defaultStatusColorHex("task", normalized);
-    });
-    return lookup;
-  }, [statusColorMap, statusOptions]);
+  const taskStatusColorLookup = useMemo(
+    () => buildTaskStatusColorLookup({ statusOptions, statusColorMap }),
+    [statusColorMap, statusOptions]
+  );
 
   const getTaskStatusColor = useCallback(
     (status: string | null | undefined) => {
-      const normalized = normalizeTaskStatusKey(status);
-      if (!normalized) return defaultStatusColorHex("task", "");
-      return taskStatusColorLookup[normalized] || defaultStatusColorHex("task", normalized);
+      return resolveTaskStatusColor(status, taskStatusColorLookup);
     },
     [taskStatusColorLookup]
   );
-  const taskTableColumns = useMemo<TableColumnOption[]>(
-    () => [
-      { id: "task", label: "Task", required: true },
-      { id: "open_subtasks", label: "Open subtasks" },
-      { id: "client", label: "Client" },
-      { id: "project", label: "Project" },
-      { id: "status", label: "Status" },
-      { id: "priority", label: "Priority" },
-      { id: "assignees", label: "Assignees" },
-      { id: "start", label: "Start" },
-      ...(supportsNextSubtaskDueDateColumn
-        ? [{ id: "next_subtask_due", label: "Next subtask due" }]
-        : []),
-      { id: "due", label: "Due" },
-    ],
+  const taskTableColumns = useMemo(
+    () => buildTaskTableColumns({ supportsNextSubtaskDueDateColumn }),
     [supportsNextSubtaskDueDateColumn]
   );
   const taskTableColumnIds = useMemo(
@@ -392,29 +373,17 @@ export default function TasksView({
   }, [basePath, filterPersistenceScope, filterPersistenceUserId]);
 
   const usersById = useMemo(
-    () =>
-      users.reduce<Record<string, string>>((acc, user) => {
-        acc[user.id] = user.full_name || user.email || "Unknown user";
-        return acc;
-      }, {}),
+    () => buildTaskUserNameLookup(users),
     [users]
   );
 
   const clientNameById = useMemo(
-    () =>
-      clients.reduce<Record<string, string>>((acc, client) => {
-        acc[client.id] = client.name;
-        return acc;
-      }, {}),
+    () => buildTaskEntityNameLookup(clients),
     [clients]
   );
 
   const projectNameById = useMemo(
-    () =>
-      projects.reduce<Record<string, string>>((acc, project) => {
-        acc[project.id] = project.name;
-        return acc;
-      }, {}),
+    () => buildTaskEntityNameLookup(projects),
     [projects]
   );
 
@@ -1284,15 +1253,10 @@ export default function TasksView({
     }
   };
 
-  const getAssigneeLabel = (userIds: string[]) => {
-    if (!userIds.length) {
-      return "Unassigned";
-    }
-    if (userIds.length > 1) {
-      return `${usersById[userIds[0]] || "Assigned"} +${userIds.length - 1}`;
-    }
-    return usersById[userIds[0]] || "Assigned";
-  };
+  const getAssigneeLabel = useCallback(
+    (userIds: string[]) => getTaskAssigneeLabel(userIds, usersById),
+    [usersById]
+  );
 
   const computeHeaderMenuPosition = useCallback(
     (trigger: HTMLElement, menuKey: HeaderMenuKey) => {

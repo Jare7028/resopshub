@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildTaskEntityNameLookup,
   buildTaskPaginationSummary,
+  buildTaskStatusColorLookup,
+  buildTaskTableColumns,
+  buildTaskUserNameLookup,
   computeAnchoredPanelPosition,
   computeTaskNotesHoverPosition,
+  getTaskAssigneeLabel,
   getTaskHeaderMenuPanelWidth,
+  resolveTaskStatusColor,
 } from "./taskViewUi";
 
 describe("task view UI helpers", () => {
@@ -111,5 +117,68 @@ describe("task view UI helpers", () => {
       hasPreviousPage: true,
       hasNextPage: false,
     });
+  });
+
+  it("builds status color lookups with custom and fallback colors", () => {
+    const lookup = buildTaskStatusColorLookup({
+      statusOptions: ["To Do", "Custom Status"],
+      statusColorMap: {
+        to_do: "#111111",
+        "Custom Status": "#222222",
+      },
+    });
+
+    expect(resolveTaskStatusColor("to_do", lookup)).toBe("#111111");
+    expect(resolveTaskStatusColor("Custom Status", lookup)).toBe("#222222");
+    expect(resolveTaskStatusColor("Missing", lookup)).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(resolveTaskStatusColor(null, lookup)).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+
+  it("builds task label lookups and assignee summaries", () => {
+    const usersById = buildTaskUserNameLookup([
+      { id: "u1", full_name: "Ada Lovelace", email: "ada@example.com" },
+      { id: "u2", full_name: null, email: "grace@example.com" },
+      { id: "u3", full_name: null, email: null },
+    ]);
+
+    expect(usersById).toEqual({
+      u1: "Ada Lovelace",
+      u2: "grace@example.com",
+      u3: "Unknown user",
+    });
+    expect(buildTaskEntityNameLookup([{ id: "c1", name: "Acme" }])).toEqual({
+      c1: "Acme",
+    });
+    expect(getTaskAssigneeLabel([], usersById)).toBe("Unassigned");
+    expect(getTaskAssigneeLabel(["u1"], usersById)).toBe("Ada Lovelace");
+    expect(getTaskAssigneeLabel(["missing"], usersById)).toBe("Assigned");
+    expect(getTaskAssigneeLabel(["u2", "u1"], usersById)).toBe("grace@example.com +1");
+  });
+
+  it("builds table columns with optional next-subtask due support", () => {
+    expect(
+      buildTaskTableColumns({ supportsNextSubtaskDueDateColumn: false }).map(
+        (column) => column.id
+      )
+    ).toEqual([
+      "task",
+      "open_subtasks",
+      "client",
+      "project",
+      "status",
+      "priority",
+      "assignees",
+      "start",
+      "due",
+    ]);
+
+    expect(
+      buildTaskTableColumns({ supportsNextSubtaskDueDateColumn: true }).map(
+        (column) => column.id
+      )
+    ).toContain("next_subtask_due");
+    expect(
+      buildTaskTableColumns({ supportsNextSubtaskDueDateColumn: true })[0]
+    ).toEqual({ id: "task", label: "Task", required: true });
   });
 });

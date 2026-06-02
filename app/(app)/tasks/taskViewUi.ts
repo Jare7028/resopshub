@@ -1,3 +1,7 @@
+import { defaultStatusColorHex } from "@/lib/statusOptions";
+import type { TaskTableColumnId } from "./taskTableViewState";
+import { normalizeTaskStatusKey } from "./taskViewModel";
+
 export type HeaderMenuKey =
   "client"
   | "project"
@@ -5,6 +9,23 @@ export type HeaderMenuKey =
   | "priority"
   | "assignees"
   | "due";
+
+export type TaskTableColumnOption = {
+  id: TaskTableColumnId;
+  label: string;
+  required?: boolean;
+};
+
+export type TaskUserLabelRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
+export type TaskEntityNameRow = {
+  id: string;
+  name: string;
+};
 
 export type TaskHoverAnchor = {
   left: number;
@@ -37,6 +58,83 @@ type AnchorRect = {
 
 export function getTaskHeaderMenuPanelWidth(menuKey: HeaderMenuKey) {
   return menuKey === "due" ? 256 : 288;
+}
+
+export function buildTaskStatusColorLookup({
+  statusOptions,
+  statusColorMap = {},
+}: {
+  statusOptions: readonly string[];
+  statusColorMap?: Record<string, string>;
+}) {
+  const lookup: Record<string, string> = {};
+
+  statusOptions.forEach((status) => {
+    const normalized = normalizeTaskStatusKey(status);
+    lookup[normalized] =
+      statusColorMap[normalized] ||
+      statusColorMap[status] ||
+      defaultStatusColorHex("task", normalized);
+  });
+
+  return lookup;
+}
+
+export function resolveTaskStatusColor(
+  status: string | null | undefined,
+  lookup: Record<string, string>
+) {
+  const normalized = normalizeTaskStatusKey(status);
+  if (!normalized) return defaultStatusColorHex("task", "");
+  return lookup[normalized] || defaultStatusColorHex("task", normalized);
+}
+
+export function buildTaskUserNameLookup(users: readonly TaskUserLabelRow[]) {
+  return users.reduce<Record<string, string>>((acc, user) => {
+    acc[user.id] = user.full_name || user.email || "Unknown user";
+    return acc;
+  }, {});
+}
+
+export function buildTaskEntityNameLookup(rows: readonly TaskEntityNameRow[]) {
+  return rows.reduce<Record<string, string>>((acc, row) => {
+    acc[row.id] = row.name;
+    return acc;
+  }, {});
+}
+
+export function getTaskAssigneeLabel(
+  userIds: readonly string[],
+  usersById: Record<string, string>
+) {
+  if (!userIds.length) {
+    return "Unassigned";
+  }
+  if (userIds.length > 1) {
+    return `${usersById[userIds[0]] || "Assigned"} +${userIds.length - 1}`;
+  }
+  return usersById[userIds[0]] || "Assigned";
+}
+
+export function buildTaskTableColumns({
+  supportsNextSubtaskDueDateColumn,
+}: {
+  supportsNextSubtaskDueDateColumn: boolean;
+}): TaskTableColumnOption[] {
+  return [
+    { id: "task", label: "Task", required: true },
+    { id: "open_subtasks", label: "Open subtasks" },
+    { id: "client", label: "Client" },
+    { id: "project", label: "Project" },
+    { id: "status", label: "Status" },
+    { id: "priority", label: "Priority" },
+    { id: "assignees", label: "Assignees" },
+    { id: "start", label: "Start" },
+    ...(supportsNextSubtaskDueDateColumn
+      ? ([{ id: "next_subtask_due", label: "Next subtask due" }] as const)
+      : []),
+    { id: "due", label: "Due" },
+  ];
 }
 
 export function computeAnchoredPanelPosition({
