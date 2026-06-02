@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   compareSortableValues,
+  countActiveEditableTableFilters,
+  filterAndSortEditableTableRecords,
   formatOptionsInput,
   getCellFieldClassName,
   getCellToneClass,
@@ -138,5 +140,108 @@ describe("employeeInfoTableUtils", () => {
     expect(compareSortableValues("Beta", "alpha", "desc")).toBeLessThan(0);
     expect(compareSortableValues(2, 10, "asc")).toBeLessThan(0);
     expect(compareSortableValues(2, 10, "desc")).toBeGreaterThan(0);
+  });
+
+  it("counts active editable-table filters", () => {
+    expect(
+      countActiveEditableTableFilters({
+        fullNameFilter: " Ana ",
+        clientFilters: ["client-1"],
+        columnTextFilters: { col_1: " value ", col_2: "" },
+        columnOptionFilters: { col_3: ["A"], col_4: [] },
+      })
+    ).toBe(4);
+  });
+
+  it("filters and sorts editable-table records through visible columns", () => {
+    const records = [
+      { id: "record-3", full_name: "Zoe", client_id: "client-2" },
+      { id: "record-2", full_name: "Ana", client_id: null },
+      { id: "record-1", full_name: "Ana", client_id: "client-1" },
+    ];
+    const columns = [
+      { id: "role", kind: "text" },
+      { id: "score", kind: "number" },
+      { id: "hidden", kind: "text" },
+    ];
+    const valuesByRecordId: Record<
+      string,
+      Record<string, { option_value?: string | null; text_value?: string | null }>
+    > = {
+      "record-1": {
+        role: { option_value: "Lead", text_value: "Support lead" },
+        score: { option_value: null, text_value: "20" },
+        hidden: { option_value: null, text_value: "secret" },
+      },
+      "record-2": {
+        role: { option_value: "", text_value: "Support agent" },
+        score: { option_value: null, text_value: "10" },
+        hidden: { option_value: null, text_value: "secret" },
+      },
+      "record-3": {
+        role: { option_value: "Lead", text_value: "Operations lead" },
+        score: { option_value: null, text_value: "30" },
+        hidden: { option_value: null, text_value: "secret" },
+      },
+    };
+
+    const filtered = filterAndSortEditableTableRecords({
+      records,
+      columns,
+      visibleColumns: columns.filter((column) => column.id !== "hidden"),
+      valuesByRecordId,
+      fullNameFilter: "",
+      clientFilters: ["client-1", "__none__"],
+      columnTextFilters: { role: "support", hidden: "secret" },
+      columnOptionFilters: { role: ["Lead", "__none__"] },
+      clientNameById: { "client-1": "Beta", "client-2": "Alpha" },
+      sortKey: "column:score",
+      sortDir: "desc",
+      noneFilterValue: "__none__",
+      getColumnTextValue(record, column) {
+        return valuesByRecordId[record.id]?.[column.id]?.text_value || "";
+      },
+      getColumnSortValue(record, column) {
+        if (column.id === "score") {
+          return parseSortableNumber(valuesByRecordId[record.id]?.[column.id]?.text_value);
+        }
+        return valuesByRecordId[record.id]?.[column.id]?.text_value || null;
+      },
+    });
+
+    expect(filtered.map((record) => record.id)).toEqual(["record-1", "record-2"]);
+  });
+
+  it("uses name and ID tie-breakers when editable-table sort values match", () => {
+    const records = [
+      { id: "record-2", full_name: "Ana", client_id: "client-1" },
+      { id: "record-1", full_name: "Ana", client_id: "client-1" },
+      { id: "record-3", full_name: "Bea", client_id: "client-1" },
+    ];
+
+    const sorted = filterAndSortEditableTableRecords({
+      records,
+      columns: [{ id: "score" }],
+      visibleColumns: [{ id: "score" }],
+      valuesByRecordId: {
+        "record-1": { score: { text_value: "5" } },
+        "record-2": { score: { text_value: "5" } },
+        "record-3": { score: { text_value: "5" } },
+      },
+      fullNameFilter: "",
+      columnTextFilters: {},
+      columnOptionFilters: {},
+      sortKey: "column:score",
+      sortDir: "asc",
+      noneFilterValue: "__none__",
+      getColumnTextValue() {
+        return "";
+      },
+      getColumnSortValue() {
+        return 5;
+      },
+    });
+
+    expect(sorted.map((record) => record.id)).toEqual(["record-1", "record-2", "record-3"]);
   });
 });

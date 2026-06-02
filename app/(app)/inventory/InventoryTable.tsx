@@ -40,7 +40,8 @@ import {
   type EmployeeInfoFormulaCurrencyMode,
 } from "@/lib/employeeInfo";
 import {
-  compareSortableValues,
+  countActiveEditableTableFilters,
+  filterAndSortEditableTableRecords,
   formatOptionsInput,
   getCellFieldClassName,
   getCellToneClass,
@@ -58,6 +59,7 @@ import {
   shouldHighlightEmptyStateForColumn,
   syncEditableCellHighlight,
   toDateInputValue,
+  type EditableTableSortKey,
   type EditableTableInteractionConfig,
   type EmployeeInfoTableSortDir,
 } from "@/lib/employeeInfoTableUtils";
@@ -97,7 +99,7 @@ type EmployeeInfoValueRow = {
 };
 type EmployeeInfoActionResult = { ok: boolean; error?: string };
 type EmployeeInfoSortDir = EmployeeInfoTableSortDir;
-type EmployeeInfoSortKey = "full_name" | "client" | `column:${string}`;
+type EmployeeInfoSortKey = EditableTableSortKey;
 type InventoryDropdownSource = "custom" | "employee_names" | "clients";
 type RowContextMenuState = {
   recordId: string;
@@ -1305,90 +1307,29 @@ export default function InventoryTable({
   };
 
   const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (fullNameFilter.trim()) count += 1;
-    count += Object.values(columnTextFilters).filter((value) => String(value || "").trim()).length;
-    count += Object.values(columnOptionFilters).filter((values) => values.length > 0).length;
-    return count;
+    return countActiveEditableTableFilters({
+      fullNameFilter,
+      columnTextFilters,
+      columnOptionFilters,
+    });
   }, [columnOptionFilters, columnTextFilters, fullNameFilter]);
 
   const filteredAndSortedRecords = useMemo(() => {
-    const normalizedFullNameFilter = fullNameFilter.trim().toLowerCase();
-    const visibleColumnById = new Map(visibleColumns.map((column) => [column.id, column]));
-    const columnTextFilterEntries = Object.entries(columnTextFilters).filter(([columnId, value]) => {
-      return visibleColumnById.has(columnId) && Boolean(String(value || "").trim());
+    return filterAndSortEditableTableRecords({
+      records,
+      columns,
+      visibleColumns,
+      valuesByRecordId,
+      fullNameFilter,
+      columnTextFilters,
+      columnOptionFilters,
+      clientNameById,
+      sortKey,
+      sortDir,
+      noneFilterValue: NONE_FILTER_VALUE,
+      getColumnTextValue,
+      getColumnSortValue,
     });
-    const columnOptionFilterEntries = Object.entries(columnOptionFilters).filter(
-      ([columnId, values]) => visibleColumnById.has(columnId) && values.length > 0
-    );
-
-    const next = records.filter((record) => {
-      if (
-        normalizedFullNameFilter &&
-        !String(record.full_name || "").toLowerCase().includes(normalizedFullNameFilter)
-      ) {
-        return false;
-      }
-
-      for (const [columnId, values] of columnOptionFilterEntries) {
-        const column = visibleColumnById.get(columnId);
-        if (!column) continue;
-        const valueRow = valuesByRecordId[record.id]?.[column.id];
-        const optionValue = String(valueRow?.option_value || "").trim() || NONE_FILTER_VALUE;
-        if (!values.includes(optionValue)) {
-          return false;
-        }
-      }
-
-      for (const [columnId, filterValue] of columnTextFilterEntries) {
-        const column = visibleColumnById.get(columnId);
-        if (!column) continue;
-        const cellText = getColumnTextValue(record, column).toLowerCase();
-        if (!cellText.includes(String(filterValue || "").trim().toLowerCase())) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    next.sort((left, right) => {
-      const leftValue =
-        sortKey === "full_name"
-          ? String(left.full_name || "").trim().toLowerCase()
-          : sortKey === "client"
-          ? String(left.client_id ? clientNameById[left.client_id] || "" : "").trim().toLowerCase()
-          : (() => {
-              const columnId = sortKey.slice("column:".length);
-              const column = columns.find((item) => item.id === columnId);
-              return column ? getColumnSortValue(left, column) : null;
-            })();
-
-      const rightValue =
-        sortKey === "full_name"
-          ? String(right.full_name || "").trim().toLowerCase()
-          : sortKey === "client"
-          ? String(right.client_id ? clientNameById[right.client_id] || "" : "").trim().toLowerCase()
-          : (() => {
-              const columnId = sortKey.slice("column:".length);
-              const column = columns.find((item) => item.id === columnId);
-              return column ? getColumnSortValue(right, column) : null;
-            })();
-
-      const primary = compareSortableValues(leftValue, rightValue, sortDir);
-      if (primary !== 0) return primary;
-
-      const secondary = compareSortableValues(
-        String(left.full_name || "").trim().toLowerCase(),
-        String(right.full_name || "").trim().toLowerCase(),
-        "asc"
-      );
-      if (secondary !== 0) return secondary;
-
-      return compareSortableValues(left.id, right.id, "asc");
-    });
-
-    return next;
   }, [
     clientNameById,
     columnOptionFilters,

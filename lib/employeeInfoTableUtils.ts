@@ -1,8 +1,48 @@
 export type EmployeeInfoTableSortDir = "asc" | "desc";
+export type EditableTableSortKey = "full_name" | "client" | `column:${string}`;
 
 type EmployeeInfoColumnIdentity = {
   key: string | null | undefined;
   label: string | null | undefined;
+};
+
+export type EditableTableRecordIdentity = {
+  id: string;
+  full_name: string | null | undefined;
+  client_id?: string | null | undefined;
+};
+
+export type EditableTableColumnIdentity = {
+  id: string;
+};
+
+export type EditableTableCellValue = {
+  option_value?: string | null | undefined;
+  text_value?: string | null | undefined;
+};
+
+export type EditableTableFiltersInput = {
+  fullNameFilter: string;
+  clientFilters?: readonly string[];
+  columnTextFilters: Record<string, string>;
+  columnOptionFilters: Record<string, string[]>;
+};
+
+type FilterAndSortEditableTableRecordsInput<
+  TRecord extends EditableTableRecordIdentity,
+  TColumn extends EditableTableColumnIdentity,
+  TValue extends EditableTableCellValue,
+> = EditableTableFiltersInput & {
+  records: readonly TRecord[];
+  columns: readonly TColumn[];
+  visibleColumns: readonly TColumn[];
+  valuesByRecordId: Record<string, Record<string, TValue | undefined> | undefined>;
+  clientNameById?: Record<string, string | undefined>;
+  sortKey: EditableTableSortKey;
+  sortDir: EmployeeInfoTableSortDir;
+  noneFilterValue: string;
+  getColumnTextValue: (record: TRecord, column: TColumn) => string;
+  getColumnSortValue: (record: TRecord, column: TColumn) => string | number | null;
 };
 
 export function parseOptionsJson(value: unknown) {
@@ -181,6 +221,123 @@ export function isEditableMenuInteractionTarget(
 ) {
   if (!target) return false;
   return Boolean(target.closest(getEditableMenuInteractionSelector(config)));
+}
+
+export function countActiveEditableTableFilters({
+  fullNameFilter,
+  clientFilters = [],
+  columnTextFilters,
+  columnOptionFilters,
+}: EditableTableFiltersInput) {
+  let count = 0;
+  if (fullNameFilter.trim()) count += 1;
+  if (clientFilters.length) count += 1;
+  count += Object.values(columnTextFilters).filter((value) => String(value || "").trim()).length;
+  count += Object.values(columnOptionFilters).filter((values) => values.length > 0).length;
+  return count;
+}
+
+export function filterAndSortEditableTableRecords<
+  TRecord extends EditableTableRecordIdentity,
+  TColumn extends EditableTableColumnIdentity,
+  TValue extends EditableTableCellValue,
+>({
+  records,
+  columns,
+  visibleColumns,
+  valuesByRecordId,
+  fullNameFilter,
+  clientFilters = [],
+  columnTextFilters,
+  columnOptionFilters,
+  clientNameById = {},
+  sortKey,
+  sortDir,
+  noneFilterValue,
+  getColumnTextValue,
+  getColumnSortValue,
+}: FilterAndSortEditableTableRecordsInput<TRecord, TColumn, TValue>) {
+  const normalizedFullNameFilter = fullNameFilter.trim().toLowerCase();
+  const selectedClientSet = new Set(clientFilters);
+  const columnById = new Map(columns.map((column) => [column.id, column]));
+  const visibleColumnById = new Map(visibleColumns.map((column) => [column.id, column]));
+  const columnTextFilterEntries = Object.entries(columnTextFilters).filter(
+    ([columnId, value]) => visibleColumnById.has(columnId) && Boolean(String(value || "").trim())
+  );
+  const columnOptionFilterEntries = Object.entries(columnOptionFilters).filter(
+    ([columnId, values]) => visibleColumnById.has(columnId) && values.length > 0
+  );
+
+  const next = records.filter((record) => {
+    if (
+      normalizedFullNameFilter &&
+      !String(record.full_name || "").toLowerCase().includes(normalizedFullNameFilter)
+    ) {
+      return false;
+    }
+
+    if (selectedClientSet.size > 0) {
+      const clientValue = record.client_id || noneFilterValue;
+      if (!selectedClientSet.has(clientValue)) {
+        return false;
+      }
+    }
+
+    for (const [columnId, values] of columnOptionFilterEntries) {
+      const column = visibleColumnById.get(columnId);
+      if (!column) continue;
+      const valueRow = valuesByRecordId[record.id]?.[column.id];
+      const optionValue = String(valueRow?.option_value || "").trim() || noneFilterValue;
+      if (!values.includes(optionValue)) {
+        return false;
+      }
+    }
+
+    for (const [columnId, filterValue] of columnTextFilterEntries) {
+      const column = visibleColumnById.get(columnId);
+      if (!column) continue;
+      const cellText = getColumnTextValue(record, column).toLowerCase();
+      if (!cellText.includes(String(filterValue || "").trim().toLowerCase())) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  next.sort((left, right) => {
+    const getRecordSortValue = (record: TRecord) => {
+      if (sortKey === "full_name") {
+        return String(record.full_name || "").trim().toLowerCase();
+      }
+      if (sortKey === "client") {
+        return String(record.client_id ? clientNameById[record.client_id] || "" : "")
+          .trim()
+          .toLowerCase();
+      }
+      const columnId = sortKey.slice("column:".length);
+      const column = columnById.get(columnId);
+      return column ? getColumnSortValue(record, column) : null;
+    };
+
+    const primary = compareSortableValues(
+      getRecordSortValue(left),
+      getRecordSortValue(right),
+      sortDir
+    );
+    if (primary !== 0) return primary;
+
+    const secondary = compareSortableValues(
+      String(left.full_name || "").trim().toLowerCase(),
+      String(right.full_name || "").trim().toLowerCase(),
+      "asc"
+    );
+    if (secondary !== 0) return secondary;
+
+    return compareSortableValues(left.id, right.id, "asc");
+  });
+
+  return next;
 }
 
 export function parseSortableNumber(value: string | null | undefined) {
