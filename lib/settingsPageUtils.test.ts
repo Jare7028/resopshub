@@ -5,10 +5,12 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsNotificationPrefs,
   buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
   buildSettingsStatusRowsWithIds,
+  buildSettingsStatusSummary,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateCustomFieldSummary,
   buildSettingsTemplateEntityUrl,
@@ -86,6 +88,36 @@ describe("settings page helpers", () => {
     expect(prefValue(true, false)).toBe(true);
     expect(prefValue(null, true)).toBe(true);
     expect(prefValue(undefined, false)).toBe(false);
+    expect(
+      buildSettingsNotificationPrefs("user-1", {
+        user_id: "user-1",
+        task_assigned: false,
+        task_updated: null,
+        task_due_today: true,
+        task_overdue: null,
+        feature_suggestion_comment: null,
+        feature_suggestion_status: false,
+        mentions_enabled: null,
+        mention_task: false,
+        mention_notes: null,
+        mention_chat: true,
+        mention_social: null,
+        mention_feature_suggestion: null,
+        mention_form_submission: false,
+        mention_quiz: null,
+        schedule_updates: true,
+      })
+    ).toMatchObject({
+      user_id: "user-1",
+      task_assigned: false,
+      task_updated: true,
+      task_due_today: true,
+      feature_suggestion_status: false,
+      mentions_enabled: true,
+      mention_task: false,
+      mention_form_submission: false,
+      schedule_updates: true,
+    });
   });
 
   it("validates UUIDs used by settings actions", () => {
@@ -385,6 +417,28 @@ describe("settings page helpers", () => {
   });
 
   it("adds database ids to status metadata rows by entity and normalized value", () => {
+    const statusOptions = [
+      {
+        id: "status-1",
+        entity_type: "task" as const,
+        value: "To Do",
+        position: 1,
+      },
+      {
+        id: "status-2",
+        entity_type: "project" as const,
+        value: "in_progress",
+        position: 2,
+      },
+      {
+        id: "status-3",
+        entity_type: "feature_suggestion" as const,
+        value: "blocked pending",
+        position: 6,
+        is_visible: true,
+        counts_as_completed: false,
+      },
+    ];
     const rows = buildSettingsStatusRowsWithIds(
       "task",
       [
@@ -410,22 +464,18 @@ describe("settings page helpers", () => {
           colorHex: "#64748b",
         },
       ],
-      [
-        {
-          id: "status-1",
-          entity_type: "task",
-          value: "To Do",
-          position: 1,
-        },
-        {
-          id: "status-2",
-          entity_type: "project",
-          value: "in_progress",
-          position: 2,
-        },
-      ]
+      statusOptions
     );
+    const summary = buildSettingsStatusSummary(statusOptions);
 
     expect(rows.map((row) => row.id)).toEqual(["status-1", "", ""]);
+    expect(summary.taskStatusOptions).toContain("to_do");
+    expect(summary.projectStatusOptions).toContain("in_progress");
+    expect(summary.statusSections.map((section) => section.entityType)).toEqual([
+      "task",
+      "project",
+      "feature_suggestion",
+    ]);
+    expect(summary.statusSections[2].rows.some((row) => row.id === "status-3")).toBe(true);
   });
 });

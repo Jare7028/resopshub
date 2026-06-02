@@ -1,5 +1,7 @@
 import { DEFAULT_EDITOR_CONTENT } from "./editorContent";
 import {
+  DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
+  buildStatusOptionsWithMetadata,
   normalizeStatusColorHex,
   normalizeStatusValue,
   type StatusEntityType,
@@ -48,7 +50,7 @@ export type NotificationPrefs = {
 };
 
 export type StatusOptionsResult = {
-  data: Array<StatusOptionRow & { id: string }> | null;
+  data: SettingsStatusOptionRow[] | null;
   error: {
     message: string;
     code?: string;
@@ -61,6 +63,15 @@ export type SettingsProfileDisplayRow = {
   email: string | null;
   full_name: string | null;
   avatar_url: string | null;
+};
+
+export type SettingsStatusOptionRow = StatusOptionRow & { id: string };
+export type SettingsStatusRowWithId = StatusOptionMetadata & { id: string };
+export type SettingsStatusSection = {
+  title: string;
+  entityType: StatusEntityType;
+  placeholder: string;
+  rows: SettingsStatusRowWithId[];
 };
 
 export type SettingsUserRow = {
@@ -394,10 +405,46 @@ export function buildSettingsProfileDisplay(profile: SettingsProfileDisplayRow) 
   };
 }
 
+export function buildSettingsNotificationPrefs(
+  userId: string,
+  prefsDb: NotificationPrefsDbRow | null | undefined
+): NotificationPrefs {
+  return {
+    user_id: userId,
+    task_assigned: prefValue(prefsDb?.task_assigned, defaultPrefs.task_assigned),
+    task_updated: prefValue(prefsDb?.task_updated, defaultPrefs.task_updated),
+    task_due_today: prefValue(prefsDb?.task_due_today, defaultPrefs.task_due_today),
+    task_overdue: prefValue(prefsDb?.task_overdue, defaultPrefs.task_overdue),
+    feature_suggestion_comment: prefValue(
+      prefsDb?.feature_suggestion_comment,
+      defaultPrefs.feature_suggestion_comment
+    ),
+    feature_suggestion_status: prefValue(
+      prefsDb?.feature_suggestion_status,
+      defaultPrefs.feature_suggestion_status
+    ),
+    mentions_enabled: prefValue(prefsDb?.mentions_enabled, defaultPrefs.mentions_enabled),
+    mention_task: prefValue(prefsDb?.mention_task, defaultPrefs.mention_task),
+    mention_notes: prefValue(prefsDb?.mention_notes, defaultPrefs.mention_notes),
+    mention_chat: prefValue(prefsDb?.mention_chat, defaultPrefs.mention_chat),
+    mention_social: prefValue(prefsDb?.mention_social, defaultPrefs.mention_social),
+    mention_feature_suggestion: prefValue(
+      prefsDb?.mention_feature_suggestion,
+      defaultPrefs.mention_feature_suggestion
+    ),
+    mention_form_submission: prefValue(
+      prefsDb?.mention_form_submission,
+      defaultPrefs.mention_form_submission
+    ),
+    mention_quiz: prefValue(prefsDb?.mention_quiz, defaultPrefs.mention_quiz),
+    schedule_updates: prefValue(prefsDb?.schedule_updates, defaultPrefs.schedule_updates),
+  };
+}
+
 export function buildSettingsStatusRowsWithIds(
   entityType: StatusEntityType,
   statusRows: readonly StatusOptionMetadata[],
-  statusOptions: readonly (StatusOptionRow & { id: string })[]
+  statusOptions: readonly SettingsStatusOptionRow[]
 ) {
   const idByValue = new Map(
     statusOptions
@@ -408,6 +455,71 @@ export function buildSettingsStatusRowsWithIds(
     ...status,
     id: idByValue.get(status.value) || "",
   }));
+}
+
+export function buildSettingsStatusSummary(
+  statusOptions: readonly SettingsStatusOptionRow[]
+) {
+  const statusRows = Array.from(statusOptions);
+  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
+    "task",
+    statusRows,
+    []
+  );
+  const projectStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
+    "project",
+    statusRows,
+    []
+  );
+  const featureSuggestionStatusOptions = buildStatusOptionsWithMetadata(
+    "feature_suggestion",
+    statusRows,
+    DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS
+  );
+  const taskStatusRowsWithIds = buildSettingsStatusRowsWithIds(
+    "task",
+    taskStatusOptionsWithMetadata,
+    statusOptions
+  );
+  const projectStatusRowsWithIds = buildSettingsStatusRowsWithIds(
+    "project",
+    projectStatusOptionsWithMetadata,
+    statusOptions
+  );
+  const featureSuggestionStatusRowsWithIds = buildSettingsStatusRowsWithIds(
+    "feature_suggestion",
+    featureSuggestionStatusOptions,
+    statusOptions
+  );
+  const statusSections: SettingsStatusSection[] = [
+    {
+      title: "Task statuses",
+      entityType: "task",
+      placeholder: "e.g. qa_review",
+      rows: taskStatusRowsWithIds,
+    },
+    {
+      title: "Project statuses",
+      entityType: "project",
+      placeholder: "e.g. pending_review",
+      rows: projectStatusRowsWithIds,
+    },
+    {
+      title: "Feature suggestion statuses",
+      entityType: "feature_suggestion",
+      placeholder: "e.g. blocked_pending",
+      rows: featureSuggestionStatusRowsWithIds,
+    },
+  ];
+
+  return {
+    taskStatusOptionsWithMetadata,
+    projectStatusOptionsWithMetadata,
+    featureSuggestionStatusOptions,
+    taskStatusOptions: taskStatusOptionsWithMetadata.map((status) => status.value),
+    projectStatusOptions: projectStatusOptionsWithMetadata.map((status) => status.value),
+    statusSections,
+  };
 }
 
 export function buildSettingsTemplateEntityUrl(params: {

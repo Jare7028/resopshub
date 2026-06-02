@@ -11,7 +11,6 @@ import {
 import { getPageEditAccess } from "@/lib/pageEditAccess";
 import { withPerfTiming } from "@/lib/perf";
 import {
-  DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
   buildStatusOptionsWithMetadata,
   isCoreStatus,
   normalizeStatusValue,
@@ -43,10 +42,11 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsNotificationPrefs,
   buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
-  buildSettingsStatusRowsWithIds,
+  buildSettingsStatusSummary,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateCustomFieldSummary,
   buildSettingsTemplateEntityUrl,
@@ -54,11 +54,9 @@ import {
   buildSettingsUserNameLookup,
   checkbox,
   defaultContentText,
-  defaultPrefs,
   formatDbError,
   isUuid,
   normalizeSettingsTemplateSearchParams,
-  prefValue,
   statusColorValue,
   type NotificationPrefs,
   type NotificationPrefsDbRow,
@@ -244,36 +242,7 @@ export default async function SettingsPage(props: {
   }
 
   const prefsDb = (prefsResult.data || null) as NotificationPrefsDbRow | null;
-  const prefs: NotificationPrefs = {
-    user_id: user.id,
-    task_assigned: prefValue(prefsDb?.task_assigned, defaultPrefs.task_assigned),
-    task_updated: prefValue(prefsDb?.task_updated, defaultPrefs.task_updated),
-    task_due_today: prefValue(prefsDb?.task_due_today, defaultPrefs.task_due_today),
-    task_overdue: prefValue(prefsDb?.task_overdue, defaultPrefs.task_overdue),
-    feature_suggestion_comment: prefValue(
-      prefsDb?.feature_suggestion_comment,
-      defaultPrefs.feature_suggestion_comment
-    ),
-    feature_suggestion_status: prefValue(
-      prefsDb?.feature_suggestion_status,
-      defaultPrefs.feature_suggestion_status
-    ),
-    mentions_enabled: prefValue(prefsDb?.mentions_enabled, defaultPrefs.mentions_enabled),
-    mention_task: prefValue(prefsDb?.mention_task, defaultPrefs.mention_task),
-    mention_notes: prefValue(prefsDb?.mention_notes, defaultPrefs.mention_notes),
-    mention_chat: prefValue(prefsDb?.mention_chat, defaultPrefs.mention_chat),
-    mention_social: prefValue(prefsDb?.mention_social, defaultPrefs.mention_social),
-    mention_feature_suggestion: prefValue(
-      prefsDb?.mention_feature_suggestion,
-      defaultPrefs.mention_feature_suggestion
-    ),
-    mention_form_submission: prefValue(
-      prefsDb?.mention_form_submission,
-      defaultPrefs.mention_form_submission
-    ),
-    mention_quiz: prefValue(prefsDb?.mention_quiz, defaultPrefs.mention_quiz),
-    schedule_updates: prefValue(prefsDb?.schedule_updates, defaultPrefs.schedule_updates),
-  };
+  const prefs: NotificationPrefs = buildSettingsNotificationPrefs(user.id, prefsDb);
 
   let statusOptionsResult: StatusOptionsResult = shouldLoadStatusOptions
     ? ((await supabase
@@ -307,23 +276,11 @@ export default async function SettingsPage(props: {
   const statusOptions = (statusOptionsError ? [] : statusOptionsResult.data || []) as Array<
     StatusOptionRow & { id: string }
   >;
-  const taskStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
-    "task",
-    statusOptions,
-    []
-  );
-  const projectStatusOptionsWithMetadata = buildStatusOptionsWithMetadata(
-    "project",
-    statusOptions,
-    []
-  );
-  const featureSuggestionStatusOptions = buildStatusOptionsWithMetadata(
-    "feature_suggestion",
-    statusOptions,
-    DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS
-  );
-  const taskStatusOptions = taskStatusOptionsWithMetadata.map((status) => status.value);
-  const projectStatusOptions = projectStatusOptionsWithMetadata.map((status) => status.value);
+  const {
+    taskStatusOptions,
+    projectStatusOptions,
+    statusSections,
+  } = buildSettingsStatusSummary(statusOptions);
 
   type TaskTemplateRow = {
     id: string;
@@ -2580,46 +2537,6 @@ export default async function SettingsPage(props: {
     initials: profileInitials,
     avatarUrl: profileAvatarUrl,
   } = buildSettingsProfileDisplay(profile);
-  const taskStatusRowsWithIds = buildSettingsStatusRowsWithIds(
-    "task",
-    taskStatusOptionsWithMetadata,
-    statusOptions
-  );
-  const projectStatusRowsWithIds = buildSettingsStatusRowsWithIds(
-    "project",
-    projectStatusOptionsWithMetadata,
-    statusOptions
-  );
-  const featureSuggestionStatusRowsWithIds = buildSettingsStatusRowsWithIds(
-    "feature_suggestion",
-    featureSuggestionStatusOptions,
-    statusOptions
-  );
-  const statusSections: Array<{
-    title: string;
-    entityType: StatusEntityType;
-    placeholder: string;
-    rows: typeof taskStatusRowsWithIds;
-  }> = [
-    {
-      title: "Task statuses",
-      entityType: "task",
-      placeholder: "e.g. qa_review",
-      rows: taskStatusRowsWithIds,
-    },
-    {
-      title: "Project statuses",
-      entityType: "project",
-      placeholder: "e.g. pending_review",
-      rows: projectStatusRowsWithIds,
-    },
-    {
-      title: "Feature suggestion statuses",
-      entityType: "feature_suggestion",
-      placeholder: "e.g. blocked_pending",
-      rows: featureSuggestionStatusRowsWithIds,
-    },
-  ];
 
   return (
     <div className="space-y-8">
