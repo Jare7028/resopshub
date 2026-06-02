@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import {
   BrowserTaskCaptureValidationError,
   buildBrowserCaptureTaskContent,
@@ -55,14 +56,14 @@ export async function OPTIONS(request: Request) {
 export async function POST(request: Request) {
   const corsHeaders = getCorsHeaders(request.headers.get("origin"));
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
+  const auth = await requireApiUser(supabase, "browser.capture.auth");
+  if (auth.response) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401, headers: corsHeaders }
     );
   }
-  const authUser = authData.user;
+  const authUser = auth.user;
 
   let body: unknown;
   try {

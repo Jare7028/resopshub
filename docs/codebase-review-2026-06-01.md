@@ -39,7 +39,7 @@ Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
 - 39 test files.
-- 111 direct `supabase.auth.getUser()` calls.
+- 107 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
@@ -78,6 +78,7 @@ Updated 2026-06-02:
 - Completed: F-006 API auth helper hardening slice. `requireApiUser` and `requireApiAdmin` now force Supabase verification instead of trusting forwarded internal user headers, because `/api` routes are not covered by the middleware matcher.
 - Completed: F-006 API user route batch. App nav reorder, search suggestions, mention suggestions, chat uploads, chat link options, chat reactions, and chat read-marker routes now use `requireApiUser` with consistent 401 JSON.
 - Completed: F-006 chat conversation API route batch. Chat group/direct conversation creation, member add/remove, and preference updates now use `requireApiUser` while preserving their existing JSON error shape.
+- Completed: F-006 integration/project API route batch. Project task lookup, Outlook import preview/create, and browser task capture now use `requireApiUser`; browser capture preserves its CORS-aware unauthorized response.
 - Completed: F-006 admin page/action helper slice. `lib/adminAccess.ts` centralizes admin profile checks for the admin landing page, users page, create-user server action, and user-permissions page/action.
 - Completed: F-006 settings page-edit helper slice. `lib/pageEditAccess.ts` centralizes authenticated page-edit checks and the settings assignment-group, status-option, task-template, task-template subtask, project-template, project-template task link/unlink, and template custom-field actions now use it.
 - Completed: F-006 settings current-user helper slice. The settings page, profile update action, and notification-preference action now use `getCurrentRequestUser`, leaving no direct `supabase.auth.getUser()` calls in `app/(app)/settings/page.tsx`.
@@ -307,6 +308,7 @@ Evidence:
 - API helper hardening slice updated `getCurrentRequestUser` with an explicit forwarded-header trust option and made `requireApiUser`/`requireApiAdmin` pass `trustForwardedUserHeaders: false`, so API routes continue to verify Supabase sessions even though page helpers can reuse middleware-verified headers.
 - Eleventh implementation slice converted app nav reorder, search suggestions, mention suggestions, chat uploads, chat link options, chat reactions, and chat read-marker API routes to `requireApiUser`. Static scan now finds 116 direct `supabase.auth.getUser()` calls overall and 21 under `app/api`.
 - Twelfth implementation slice converted chat group/direct conversation creation, member add/remove, and preference update API routes to `requireApiUser`. Static scan now finds 111 direct `supabase.auth.getUser()` calls overall and 16 under `app/api`.
+- Thirteenth implementation slice converted project task lookup, Outlook import preview/create, and browser task capture API routes to `requireApiUser`. Static scan now finds 107 direct `supabase.auth.getUser()` calls overall and 12 under `app/api`.
 - Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan found 141 direct `supabase.auth.getUser()` calls after that slice.
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.

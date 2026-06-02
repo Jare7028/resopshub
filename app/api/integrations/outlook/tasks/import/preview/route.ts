@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { logOutlookImportTelemetry } from "@/lib/outlookImportTelemetry";
 import {
   OutlookImportValidationError,
@@ -20,14 +21,12 @@ type DuplicateRow = {
 
 export async function POST(request: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "outlook.import.preview.auth");
+  if (auth.response) return auth.response;
   const emit = (event: Parameters<typeof logOutlookImportTelemetry>[0], payload: Record<string, unknown>) =>
     logOutlookImportTelemetry(event, payload, {
       supabase,
-      userId: authData.user?.id || null,
+      userId: auth.user.id,
     });
   emit("outlook_import_opened", { route: "preview" });
 
