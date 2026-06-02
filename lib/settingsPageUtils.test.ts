@@ -5,6 +5,7 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsTemplateEntityUrl,
   buildSettingsUserNameLookup,
   checkbox,
   defaultContentText,
@@ -163,5 +164,31 @@ describe("settings page helpers", () => {
     ]);
     expect(summary.totalMemberSlots).toBe(4);
     expect(summary.uniqueMemberCount).toBe(3);
+  });
+
+  it("builds contextual template entity URLs", () => {
+    expect(
+      buildSettingsTemplateEntityUrl({
+        entityType: "task_template",
+        entityId: "task template 1",
+        taskTemplatePanelQuery: "&task_template_panel=custom-fields",
+        projectTemplatePanelQuery: "&project_template_panel=tasks",
+        message: { kind: "success", value: "Custom field added" },
+      })
+    ).toBe(
+      "/settings?tab=templates&templates=tasks&task_template_id=task%20template%201&task_template_panel=custom-fields&success=Custom%20field%20added"
+    );
+
+    expect(
+      buildSettingsTemplateEntityUrl({
+        entityType: "project_template",
+        entityId: "project-1",
+        taskTemplatePanelQuery: "&task_template_panel=subtasks",
+        projectTemplatePanelQuery: "&project_template_panel=custom-fields",
+        message: { kind: "error", value: "Bad value: A&B" },
+      })
+    ).toBe(
+      "/settings?tab=templates&templates=projects&project_template_id=project-1&project_template_panel=custom-fields&error=Bad%20value%3A%20A%26B"
+    );
   });
 });

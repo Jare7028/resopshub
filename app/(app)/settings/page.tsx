@@ -42,6 +42,7 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsTemplateEntityUrl,
   buildSettingsUserNameLookup,
   checkbox,
   defaultContentText,
@@ -1324,6 +1325,17 @@ export default async function SettingsPage(props: {
     if (!label) {
       redirect("/settings?tab=templates&error=Custom%20field%20label%20is%20required");
     }
+    const customFieldReturnUrl = (message: {
+      kind: "error" | "success";
+      value: string;
+    }) =>
+      buildSettingsTemplateEntityUrl({
+        entityType,
+        entityId,
+        taskTemplatePanelQuery,
+        projectTemplatePanelQuery,
+        message,
+      });
 
     const siblingFields = templateCustomFields.filter(
       (field) => field.entity_type === entityType && field.entity_id === entityId
@@ -1356,17 +1368,7 @@ export default async function SettingsPage(props: {
       .single();
 
     if (error) {
-      const tabPart =
-        entityType === "task_template" ? "tasks" : "projects";
-      const idPart =
-        entityType === "task_template"
-          ? `&task_template_id=${encodeURIComponent(entityId)}`
-          : `&project_template_id=${encodeURIComponent(entityId)}`;
-      const panelPart =
-        entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
-      redirect(
-        `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(error.message)}`
-      );
+      redirect(customFieldReturnUrl({ kind: "error", value: error.message }));
     }
 
     if (fieldKind === "dropdown" && createdField?.id) {
@@ -1387,32 +1389,15 @@ export default async function SettingsPage(props: {
           }))
         );
         if (optionsError) {
-          const tabPart =
-            entityType === "task_template" ? "tasks" : "projects";
-          const idPart =
-            entityType === "task_template"
-              ? `&task_template_id=${encodeURIComponent(entityId)}`
-              : `&project_template_id=${encodeURIComponent(entityId)}`;
-          const panelPart =
-            entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
           redirect(
-            `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(optionsError.message)}`
+            customFieldReturnUrl({ kind: "error", value: optionsError.message })
           );
         }
       }
     }
 
     revalidatePath("/settings");
-    const tabPart = entityType === "task_template" ? "tasks" : "projects";
-    const idPart =
-      entityType === "task_template"
-        ? `&task_template_id=${encodeURIComponent(entityId)}`
-        : `&project_template_id=${encodeURIComponent(entityId)}`;
-    const panelPart =
-      entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
-    redirect(
-      `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&success=Custom%20field%20added`
-    );
+    redirect(customFieldReturnUrl({ kind: "success", value: "Custom field added" }));
   }
 
   async function deleteTemplateCustomField(formData: FormData) {
@@ -1448,15 +1433,14 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    const tabPart = entityType === "task_template" ? "tasks" : "projects";
-    const idPart =
-      entityType === "task_template"
-        ? `&task_template_id=${encodeURIComponent(entityId)}`
-        : `&project_template_id=${encodeURIComponent(entityId)}`;
-    const panelPart =
-      entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
     redirect(
-      `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&success=Custom%20field%20deleted`
+      buildSettingsTemplateEntityUrl({
+        entityType,
+        entityId,
+        taskTemplatePanelQuery,
+        projectTemplatePanelQuery,
+        message: { kind: "success", value: "Custom field deleted" },
+      })
     );
   }
 
@@ -1483,6 +1467,17 @@ export default async function SettingsPage(props: {
     ) {
       redirect("/settings?tab=templates&error=Invalid%20template%20custom%20field%20save");
     }
+    const customFieldReturnUrl = (message: {
+      kind: "error" | "success";
+      value: string;
+    }) =>
+      buildSettingsTemplateEntityUrl({
+        entityType,
+        entityId,
+        taskTemplatePanelQuery,
+        projectTemplatePanelQuery,
+        message,
+      });
 
     const fields = templateCustomFields.filter(
       (field) => field.entity_type === entityType && field.entity_id === entityId
@@ -1507,17 +1502,11 @@ export default async function SettingsPage(props: {
           (option) => option.value === value
         );
         if (!allowed) {
-          const tabPart = entityType === "task_template" ? "tasks" : "projects";
-          const idPart =
-            entityType === "task_template"
-              ? `&task_template_id=${encodeURIComponent(entityId)}`
-              : `&project_template_id=${encodeURIComponent(entityId)}`;
-          const panelPart =
-            entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
           redirect(
-            `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(
-              `Invalid value for ${field.label}`
-            )}`
+            customFieldReturnUrl({
+              kind: "error",
+              value: `Invalid value for ${field.label}`,
+            })
           );
         }
       }
@@ -1538,17 +1527,8 @@ export default async function SettingsPage(props: {
         .eq("entity_id", entityId)
         .in("field_id", clears);
       if (clearError) {
-        const tabPart = entityType === "task_template" ? "tasks" : "projects";
-        const idPart =
-          entityType === "task_template"
-            ? `&task_template_id=${encodeURIComponent(entityId)}`
-            : `&project_template_id=${encodeURIComponent(entityId)}`;
-        const panelPart =
-          entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
         redirect(
-          `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(
-            clearError.message
-          )}`
+          customFieldReturnUrl({ kind: "error", value: clearError.message })
         );
       }
     }
@@ -1559,31 +1539,18 @@ export default async function SettingsPage(props: {
         { onConflict: "entity_type,entity_id,field_id" }
       );
       if (upsertError) {
-        const tabPart = entityType === "task_template" ? "tasks" : "projects";
-        const idPart =
-          entityType === "task_template"
-            ? `&task_template_id=${encodeURIComponent(entityId)}`
-            : `&project_template_id=${encodeURIComponent(entityId)}`;
-        const panelPart =
-          entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
         redirect(
-          `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&error=${encodeURIComponent(
-            upsertError.message
-          )}`
+          customFieldReturnUrl({ kind: "error", value: upsertError.message })
         );
       }
     }
 
     revalidatePath("/settings");
-    const tabPart = entityType === "task_template" ? "tasks" : "projects";
-    const idPart =
-      entityType === "task_template"
-        ? `&task_template_id=${encodeURIComponent(entityId)}`
-        : `&project_template_id=${encodeURIComponent(entityId)}`;
-    const panelPart =
-      entityType === "task_template" ? taskTemplatePanelQuery : projectTemplatePanelQuery;
     redirect(
-      `/settings?tab=templates&templates=${tabPart}${idPart}${panelPart}&success=Template%20custom%20fields%20saved`
+      customFieldReturnUrl({
+        kind: "success",
+        value: "Template custom fields saved",
+      })
     );
   }
 

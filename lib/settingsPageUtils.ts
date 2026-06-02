@@ -168,6 +168,31 @@ export function buildSettingsAssignmentGroupSummary(
   };
 }
 
+export function buildSettingsTemplateEntityUrl(params: {
+  entityType: string;
+  entityId: string;
+  taskTemplatePanelQuery?: string;
+  projectTemplatePanelQuery?: string;
+  message?: {
+    kind: "error" | "success";
+    value: string;
+  };
+}) {
+  const isTaskTemplate = params.entityType === "task_template";
+  const templatesTab = isTaskTemplate ? "tasks" : "projects";
+  const idParam = isTaskTemplate ? "task_template_id" : "project_template_id";
+  const panelQuery = isTaskTemplate
+    ? params.taskTemplatePanelQuery || ""
+    : params.projectTemplatePanelQuery || "";
+  const messageQuery = params.message
+    ? `&${params.message.kind}=${encodeURIComponent(params.message.value)}`
+    : "";
+
+  return `/settings?tab=templates&templates=${templatesTab}&${idParam}=${encodeURIComponent(
+    params.entityId
+  )}${panelQuery}${messageQuery}`;
+}
+
 export const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
   task_assigned: true,
   task_updated: true,
