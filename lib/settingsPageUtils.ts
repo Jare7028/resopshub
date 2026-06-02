@@ -1,5 +1,11 @@
 import { DEFAULT_EDITOR_CONTENT } from "./editorContent";
-import { normalizeStatusColorHex, type StatusOptionRow } from "./statusOptions";
+import {
+  normalizeStatusColorHex,
+  normalizeStatusValue,
+  type StatusEntityType,
+  type StatusOptionMetadata,
+  type StatusOptionRow,
+} from "./statusOptions";
 import { SUPPORTED_TASK_STATUS_VALUES } from "./taskStatus";
 import { extractPlainText } from "./tiptapText";
 
@@ -49,6 +55,12 @@ export type StatusOptionsResult = {
     details?: string | null;
     hint?: string | null;
   } | null;
+};
+
+export type SettingsProfileDisplayRow = {
+  email: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
 };
 
 export type SettingsUserRow = {
@@ -370,6 +382,32 @@ export function buildSettingsTemplateCustomFieldSummary<
     templateCustomFieldOptionsByFieldId,
     templateCustomFieldValueByFieldId,
   };
+}
+
+export function buildSettingsProfileDisplay(profile: SettingsProfileDisplayRow) {
+  const displayName =
+    String(profile.full_name || profile.email || "User").trim() || "User";
+  return {
+    displayName,
+    initials: toInitials(displayName),
+    avatarUrl: String(profile.avatar_url || "").trim(),
+  };
+}
+
+export function buildSettingsStatusRowsWithIds(
+  entityType: StatusEntityType,
+  statusRows: readonly StatusOptionMetadata[],
+  statusOptions: readonly (StatusOptionRow & { id: string })[]
+) {
+  const idByValue = new Map(
+    statusOptions
+      .filter((option) => option.entity_type === entityType)
+      .map((option) => [normalizeStatusValue(option.value), option.id] as const)
+  );
+  return statusRows.map((status) => ({
+    ...status,
+    id: idByValue.get(status.value) || "",
+  }));
 }
 
 export function buildSettingsTemplateEntityUrl(params: {

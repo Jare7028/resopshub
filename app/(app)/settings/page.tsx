@@ -43,8 +43,10 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
+  buildSettingsStatusRowsWithIds,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateCustomFieldSummary,
   buildSettingsTemplateEntityUrl,
@@ -58,7 +60,6 @@ import {
   normalizeSettingsTemplateSearchParams,
   prefValue,
   statusColorValue,
-  toInitials,
   type NotificationPrefs,
   type NotificationPrefsDbRow,
   type SettingsUrlMessage,
@@ -2574,34 +2575,26 @@ export default async function SettingsPage(props: {
     );
   };
 
-  const profileDisplayName = String(profile.full_name || profile.email || "User").trim() || "User";
-  const profileInitials = toInitials(profileDisplayName);
-  const profileAvatarUrl = String(profile.avatar_url || "").trim();
-
-  const taskStatusRowsWithIds = taskStatusOptionsWithMetadata.map((status) => ({
-    ...status,
-    id: statusOptions.find(
-      (option) =>
-        option.entity_type === "task" &&
-        normalizeStatusValue(option.value) === status.value
-    )?.id || "",
-  }));
-  const projectStatusRowsWithIds = projectStatusOptionsWithMetadata.map((status) => ({
-    ...status,
-    id: statusOptions.find(
-      (option) =>
-        option.entity_type === "project" &&
-        normalizeStatusValue(option.value) === status.value
-    )?.id || "",
-  }));
-  const featureSuggestionStatusRowsWithIds = featureSuggestionStatusOptions.map((status) => ({
-    ...status,
-    id: statusOptions.find(
-      (option) =>
-        option.entity_type === "feature_suggestion" &&
-        normalizeStatusValue(option.value) === status.value
-    )?.id || "",
-  }));
+  const {
+    displayName: profileDisplayName,
+    initials: profileInitials,
+    avatarUrl: profileAvatarUrl,
+  } = buildSettingsProfileDisplay(profile);
+  const taskStatusRowsWithIds = buildSettingsStatusRowsWithIds(
+    "task",
+    taskStatusOptionsWithMetadata,
+    statusOptions
+  );
+  const projectStatusRowsWithIds = buildSettingsStatusRowsWithIds(
+    "project",
+    projectStatusOptionsWithMetadata,
+    statusOptions
+  );
+  const featureSuggestionStatusRowsWithIds = buildSettingsStatusRowsWithIds(
+    "feature_suggestion",
+    featureSuggestionStatusOptions,
+    statusOptions
+  );
   const statusSections: Array<{
     title: string;
     entityType: StatusEntityType;

@@ -5,8 +5,10 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
+  buildSettingsStatusRowsWithIds,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateCustomFieldSummary,
   buildSettingsTemplateEntityUrl,
@@ -46,6 +48,28 @@ describe("settings page helpers", () => {
     expect(checkbox(formData, "enabled")).toBe(true);
     expect(checkbox(formData, "disabled")).toBe(false);
     expect(checkbox(formData, "missing")).toBe(false);
+    expect(
+      buildSettingsProfileDisplay({
+        email: "fallback@example.com",
+        full_name: " Ada Lovelace ",
+        avatar_url: " https://example.com/avatar.png ",
+      })
+    ).toEqual({
+      displayName: "Ada Lovelace",
+      initials: "AL",
+      avatarUrl: "https://example.com/avatar.png",
+    });
+    expect(
+      buildSettingsProfileDisplay({
+        email: null,
+        full_name: " ",
+        avatar_url: null,
+      })
+    ).toMatchObject({
+      displayName: "User",
+      initials: "U",
+      avatarUrl: "",
+    });
   });
 
   it("normalizes status colors and preference fallbacks", () => {
@@ -358,5 +382,50 @@ describe("settings page helpers", () => {
       "Project text"
     );
     expect(summary.templateCustomFieldValueByFieldId.get("field-empty")).toBe("");
+  });
+
+  it("adds database ids to status metadata rows by entity and normalized value", () => {
+    const rows = buildSettingsStatusRowsWithIds(
+      "task",
+      [
+        {
+          value: "to_do",
+          position: 1,
+          isVisible: true,
+          countsAsCompleted: false,
+          colorHex: "#64748b",
+        },
+        {
+          value: "in_progress",
+          position: 2,
+          isVisible: true,
+          countsAsCompleted: false,
+          colorHex: "#3b82f6",
+        },
+        {
+          value: "missing",
+          position: 3,
+          isVisible: true,
+          countsAsCompleted: false,
+          colorHex: "#64748b",
+        },
+      ],
+      [
+        {
+          id: "status-1",
+          entity_type: "task",
+          value: "To Do",
+          position: 1,
+        },
+        {
+          id: "status-2",
+          entity_type: "project",
+          value: "in_progress",
+          position: 2,
+        },
+      ]
+    );
+
+    expect(rows.map((row) => row.id)).toEqual(["status-1", "", ""]);
   });
 });
