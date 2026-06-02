@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { splitSocialInlineContent, stripSocialInlineImageTokens } from "@/lib/socialPostContent";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingFunctionError, isSupabaseMissingTableError } from "@/lib/supabaseErrors";
@@ -218,9 +219,9 @@ function normalizeSocialPanel(value: string): SocialDetailPanel {
 }
 
 async function resolveActingUser(supabaseClient: ReturnType<typeof createSupabaseServerClient>) {
-  const { data: authData } = await supabaseClient.auth.getUser();
-  const resolvedAuthUserId = String(authData.user?.id || "").trim();
-  const resolvedAuthEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabaseClient, "social.detail.actor.auth");
+  const resolvedAuthUserId = String(authUser?.id || "").trim();
+  const resolvedAuthEmail = authUser?.email;
   if (!resolvedAuthUserId) {
     return null;
   }
@@ -290,9 +291,9 @@ export default async function SocialPageDetail(props: {
   } satisfies { q: string; filter: SocialPostFilter; p: number };
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = String(authData.user?.id || "").trim();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "social.detail.auth");
+  const authUserId = String(authUser?.id || "").trim();
+  const authEmail = authUser?.email;
 
   if (!authUserId) {
     redirect("/login");

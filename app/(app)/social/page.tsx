@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
@@ -88,9 +89,9 @@ export default async function SocialPage(props: {
   const supabase = createSupabaseServerClient();
   const currentPage = normalizeSocialPageNumber(searchParams?.page);
   const socialOffset = (currentPage - 1) * SOCIAL_PAGE_SIZE;
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = String(authData.user?.id || "").trim();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "social.list.auth");
+  const authUserId = String(authUser?.id || "").trim();
+  const authEmail = authUser?.email;
 
   if (!authUserId) {
     redirect("/login");
@@ -426,9 +427,9 @@ export default async function SocialPage(props: {
       redirect("/social?error=You%20only%20have%20view%20access%20to%20Social");
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authUserId = String(authData.user?.id || "").trim();
-    const authEmail = authData.user?.email;
+    const authUser = await getCurrentRequestUser(supabase, "social.page.create.auth");
+    const authUserId = String(authUser?.id || "").trim();
+    const authEmail = authUser?.email;
 
     if (!authUserId) {
       logWarn("social.page.create.unauthenticated", {
