@@ -28,10 +28,16 @@ function createProjectAccessClient({
   profile = { id: "user-1", role: "member" },
   assignment = null,
   watcher = null,
+  profileError = null,
+  assignmentError = null,
+  watcherError = null,
 }: {
   profile?: ProfileRow | null;
   assignment?: { user_id: string | null } | null;
   watcher?: { user_id: string | null } | null;
+  profileError?: { message?: string } | null;
+  assignmentError?: { message?: string } | null;
+  watcherError?: { message?: string } | null;
 } = {}) {
   const calls: Array<{ table: string; filters: Record<string, string> }> = [];
   return {
@@ -51,13 +57,13 @@ function createProjectAccessClient({
             async maybeSingle() {
               calls.push({ table, filters: { ...filters } });
               if (table === "users") {
-                return { data: profile, error: null };
+                return { data: profile, error: profileError };
               }
               if (table === "project_users") {
-                return { data: assignment, error: null };
+                return { data: assignment, error: assignmentError };
               }
               if (table === "project_watchers") {
-                return { data: watcher, error: null };
+                return { data: watcher, error: watcherError };
               }
               return { data: null, error: null };
             },
@@ -127,6 +133,30 @@ describe("project access helpers", () => {
     });
   });
 
+  it("surfaces project requester profile lookup errors", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue({
+      id: "auth-user",
+      email: "member@example.com",
+      user_metadata: null,
+    });
+
+    const result = await getProjectRequesterProfile(
+      createProjectAccessClient({
+        profile: null,
+        profileError: { message: "Profile lookup failed" },
+      }).client
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "profile_missing",
+      user: null,
+      profile: null,
+      error: "Profile lookup failed",
+    });
+    expect(projectAccessRedirectError(result)).toBe("Profile lookup failed");
+  });
+
   it("allows admins without membership lookups", async () => {
     const { client, calls } = createProjectAccessClient();
 
@@ -162,6 +192,24 @@ describe("project access helpers", () => {
     ).resolves.toEqual({ ok: true });
   });
 
+  it("still allows watchers when the assignment lookup fails", async () => {
+    const { client, calls } = createProjectAccessClient({
+      assignmentError: { message: "Assignment lookup failed" },
+      watcher: { user_id: "user-1" },
+    });
+
+    await expect(
+      getProjectReadAccess(client, {
+        projectId: "project-1",
+        profile: { id: "user-1", role: "member" },
+      })
+    ).resolves.toEqual({ ok: true });
+    expect(calls.map((call) => call.table)).toEqual([
+      "project_users",
+      "project_watchers",
+    ]);
+  });
+
   it("rejects unrelated project users with redirect-friendly messages", async () => {
     const result = await getProjectReadAccess(createProjectAccessClient().client, {
       projectId: "project-1",
@@ -170,5 +218,25 @@ describe("project access helpers", () => {
 
     expect(result).toEqual({ ok: false, reason: "forbidden", error: undefined });
     expect(projectAccessRedirectError(result)).toBe("Not assigned to that project");
+  });
+
+  it("reports project membership lookup errors when read access is denied", async () => {
+    const result = await getProjectReadAccess(
+      createProjectAccessClient({
+        assignmentError: { message: "Assignment lookup failed" },
+        watcherError: { message: "Watcher lookup failed" },
+      }).client,
+      {
+        projectId: "project-1",
+        profile: { id: "user-1", role: "member" },
+      }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "Assignment lookup failed",
+    });
+    expect(projectAccessRedirectError(result)).toBe("Assignment lookup failed");
   });
 });

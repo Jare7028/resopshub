@@ -29,7 +29,7 @@ Top risks:
 | --- | --- | --- |
 | `npm audit --json` | Passed | 0 vulnerabilities across 573 dependencies after the Next/Vitest upgrades. |
 | `npx tsc --noEmit` | Passed | TypeScript completed with exit code 0. |
-| `npm test` | Passed | 65 test files, 379 tests passed. |
+| `npm test` | Passed | 65 test files, 382 tests passed. |
 | `npm run test:coverage` | Passed | Overall: 73.26% statements, 60.34% branches, 78.52% functions, 76.51% lines. |
 | `npm run build` | Passed | Next.js 15.5.18 build completed. `/tasks` built at 4.36 kB route JS and 130 kB first load JS; `/settings` built at 4.71 kB route JS and 116 kB first load JS; middleware bundle was 82 kB. |
 | `npm run lint` | Passed | `npm run lint` now runs `eslint .` through the flat config. |
@@ -110,6 +110,7 @@ Updated 2026-06-02:
 - Completed: F-006 quizzes current-user helper slice. Quiz list/detail, assigned quizzes, attempt detail, and review pages now use `getCurrentRequestUser`.
 - Completed: F-006 remaining app current-user helper sweep. Top-level redirects, login, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export now use `getCurrentRequestUser`; the only direct `.auth.getUser()` calls left are the shared helper and middleware internals.
 - Completed: F-006 middleware permission verification slice. `lib/supabase/middleware.test.ts` now covers public-route skips, prefetch skips, read requests without edit checks, allowed mutation checks, denied mutation 403s, and fail-closed unexpected permission RPC errors.
+- Completed: F-006 project access permission coverage slice. `lib/projectAccess.test.ts` now covers requester profile lookup errors, assignment lookup failures, watcher fallback access, and redirect-friendly error messages for denied project reads.
 - Open: F-006 follow-up is now deeper access-helper consolidation and broader signed-in behavioral permission coverage; the direct auth-call migration is complete.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Completed: F-008 task mutation/status/recurrence test slice. `app/(app)/tasks/actions.test.ts` now covers inline task mutation RPC payloads, assignment-group expansion, safe return-path revalidation, missing IDs, assignment errors, and RPC errors; `lib/taskSchedule.test.ts` covers recurrence weekday defaults and bounded end dates; `lib/statusOptions.test.ts` covers status metadata, hidden/completed status derivation, colors, and unsafe color rejection.
@@ -171,7 +172,7 @@ Latest implementation validation:
 - `npm test -- --run lib/socialDetailUtils.test.ts`: passed, 7 tests.
 - `npm test -- --run lib/settingsPageUtils.test.ts`: passed, 5 tests.
 - `npx vitest run lib/securityDefinerMigrations.test.ts`: passed, 1 test.
-- `npx vitest run lib/projectAccess.test.ts`: passed, 5 tests.
+- `npm test -- --run lib/projectAccess.test.ts`: passed, 8 tests.
 - `npx vitest run 'app/(app)/projects/projectTableViewState.test.ts'`: passed, 9 tests.
 - `npx vitest run 'app/(app)/clients/clientTableViewState.test.ts'`: passed, 9 tests.
 - `npm test -- --run lib/employeeInfoTableUtils.test.ts`: passed, 12 tests.
@@ -195,7 +196,7 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 65 files and 379 tests.
+- `npm test`: passed, 65 files and 382 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 130 kB first load JS after the task view UI and task page utility extractions; `/tasks/[taskId]` built at 3.18 kB route JS and 133 kB first load JS after the task detail utility extraction; `/clients/[clientId]/notes/[noteId]` built at 2.99 kB route JS and 166 kB first load JS after the note-editor state-helper extraction; `/personal/[pageId]` built at 3.05 kB route JS and 170 kB first load JS; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/chat` built at 15 kB route JS and 130 kB first load JS after the chat lookup/priority helper extraction; `/social/[pageId]` built at 3.41 kB route JS and 119 kB first load JS after the expanded social detail helper extraction; `/inventory` built at 11.6 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.1 kB route JS and 118 kB first load JS after the shared table utility, editable-cell helper, preference-state, and filter/sort pipeline extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard and settings utility extraction slices; route-modal prefetch cleanup, note-editor context-menu, overlay, inline, image, ribbon primitive, state helper, suggestion helper, chat client/derived-state helpers, social detail helper, settings utility, task page/detail utility, and task view UI helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -528,7 +529,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 65 files and 379 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility/editable-cell/filter-sort helpers and preference-state, task preference payloads, persisted task filter restore/payload cloning, task sort-direction and URL-joining extractions, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/state coverage, chat lookup/social detail helpers, and settings utility/template search-param slices.
+- Latest unit-test suite now passes 65 files and 382 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard and error coverage, task/project/client table view-state, inventory/employee table utility/editable-cell/filter-sort helpers and preference-state, task preference payloads, persisted task filter restore/payload cloning, task sort-direction and URL-joining extractions, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/state coverage, chat lookup/social detail helpers, and settings utility/template search-param slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
