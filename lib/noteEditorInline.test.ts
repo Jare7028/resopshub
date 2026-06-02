@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   extractTaskIdFromHref,
+  getTaskHoverFetchUrl,
+  getTaskHoverPosition,
   normalizeInlineText,
   normalizeMentionHandle,
   normalizePastedLink,
@@ -51,5 +53,28 @@ describe("note editor inline helpers", () => {
     expect(extractTaskIdFromHref("/tasks/abc-123?from=note")).toBe("abc-123");
     expect(extractTaskIdFromHref("/clients/abc-123")).toBeNull();
     expect(extractTaskIdFromHref("https://example.com/tasks/abc-123")).toBeNull();
+  });
+
+  it("builds encoded task hover API URLs", () => {
+    expect(getTaskHoverFetchUrl(" task-1 ")).toBe("/api/tasks/task-1/hover");
+    expect(getTaskHoverFetchUrl("task/with spaces")).toBe(
+      "/api/tasks/task%2Fwith%20spaces/hover"
+    );
+  });
+
+  it("positions task hover popovers inside the viewport", () => {
+    expect(
+      getTaskHoverPosition(
+        { left: 500, bottom: 160 },
+        { width: 640, height: 480 }
+      )
+    ).toEqual({ x: 328, y: 168 });
+
+    expect(
+      getTaskHoverPosition(
+        { left: -20, bottom: 220 },
+        { width: 320, height: 120 }
+      )
+    ).toEqual({ x: 12, y: 12 });
   });
 });

@@ -95,6 +95,8 @@ import {
 } from "@/lib/noteEditorOverlays";
 import {
   extractTaskIdFromHref,
+  getTaskHoverFetchUrl,
+  getTaskHoverPosition,
   normalizeInlineText,
   normalizeMentionHandle,
   normalizePastedLink,
@@ -4303,7 +4305,7 @@ export default function NoteEditorClient({
     taskHoverRequestIdRef.current = requestId;
     setTaskHover((prev) => ({ ...prev, open: true, loading: true, error: "", data: null }));
 
-    void fetch(`/api/tasks/${taskId}/hover`, { cache: "no-store" })
+    void fetch(getTaskHoverFetchUrl(taskId), { cache: "no-store" })
       .then(async (response) => {
         const payload = (await response.json().catch(() => ({}))) as
           | TaskHoverSummary
@@ -4352,12 +4354,10 @@ export default function NoteEditorClient({
       }
       taskHoverOpenTimerRef.current = setTimeout(() => {
         const rect = link.getBoundingClientRect();
-        const popoverWidth = 300;
-        const x = Math.max(
-          12,
-          Math.min(window.innerWidth - popoverWidth - 12, rect.left)
+        const { x, y } = getTaskHoverPosition(
+          { left: rect.left, bottom: rect.bottom },
+          { width: window.innerWidth, height: window.innerHeight }
         );
-        const y = Math.min(window.innerHeight - 170, rect.bottom + 8);
         taskHoverLinkRef.current = link;
         setTaskHover((prev) => ({ ...prev, taskId, x, y }));
         fetchTaskHoverData(taskId);
@@ -4384,12 +4384,10 @@ export default function NoteEditorClient({
 
       if (taskHoverLinkRef.current === link && taskHover.open) {
         const rect = link.getBoundingClientRect();
-        const popoverWidth = 300;
-        const x = Math.max(
-          12,
-          Math.min(window.innerWidth - popoverWidth - 12, rect.left)
+        const { x, y } = getTaskHoverPosition(
+          { left: rect.left, bottom: rect.bottom },
+          { width: window.innerWidth, height: window.innerHeight }
         );
-        const y = Math.min(window.innerHeight - 170, rect.bottom + 8);
         setTaskHover((prev) => ({ ...prev, x, y }));
         clearTaskHoverClose();
         return;
@@ -4404,7 +4402,7 @@ export default function NoteEditorClient({
     const taskId = taskHover.taskId;
     if (!taskId) return;
     setTaskHover((prev) => ({ ...prev, loading: true, error: "" }));
-    void fetch(`/api/tasks/${taskId}/hover`, {
+    void fetch(getTaskHoverFetchUrl(taskId), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "mark_done" }),

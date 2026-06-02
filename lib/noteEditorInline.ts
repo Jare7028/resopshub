@@ -56,3 +56,30 @@ export function extractTaskIdFromHref(href: string) {
   const match = href.match(/^\/tasks\/([a-z0-9-]+)/i);
   return match?.[1] || null;
 }
+
+export function getTaskHoverFetchUrl(taskId: string) {
+  return `/api/tasks/${encodeURIComponent(String(taskId || "").trim())}/hover`;
+}
+
+export function getTaskHoverPosition(
+  anchorRect: { left: number; bottom: number },
+  viewport: { width: number; height: number },
+  options: {
+    margin?: number;
+    offsetY?: number;
+    popoverWidth?: number;
+    estimatedPopoverHeight?: number;
+  } = {}
+) {
+  const margin = options.margin ?? 12;
+  const offsetY = options.offsetY ?? 8;
+  const popoverWidth = options.popoverWidth ?? 300;
+  const estimatedPopoverHeight = options.estimatedPopoverHeight ?? 170;
+  const maxX = viewport.width - popoverWidth - margin;
+  const maxY = viewport.height - estimatedPopoverHeight;
+
+  return {
+    x: Math.max(margin, Math.min(maxX, anchorRect.left)),
+    y: Math.max(margin, Math.min(maxY, anchorRect.bottom + offsetY)),
+  };
+}
