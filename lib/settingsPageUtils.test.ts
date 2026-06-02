@@ -6,6 +6,7 @@ import {
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
   buildSettingsProjectTemplateUrl,
+  buildSettingsProjectTemplateTaskReturnUrl,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateEntityUrl,
   buildSettingsUserNameLookup,
@@ -209,5 +210,43 @@ describe("settings page helpers", () => {
         projectTemplatePanelQuery: "&project_template_panel=tasks",
       })
     ).toBe("/settings?tab=templates&templates=projects&project_template_panel=tasks");
+
+    expect(
+      buildSettingsProjectTemplateTaskReturnUrl({
+        returnTemplatesTab: "tasks",
+        returnTaskTemplateId: "task-2",
+        projectTemplateId: "project-2",
+        taskTemplatePanelQuery: "&task_template_panel=details",
+        projectTemplatePanelQuery: "&project_template_panel=tasks",
+        message: { kind: "success", value: "Project template linked" },
+      })
+    ).toBe(
+      "/settings?tab=templates&templates=tasks&task_template_id=task-2&task_template_panel=details&success=Project%20template%20linked"
+    );
+
+    expect(
+      buildSettingsProjectTemplateTaskReturnUrl({
+        returnTemplatesTab: "projects",
+        returnTaskTemplateId: "task-2",
+        projectTemplateId: "project-2",
+        taskTemplatePanelQuery: "&task_template_panel=details",
+        projectTemplatePanelQuery: "&project_template_panel=tasks",
+        message: { kind: "error", value: "Missing link id" },
+      })
+    ).toBe(
+      "/settings?tab=templates&templates=projects&project_template_id=project-2&project_template_panel=tasks&error=Missing%20link%20id"
+    );
+
+    expect(
+      buildSettingsProjectTemplateTaskReturnUrl({
+        returnTemplatesTab: "projects",
+        returnTaskTemplateId: "task-2",
+        projectTemplateId: "project-2",
+        taskTemplatePanelQuery: "&task_template_panel=details",
+        projectTemplatePanelQuery: "&project_template_panel=tasks",
+        includeProjectContext: false,
+        message: { kind: "error", value: "Missing link id" },
+      })
+    ).toBe("/settings?tab=templates&templates=projects&error=Missing%20link%20id");
   });
 });

@@ -43,6 +43,7 @@ import {
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
   buildSettingsProjectTemplateUrl,
+  buildSettingsProjectTemplateTaskReturnUrl,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateEntityUrl,
   buildSettingsUserNameLookup,
@@ -1921,19 +1922,29 @@ export default async function SettingsPage(props: {
         ? "tasks"
         : "projects";
     const returnTaskTemplateId = String(formData.get("return_task_template_id") || "").trim();
-    const returnTaskTemplateQuery =
-      returnTemplatesTab === "tasks" && returnTaskTemplateId
-        ? `&task_template_id=${encodeURIComponent(returnTaskTemplateId)}`
-        : "";
+    const projectTaskReturnUrl = (
+      message: SettingsUrlMessage,
+      options?: { includeProjectContext?: boolean }
+    ) =>
+      buildSettingsProjectTemplateTaskReturnUrl({
+        returnTemplatesTab,
+        returnTaskTemplateId,
+        projectTemplateId,
+        taskTemplatePanelQuery,
+        projectTemplatePanelQuery,
+        includeProjectContext: options?.includeProjectContext,
+        message,
+      });
 
     if (!projectTemplateId || !taskTemplateId) {
-      if (returnTemplatesTab === "tasks") {
-        redirect(
-          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=Project%20template%20and%20task%20template%20are%20required`
-        );
-      }
       redirect(
-        "/settings?tab=templates&templates=projects&error=Project%20template%20and%20task%20template%20are%20required"
+        projectTaskReturnUrl(
+          {
+            kind: "error",
+            value: "Project template and task template are required",
+          },
+          { includeProjectContext: false }
+        )
       );
     }
 
@@ -1957,32 +1968,20 @@ export default async function SettingsPage(props: {
       const hint = isSupabaseMissingTableError(error)
         ? " Run `sql/templates.sql` in Supabase SQL editor, then refresh."
         : "";
-      if (returnTemplatesTab === "tasks") {
-        redirect(
-          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=${encodeURIComponent(
-            `${error.message}${hint}`
-          )}`
-        );
-      }
       redirect(
-        `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
-          projectTemplateId
-        )}${projectTemplatePanelQuery}&error=${encodeURIComponent(
-          `${error.message}${hint}`
-        )}`
+        projectTaskReturnUrl({ kind: "error", value: `${error.message}${hint}` })
       );
     }
 
     revalidatePath("/settings");
-    if (returnTemplatesTab === "tasks") {
-      redirect(
-        `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&success=Project%20template%20linked`
-      );
-    }
     redirect(
-      `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
-        projectTemplateId
-      )}${projectTemplatePanelQuery}&success=Task%20added%20to%20project%20template`
+      projectTaskReturnUrl({
+        kind: "success",
+        value:
+          returnTemplatesTab === "tasks"
+            ? "Project template linked"
+            : "Task added to project template",
+      })
     );
   }
 
@@ -2008,45 +2007,48 @@ export default async function SettingsPage(props: {
         ? "tasks"
         : "projects";
     const returnTaskTemplateId = String(formData.get("return_task_template_id") || "").trim();
-    const returnTaskTemplateQuery =
-      returnTemplatesTab === "tasks" && returnTaskTemplateId
-        ? `&task_template_id=${encodeURIComponent(returnTaskTemplateId)}`
-        : "";
+    const projectTaskReturnUrl = (
+      message: SettingsUrlMessage,
+      options?: { includeProjectContext?: boolean }
+    ) =>
+      buildSettingsProjectTemplateTaskReturnUrl({
+        returnTemplatesTab,
+        returnTaskTemplateId,
+        projectTemplateId,
+        taskTemplatePanelQuery,
+        projectTemplatePanelQuery,
+        includeProjectContext: options?.includeProjectContext,
+        message,
+      });
     if (!id) {
-      if (returnTemplatesTab === "tasks") {
-        redirect(
-          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=Missing%20link%20id`
-        );
-      }
-      redirect("/settings?tab=templates&templates=projects&error=Missing%20link%20id");
+      redirect(
+        projectTaskReturnUrl(
+          { kind: "error", value: "Missing link id" },
+          { includeProjectContext: false }
+        )
+      );
     }
 
     const { error } = await supabase.from("project_template_tasks").delete().eq("id", id);
 
     if (error) {
-      if (returnTemplatesTab === "tasks") {
-        redirect(
-          `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&error=${encodeURIComponent(
-            error.message
-          )}`
-        );
-      }
       redirect(
-        `/settings?tab=templates&templates=projects&error=${encodeURIComponent(error.message)}`
+        projectTaskReturnUrl(
+          { kind: "error", value: error.message },
+          { includeProjectContext: false }
+        )
       );
     }
 
     revalidatePath("/settings");
-    if (returnTemplatesTab === "tasks") {
-      redirect(
-        `/settings?tab=templates&templates=tasks${returnTaskTemplateQuery}${taskTemplatePanelQuery}&success=Project%20template%20unlinked`
-      );
-    }
-    const nextId = projectTemplateId
-      ? `&project_template_id=${encodeURIComponent(projectTemplateId)}`
-      : "";
     redirect(
-      `/settings?tab=templates&templates=projects${nextId}${projectTemplatePanelQuery}&success=Task%20removed%20from%20project%20template`
+      projectTaskReturnUrl({
+        kind: "success",
+        value:
+          returnTemplatesTab === "tasks"
+            ? "Project template unlinked"
+            : "Task removed from project template",
+      })
     );
   }
 

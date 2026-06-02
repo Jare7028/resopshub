@@ -226,6 +226,30 @@ export function buildSettingsProjectTemplateUrl(params: {
   }${buildSettingsMessageQuery(params.message)}`;
 }
 
+export function buildSettingsProjectTemplateTaskReturnUrl(params: {
+  returnTemplatesTab: string;
+  returnTaskTemplateId?: string | null;
+  projectTemplateId?: string | null;
+  taskTemplatePanelQuery?: string;
+  projectTemplatePanelQuery?: string;
+  includeProjectContext?: boolean;
+  message: SettingsUrlMessage;
+}) {
+  return params.returnTemplatesTab === "tasks"
+    ? buildSettingsTaskTemplateUrl({
+        taskTemplateId: params.returnTaskTemplateId,
+        taskTemplatePanelQuery: params.taskTemplatePanelQuery,
+        message: params.message,
+      })
+    : buildSettingsProjectTemplateUrl({
+        projectTemplateId:
+          params.includeProjectContext === false ? "" : params.projectTemplateId,
+        projectTemplatePanelQuery:
+          params.includeProjectContext === false ? "" : params.projectTemplatePanelQuery,
+        message: params.message,
+      });
+}
+
 export const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
   task_assigned: true,
   task_updated: true,
