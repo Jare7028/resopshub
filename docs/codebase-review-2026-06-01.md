@@ -38,7 +38,7 @@ Top risks:
 Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
-- 31 test files.
+- 32 test files.
 - 151 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
@@ -74,12 +74,14 @@ Updated 2026-06-02:
 - Partially completed: F-014 stale hook-disable cleanup. The unused `react-hooks/exhaustive-deps` disable in `app/(app)/tasks/TasksView.tsx` was removed during the lint migration; the remaining table/view disables still need separate review.
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
 - Open: F-006 follow-up for page/server-action permission helpers, especially settings, admin, personal/social pages, and task mutations.
-- Open: F-005, F-008, F-010, F-012, F-014, F-015 plus the explicit F-004, F-006, F-007, and F-009 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
+- Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
+- Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
+- Open: F-005, F-010, F-012, F-014, F-015 plus the explicit F-004, F-006, F-007, F-008, and F-009 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npm test`: passed, 31 files and 162 tests.
+- `npm test`: passed, 32 files and 166 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -323,6 +325,7 @@ Verification needed:
 Evidence:
 
 - `npm test` passes 24 files and 138 tests.
+- Latest unit-test suite now passes 32 files and 166 tests after adding the quick task server-action coverage slice.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -340,7 +343,8 @@ User/business impact:
 Recommended fix:
 
 - Add Playwright smoke tests for login, `/tasks`, quick add task, task notes, subtask add, task detail open, and close.
-- Add server-action tests for task creation, recurrence defaults, subtasks, permissions, and validation errors.
+- Done for the first server-action slice: add direct `quickCreateTaskAction` tests for authorization, disabled users, validation errors, notes, subtasks, assignee rows, and `/tasks` revalidation.
+- Continue server-action tests for recurrence defaults, richer task mutations, permissions, and validation errors outside the quick-create path.
 - Raise coverage around `recurrence`, `taskSorting`, `statusOptions`, and `createTaskLikeRoot`.
 
 Estimated effort: medium.
@@ -348,6 +352,7 @@ Estimated effort: medium.
 Verification needed:
 
 - New tests run in CI and locally.
+- Added for the first slice: `app/(app)/tasks/actions.test.ts` runs in the normal Vitest suite.
 - At least one browser test fails if `/tasks` renders a red error state.
 
 ### F-009 - P2 - Observability - Console logging is noisy and inconsistent
