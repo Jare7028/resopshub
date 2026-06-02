@@ -128,6 +128,7 @@ Updated 2026-06-02:
 - Completed: F-005 project table view-state extraction slice. `app/(app)/projects/projectTableViewState.ts` now owns project filter persistence keys, persisted-list cleanup, table-column normalization, project sort normalization, and project list query/URL building with focused unit coverage.
 - Completed: F-005 client table view-state extraction slice. `app/(app)/clients/clientTableViewState.ts` now owns client filter persistence keys, persisted-list cleanup, table-column normalization, client sort normalization, and client list query/URL building with focused unit coverage.
 - Completed: F-005 inventory/employee-info table utility extraction slice. `lib/employeeInfoTableUtils.ts` now owns shared option parsing, date/number sort parsing, empty-cell class helpers, column token handling, and sortable value comparison used by both large editable tables.
+- Completed: F-005 inventory/employee-info preference-state extraction slice. `lib/tablePreferenceState.ts` now owns shared visibility/filter persistence normalization and serialization, while inventory and employee-info keep their own storage keys, event names, and legacy new-column behavior.
 - Completed: F-005 task timeline extraction slice. `app/(app)/tasks/taskTimeline.ts` now owns Gantt date parsing, range calculation, ticks, day diffs, and today-marker helpers, with `app/(app)/tasks/taskTimeline.test.ts` covering empty timelines, backwards due dates, tick spacing, marker bounds, and calendar-day diffs.
 - Completed: F-005 task view-model extraction slice. `app/(app)/tasks/taskViewModel.ts` now owns hidden-status filtering, effective status maps, and board grouping, with focused tests for optimistic status behavior and fallback buckets.
 - Completed: F-005 note-editor content helper extraction slice. `lib/noteEditorContent.ts` now owns Tiptap doc normalization, save-warning normalization, JSON cloning, object-record checks, and ephemeral image-source detection with focused unit coverage.
@@ -155,6 +156,7 @@ Latest implementation validation:
 - `npx vitest run 'app/(app)/projects/projectTableViewState.test.ts'`: passed, 9 tests.
 - `npx vitest run 'app/(app)/clients/clientTableViewState.test.ts'`: passed, 9 tests.
 - `npx vitest run lib/employeeInfoTableUtils.test.ts`: passed, 7 tests.
+- `npx vitest run lib/tablePreferenceState.test.ts`: passed, 6 tests.
 - Workflow YAML parse check for `.github/workflows/validation.yml`: passed.
 - `npx vitest run lib/taskSorting.test.ts`: passed, 6 tests.
 - `npx vitest run lib/tasks/createTaskLikeRoot.test.ts`: passed, 6 tests.
@@ -171,13 +173,13 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 56 files and 306 tests.
+- `npm test`: passed, 57 files and 312 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/inventory` built at 12.6 kB route JS and 118 kB first load JS, and `/employee-info` built at 12.2 kB route JS and 117 kB first load JS after the shared table utility extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, inline, and suggestion helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/inventory` built at 12.2 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.7 kB route JS and 117 kB first load JS after the shared table utility and preference-state extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, inline, and suggestion helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
-- `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for linked project `tsylrdpxsouptxmjixmu`. The Forms, Social, and Quick Read RPC migrations are tracked, but remote application still needs the correct DB password or another migration path.
+- `npx supabase migration list --linked`: rechecked on 2026-06-02 and remains blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for linked project `tsylrdpxsouptxmjixmu`. The Forms, Social, and Quick Read RPC migrations are tracked, but remote application still needs the correct DB password or another migration path.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` redirect with no red error screen; direct HTTP smoke returned 307. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/admin/users/update` and `/api/admin/users/delete` both return `401 {"ok":false,"error":"Unauthorized"}`.
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/briefing/quick-read` still returns `401 {"error":"Unauthorized"}`.
@@ -370,6 +372,7 @@ Recommended fix:
 - Done for the note-editor inline-helper slice: `lib/noteEditorInline.ts` extracts timestamp parsing, pasted-link validation, mention handle cleanup, inline text normalization, task status labels, and task-link ID extraction; `lib/noteEditorInline.test.ts` covers the extracted behavior.
 - Done for the note-editor suggestion-helper slice: `lib/noteEditorSuggestions.ts` extracts slash-command matching, command filtering, mention matching, and suggestion state types; `lib/noteEditorSuggestions.test.ts` covers trigger boundaries, filtering, and invalid matches.
 - Done for the inventory/employee-info shared table utility slice: `lib/employeeInfoTableUtils.ts` extracts duplicated option parsing, date/number parsing, empty-cell styling helpers, column token matching, and sort comparison used by both editable table components; `lib/employeeInfoTableUtils.test.ts` covers the extracted behavior.
+- Done for the inventory/employee-info preference-state slice: `lib/tablePreferenceState.ts` extracts duplicated localStorage visibility/filter normalization and serialization; the two feature wrappers now preserve their separate keys/events and inventory's legacy new-column visibility behavior.
 
 Estimated effort: large.
 
@@ -494,7 +497,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 56 files and 306 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility, task view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
+- Latest unit-test suite now passes 57 files and 312 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility and preference-state, task view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
