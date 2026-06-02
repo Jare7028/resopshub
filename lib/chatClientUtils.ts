@@ -179,6 +179,72 @@ export function normalizeConversationMember(
   };
 }
 
+export function buildUserLookup(users: readonly UserRow[]) {
+  return users.reduce<Record<string, UserRow>>((acc, user) => {
+    acc[user.id] = user;
+    return acc;
+  }, {});
+}
+
+export function buildMembersByConversationId(
+  members: readonly ConversationMemberRow[]
+) {
+  return members.reduce<Record<string, ConversationMemberRow[]>>((acc, row) => {
+    acc[row.conversation_id] ||= [];
+    acc[row.conversation_id].push(row);
+    return acc;
+  }, {});
+}
+
+export function buildMyMembershipByConversationId({
+  members,
+  currentUserId,
+}: {
+  members: readonly ConversationMemberRow[];
+  currentUserId: string;
+}) {
+  return members.reduce<Record<string, ConversationMemberRow>>((acc, row) => {
+    if (row.user_id === currentUserId) {
+      acc[row.conversation_id] = row;
+    }
+    return acc;
+  }, {});
+}
+
+export function sortConversationsByPinnedPriority({
+  conversations,
+  myMembershipByConversationId,
+}: {
+  conversations: readonly ConversationRow[];
+  myMembershipByConversationId: Record<string, ConversationMemberRow | undefined>;
+}) {
+  const pinnedUnmuted: ConversationRow[] = [];
+  const pinnedMuted: ConversationRow[] = [];
+  const regularUnmuted: ConversationRow[] = [];
+  const regularMuted: ConversationRow[] = [];
+
+  conversations.forEach((conversation) => {
+    const myMembership = myMembershipByConversationId[conversation.id];
+    const isPinned = Boolean(myMembership?.is_pinned);
+    const isMuted = Boolean(myMembership?.is_muted);
+    if (isPinned) {
+      if (isMuted) {
+        pinnedMuted.push(conversation);
+      } else {
+        pinnedUnmuted.push(conversation);
+      }
+      return;
+    }
+    if (isMuted) {
+      regularMuted.push(conversation);
+    } else {
+      regularUnmuted.push(conversation);
+    }
+  });
+
+  return [...pinnedUnmuted, ...pinnedMuted, ...regularUnmuted, ...regularMuted];
+}
+
 export function getUserDisplayName(user: UserRow | null | undefined) {
   if (!user) return "Unknown user";
   return user.full_name || user.email || "Unknown user";

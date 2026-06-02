@@ -11,8 +11,11 @@ import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import {
   CHAT_LINK_TYPE_LABELS,
   buildExistingDirectConversationIdByUserId,
+  buildMembersByConversationId,
+  buildMyMembershipByConversationId,
   buildReadReceiptsByMessageId,
   buildSearchableConversationTextById,
+  buildUserLookup,
   chatUrl,
   formatConversationTime,
   formatMessageDayLabel,
@@ -29,6 +32,7 @@ import {
   normalizeConversationMember,
   parseReplyBody,
   renderPreviewText,
+  sortConversationsByPinnedPriority,
   sortMessagesAsc,
   toMessageSnippet,
   toMs,
@@ -124,31 +128,17 @@ export default function ChatPageClient(props: {
   const highlightTimerRef = useRef<number | null>(null);
 
   const userById = useMemo(
-    () =>
-      users.reduce<Record<string, UserRow>>((acc, user) => {
-        acc[user.id] = user;
-        return acc;
-      }, {}),
+    () => buildUserLookup(users),
     [users]
   );
 
   const membersByConversationId = useMemo(
-    () =>
-      members.reduce<Record<string, ConversationMemberRow[]>>((acc, row) => {
-        acc[row.conversation_id] ||= [];
-        acc[row.conversation_id].push(row);
-        return acc;
-      }, {}),
+    () => buildMembersByConversationId(members),
     [members]
   );
 
   const myMembershipByConversationId = useMemo(() => {
-    return members.reduce<Record<string, ConversationMemberRow>>((acc, row) => {
-      if (row.user_id === currentUserId) {
-        acc[row.conversation_id] = row;
-      }
-      return acc;
-    }, {});
+    return buildMyMembershipByConversationId({ members, currentUserId });
   }, [currentUserId, members]);
 
   const conversationsByRecentActivity = useMemo(
@@ -157,31 +147,10 @@ export default function ChatPageClient(props: {
   );
 
   const conversationsByPriority = useMemo(() => {
-    const pinnedUnmuted: ConversationRow[] = [];
-    const pinnedMuted: ConversationRow[] = [];
-    const regularUnmuted: ConversationRow[] = [];
-    const regularMuted: ConversationRow[] = [];
-
-    conversationsByRecentActivity.forEach((conversation) => {
-      const myMembership = myMembershipByConversationId[conversation.id];
-      const isPinned = Boolean(myMembership?.is_pinned);
-      const isMuted = Boolean(myMembership?.is_muted);
-      if (isPinned) {
-        if (isMuted) {
-          pinnedMuted.push(conversation);
-        } else {
-          pinnedUnmuted.push(conversation);
-        }
-        return;
-      }
-      if (isMuted) {
-        regularMuted.push(conversation);
-      } else {
-        regularUnmuted.push(conversation);
-      }
+    return sortConversationsByPinnedPriority({
+      conversations: conversationsByRecentActivity,
+      myMembershipByConversationId,
     });
-
-    return [...pinnedUnmuted, ...pinnedMuted, ...regularUnmuted, ...regularMuted];
   }, [conversationsByRecentActivity, myMembershipByConversationId]);
 
   const selectedMessages = useMemo(() => {

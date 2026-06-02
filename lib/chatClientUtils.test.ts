@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildExistingDirectConversationIdByUserId,
+  buildMembersByConversationId,
+  buildMyMembershipByConversationId,
   buildReadReceiptsByMessageId,
   buildSearchableConversationTextById,
+  buildUserLookup,
   chatUrl,
   formatConversationTime,
   formatMessageDayLabel,
@@ -19,6 +22,7 @@ import {
   normalizeConversationMember,
   parseReplyBody,
   renderPreviewText,
+  sortConversationsByPinnedPriority,
   sortMessagesAsc,
   toMessageSnippet,
   toMs,
@@ -159,6 +163,58 @@ describe("chat client helpers", () => {
         avatar_url: " https://example.com/avatar.png ",
       })
     ).toBe("https://example.com/avatar.png");
+  });
+
+  it("builds conversation lookup maps and pinned priority ordering", () => {
+    const users = [
+      user({ id: "user-1", full_name: "Current User" }),
+      user({ id: "user-2", full_name: "Other User" }),
+    ];
+    const members = [
+      member({ conversation_id: "regular-muted", user_id: "user-1", is_muted: true }),
+      member({ conversation_id: "pinned-muted", user_id: "user-1", is_pinned: true, is_muted: true }),
+      member({ conversation_id: "regular-unmuted", user_id: "user-1" }),
+      member({ conversation_id: "pinned-unmuted", user_id: "user-1", is_pinned: true }),
+      member({ conversation_id: "pinned-unmuted", user_id: "user-2" }),
+    ];
+    const conversations = [
+      conversation({ id: "regular-muted" }),
+      conversation({ id: "pinned-muted" }),
+      conversation({ id: "regular-unmuted" }),
+      conversation({ id: "pinned-unmuted" }),
+    ];
+
+    expect(buildUserLookup(users)).toEqual({
+      "user-1": users[0],
+      "user-2": users[1],
+    });
+    expect(buildMembersByConversationId(members)).toMatchObject({
+      "pinned-unmuted": [
+        { conversation_id: "pinned-unmuted", user_id: "user-1" },
+        { conversation_id: "pinned-unmuted", user_id: "user-2" },
+      ],
+    });
+    const myMembershipByConversationId = buildMyMembershipByConversationId({
+      members,
+      currentUserId: "user-1",
+    });
+    expect(Object.keys(myMembershipByConversationId).sort()).toEqual([
+      "pinned-muted",
+      "pinned-unmuted",
+      "regular-muted",
+      "regular-unmuted",
+    ]);
+    expect(
+      sortConversationsByPinnedPriority({
+        conversations,
+        myMembershipByConversationId,
+      }).map((row) => row.id)
+    ).toEqual([
+      "pinned-unmuted",
+      "pinned-muted",
+      "regular-unmuted",
+      "regular-muted",
+    ]);
   });
 
   it("builds chat and linked-entity URLs", () => {
