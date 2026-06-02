@@ -38,8 +38,8 @@ Top risks:
 Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
-- 38 test files.
-- 144 direct `supabase.auth.getUser()` calls.
+- 39 test files.
+- 141 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
@@ -76,7 +76,8 @@ Updated 2026-06-02:
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
 - Completed: F-006 admin API helper slice. `lib/api/requireApiAdmin.ts` centralizes admin-only JSON auth for the admin user update/delete endpoints while preserving the existing `{ ok: false, error }` response shape.
 - Completed: F-006 admin page/action helper slice. `lib/adminAccess.ts` centralizes admin profile checks for the admin landing page, users page, create-user server action, and user-permissions page/action.
-- Open: F-006 follow-up for page/server-action permission helpers, especially settings, personal/social pages, employee/inventory actions, and task mutations.
+- Completed: F-006 settings page-edit helper slice. `lib/pageEditAccess.ts` centralizes authenticated page-edit checks and the settings assignment-group create/update/delete actions now use it.
+- Open: F-006 follow-up for the remaining page/server-action permission helpers, especially the rest of settings, personal/social pages, employee/inventory actions, and task mutations.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
@@ -97,7 +98,8 @@ Latest implementation validation:
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 38 files and 187 tests.
+- `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
+- `npm test`: passed, 39 files and 190 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -107,6 +109,7 @@ Latest implementation validation:
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/admin/users/update` and `/api/admin/users/delete` both return `401 {"ok":false,"error":"Unauthorized"}`.
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/briefing/quick-read` still returns `401 {"error":"Unauthorized"}`.
 - Local HTTP smoke on a temporary dev server confirmed unauthenticated `/admin` and `/admin/users` redirect to `/login`.
+- Local HTTP smoke on a temporary dev server confirmed unauthenticated `/settings` redirects to `/login`.
 - Local in-app browser smoke for `/forms` reached the expected unauthenticated `/forms` -> `/login` redirect with no red error screen.
 - Local in-app browser smoke for `/social` reached the expected unauthenticated `/social` -> `/login` redirect with no red error screen.
 - Local HTTP smoke on a temporary dev server returned the expected unauthenticated 307 redirects for `/clients`, `/projects`, and `/feature-suggestions` after the hook-disable cleanup.
@@ -296,6 +299,7 @@ Evidence:
 - First implementation slice added `lib/api/requireApiUser.ts` and converted `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks`. Static scan now finds 151 direct `supabase.auth.getUser()` calls, down from the original 155.
 - Second implementation slice added `lib/api/requireApiAdmin.ts` and converted `/api/admin/users/update` plus `/api/admin/users/delete`. Static scan now finds 149 direct `supabase.auth.getUser()` calls.
 - Third implementation slice added `lib/adminAccess.ts` and converted the admin landing page, admin users page, create-user server action, and user-permissions page/action. Static scan now finds 144 direct `supabase.auth.getUser()` calls.
+- Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan now finds 141 direct `supabase.auth.getUser()` calls.
 
 User/business impact:
 
@@ -310,6 +314,7 @@ Recommended fix:
 - Done for the first API route slice: create `requireApiUser`, keep unauthorized route-handler responses consistent, and test middleware-header short-circuiting plus Supabase fallback behavior.
 - Done for the admin API slice: create `requireApiAdmin`, keep admin route-handler 401/403 responses in the existing `{ ok: false, error }` shape, and convert the admin user update/delete endpoints.
 - Done for the admin page/action slice: create `getAdminAccess`, keep page-level redirect/not-found behavior at the call sites, and convert admin landing, user-management, create-user, and page-permission flows.
+- Done for the first settings action slice: create `getPageEditAccess`, keep unauthenticated and no-permission redirects at the call sites, and convert assignment-group create/update/delete actions.
 
 Estimated effort: medium.
 
@@ -319,6 +324,7 @@ Verification needed:
 - Added for the first slice: `lib/supabase/currentUser.test.ts` and `lib/api/requireApiUser.test.ts` cover trusted middleware headers, invalid-header fallback, missing users, consistent 401 JSON, and custom unauthorized messages.
 - Added for the admin API slice: `lib/api/requireApiAdmin.test.ts` covers admin success, unauthenticated requests, non-admin requests, email-based profile lookup, and response shape. Local smoke confirmed both changed admin endpoints still return the expected unauthenticated 401 JSON.
 - Added for the admin page/action slice: `lib/adminAccess.test.ts` covers admin success, unauthenticated requests, non-admin requests, and email-based profile lookup. Local smoke confirmed converted admin pages still redirect unauthenticated users to `/login`.
+- Added for the settings action slice: `lib/pageEditAccess.test.ts` covers allowed page edits, unauthenticated requests, and forbidden page-edit checks. Local smoke confirmed `/settings` still redirects unauthenticated users to `/login`.
 - Manual checks for admin, tasks, projects, employee info, inventory, personal pages, social pages, and chat.
 
 ### F-007 - P2 - Performance - Login quick-read does multiple broad reads immediately after sign-in
@@ -359,7 +365,7 @@ Verification needed:
 Evidence:
 
 - `npm test` passes 24 files and 138 tests.
-- Latest unit-test suite now passes 38 files and 187 tests after the quick task, admin API/page access, task table view-state, and quick-read task RPC coverage slices.
+- Latest unit-test suite now passes 39 files and 190 tests after the quick task, admin API/page access, settings page-edit, task table view-state, and quick-read task RPC coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.

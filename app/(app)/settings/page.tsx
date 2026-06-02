@@ -7,6 +7,7 @@ import {
   isSupabaseMissingColumnError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import { getPageEditAccess } from "@/lib/pageEditAccess";
 import { withPerfTiming } from "@/lib/perf";
 import {
   DEFAULT_FEATURE_SUGGESTION_STATUS_OPTIONS,
@@ -2467,11 +2468,13 @@ export default async function SettingsPage(props: {
   async function createAssignmentGroup(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
-
-    const canEditResult = await supabase.rpc("can_edit_page", { p_page_key: "settings" });
-    if (canEditResult.error || !canEditResult.data) {
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.assignment_groups.create.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
       redirect("/settings?tab=groups&error=You%20do%20not%20have%20permission%20to%20manage%20groups");
     }
 
@@ -2495,7 +2498,7 @@ export default async function SettingsPage(props: {
       .insert({
         name,
         description: description || null,
-        created_by_user_id: authData.user.id,
+        created_by_user_id: editAccess.user.id,
       })
       .select("id")
       .single();
@@ -2513,7 +2516,7 @@ export default async function SettingsPage(props: {
         memberUserIds.map((userId) => ({
           group_id: createdGroup.id,
           user_id: userId,
-          created_by_user_id: authData.user.id,
+          created_by_user_id: editAccess.user.id,
         }))
       );
       if (addMembersError) {
@@ -2528,11 +2531,13 @@ export default async function SettingsPage(props: {
   async function updateAssignmentGroup(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
-
-    const canEditResult = await supabase.rpc("can_edit_page", { p_page_key: "settings" });
-    if (canEditResult.error || !canEditResult.data) {
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.assignment_groups.update.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
       redirect("/settings?tab=groups&error=You%20do%20not%20have%20permission%20to%20manage%20groups");
     }
 
@@ -2580,7 +2585,7 @@ export default async function SettingsPage(props: {
         memberUserIds.map((userId) => ({
           group_id: groupId,
           user_id: userId,
-          created_by_user_id: authData.user.id,
+          created_by_user_id: editAccess.user.id,
         }))
       );
       if (addMembersError) {
@@ -2595,11 +2600,13 @@ export default async function SettingsPage(props: {
   async function deleteAssignmentGroup(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
-
-    const canEditResult = await supabase.rpc("can_edit_page", { p_page_key: "settings" });
-    if (canEditResult.error || !canEditResult.data) {
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.assignment_groups.delete.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
       redirect("/settings?tab=groups&error=You%20do%20not%20have%20permission%20to%20manage%20groups");
     }
 
