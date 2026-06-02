@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -13,11 +14,9 @@ type PreferenceUpdateBody = {
 
 export async function PATCH(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.conversations.preferences.auth");
+  if (auth.response) return auth.response;
+  const userId = auth.user.id;
 
   const json = (await req.json().catch(() => null)) as PreferenceUpdateBody | null;
   if (!json) {

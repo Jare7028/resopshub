@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveAssignmentTargetsToUserIds } from "@/lib/assignmentGroups";
 
@@ -6,9 +7,10 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 
 export async function POST(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData.user?.id;
-  const authEmail = authData.user?.email || "";
+  const auth = await requireApiUser(supabase, "chat.conversations.group.auth");
+  if (auth.response) return auth.response;
+  const authUserId = auth.user.id;
+  const authEmail = auth.user.email || "";
   if (!authUserId || !authEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

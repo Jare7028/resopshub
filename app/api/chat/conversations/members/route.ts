@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveAssignmentTargetsToUserIds } from "@/lib/assignmentGroups";
 
@@ -124,11 +125,9 @@ async function loadConversationContext(
 
 export async function POST(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const currentUserId = authData.user?.id;
-  if (!currentUserId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.conversations.members.add.auth");
+  if (auth.response) return auth.response;
+  const currentUserId = auth.user.id;
 
   const body = await parseAndValidateAddBody(req);
   if (body.error) {
@@ -191,11 +190,9 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const currentUserId = authData.user?.id;
-  if (!currentUserId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.conversations.members.remove.auth");
+  if (auth.response) return auth.response;
+  const currentUserId = auth.user.id;
 
   const body = await parseAndValidateDeleteBody(req);
   if (body.error) {
