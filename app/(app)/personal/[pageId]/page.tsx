@@ -12,7 +12,6 @@ import {
 } from "@/lib/assignmentGroups";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import PersonalPageEditorClient from "./PersonalPageEditorClient";
-import type { ContextMenuFavoriteActionId } from "../../_components/NoteEditorClient";
 import ConfirmDelete from "../../_components/ConfirmDelete";
 import { extractPlainText } from "@/lib/tiptapText";
 import PersonalSidebarTree from "../_components/PersonalSidebarTree";
@@ -22,6 +21,10 @@ import {
 } from "../_lib/workspaceData";
 import { togglePersonalPageFavorite } from "../workspaceActions";
 import { logError } from "@/lib/vercelLogger";
+import {
+  normalizeContextMenuFavoriteIds,
+  type ContextMenuFavoriteActionId,
+} from "@/lib/noteEditorContextMenu";
 
 export const dynamic = "force-dynamic";
 
@@ -191,39 +194,6 @@ function isMissingColumnError(error: unknown) {
   return code === "42703" || message.includes("does not exist");
 }
 
-const CONTEXT_MENU_FAVORITE_ACTION_ID_SET = new Set<ContextMenuFavoriteActionId>([
-  "paragraph",
-  "heading1",
-  "heading2",
-  "bulletList",
-  "orderedList",
-  "checklist",
-  "quote",
-  "insertShape",
-  "insertTextBox",
-  "insertTable",
-  "divider",
-  "addRowBefore",
-  "addRowAfter",
-  "addColumnBefore",
-  "addColumnAfter",
-  "deleteRow",
-  "deleteColumn",
-  "deleteTable",
-]);
-
-function normalizeContextMenuFavorites(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [] as ContextMenuFavoriteActionId[];
-  }
-  const next = value
-    .map((item) => String(item || "").trim())
-    .filter((item): item is ContextMenuFavoriteActionId =>
-      CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(item as ContextMenuFavoriteActionId)
-    );
-  return Array.from(new Set(next));
-}
-
 type PersonalPageTabKey =
   | "notes"
   | "details"
@@ -379,7 +349,7 @@ export default async function PersonalPage(props: {
       });
     }
   } else {
-    initialContextMenuFavorites = normalizeContextMenuFavorites(
+    initialContextMenuFavorites = normalizeContextMenuFavoriteIds(
       noteEditorPreferencesRaw?.personal_context_menu_favorites
     );
     const zoomFromPreferences = Number(noteEditorPreferencesRaw?.default_zoom_percent);

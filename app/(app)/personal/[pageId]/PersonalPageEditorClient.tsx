@@ -3,10 +3,8 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NoteEditorClient from "../../_components/LazyNoteEditorClient";
-import type {
-  ContextMenuFavoriteActionId,
-  NoteLiveContentSnapshot,
-} from "../../_components/NoteEditorClient";
+import type { NoteLiveContentSnapshot } from "../../_components/NoteEditorClient";
+import type { ContextMenuFavoriteActionId } from "@/lib/noteEditorContextMenu";
 import {
   createTaskFromPersonalPage,
   savePersonalContextMenuFavorites,

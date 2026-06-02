@@ -12,6 +12,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
 import { logDebug, logError } from "@/lib/vercelLogger";
+import { normalizeContextMenuFavoriteIds } from "@/lib/noteEditorContextMenu";
 
 function isMissingColumnError(error: unknown) {
   if (!error || typeof error !== "object") {
@@ -21,37 +22,6 @@ function isMissingColumnError(error: unknown) {
   const code = typeof anyError.code === "string" ? anyError.code : "";
   const message = typeof anyError.message === "string" ? anyError.message : "";
   return code === "42703" || message.includes("does not exist");
-}
-
-const CONTEXT_MENU_FAVORITE_ACTION_ID_SET = new Set([
-  "paragraph",
-  "heading1",
-  "heading2",
-  "bulletList",
-  "orderedList",
-  "checklist",
-  "quote",
-  "insertShape",
-  "insertTextBox",
-  "insertTable",
-  "divider",
-  "addRowBefore",
-  "addRowAfter",
-  "addColumnBefore",
-  "addColumnAfter",
-  "deleteRow",
-  "deleteColumn",
-  "deleteTable",
-]);
-
-function normalizeContextMenuFavorites(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [] as string[];
-  }
-  const next = value
-    .map((item) => String(item || "").trim())
-    .filter((item) => CONTEXT_MENU_FAVORITE_ACTION_ID_SET.has(item));
-  return Array.from(new Set(next));
 }
 
 function normalizeTimestamp(value: unknown) {
@@ -263,7 +233,7 @@ export async function savePersonalContextMenuFavorites(input: { favorites: strin
     throw new Error("Not signed in");
   }
 
-  const favorites = normalizeContextMenuFavorites(input.favorites);
+  const favorites = normalizeContextMenuFavoriteIds(input.favorites);
 
   const { error } = await supabase
     .from("user_note_editor_preferences")
