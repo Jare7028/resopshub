@@ -61,10 +61,12 @@ Important counts from static review:
 Updated 2026-06-02:
 
 - Completed: F-001 dependency security upgrades. `npm audit --json` now reports 0 vulnerabilities.
+- Completed: F-001 dependency hygiene follow-up. The repo now declares the official `server-only@0.0.1` package used by existing server-only modules and the contextual quick-create helper; Vitest resolves it to a no-op test shim so server-side helpers remain unit-testable.
 - Completed: F-002 for the user-facing search/filter paths called out in the finding. Search suggestions, search fallback, mentions, forms, and feature suggestions now use a shared PostgREST filter helper with regression tests.
 - Completed: F-003 upload MIME handling. Chat, personal-page images, social images, note image persistence, note rendering, profile avatars, and client upload controls now share an explicit PNG/JPEG/WebP/GIF/AVIF policy and block SVG by default.
 - Completed: F-011 cron authorization tightening. `x-vercel-cron` is now trusted only on production Vercel deployments; other environments require `CRON_SECRET`.
 - Completed: F-004 task quick-add slice. The default `/tasks` add flow now opens a focused client modal for title, notes, and optional subtasks, backed by a dedicated server action that returns the created task summary without forcing the route-modal flow. The existing `/tasks?tab=add` route remains available as Advanced options for recurrence/templates/full metadata.
+- Completed: F-004 contextual task quick-add slice. Client task lists and project task lists now pass access-checked scoped quick-create server actions into `TasksView`, so their default Add task action opens the same lightweight title/notes/subtasks modal while preserving client/project IDs. The scoped implementation lives in a `server-only` helper; the global `/tasks?tab=add` route remains the Advanced options path.
 - Open: F-004 follow-up for other route-driven modal workflows outside the default task quick-add path.
 - Completed: F-009 personal image/editor observability slice. Personal image upload/save success paths no longer log as errors, personal image upload failures now use the structured server logger, note editor image/save debug output requires explicit public debug flags, and `lib/vercelLogger.test.ts` covers structured output, log-level filtering, redaction, errors, and bigint serialization.
 - Completed: F-009 API route logging slice. `app/api` now has no direct `console.*` calls; quick-read, chat message mention failures, project task lookups, and subtask lookup diagnostics use `logError` with structured context.
@@ -145,6 +147,8 @@ Latest implementation validation:
 - `npx vitest run lib/taskSorting.test.ts`: passed, 6 tests.
 - `npx vitest run lib/tasks/createTaskLikeRoot.test.ts`: passed, 6 tests.
 - `npx vitest run lib/recurrence.test.ts lib/taskSchedule.test.ts`: passed, 13 tests.
+- `npx vitest run 'app/(app)/tasks/actions.test.ts'`: passed, 10 tests.
+- `server-only@0.0.1` dependency declaration plus Vitest no-op alias: verified by focused task action tests and production build.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
@@ -155,9 +159,9 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 50 files and 269 tests.
+- `npm test`: passed, 50 files and 270 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, and inline helper extractions plus the CI workflow slice also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, and inline helper extractions plus the CI workflow and contextual task quick-add slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -291,6 +295,7 @@ Evidence:
 - Recent production timing checks before the latest task optimization showed direct `/tasks?tab=add` around 1.95s and simple submit around 4.5s, with multiple `/tasks/[id]?_rsc` prefetches.
 - After the targeted task optimization, direct add reload improved to about 0.946s, simple submit to about 3.026s, and task detail prefetch count dropped to 0. The pattern is still expensive relative to a local client modal with focused data loading.
 - Implemented task quick-add slice: `app/(app)/tasks/_components/QuickAddTaskModal.tsx`, `app/(app)/tasks/actions.ts`, and `app/(app)/tasks/TasksView.tsx` now support a lightweight default modal and optimistic local insertion. `app/(app)/tasks/page.tsx` still keeps the advanced route-modal form for recurrence/templates/full metadata.
+- Implemented contextual task quick-add slice: `app/(app)/clients/[clientId]/tasks/page.tsx` and `app/(app)/projects/[projectId]/tasks/page.tsx` now provide scoped quick-create server actions to `TasksView`. Those wrappers preserve existing access boundaries before calling the `server-only` `quickCreateTaskFromForm` helper; quick-created tasks and subtasks retain client/project context and revalidate the relevant contextual task page.
 
 User/business impact:
 
@@ -301,6 +306,7 @@ Recommended fix:
 
 - Done for default task creation: keep the UI idea of a popout, but make the default quick-add task form a client-side modal/drawer with title and notes as first-class fields.
 - Done for default task creation: use a small server action that returns the created task summary without forcing the full task list route to reload.
+- Done for client/project task lists: use the lightweight quick modal by default and keep `/tasks?tab=add` as the advanced route-modal escape hatch.
 - Continue to keep recurrence, templates, assignees, watchers, and full metadata in the advanced task form until those flows can be progressively split.
 - Apply the same split to other heavy route-modal workflows after tasks.
 
@@ -467,7 +473,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 50 files and 269 tests after the quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, and note-editor helper coverage slices.
+- Latest unit-test suite now passes 50 files and 270 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, and note-editor helper coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.

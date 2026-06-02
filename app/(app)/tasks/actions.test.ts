@@ -23,6 +23,7 @@ import { plainTextToTiptapDoc } from "@/lib/plainTextToTiptapDoc";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { quickCreateTaskAction, updateTaskInlineAction } from "./actions";
+import { quickCreateTaskFromForm } from "./quickCreateTask";
 
 const mockedCreateSupabaseServerClient = vi.mocked(createSupabaseServerClient);
 const mockedRevalidatePath = vi.mocked(revalidatePath);
@@ -315,6 +316,66 @@ describe("quickCreateTaskAction", () => {
       }))
     );
     expect(mockedRevalidatePath).toHaveBeenCalledWith("/tasks");
+  });
+
+  it("creates scoped quick tasks for client and project task pages", async () => {
+    const { insertCalls } = createSupabaseMock({
+      authUser: { id: "auth-user-1", email: "user@example.com" },
+      profile: { id: "app-user-1", status: "active" },
+    });
+
+    const result = await quickCreateTaskFromForm(
+      createQuickTaskForm({
+        title: "Client project task",
+        notes: "Scoped notes",
+        subtasks: ["Scoped subtask"],
+      }),
+      {
+        context: "clients.tasks.quickCreate",
+        clientId: "client-1",
+        projectId: "project-1",
+        revalidatePaths: ["/clients/client-1/tasks", "/projects/project-1/tasks"],
+      }
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.task).toMatchObject({
+      title: "Client project task",
+      client_id: "client-1",
+      project_id: "project-1",
+      assignee_user_id: "app-user-1",
+    });
+    expect(result.subtasks).toHaveLength(1);
+    expect(result.subtasks[0]).toMatchObject({
+      parent_task_id: result.task.id,
+      title: "Scoped subtask",
+      client_id: "client-1",
+      project_id: "project-1",
+      assignee_user_ids: ["app-user-1"],
+    });
+
+    expect(insertCalls.tasks[0]).toMatchObject({
+      title: "Client project task",
+      client_id: "client-1",
+      project_id: "project-1",
+      content: plainTextToTiptapDoc("Scoped notes"),
+      content_text: "Scoped notes",
+    });
+    expect(insertCalls.tasks[1]).toEqual([
+      expect.objectContaining({
+        parent_task_id: result.task.id,
+        title: "Scoped subtask",
+        client_id: "client-1",
+        project_id: "project-1",
+      }),
+    ]);
+    expect(mockedGetCurrentRequestUser).toHaveBeenCalledWith(
+      expect.anything(),
+      "clients.tasks.quickCreate.auth"
+    );
+    expect(mockedRevalidatePath).toHaveBeenCalledWith("/tasks");
+    expect(mockedRevalidatePath).toHaveBeenCalledWith("/clients/client-1/tasks");
+    expect(mockedRevalidatePath).toHaveBeenCalledWith("/projects/project-1/tasks");
   });
 });
 

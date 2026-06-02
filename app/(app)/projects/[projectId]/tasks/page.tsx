@@ -22,6 +22,7 @@ import {
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
 import { updateTaskInlineAction } from "../../../tasks/actions";
+import { quickCreateTaskFromForm } from "../../../tasks/quickCreateTask";
 import { loadAssignmentGroups } from "@/lib/assignmentGroups";
 
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
@@ -372,6 +373,56 @@ export default async function ProjectTasksPage(props: {
 
   const updateTaskInline = updateTaskInlineAction;
 
+  async function quickCreateProjectTask(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "projects.tasks.quickCreate.access.auth"
+    );
+    const authEmail = String(authUser?.email || "").trim();
+    if (!authEmail) {
+      return { ok: false as const, error: "Unauthorized" };
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from("users")
+      .select("id,role")
+      .eq("email", authEmail)
+      .maybeSingle();
+    if (profileError) {
+      return { ok: false as const, error: profileError.message };
+    }
+    const profileId = profile?.id || null;
+    const profileIsAdmin = profile?.role === "admin";
+    if (!profileIsAdmin) {
+      if (!profileId) {
+        return { ok: false as const, error: "User profile missing" };
+      }
+      const { data: assignment } = await supabase
+        .from("project_users")
+        .select("user_id")
+        .eq("project_id", projectId)
+        .eq("user_id", profileId)
+        .maybeSingle();
+      const { data: watching } = await supabase
+        .from("project_watchers")
+        .select("user_id")
+        .eq("project_id", projectId)
+        .eq("user_id", profileId)
+        .maybeSingle();
+      if (!assignment && !watching) {
+        return { ok: false as const, error: "Not assigned to that project" };
+      }
+    }
+
+    return quickCreateTaskFromForm(formData, {
+      context: "projects.tasks.quickCreate",
+      clientId: projectClientId,
+      projectId,
+      revalidatePaths: [basePath],
+    });
+  }
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -392,15 +443,6 @@ export default async function ProjectTasksPage(props: {
           {searchParams.success}
         </p>
       ) : null}
-
-      <div className="flex justify-start">
-        <a
-          href={sharedAddTaskUrl}
-          className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-        >
-          Add task
-        </a>
-      </div>
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <TasksView
@@ -424,6 +466,8 @@ export default async function ProjectTasksPage(props: {
             project: [projectId],
           }}
           onUpdate={updateTaskInline}
+          onQuickCreate={quickCreateProjectTask}
+          addTaskUrl={sharedAddTaskUrl}
           hideCompleted={hideCompleted}
           statusColorMap={taskStatusColorMap}
           toggleUrl={toggleUrl}

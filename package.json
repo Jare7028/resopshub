@@ -39,7 +39,8 @@
     "fast-formula-parser": "^1.0.19",
     "next": "15.5.18",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",

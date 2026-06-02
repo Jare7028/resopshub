@@ -21,6 +21,7 @@ import {
   sortTasksForDisplay,
 } from "@/lib/taskSorting";
 import { updateTaskInlineAction } from "../../../tasks/actions";
+import { quickCreateTaskFromForm } from "../../../tasks/quickCreateTask";
 import { normalizeTasksTabKey } from "../../../tasks/_components/TasksTabs";
 import TasksView from "../../../tasks/TasksView";
 import { withPerfTiming } from "@/lib/perf";
@@ -382,6 +383,22 @@ export default async function ClientTasksPage(props: {
     return updateTaskInlineAction(input);
   }
 
+  async function quickCreateClientTask(formData: FormData) {
+    "use server";
+    const supabase = createSupabaseServerClient();
+    await ensureClientPageEditAccess({
+      supabase,
+      clientId,
+      pageKey: "tasks",
+      redirectPath: `/clients/${clientId}/tasks`,
+    });
+    return quickCreateTaskFromForm(formData, {
+      context: "clients.tasks.quickCreate",
+      clientId,
+      revalidatePaths: [`/clients/${clientId}/tasks`],
+    });
+  }
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -402,15 +419,6 @@ export default async function ClientTasksPage(props: {
           {searchParams.success}
         </p>
       ) : null}
-
-      <div className="flex justify-start">
-        <Link
-          href={sharedAddTaskUrl}
-          className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-        >
-          Add task
-        </Link>
-      </div>
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <TasksView
@@ -439,6 +447,8 @@ export default async function ClientTasksPage(props: {
             project: selectedProjectIds,
           }}
           onUpdate={updateTaskInline}
+          onQuickCreate={quickCreateClientTask}
+          addTaskUrl={sharedAddTaskUrl}
           hideCompleted={hideCompleted}
           statusColorMap={taskStatusColorMap}
           toggleUrl={toggleUrl}
