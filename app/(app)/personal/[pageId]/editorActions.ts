@@ -7,6 +7,7 @@ import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { extractMentionHandles } from "@/lib/mentions";
 import { summarizeImageNodes } from "@/lib/imageNodeIntegrity";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -76,9 +77,12 @@ export async function updatePersonalPageContent(
   options?: UpdatePersonalPageContentOptions
 ): Promise<UpdatePersonalPageContentResult> {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
+  const authUser = await getCurrentRequestUser(supabase, "personal.editor.update.auth");
+  if (!authUser) {
+    throw new Error("Not signed in");
+  }
   const now = new Date().toISOString();
-  const editorId = authData.user?.id ?? null;
+  const editorId = authUser.id;
   // Personal pages persist content as-authored to avoid image-loss from server-side transforms.
   const canonicalContent = content;
   const inputImageSummary = summarizeImageNodes(canonicalContent);
@@ -245,8 +249,11 @@ export async function updatePersonalPageContent(
 
 export async function savePersonalContextMenuFavorites(input: { favorites: string[] }) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
+  const authUser = await getCurrentRequestUser(
+    supabase,
+    "personal.editor.context_menu_favorites.auth"
+  );
+  const userId = authUser?.id;
 
   if (!userId) {
     throw new Error("Not signed in");
@@ -295,8 +302,10 @@ export async function createTaskFromPersonalPage(input: {
   };
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUser = authData.user;
+  const authUser = await getCurrentRequestUser(
+    supabase,
+    "personal.editor.create_task.auth"
+  );
 
   if (!authUser) {
     throw new Error("Not signed in");
