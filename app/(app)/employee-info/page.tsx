@@ -3,7 +3,10 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { withPerfTiming } from "@/lib/perf";
-import { getEmployeeInfoAccess } from "@/lib/employeeInfoAccess";
+import {
+  getEmployeeInfoAccess,
+  getEmployeeInfoColumnManagementAccess,
+} from "@/lib/employeeInfoAccess";
 import {
   isSupabaseMissingColumnError,
   isSupabaseMissingFunctionError,
@@ -1157,26 +1160,20 @@ export default async function EmployeeInfoPage(props: {
   async function createColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.create.auth");
-    if (!actionUser?.id) {
-      redirect("/login");
-    }
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", actionUser.email || "")
-      .maybeSingle();
-    let canManageColumns = currentUser?.role === "admin";
-    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
-    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
-      if (canManageColumnsResult.error) {
-        return { ok: false, error: canManageColumnsResult.error.message };
+    const columnAccess = await getEmployeeInfoColumnManagementAccess(supabase, {
+      authTimingLabel: "employee_info.columns.create.auth",
+      manageColumnsRpcName: "can_manage_employee_info_columns",
+    });
+    if (!columnAccess.ok) {
+      if (columnAccess.reason === "unauthenticated") {
+        redirect("/login");
       }
-      canManageColumns = Boolean(canManageColumnsResult.data);
+      return { ok: false, error: columnAccess.error };
     }
-    if (!canManageColumns) {
+    if (!columnAccess.canManageColumns) {
       return { ok: false, error: "Only admins can add columns" };
     }
+    const currentAppUserId = columnAccess.currentAppUserId;
 
     const label = String(formData.get("label") || "").trim();
     const kind = normalizeEmployeeInfoColumnKind(String(formData.get("column_kind") || ""));
@@ -1235,7 +1232,7 @@ export default async function EmployeeInfoPage(props: {
           ? { currency_code: currencyCode }
           : [],
       position: nextPosition,
-      created_by_user_id: currentUser?.id || actionUser.id,
+      created_by_user_id: currentAppUserId,
     };
 
     const { error } = await supabase.from("employee_info_columns").insert(payload);
@@ -1249,25 +1246,17 @@ export default async function EmployeeInfoPage(props: {
   async function updateColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.update.auth");
-    if (!actionUser?.id) {
-      redirect("/login");
-    }
-
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", actionUser.email || "")
-      .maybeSingle();
-    let canManageColumns = currentUser?.role === "admin";
-    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
-    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
-      if (canManageColumnsResult.error) {
-        return { ok: false, error: canManageColumnsResult.error.message };
+    const columnAccess = await getEmployeeInfoColumnManagementAccess(supabase, {
+      authTimingLabel: "employee_info.columns.update.auth",
+      manageColumnsRpcName: "can_manage_employee_info_columns",
+    });
+    if (!columnAccess.ok) {
+      if (columnAccess.reason === "unauthenticated") {
+        redirect("/login");
       }
-      canManageColumns = Boolean(canManageColumnsResult.data);
+      return { ok: false, error: columnAccess.error };
     }
-    if (!canManageColumns) {
+    if (!columnAccess.canManageColumns) {
       return { ok: false, error: "Only admins can edit columns" };
     }
 
@@ -1505,25 +1494,17 @@ export default async function EmployeeInfoPage(props: {
   async function deleteColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.delete.auth");
-    if (!actionUser?.id) {
-      redirect("/login");
-    }
-
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", actionUser.email || "")
-      .maybeSingle();
-    let canManageColumns = currentUser?.role === "admin";
-    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
-    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
-      if (canManageColumnsResult.error) {
-        return { ok: false, error: canManageColumnsResult.error.message };
+    const columnAccess = await getEmployeeInfoColumnManagementAccess(supabase, {
+      authTimingLabel: "employee_info.columns.delete.auth",
+      manageColumnsRpcName: "can_manage_employee_info_columns",
+    });
+    if (!columnAccess.ok) {
+      if (columnAccess.reason === "unauthenticated") {
+        redirect("/login");
       }
-      canManageColumns = Boolean(canManageColumnsResult.data);
+      return { ok: false, error: columnAccess.error };
     }
-    if (!canManageColumns) {
+    if (!columnAccess.canManageColumns) {
       return { ok: false, error: "Only admins can delete columns" };
     }
 
@@ -1543,25 +1524,17 @@ export default async function EmployeeInfoPage(props: {
   async function moveColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const actionUser = await getCurrentRequestUser(supabase, "employee_info.columns.move.auth");
-    if (!actionUser?.id) {
-      redirect("/login");
-    }
-
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", actionUser.email || "")
-      .maybeSingle();
-    let canManageColumns = currentUser?.role === "admin";
-    const canManageColumnsResult = await supabase.rpc("can_manage_employee_info_columns");
-    if (!isSupabaseMissingFunctionError(canManageColumnsResult.error)) {
-      if (canManageColumnsResult.error) {
-        return { ok: false, error: canManageColumnsResult.error.message };
+    const columnAccess = await getEmployeeInfoColumnManagementAccess(supabase, {
+      authTimingLabel: "employee_info.columns.move.auth",
+      manageColumnsRpcName: "can_manage_employee_info_columns",
+    });
+    if (!columnAccess.ok) {
+      if (columnAccess.reason === "unauthenticated") {
+        redirect("/login");
       }
-      canManageColumns = Boolean(canManageColumnsResult.data);
+      return { ok: false, error: columnAccess.error };
     }
-    if (!canManageColumns) {
+    if (!columnAccess.canManageColumns) {
       return { ok: false, error: "Only admins can reorder columns" };
     }
 

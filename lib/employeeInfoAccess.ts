@@ -40,6 +40,11 @@ type EmployeeInfoAccessProfile = {
   role: string | null;
 };
 
+type EmployeeInfoAccessProfileContext = {
+  currentAppUserId: string;
+  isAdmin: boolean;
+};
+
 export type EmployeeInfoAccessResult =
   | {
       ok: true;
@@ -59,6 +64,33 @@ export type EmployeeInfoAccessResult =
       canManageColumns: false;
     };
 
+export type EmployeeInfoColumnManagementAccessResult =
+  | {
+      ok: true;
+      user: CurrentRequestUser;
+      currentAppUserId: string;
+      isAdmin: boolean;
+      canManageColumns: boolean;
+    }
+  | {
+      ok: false;
+      reason: "unauthenticated";
+      error: "Unauthorized";
+      user: null;
+      currentAppUserId: null;
+      isAdmin: false;
+      canManageColumns: false;
+    }
+  | {
+      ok: false;
+      reason: "permission_error";
+      error: string;
+      user: CurrentRequestUser;
+      currentAppUserId: string;
+      isAdmin: boolean;
+      canManageColumns: false;
+    };
+
 export function resolveOptionalAccessRpcBoolean(
   result: RpcBooleanResult,
   fallback: boolean
@@ -67,6 +99,31 @@ export function resolveOptionalAccessRpcBoolean(
     return Boolean(result.data);
   }
   return fallback;
+}
+
+async function loadEmployeeInfoAccessProfile(
+  supabase: EmployeeInfoAccessClient,
+  user: CurrentRequestUser,
+  authUserId: string,
+  profileTimingLabel?: string
+): Promise<EmployeeInfoAccessProfileContext> {
+  const loadProfile = () => {
+    const query = supabase.from("users") as EmployeeInfoAccessQuery<EmployeeInfoAccessProfile>;
+    const selected = query.select("id,role");
+    const authEmail = String(user.email || "").trim();
+    return authEmail
+      ? selected.eq("email", authEmail).maybeSingle()
+      : selected.eq("id", authUserId).maybeSingle();
+  };
+
+  const { data: profile } = profileTimingLabel
+    ? await withPerfTiming(profileTimingLabel, loadProfile)
+    : await loadProfile();
+
+  return {
+    currentAppUserId: profile?.id || authUserId,
+    isAdmin: profile?.role === "admin",
+  };
 }
 
 export async function getEmployeeInfoAccess(
@@ -97,20 +154,12 @@ export async function getEmployeeInfoAccess(
     };
   }
 
-  const loadProfile = () => {
-    const query = supabase.from("users") as EmployeeInfoAccessQuery<EmployeeInfoAccessProfile>;
-    const selected = query.select("id,role");
-    const authEmail = String(user.email || "").trim();
-    return authEmail
-      ? selected.eq("email", authEmail).maybeSingle()
-      : selected.eq("id", authUserId).maybeSingle();
-  };
-
-  const { data: profile } = profileTimingLabel
-    ? await withPerfTiming(profileTimingLabel, loadProfile)
-    : await loadProfile();
-  const currentAppUserId = profile?.id || authUserId;
-  const isAdmin = profile?.role === "admin";
+  const { currentAppUserId, isAdmin } = await loadEmployeeInfoAccessProfile(
+    supabase,
+    user,
+    authUserId,
+    profileTimingLabel
+  );
   const [accessResult, manageColumnsResult] = await Promise.all([
     supabase.rpc(accessRpcName),
     manageColumnsRpcName
@@ -127,5 +176,62 @@ export async function getEmployeeInfoAccess(
     canManageColumns: manageColumnsResult
       ? resolveOptionalAccessRpcBoolean(manageColumnsResult, isAdmin)
       : isAdmin,
+  };
+}
+
+export async function getEmployeeInfoColumnManagementAccess(
+  supabase: EmployeeInfoAccessClient,
+  {
+    authTimingLabel,
+    profileTimingLabel,
+    manageColumnsRpcName,
+  }: {
+    authTimingLabel: string;
+    profileTimingLabel?: string;
+    manageColumnsRpcName: string;
+  }
+): Promise<EmployeeInfoColumnManagementAccessResult> {
+  const user = await getCurrentRequestUser(supabase, authTimingLabel);
+  const authUserId = user?.id;
+  if (!user || !authUserId) {
+    return {
+      ok: false,
+      reason: "unauthenticated",
+      error: "Unauthorized",
+      user: null,
+      currentAppUserId: null,
+      isAdmin: false,
+      canManageColumns: false,
+    };
+  }
+
+  const { currentAppUserId, isAdmin } = await loadEmployeeInfoAccessProfile(
+    supabase,
+    user,
+    authUserId,
+    profileTimingLabel
+  );
+  const manageColumnsResult = await supabase.rpc(manageColumnsRpcName);
+  if (
+    !isSupabaseMissingFunctionError(manageColumnsResult.error) &&
+    manageColumnsResult.error
+  ) {
+    return {
+      ok: false,
+      reason: "permission_error",
+      error: manageColumnsResult.error.message || "Failed to check column permissions",
+      user,
+      currentAppUserId,
+      isAdmin,
+      canManageColumns: false,
+    };
+  }
+
+  return {
+    ok: true,
+    user,
+    currentAppUserId,
+    isAdmin,
+    canManageColumns: resolveOptionalAccessRpcBoolean(manageColumnsResult, isAdmin),
   };
 }

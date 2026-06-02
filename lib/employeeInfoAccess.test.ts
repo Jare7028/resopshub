@@ -12,6 +12,7 @@ vi.mock("@/lib/supabase/currentUser", async () => {
 
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import {
+  getEmployeeInfoColumnManagementAccess,
   getEmployeeInfoAccess,
   resolveOptionalAccessRpcBoolean,
 } from "./employeeInfoAccess";
@@ -193,6 +194,87 @@ describe("employee info access helpers", () => {
       currentAppUserId: "admin-1",
       isAdmin: true,
       canAccess: true,
+      canManageColumns: true,
+    });
+  });
+
+  it("rejects unauthenticated column-management checks before profile or RPC lookups", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue(null);
+    const { client, calls } = createEmployeeInfoAccessClient();
+
+    await expect(
+      getEmployeeInfoColumnManagementAccess(client, {
+        authTimingLabel: "employee_info.columns.create.auth",
+        manageColumnsRpcName: "can_manage_employee_info_columns",
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "unauthenticated",
+      error: "Unauthorized",
+      canManageColumns: false,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("returns real column-management RPC errors to server actions", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue({
+      id: "auth-user-1",
+      email: "person@example.com",
+      user_metadata: null,
+    });
+    const { client, calls } = createEmployeeInfoAccessClient({
+      rpcResults: {
+        can_manage_inventory_columns: {
+          data: null,
+          error: { message: "Permission RPC failed" },
+        },
+      },
+    });
+
+    await expect(
+      getEmployeeInfoColumnManagementAccess(client, {
+        authTimingLabel: "inventory.columns.update.auth",
+        manageColumnsRpcName: "can_manage_inventory_columns",
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "permission_error",
+      error: "Permission RPC failed",
+      currentAppUserId: "app-user-1",
+      isAdmin: false,
+      canManageColumns: false,
+    });
+    expect(calls).toEqual([
+      { table: "users", filters: { email: "person@example.com" } },
+      { rpc: "can_manage_inventory_columns" },
+    ]);
+  });
+
+  it("uses admin fallback for missing column-management RPCs", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue({
+      id: "auth-user-1",
+      email: "admin@example.com",
+      user_metadata: null,
+    });
+    const { client } = createEmployeeInfoAccessClient({
+      profile: { id: "admin-1", role: "admin" },
+      rpcResults: {
+        can_manage_employee_info_columns: {
+          data: null,
+          error: { code: "PGRST202", message: "Missing function" },
+        },
+      },
+    });
+
+    await expect(
+      getEmployeeInfoColumnManagementAccess(client, {
+        authTimingLabel: "employee_info.columns.move.auth",
+        manageColumnsRpcName: "can_manage_employee_info_columns",
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      currentAppUserId: "admin-1",
+      isAdmin: true,
       canManageColumns: true,
     });
   });
