@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -90,10 +91,8 @@ export default async function ClientProjectsPage(props: {
   const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
   const projectRangeFrom = (currentPage - 1) * projectsPageSize;
   const projectRangeTo = projectRangeFrom + projectsPageSize;
-  const { data: authData } = await withPerfTiming("clients.projects.auth", () =>
-    supabase.auth.getUser()
-  );
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "clients.projects.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }
@@ -292,8 +291,11 @@ export default async function ClientProjectsPage(props: {
       pageKey: "projects",
       redirectPath: `/clients/${clientId}/projects`,
     });
-    const { data: authData } = await supabase.auth.getUser();
-    const creatorId = authData.user?.id;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "clients.projects.create.auth"
+    );
+    const creatorId = authUser?.id;
     if (!creatorId) {
       redirect("/login");
     }

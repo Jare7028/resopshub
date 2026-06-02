@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import ClientTabs from "../_components/ClientTabs";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import {
@@ -65,10 +66,8 @@ export default async function ClientTasksPage(props: {
   const searchParams = await props.searchParams;
   const clientId = params.clientId;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await withPerfTiming("clients.tasks.auth", () =>
-    supabase.auth.getUser()
-  );
-  const authUserId = authData.user?.id;
+  const authUser = await getCurrentRequestUser(supabase, "clients.tasks.auth");
+  const authUserId = authUser?.id;
   if (!authUserId) {
     redirect("/login");
   }
