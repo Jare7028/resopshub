@@ -799,15 +799,39 @@ export default function ProjectsView({
     setDefaultView(readDefaultViewMode(viewPreferenceScope));
   }, [viewPreferenceScope]);
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (hasExplicitView) return;
     const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
     if (savedDefaultView && savedDefaultView !== initialView) {
-      applyView(savedDefaultView);
+      setView(savedDefaultView);
+      const query = buildQuery(
+        filters,
+        sortKey,
+        sortDir,
+        savedDefaultView,
+        hideCompleted,
+        includeWatching
+      );
+      startTransition(() => {
+        router.replace(query ? `${basePath}?${query}` : basePath, {
+          scroll: false,
+        });
+      });
     }
-  }, [hasExplicitView, initialView, viewPreferenceScope]);
-  /* eslint-enable react-hooks/exhaustive-deps */
+  }, [
+    basePath,
+    buildQuery,
+    filters,
+    hasExplicitView,
+    hideCompleted,
+    includeWatching,
+    initialView,
+    router,
+    sortDir,
+    sortKey,
+    startTransition,
+    viewPreferenceScope,
+  ]);
 
   const saveDefaultView = () => {
     writeDefaultViewMode(viewPreferenceScope, view);

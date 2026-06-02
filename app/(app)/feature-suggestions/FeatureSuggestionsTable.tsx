@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setCsvParam } from "@/lib/queryParams";
 import {
@@ -250,27 +250,30 @@ export default function FeatureSuggestionsTable({
     };
   }, [openMenu]);
 
-  const buildQuery = (
-    nextFilters: FilterState,
-    nextSortKey: SortKey,
-    nextSortDir: SortDir,
-    nextView: "table" | "gantt" | "board",
-    nextHideCompleted: boolean
-  ) => {
-    const params = new URLSearchParams();
-    setCsvParam(params, "status", nextFilters.status);
-    setCsvParam(params, "type", nextFilters.type);
-    if (nextFilters.q.trim()) {
-      params.set("q", nextFilters.q.trim());
-    }
-    params.set("hide", nextHideCompleted ? "1" : "0");
-    params.set("sort", nextSortKey);
-    params.set("dir", nextSortDir);
-    if (nextView !== "table") {
-      params.set("view", nextView);
-    }
-    return params.toString();
-  };
+  const buildQuery = useCallback(
+    (
+      nextFilters: FilterState,
+      nextSortKey: SortKey,
+      nextSortDir: SortDir,
+      nextView: "table" | "gantt" | "board",
+      nextHideCompleted: boolean
+    ) => {
+      const params = new URLSearchParams();
+      setCsvParam(params, "status", nextFilters.status);
+      setCsvParam(params, "type", nextFilters.type);
+      if (nextFilters.q.trim()) {
+        params.set("q", nextFilters.q.trim());
+      }
+      params.set("hide", nextHideCompleted ? "1" : "0");
+      params.set("sort", nextSortKey);
+      params.set("dir", nextSortDir);
+      if (nextView !== "table") {
+        params.set("view", nextView);
+      }
+      return params.toString();
+    },
+    []
+  );
 
   const cancelPendingFilterNavigation = () => {
     if (!pendingFilterNavTimerRef.current) return;
@@ -312,15 +315,37 @@ export default function FeatureSuggestionsTable({
     setDefaultView(readDefaultViewMode(viewPreferenceScope));
   }, [viewPreferenceScope]);
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (hasExplicitView) return;
     const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
     if (savedDefaultView && savedDefaultView !== initialView) {
-      applyView(savedDefaultView);
+      setView(savedDefaultView);
+      cancelPendingFilterNavigation();
+      const query = buildQuery(
+        filters,
+        sortKey,
+        sortDir,
+        savedDefaultView,
+        hideCompleted
+      );
+      startTransition(() => {
+        router.replace(query ? `/feature-suggestions?${query}` : "/feature-suggestions", {
+          scroll: false,
+        });
+      });
     }
-  }, [hasExplicitView, initialView, viewPreferenceScope]);
-  /* eslint-enable react-hooks/exhaustive-deps */
+  }, [
+    buildQuery,
+    filters,
+    hasExplicitView,
+    hideCompleted,
+    initialView,
+    router,
+    sortDir,
+    sortKey,
+    startTransition,
+    viewPreferenceScope,
+  ]);
 
   const saveDefaultView = () => {
     writeDefaultViewMode(viewPreferenceScope, view);

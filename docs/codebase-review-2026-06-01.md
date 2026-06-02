@@ -44,7 +44,7 @@ Important counts from static review:
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
 - 78 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`.
-- 3 `react-hooks/exhaustive-deps` lint disables.
+- 0 `react-hooks/exhaustive-deps` lint disables.
 
 ## Quick Wins
 
@@ -71,12 +71,12 @@ Updated 2026-06-02:
 - Completed: F-007 quick-read date-window slice. `/api/briefing/quick-read` now applies a local next-24-hour `due_date` cutoff to the task query before summarizing overdue and due-soon work, and `lib/loginQuickReadSummary.test.ts` covers cutoff, filtering, sorting, URLs, and fallback titles.
 - Open: F-007 follow-up for replacing the remaining broad `task_assignees` lookup with an RPC/view that joins assignments and task due dates directly.
 - Completed: F-013 build tooling migration. `npm run lint` now runs `eslint .` through an explicit flat config and no longer prints the Next.js `next lint` deprecation warning.
-- Partially completed: F-014 stale hook-disable cleanup. The unused `react-hooks/exhaustive-deps` disable in `app/(app)/tasks/TasksView.tsx` was removed during the lint migration; the remaining table/view disables still need separate review.
+- Completed: F-014 stale hook-disable cleanup. The remaining `react-hooks/exhaustive-deps` disables in feature suggestions, clients, and projects were removed by making the saved-default-view effects self-contained with complete dependency lists.
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
 - Open: F-006 follow-up for page/server-action permission helpers, especially settings, admin, personal/social pages, and task mutations.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
-- Open: F-005, F-010, F-012, F-014, F-015 plus the explicit F-004, F-006, F-007, F-008, and F-009 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
+- Open: F-005, F-010, F-012, F-015 plus the explicit F-004, F-006, F-007, F-008, and F-009 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
 
 Latest implementation validation:
 
@@ -86,6 +86,7 @@ Latest implementation validation:
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` 307 redirect. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
+- Local HTTP smoke on a temporary dev server returned the expected unauthenticated 307 redirects for `/clients`, `/projects`, and `/feature-suggestions` after the hook-disable cleanup.
 
 ## Suggested Order of Implementation
 
@@ -496,10 +497,8 @@ Verification needed:
 
 Evidence:
 
-- `app/(app)/projects/ProjectsView.tsx:802`
-- `app/(app)/clients/ClientsTable.tsx:557`
-- `app/(app)/feature-suggestions/FeatureSuggestionsTable.tsx:315`
-- Original finding also included `app/(app)/tasks/TasksView.tsx`; that stale unused disable has been removed.
+- Original scan found `react-hooks/exhaustive-deps` disables in `app/(app)/projects/ProjectsView.tsx`, `app/(app)/clients/ClientsTable.tsx`, `app/(app)/feature-suggestions/FeatureSuggestionsTable.tsx`, and `app/(app)/tasks/TasksView.tsx`.
+- Current static scan finds 0 `react-hooks/exhaustive-deps` disables.
 
 User/business impact:
 
@@ -508,15 +507,15 @@ User/business impact:
 
 Recommended fix:
 
-- Review each disabled block.
-- Extract stable callbacks/memos or narrow the effect scope until the disable can be removed.
-- If a disable remains, add a precise comment explaining the invariant.
+- Done: removed the stale task-table disable during the lint migration.
+- Done: removed the remaining feature suggestion, client, and project disables by making the saved-default-view effects self-contained and dependency-complete.
 
 Estimated effort: small to medium.
 
 Verification needed:
 
-- Targeted interaction tests for filters, sorting, inline updates, and refresh behavior in each table/view.
+- `npm run lint` passes with no `react-hooks/exhaustive-deps` disables present in `app` or `lib`.
+- Follow-up browser coverage should still exercise filters, sorting, inline updates, and default-view redirects in these table/view surfaces.
 
 ### F-015 - P3 - Operations - Project documentation is thin for production operations
 

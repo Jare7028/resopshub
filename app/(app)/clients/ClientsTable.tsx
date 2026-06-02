@@ -554,15 +554,33 @@ export default function ClientsTable({
     });
   };
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     const savedDefaultView = readDefaultViewMode(viewPreferenceScope);
     setDefaultView(savedDefaultView);
     if (!hasExplicitView && savedDefaultView && savedDefaultView !== initialView) {
-      applyView(savedDefaultView);
+      setView(savedDefaultView);
+      const params = new URLSearchParams();
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      setCsvParam(params, "status", filters.status);
+      setCsvParam(params, "industry", filters.industry);
+      params.set("sort", sortKey);
+      params.set("dir", sortDir);
+      if (savedDefaultView !== "table") params.set("view", savedDefaultView);
+      const query = params.toString();
+      startTransition(() => {
+        router.replace(query ? `/clients?${query}` : "/clients", { scroll: false });
+      });
     }
-  }, [hasExplicitView, initialView, viewPreferenceScope]);
-  /* eslint-enable react-hooks/exhaustive-deps */
+  }, [
+    filters,
+    hasExplicitView,
+    initialView,
+    router,
+    sortDir,
+    sortKey,
+    startTransition,
+    viewPreferenceScope,
+  ]);
 
   const saveDefaultView = () => {
     writeDefaultViewMode(viewPreferenceScope, view);
