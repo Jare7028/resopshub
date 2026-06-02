@@ -108,7 +108,8 @@ Updated 2026-06-02:
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Completed: F-008 task mutation/status/recurrence test slice. `app/(app)/tasks/actions.test.ts` now covers inline task mutation RPC payloads, assignment-group expansion, safe return-path revalidation, missing IDs, assignment errors, and RPC errors; `lib/taskSchedule.test.ts` covers recurrence weekday defaults and bounded end dates; `lib/statusOptions.test.ts` covers status metadata, hidden/completed status derivation, colors, and unsafe color rejection.
 - Completed: F-008 signed-in task smoke harness slice. `playwright.config.ts` and `tests/e2e/tasks.smoke.spec.ts` now cover login/session reuse, `/tasks` load, quick-add title/notes/subtask creation, task detail navigation, and notes autosave while checking for Next.js red error overlays and uncaught page errors.
-- Open: F-008 follow-up to wire `npm run test:e2e` into CI or a staging job with `E2E_STORAGE_STATE` or `E2E_EMAIL`/`E2E_PASSWORD` secrets, then record the first authenticated run.
+- Completed: F-008 CI/staging smoke wiring slice. `.github/workflows/validation.yml` now runs TypeScript, Vitest, ESLint, audit, Playwright discovery, conditional production build, and conditional authenticated task smoke on `main`, pull requests, manual dispatch, and weekday scheduled checks; `README.md` documents the required CI secrets.
+- Open: F-008 follow-up to configure the repository/staging secrets and record the first authenticated task smoke run.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
 - Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
 - Completed: F-015 production operations README slice. `README.md` now covers local setup, environment variables, validation commands, Supabase migrations, Vercel deployment, cron, smoke checks, observability, high-risk modules, and related docs.
@@ -137,6 +138,7 @@ Latest implementation validation:
 - `npx vitest run lib/noteEditorContextMenu.test.ts lib/noteEditorFormatting.test.ts`: passed, 9 tests.
 - `npx vitest run lib/noteEditorOverlays.test.ts lib/noteEditorContextMenu.test.ts`: passed, 10 tests.
 - `npx vitest run lib/noteEditorInline.test.ts lib/noteEditorOverlays.test.ts`: passed, 12 tests.
+- Workflow YAML parse check for `.github/workflows/validation.yml`: passed.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
@@ -149,7 +151,7 @@ Latest implementation validation:
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
 - `npm test`: passed, 49 files and 253 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, and inline helper extractions also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, and inline helper extractions plus the CI workflow slice also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -459,7 +461,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 41 files and 203 tests after the quick task, inline task mutation, recurrence, status-options, admin API/page access, API auth hardening, settings page-edit, task table view-state, quick-read task RPC, and logging coverage slices.
+- Latest unit-test suite now passes 49 files and 253 tests after the quick task, inline task mutation, recurrence, status-options, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, and note-editor helper coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -479,7 +481,9 @@ Recommended fix:
 - Add Playwright smoke tests for login, `/tasks`, quick add task, task notes, subtask add, task detail open, and close.
 - Done for the first server-action slice: add direct `quickCreateTaskAction` tests for authorization, disabled users, validation errors, notes, subtasks, assignee rows, and `/tasks` revalidation.
 - Done for the second task coverage slice: add inline task mutation tests for normalized RPC payloads, assignment-group expansion/failure, missing IDs, RPC errors, and safe revalidation; add recurrence parser tests for weekday defaults and bounded end dates; add status-options tests for completion/hidden metadata and color normalization.
-- Continue with signed-in browser smoke coverage and remaining lower-level helpers such as `taskSorting`, `recurrence`, and `createTaskLikeRoot`.
+- Done for the signed-in browser smoke harness slice: add Playwright coverage for login/session reuse, `/tasks` load, quick-add title/notes/subtask creation, task detail navigation, notes autosave, red Next.js overlays, and uncaught page errors.
+- Done for the CI/staging wiring slice: add `.github/workflows/validation.yml` so TypeScript, Vitest, ESLint, audit, Playwright discovery, conditional production build, and conditional authenticated task smoke run from GitHub Actions; document the required build and E2E secrets in `README.md`.
+- Continue with the first authenticated staging run evidence and remaining lower-level helpers such as `taskSorting`, `recurrence`, and `createTaskLikeRoot`.
 
 Estimated effort: medium.
 
@@ -488,6 +492,7 @@ Verification needed:
 - New tests run in CI and locally.
 - Added for the first slice: `app/(app)/tasks/actions.test.ts` runs in the normal Vitest suite.
 - Added for the second slice: focused Vitest run for `app/(app)/tasks/actions.test.ts`, `lib/taskSchedule.test.ts`, and `lib/statusOptions.test.ts` passes 18 tests, and the full suite passes 41 files and 203 tests.
+- Added for the browser harness and CI wiring slices: `npm run test:e2e:list` discovers the task smoke test locally, and the GitHub Actions workflow parses successfully. The authenticated run is conditional until `E2E_BASE_URL`, `E2E_EMAIL`, and `E2E_PASSWORD` repository secrets are configured.
 - At least one browser test fails if `/tasks` renders a red error state.
 
 ### F-009 - P2 - Observability - Console logging is noisy and inconsistent
@@ -684,6 +689,7 @@ User/business impact:
 Recommended fix:
 
 - Done: replace the generic README with a ResOpsHub runbook covering local setup, required environment variables, Supabase migration process, Vercel deployment, cron route setup, smoke checks, observability, and known high-risk modules.
+- Done for the CI/staging wiring slice: add the GitHub Actions validation workflow and document the build/E2E secrets needed to enable production build and authenticated task smoke jobs.
 
 Estimated effort: small.
 

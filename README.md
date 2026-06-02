@@ -84,6 +84,20 @@ E2E_BASE_URL=https://your-preview-url E2E_STORAGE_STATE=.tmp/e2e-auth.json npm r
 `E2E_EMAIL` and `E2E_PASSWORD` can be used instead of `E2E_STORAGE_STATE` in CI,
 but keep them in the CI secret store only.
 
+GitHub Actions runs `.github/workflows/validation.yml` on `main`, pull requests,
+manual dispatch, and weekday scheduled checks. Configure these repository secrets
+to enable the full gates:
+
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for the
+  production build job.
+- `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_VERCEL_URL`, and
+  `SUPABASE_SERVICE_ROLE_KEY` when the target build/runtime needs them.
+- `E2E_BASE_URL`, `E2E_EMAIL`, and `E2E_PASSWORD` for the authenticated staging
+  task smoke job.
+
+The authenticated smoke job skips with a GitHub Actions notice until the E2E
+secrets are configured, so normal validation still runs on every change.
+
 ## Supabase Migrations
 
 Migration files live in `supabase/migrations`.
