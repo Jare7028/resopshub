@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   loadAssignmentGroups,
@@ -293,8 +294,8 @@ export default async function QuizManageDetailPage({
   const successMessage = /^viewing\s+/i.test(rawSuccessMessage) ? "" : rawSuccessMessage;
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user?.id) redirect("/login");
+  const authUser = await getCurrentRequestUser(supabase, "quizzes.detail.auth");
+  if (!authUser?.id) redirect("/login");
 
   const { data: quizData, error: quizError } = await supabase
     .from("quiz_definitions")

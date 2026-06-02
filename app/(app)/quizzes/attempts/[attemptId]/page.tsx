@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -132,8 +133,8 @@ export default async function QuizAttemptPage({
   const successMessage = String(resolvedSearch?.success || "").trim();
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user?.id) redirect("/login");
+  const authUser = await getCurrentRequestUser(supabase, "quizzes.attempt.auth");
+  if (!authUser?.id) redirect("/login");
 
   const { data: attemptData, error: attemptError } = await supabase
     .from("quiz_attempts")

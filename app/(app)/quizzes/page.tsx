@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import QuizzesTable from "./_components/QuizzesTable";
 
@@ -91,8 +92,8 @@ export default async function QuizzesPage({
   const successMessage = String(resolvedSearch?.success || "").trim();
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user?.id) redirect("/login");
+  const authUser = await getCurrentRequestUser(supabase, "quizzes.list.auth");
+  if (!authUser?.id) redirect("/login");
 
   const manageResult = await supabase.rpc("can_edit_page", { p_page_key: "quizzes" });
   let canManage = false;
