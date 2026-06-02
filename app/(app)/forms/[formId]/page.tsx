@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -268,8 +269,8 @@ export default async function FormDetailPage(props: {
   const submissionSortDir = normalizeSubmissionSortDir(searchParams?.dir);
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "forms.detail.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }
@@ -744,8 +745,11 @@ export default async function FormDetailPage(props: {
       }
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "forms.detail.share_link.auth"
+    );
+    const authEmail = authUser?.email;
     if (!authEmail) {
       return { ok: false as const, error: "Please log in again." };
     }
@@ -858,8 +862,10 @@ export default async function FormDetailPage(props: {
       return `${detailPath}?${sp.toString()}`;
     };
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authUser = authData.user;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "forms.detail.create_submission.auth"
+    );
     if (!authUser?.id || !authUser.email) {
       redirect("/login");
     }
