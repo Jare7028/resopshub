@@ -75,6 +75,11 @@ function compareString(a: string, b: string) {
   return a.localeCompare(b, undefined, { sensitivity: "base" });
 }
 
+function normalizeNullableString(value: string | null | undefined) {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
+
 export function normalizeTaskSortKey(value: string | null | undefined): TaskSortKey {
   const key = (value || "").trim().toLowerCase();
   if (
@@ -151,27 +156,42 @@ export function sortTasksForDisplay<T extends SortableTaskRow>(input: {
     switch (sortKey) {
       case "title":
         return compareNullable(
-          (a.title || "").trim(),
-          (b.title || "").trim(),
+          normalizeNullableString(a.title),
+          normalizeNullableString(b.title),
           sortDir,
           compareString
         );
       case "client":
-        return compareNullable(getRelationName(a.clients), getRelationName(b.clients), sortDir, compareString);
+        return compareNullable(
+          normalizeNullableString(getRelationName(a.clients)),
+          normalizeNullableString(getRelationName(b.clients)),
+          sortDir,
+          compareString
+        );
       case "project":
-        return compareNullable(getRelationName(a.projects), getRelationName(b.projects), sortDir, compareString);
+        return compareNullable(
+          normalizeNullableString(getRelationName(a.projects)),
+          normalizeNullableString(getRelationName(b.projects)),
+          sortDir,
+          compareString
+        );
       case "status": {
-        const ar = statusRank.get(a.status || "") ?? Number.POSITIVE_INFINITY;
-        const br = statusRank.get(b.status || "") ?? Number.POSITIVE_INFINITY;
+        const ar = statusRank.get(a.status || "") ?? null;
+        const br = statusRank.get(b.status || "") ?? null;
         return compareNullable(ar, br, sortDir, (l, r) => l - r);
       }
       case "priority": {
-        const ar = PRIORITY_RANK[(a.priority || "").toLowerCase()] ?? Number.POSITIVE_INFINITY;
-        const br = PRIORITY_RANK[(b.priority || "").toLowerCase()] ?? Number.POSITIVE_INFINITY;
+        const ar = PRIORITY_RANK[(a.priority || "").toLowerCase()] ?? null;
+        const br = PRIORITY_RANK[(b.priority || "").toLowerCase()] ?? null;
         return compareNullable(ar, br, sortDir, (l, r) => l - r);
       }
       case "assignees":
-        return compareNullable(getPrimaryAssigneeLabel(a), getPrimaryAssigneeLabel(b), sortDir, compareString);
+        return compareNullable(
+          normalizeNullableString(getPrimaryAssigneeLabel(a)),
+          normalizeNullableString(getPrimaryAssigneeLabel(b)),
+          sortDir,
+          compareString
+        );
       case "start": {
         const aStamp = parseIsoDateToStamp(a.start_date);
         const bStamp = parseIsoDateToStamp(b.start_date);

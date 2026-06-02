@@ -109,6 +109,7 @@ Updated 2026-06-02:
 - Completed: F-008 task mutation/status/recurrence test slice. `app/(app)/tasks/actions.test.ts` now covers inline task mutation RPC payloads, assignment-group expansion, safe return-path revalidation, missing IDs, assignment errors, and RPC errors; `lib/taskSchedule.test.ts` covers recurrence weekday defaults and bounded end dates; `lib/statusOptions.test.ts` covers status metadata, hidden/completed status derivation, colors, and unsafe color rejection.
 - Completed: F-008 signed-in task smoke harness slice. `playwright.config.ts` and `tests/e2e/tasks.smoke.spec.ts` now cover login/session reuse, `/tasks` load, quick-add title/notes/subtask creation, task detail navigation, and notes autosave while checking for Next.js red error overlays and uncaught page errors.
 - Completed: F-008 CI/staging smoke wiring slice. `.github/workflows/validation.yml` now runs TypeScript, Vitest, ESLint, audit, Playwright discovery, conditional production build, and conditional authenticated task smoke on `main`, pull requests, manual dispatch, and weekday scheduled checks; `README.md` documents the required CI secrets.
+- Completed: F-008 task sorting coverage/fix slice. `lib/taskSorting.test.ts` now covers normalization, relation names, status/priority ranks, assignee labels, missing dates, tiebreakers, and non-mutating sorting; `lib/taskSorting.ts` now keeps missing relation/assignee labels and unknown status/priority ranks last in both directions.
 - Open: F-008 follow-up to configure the repository/staging secrets and record the first authenticated task smoke run.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
 - Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
@@ -139,6 +140,7 @@ Latest implementation validation:
 - `npx vitest run lib/noteEditorOverlays.test.ts lib/noteEditorContextMenu.test.ts`: passed, 10 tests.
 - `npx vitest run lib/noteEditorInline.test.ts lib/noteEditorOverlays.test.ts`: passed, 12 tests.
 - Workflow YAML parse check for `.github/workflows/validation.yml`: passed.
+- `npx vitest run lib/taskSorting.test.ts`: passed, 6 tests.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
@@ -149,7 +151,7 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 49 files and 253 tests.
+- `npm test`: passed, 49 files and 257 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, and inline helper extractions plus the CI workflow slice also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -461,7 +463,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 49 files and 253 tests after the quick task, inline task mutation, recurrence, status-options, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, and note-editor helper coverage slices.
+- Latest unit-test suite now passes 49 files and 257 tests after the quick task, inline task mutation, recurrence, status-options, task-sorting, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, and note-editor helper coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -483,7 +485,8 @@ Recommended fix:
 - Done for the second task coverage slice: add inline task mutation tests for normalized RPC payloads, assignment-group expansion/failure, missing IDs, RPC errors, and safe revalidation; add recurrence parser tests for weekday defaults and bounded end dates; add status-options tests for completion/hidden metadata and color normalization.
 - Done for the signed-in browser smoke harness slice: add Playwright coverage for login/session reuse, `/tasks` load, quick-add title/notes/subtask creation, task detail navigation, notes autosave, red Next.js overlays, and uncaught page errors.
 - Done for the CI/staging wiring slice: add `.github/workflows/validation.yml` so TypeScript, Vitest, ESLint, audit, Playwright discovery, conditional production build, and conditional authenticated task smoke run from GitHub Actions; document the required build and E2E secrets in `README.md`.
-- Continue with the first authenticated staging run evidence and remaining lower-level helpers such as `taskSorting`, `recurrence`, and `createTaskLikeRoot`.
+- Done for the task-sorting slice: cover sort normalization, relation sorting, status/priority ranks, assignee labels, null/missing date ordering, deterministic tiebreakers, and non-mutating output; fix missing relation/assignee labels and unknown status/priority ranks so they stay last in both sort directions.
+- Continue with the first authenticated staging run evidence and remaining lower-level helpers such as `recurrence` and `createTaskLikeRoot`.
 
 Estimated effort: medium.
 
