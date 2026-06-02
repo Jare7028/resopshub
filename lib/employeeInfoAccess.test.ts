@@ -12,6 +12,7 @@ vi.mock("@/lib/supabase/currentUser", async () => {
 
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import {
+  getEmployeeInfoAdminActionAccess,
   getEmployeeInfoColumnManagementAccess,
   getEmployeeInfoAccess,
   resolveOptionalAccessRpcBoolean,
@@ -276,6 +277,109 @@ describe("employee info access helpers", () => {
       currentAppUserId: "admin-1",
       isAdmin: true,
       canManageColumns: true,
+    });
+  });
+
+  it("rejects unauthenticated admin action checks before profile or RPC lookups", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue(null);
+    const { client, calls } = createEmployeeInfoAccessClient();
+
+    await expect(
+      getEmployeeInfoAdminActionAccess(client, {
+        authTimingLabel: "employee_info.visibility_rules.update.auth",
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "unauthenticated",
+      error: "Unauthorized",
+      canManage: false,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("returns real admin RPC errors to server actions", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue({
+      id: "auth-user-1",
+      email: "person@example.com",
+      user_metadata: null,
+    });
+    const { client, calls } = createEmployeeInfoAccessClient({
+      rpcResults: {
+        is_admin: {
+          data: null,
+          error: { message: "Admin RPC failed" },
+        },
+      },
+    });
+
+    await expect(
+      getEmployeeInfoAdminActionAccess(client, {
+        authTimingLabel: "employee_info.visibility_rules.clear.auth",
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "permission_error",
+      error: "Admin RPC failed",
+      currentAppUserId: "app-user-1",
+      isAdmin: false,
+      canManage: false,
+    });
+    expect(calls).toEqual([
+      { table: "users", filters: { email: "person@example.com" } },
+      { rpc: "is_admin" },
+    ]);
+  });
+
+  it("uses admin fallback for missing admin RPCs", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue({
+      id: "auth-user-1",
+      email: "admin@example.com",
+      user_metadata: null,
+    });
+    const { client } = createEmployeeInfoAccessClient({
+      profile: { id: "admin-1", role: "admin" },
+      rpcResults: {
+        is_admin: {
+          data: null,
+          error: { code: "PGRST202", message: "Missing function" },
+        },
+      },
+    });
+
+    await expect(
+      getEmployeeInfoAdminActionAccess(client, {
+        authTimingLabel: "employee_info.visibility_rules.update.auth",
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      currentAppUserId: "admin-1",
+      isAdmin: true,
+      canManage: true,
+    });
+  });
+
+  it("honors explicit admin RPC denials", async () => {
+    mockedGetCurrentRequestUser.mockResolvedValue({
+      id: "auth-user-1",
+      email: "person@example.com",
+      user_metadata: null,
+    });
+    const { client } = createEmployeeInfoAccessClient({
+      profile: { id: "member-1", role: "member" },
+      rpcResults: {
+        is_admin: { data: false, error: null },
+      },
+    });
+
+    await expect(
+      getEmployeeInfoAdminActionAccess(client, {
+        authTimingLabel: "employee_info.visibility_rules.clear.auth",
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      currentAppUserId: "member-1",
+      isAdmin: false,
+      canManage: false,
     });
   });
 });

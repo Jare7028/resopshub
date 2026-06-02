@@ -4,12 +4,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { withPerfTiming } from "@/lib/perf";
 import {
+  getEmployeeInfoAdminActionAccess,
   getEmployeeInfoAccess,
   getEmployeeInfoColumnManagementAccess,
 } from "@/lib/employeeInfoAccess";
 import {
   isSupabaseMissingColumnError,
-  isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
 import EmployeeInfoTable from "./EmployeeInfoTable";
@@ -1601,27 +1601,16 @@ export default async function EmployeeInfoPage(props: {
   async function updateVisibilityRule(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const actionUser = await getCurrentRequestUser(
-      supabase,
-      "employee_info.visibility_rules.update.auth"
-    );
-    if (!actionUser?.id) {
-      redirect("/login");
-    }
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", actionUser.email || "")
-      .maybeSingle();
-    let canManageVisibilityRules = currentUser?.role === "admin";
-    const isAdminResult = await supabase.rpc("is_admin");
-    if (!isSupabaseMissingFunctionError(isAdminResult.error)) {
-      if (isAdminResult.error) {
-        redirect(buildEmployeeInfoUrl({ error: isAdminResult.error.message }));
+    const adminAccess = await getEmployeeInfoAdminActionAccess(supabase, {
+      authTimingLabel: "employee_info.visibility_rules.update.auth",
+    });
+    if (!adminAccess.ok) {
+      if (adminAccess.reason === "unauthenticated") {
+        redirect("/login");
       }
-      canManageVisibilityRules = Boolean(isAdminResult.data);
+      redirect(buildEmployeeInfoUrl({ error: adminAccess.error }));
     }
-    if (!canManageVisibilityRules) {
+    if (!adminAccess.canManage) {
       redirect(buildEmployeeInfoUrl({ error: "Only admins can update visibility rules" }));
     }
 
@@ -1701,7 +1690,7 @@ export default async function EmployeeInfoPage(props: {
         allowed_client_ids: allowedClientIds,
         role_column_id: roleColumnId,
         allowed_role_values: allowedRoleValues,
-        created_by_user_id: currentUser?.id || actionUser.id,
+        created_by_user_id: adminAccess.currentAppUserId,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" }
@@ -1726,27 +1715,16 @@ export default async function EmployeeInfoPage(props: {
   async function clearVisibilityRule(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const actionUser = await getCurrentRequestUser(
-      supabase,
-      "employee_info.visibility_rules.clear.auth"
-    );
-    if (!actionUser?.id) {
-      redirect("/login");
-    }
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", actionUser.email || "")
-      .maybeSingle();
-    let canManageVisibilityRules = currentUser?.role === "admin";
-    const isAdminResult = await supabase.rpc("is_admin");
-    if (!isSupabaseMissingFunctionError(isAdminResult.error)) {
-      if (isAdminResult.error) {
-        redirect(buildEmployeeInfoUrl({ error: isAdminResult.error.message }));
+    const adminAccess = await getEmployeeInfoAdminActionAccess(supabase, {
+      authTimingLabel: "employee_info.visibility_rules.clear.auth",
+    });
+    if (!adminAccess.ok) {
+      if (adminAccess.reason === "unauthenticated") {
+        redirect("/login");
       }
-      canManageVisibilityRules = Boolean(isAdminResult.data);
+      redirect(buildEmployeeInfoUrl({ error: adminAccess.error }));
     }
-    if (!canManageVisibilityRules) {
+    if (!adminAccess.canManage) {
       redirect(buildEmployeeInfoUrl({ error: "Only admins can clear visibility rules" }));
     }
 

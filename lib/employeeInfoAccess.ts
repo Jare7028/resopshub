@@ -91,6 +91,33 @@ export type EmployeeInfoColumnManagementAccessResult =
       canManageColumns: false;
     };
 
+export type EmployeeInfoAdminActionAccessResult =
+  | {
+      ok: true;
+      user: CurrentRequestUser;
+      currentAppUserId: string;
+      isAdmin: boolean;
+      canManage: boolean;
+    }
+  | {
+      ok: false;
+      reason: "unauthenticated";
+      error: "Unauthorized";
+      user: null;
+      currentAppUserId: null;
+      isAdmin: false;
+      canManage: false;
+    }
+  | {
+      ok: false;
+      reason: "permission_error";
+      error: string;
+      user: CurrentRequestUser;
+      currentAppUserId: string;
+      isAdmin: boolean;
+      canManage: false;
+    };
+
 export function resolveOptionalAccessRpcBoolean(
   result: RpcBooleanResult,
   fallback: boolean
@@ -233,5 +260,59 @@ export async function getEmployeeInfoColumnManagementAccess(
     currentAppUserId,
     isAdmin,
     canManageColumns: resolveOptionalAccessRpcBoolean(manageColumnsResult, isAdmin),
+  };
+}
+
+export async function getEmployeeInfoAdminActionAccess(
+  supabase: EmployeeInfoAccessClient,
+  {
+    authTimingLabel,
+    profileTimingLabel,
+    adminRpcName = "is_admin",
+  }: {
+    authTimingLabel: string;
+    profileTimingLabel?: string;
+    adminRpcName?: string;
+  }
+): Promise<EmployeeInfoAdminActionAccessResult> {
+  const user = await getCurrentRequestUser(supabase, authTimingLabel);
+  const authUserId = user?.id;
+  if (!user || !authUserId) {
+    return {
+      ok: false,
+      reason: "unauthenticated",
+      error: "Unauthorized",
+      user: null,
+      currentAppUserId: null,
+      isAdmin: false,
+      canManage: false,
+    };
+  }
+
+  const { currentAppUserId, isAdmin } = await loadEmployeeInfoAccessProfile(
+    supabase,
+    user,
+    authUserId,
+    profileTimingLabel
+  );
+  const adminResult = await supabase.rpc(adminRpcName);
+  if (!isSupabaseMissingFunctionError(adminResult.error) && adminResult.error) {
+    return {
+      ok: false,
+      reason: "permission_error",
+      error: adminResult.error.message || "Failed to check admin permissions",
+      user,
+      currentAppUserId,
+      isAdmin,
+      canManage: false,
+    };
+  }
+
+  return {
+    ok: true,
+    user,
+    currentAppUserId,
+    isAdmin,
+    canManage: resolveOptionalAccessRpcBoolean(adminResult, isAdmin),
   };
 }
