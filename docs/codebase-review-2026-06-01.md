@@ -103,7 +103,8 @@ Updated 2026-06-02:
 - Completed: F-006 projects current-user helper slice. Project list creation, project detail, project task list, project assignees, and project delete route auth now use `getCurrentRequestUser`.
 - Completed: F-006 quizzes current-user helper slice. Quiz list/detail, assigned quizzes, attempt detail, and review pages now use `getCurrentRequestUser`.
 - Completed: F-006 remaining app current-user helper sweep. Top-level redirects, login, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export now use `getCurrentRequestUser`; the only direct `.auth.getUser()` calls left are the shared helper and middleware internals.
-- Open: F-006 follow-up is now behavioral permission verification and any deeper access-helper consolidation; the direct auth-call migration is complete.
+- Completed: F-006 middleware permission verification slice. `lib/supabase/middleware.test.ts` now covers public-route skips, prefetch skips, read requests without edit checks, allowed mutation checks, denied mutation 403s, and fail-closed unexpected permission RPC errors.
+- Open: F-006 follow-up is now deeper access-helper consolidation and broader signed-in behavioral permission coverage; the direct auth-call migration is complete.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Completed: F-008 task mutation/status/recurrence test slice. `app/(app)/tasks/actions.test.ts` now covers inline task mutation RPC payloads, assignment-group expansion, safe return-path revalidation, missing IDs, assignment errors, and RPC errors; `lib/taskSchedule.test.ts` covers recurrence weekday defaults and bounded end dates; `lib/statusOptions.test.ts` covers status metadata, hidden/completed status derivation, colors, and unsafe color rejection.
 - Open: F-008 follow-up for signed-in browser smoke coverage.
@@ -126,9 +127,10 @@ Latest implementation validation:
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
 - `npx vitest run 'app/(app)/tasks/actions.test.ts' lib/taskSchedule.test.ts lib/statusOptions.test.ts`: passed, 18 tests.
+- `npx vitest run lib/supabase/middleware.test.ts`: passed, 6 tests.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 41 files and 203 tests.
+- `npm test`: passed, 42 files and 209 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -354,6 +356,7 @@ Evidence:
 - Thirty-first implementation slice converted project list creation, project detail, project task list, project assignees, and project delete route auth to `getCurrentRequestUser`. Static scan now finds 21 direct `.auth.getUser()` calls overall and none under `app/(app)/projects`.
 - Thirty-second implementation slice converted quiz list/detail, assigned quizzes, attempt detail, and review pages to `getCurrentRequestUser`. Static scan now finds 16 direct `.auth.getUser()` calls overall and none under `app/(app)/quizzes`.
 - Thirty-third implementation slice converted the remaining app-level auth checks to `getCurrentRequestUser`, including root/login redirects, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export. Static scan now finds only 2 direct `.auth.getUser()` calls, both intentionally inside `lib/supabase/currentUser.ts` and `lib/supabase/middleware.ts`.
+- Middleware permission verification slice added `lib/supabase/middleware.test.ts`, covering public-route skips, router-prefetch skips, read requests without edit checks, allowed mutation checks, denied mutation 403 responses, and fail-closed unexpected permission RPC errors.
 - Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan found 141 direct `supabase.auth.getUser()` calls after that slice.
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.
@@ -378,6 +381,7 @@ Recommended fix:
 - Done for the admin page/action slice: create `getAdminAccess`, keep page-level redirect/not-found behavior at the call sites, and convert admin landing, user-management, create-user, and page-permission flows.
 - Done for the settings action slices: create `getPageEditAccess`, keep unauthenticated and no-permission redirects or autosave errors at the call sites, and convert assignment-group, status-option, task-template, task-template subtask, project-template, project-template task link/unlink, and template custom-field actions.
 - Done for the settings current-user slice: convert settings page/profile/notification auth gates to `getCurrentRequestUser` instead of direct Supabase auth calls.
+- Done for the middleware verification slice: test the App Router permission boundary around mutation methods and fail-closed RPC errors.
 
 Estimated effort: medium.
 
@@ -389,6 +393,7 @@ Verification needed:
 - Added for the admin API slice: `lib/api/requireApiAdmin.test.ts` covers admin success, unauthenticated requests, non-admin requests, email-based profile lookup, and response shape. Local smoke confirmed both changed admin endpoints still return the expected unauthenticated 401 JSON.
 - Added for the admin page/action slice: `lib/adminAccess.test.ts` covers admin success, unauthenticated requests, non-admin requests, and email-based profile lookup. Local smoke confirmed converted admin pages still redirect unauthenticated users to `/login`.
 - Added for the settings action slice: `lib/pageEditAccess.test.ts` covers allowed page edits, unauthenticated requests, and forbidden page-edit checks. Local smoke confirmed `/settings` still redirects unauthenticated users to `/login`.
+- Added for the middleware permission slice: `lib/supabase/middleware.test.ts` covers public routes, prefetches, reads, allowed mutations, denied mutations, and unexpected permission RPC failures.
 - Manual checks for admin, tasks, projects, employee info, inventory, personal pages, social pages, and chat.
 
 ### F-007 - P2 - Performance - Login quick-read does multiple broad reads immediately after sign-in
