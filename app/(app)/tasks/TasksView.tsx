@@ -23,7 +23,6 @@ import {
 } from "@/lib/taskSorting";
 import {
   formatTaskStatusLabel,
-  normalizeTaskStatus,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
 import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
@@ -70,6 +69,14 @@ import {
   buildTimelineTicks,
   buildTodayMarker,
 } from "./taskTimeline";
+import {
+  buildEffectiveTaskStatusMap,
+  buildHiddenTaskStatusSet,
+  filterTasksByHiddenStatus,
+  groupTasksByStatus,
+  normalizeTaskStatusKey,
+  shouldHideHiddenTaskStatuses,
+} from "./taskViewModel";
 
 type UserOption = {
   id: string;
@@ -199,10 +206,6 @@ const TASK_NOTES_HOVER_OPEN_DELAY_MS = 120;
 const TASK_NOTES_HOVER_CLOSE_DELAY_MS = 120;
 const TASK_NOTES_HOVER_WIDTH = 320;
 const TASK_NOTES_HOVER_HEIGHT = 220;
-
-function normalizeTaskStatusKey(value: string | null | undefined) {
-  return normalizeTaskStatus(value) || String(value || "").trim().toLowerCase();
-}
 
 export default function TasksView({
   tasks,
@@ -1108,27 +1111,23 @@ export default function TasksView({
     );
   };
 
-  const hiddenStatusSet = useMemo(() => {
-    const keys = hiddenStatusValues
-      .map((status) => normalizeTaskStatusKey(status))
-      .filter(Boolean);
-    return new Set(keys);
-  }, [hiddenStatusValues]);
-
-  const hasSelectedHiddenStatus = filters.status.some((status) =>
-    hiddenStatusSet.has(normalizeTaskStatusKey(status))
+  const hiddenStatusSet = useMemo(
+    () => buildHiddenTaskStatusSet(hiddenStatusValues),
+    [hiddenStatusValues]
   );
 
-  const shouldHideHiddenStatuses =
-    hideCompleted && hiddenStatusSet.size > 0 && !hasSelectedHiddenStatus;
+  const shouldHideHiddenStatuses = shouldHideHiddenTaskStatuses({
+    hideCompleted,
+    hiddenStatusSet,
+    selectedStatusValues: filters.status,
+  });
 
   const visibleTasks = useMemo(() => {
-    if (!shouldHideHiddenStatuses) {
-      return effectiveTasks;
-    }
-    return effectiveTasks.filter((task) => {
-      const status = optimisticStatusByTaskId[task.id] || normalizeTaskStatusKey(task.status);
-      return !hiddenStatusSet.has(status);
+    return filterTasksByHiddenStatus({
+      tasks: effectiveTasks,
+      hiddenStatusSet,
+      optimisticStatusByTaskId,
+      shouldHideHiddenStatuses,
     });
   }, [effectiveTasks, hiddenStatusSet, optimisticStatusByTaskId, shouldHideHiddenStatuses]);
 
@@ -1157,21 +1156,9 @@ export default function TasksView({
     return buildTodayMarker(ganttData.rangeStart, ganttData.rangeDays);
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
-  const statusByTaskId = useMemo(() => {
-    const map = new Map<string, string>();
-    effectiveTasks.forEach((task) => {
-      map.set(task.id, normalizeTaskStatusOrDefault(task.status));
-    });
-    return map;
-  }, [effectiveTasks]);
-
   const effectiveStatusByTaskId = useMemo(() => {
-    const map = new Map(statusByTaskId);
-    Object.entries(optimisticStatusByTaskId).forEach(([taskId, status]) => {
-      map.set(taskId, status);
-    });
-    return map;
-  }, [optimisticStatusByTaskId, statusByTaskId]);
+    return buildEffectiveTaskStatusMap(effectiveTasks, optimisticStatusByTaskId);
+  }, [effectiveTasks, optimisticStatusByTaskId]);
 
   const nextSubtaskDueDateByTaskId = useMemo(() => {
     if (!showNextSubtaskDueDateColumn) {
@@ -1199,20 +1186,11 @@ export default function TasksView({
   ]);
 
   const boardTasksByStatus = useMemo(() => {
-    const buckets = new Map<string, TaskRow[]>();
-    statusOptions.forEach((status) => buckets.set(status, []));
-    visibleTasks.forEach((task) => {
-      const normalized =
-        effectiveStatusByTaskId.get(task.id) || normalizeTaskStatusOrDefault(task.status);
-      const bucketKey = buckets.has(normalized)
-        ? normalized
-        : statusOptions[0] || normalized;
-      const bucket = buckets.get(bucketKey);
-      if (bucket) {
-        bucket.push(task);
-      }
+    return groupTasksByStatus({
+      tasks: visibleTasks,
+      statusOptions,
+      effectiveStatusByTaskId,
     });
-    return buckets;
   }, [effectiveStatusByTaskId, statusOptions, visibleTasks]);
 
   const submitStatusUpdate = (taskId: string, status: string) => {
