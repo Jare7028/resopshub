@@ -62,6 +62,12 @@ import {
   type PersistedTaskFilterState,
   type TaskTableColumnId,
 } from "./taskTableViewState";
+import {
+  buildTaskTimelineData,
+  diffTimelineDays,
+  buildTimelineTicks,
+  buildTodayMarker,
+} from "./taskTimeline";
 
 type UserOption = {
   id: string;
@@ -201,29 +207,6 @@ const TASK_NOTES_HOVER_HEIGHT = 220;
 
 function normalizeTaskStatusKey(value: string | null | undefined) {
   return normalizeTaskStatus(value) || String(value || "").trim().toLowerCase();
-}
-
-function toDate(value?: string | null) {
-  if (!value) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Date(year, month - 1, day);
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function toDayStamp(date: Date) {
-  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function diffDays(start: Date, end: Date) {
-  const dayMs = 1000 * 60 * 60 * 24;
-  return Math.round((toDayStamp(end) - toDayStamp(start)) / dayMs);
-}
-
-function formatTick(date: Date) {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 export default function TasksView({
@@ -1194,39 +1177,7 @@ export default function TasksView({
     }
   }, [closeTaskNotesHover, taskNotesHover.taskId, visibleTasks]);
 
-  const ganttData = useMemo(() => {
-    const normalized = visibleTasks.map((task) => {
-      const startDate =
-        toDate(task.start_date) ??
-        toDate(task.created_at) ??
-        toDate(task.due_date) ??
-        new Date();
-      const dueDate = toDate(task.due_date) ?? startDate;
-      const start = startDate;
-      const end = dueDate < start ? start : dueDate;
-      return { ...task, start, end };
-    });
-
-    if (!normalized.length) {
-      const today = new Date();
-      return {
-        tasks: [],
-        rangeStart: today,
-        rangeEnd: today,
-        rangeDays: 1,
-      };
-    }
-
-    const rangeStart = normalized.reduce((min, task) =>
-      task.start < min ? task.start : min
-    , normalized[0].start);
-    const rangeEnd = normalized.reduce((max, task) =>
-      task.end > max ? task.end : max
-    , normalized[0].end);
-    const rangeDays = Math.max(1, diffDays(rangeStart, rangeEnd) + 1);
-
-    return { tasks: normalized, rangeStart, rangeEnd, rangeDays };
-  }, [visibleTasks]);
+  const ganttData = useMemo(() => buildTaskTimelineData(visibleTasks), [visibleTasks]);
 
   const timelineWidth = useMemo(() => {
     const dayWidth = 18;
@@ -1234,22 +1185,11 @@ export default function TasksView({
   }, [ganttData.rangeDays]);
 
   const timelineTicks = useMemo(() => {
-    const ticks = [];
-    const steps = 4;
-    for (let i = 0; i <= steps; i += 1) {
-      const offset = Math.round((ganttData.rangeDays - 1) * (i / steps));
-      const tickDate = new Date(ganttData.rangeStart);
-      tickDate.setDate(tickDate.getDate() + offset);
-      ticks.push({ label: formatTick(tickDate), left: (i / steps) * 100 });
-    }
-    return ticks;
+    return buildTimelineTicks(ganttData.rangeStart, ganttData.rangeDays);
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
   const todayMarker = useMemo(() => {
-    if (!ganttData.rangeDays) return null;
-    const todayOffset = diffDays(ganttData.rangeStart, new Date());
-    if (todayOffset < 0 || todayOffset > ganttData.rangeDays - 1) return null;
-    return { leftPercent: (todayOffset / ganttData.rangeDays) * 100 };
+    return buildTodayMarker(ganttData.rangeStart, ganttData.rangeDays);
   }, [ganttData.rangeDays, ganttData.rangeStart]);
 
   const statusByTaskId = useMemo(() => {
@@ -2419,8 +2359,8 @@ export default function TasksView({
               </div>
 
               {ganttData.tasks.map((task) => {
-                const startOffset = diffDays(ganttData.rangeStart, task.start);
-                const duration = Math.max(1, diffDays(task.start, task.end) + 1);
+                const startOffset = diffTimelineDays(ganttData.rangeStart, task.start);
+                const duration = Math.max(1, diffTimelineDays(task.start, task.end) + 1);
                 const leftPercent = (startOffset / ganttData.rangeDays) * 100;
                 const widthPercent = (duration / ganttData.rangeDays) * 100;
                 const barColor = getTaskStatusColor(task.status);

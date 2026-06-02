@@ -116,6 +116,7 @@ Updated 2026-06-02:
 - Completed: F-012 Social landing scalability slice. `/social` now uses a bounded `social_landing_page` RPC with page summaries, owner display data, total page count, 7-day counters, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602130000_social_landing_page_rpc.sql`, with manual SQL in `sql/social_landing_page_rpc.sql`.
 - Open: F-012 follow-up for large-file table refactors plus production timing/EXPLAIN checks after the Forms and Social RPCs are applied.
 - Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns the persisted task-column normalization helpers, and `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
+- Completed: F-005 task timeline extraction slice. `app/(app)/tasks/taskTimeline.ts` now owns Gantt date parsing, range calculation, ticks, day diffs, and today-marker helpers, with `app/(app)/tasks/taskTimeline.test.ts` covering empty timelines, backwards due dates, tick spacing, marker bounds, and calendar-day diffs.
 - Open: F-005 follow-up for `NoteEditorClient`, settings, chat, social detail, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
 - Open: The explicit F-004, F-006, F-008, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, docs, scalability, and cleanup backlog.
 
@@ -128,9 +129,10 @@ Latest implementation validation:
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
 - `npx vitest run 'app/(app)/tasks/actions.test.ts' lib/taskSchedule.test.ts lib/statusOptions.test.ts`: passed, 18 tests.
 - `npx vitest run lib/supabase/middleware.test.ts`: passed, 6 tests.
+- `npx vitest run 'app/(app)/tasks/taskTimeline.test.ts'`: passed, 6 tests.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 42 files and 209 tests.
+- `npm test`: passed, 43 files and 215 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -293,7 +295,7 @@ Evidence:
 - `app/(app)/_components/NoteEditorClient.tsx`: 6751 lines.
 - `app/(app)/settings/page.tsx`: 4304 lines.
 - `app/(app)/chat/ChatPageClient.tsx`: 2682 lines.
-- `app/(app)/tasks/TasksView.tsx`: 2646 lines after the quick-add UX slice, before further large-file decomposition.
+- `app/(app)/tasks/TasksView.tsx`: 2470 lines after the task table view-state and timeline extraction slices, down from 2646 after the quick-add UX slice.
 - `app/(app)/social/[pageId]/page.tsx`: 2433 lines.
 - `app/(app)/inventory/InventoryTable.tsx`: 2044 lines.
 - `app/(app)/employee-info/page.tsx`: 2034 lines.
@@ -313,6 +315,7 @@ Recommended fix:
 - Move repeated server action validation/auth patterns into shared helpers.
 - Add tests around extracted units before changing behavior.
 - Done for the first task-list slice: `app/(app)/tasks/taskTableViewState.ts` extracts persisted table-column normalization, and `app/(app)/tasks/taskTableViewState.test.ts` covers storage normalization, allowed-value filtering, required-column handling, and the current fallback behavior.
+- Done for the task timeline slice: `app/(app)/tasks/taskTimeline.ts` extracts Gantt date parsing, range, tick, day-diff, and today-marker helpers, and `app/(app)/tasks/taskTimeline.test.ts` covers the current behavior before larger `TasksView` splits.
 
 Estimated effort: large.
 
@@ -320,6 +323,7 @@ Verification needed:
 
 - No functional regression in task list/detail, notes editor save/load, image persistence, chat, and settings.
 - Bundle/build comparison before and after major splits.
+- Added for the task timeline slice: focused timeline helper tests pass, and the full suite/build pass after wiring `TasksView` to the extracted helpers.
 
 ### F-006 - P2 - Security and Maintainability - Auth, profile, and permission checks are repeated heavily
 
