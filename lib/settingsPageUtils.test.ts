@@ -9,6 +9,7 @@ import {
   buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
+  buildSettingsStatusFormInput,
   buildSettingsStatusRowsWithIds,
   buildSettingsStatusSummary,
   buildSettingsTaskTemplateUrl,
@@ -21,6 +22,8 @@ import {
   defaultPrefs,
   formatDbError,
   isUuid,
+  normalizeSettingsStatusEntityType,
+  normalizeSettingsStatusPosition,
   normalizeSettingsTemplateSearchParams,
   prefValue,
   statusColorValue,
@@ -79,11 +82,29 @@ describe("settings page helpers", () => {
     formData.set("short", "abc");
     formData.set("long", "#ABCDEF");
     formData.set("unsafe", "javascript:alert(1)");
+    const statusFormData = new FormData();
+    statusFormData.set("entity_type", " FEATURE_SUGGESTION ");
+    statusFormData.set("value", "Needs checking!");
+    statusFormData.set("is_visible", "on");
+    statusFormData.set("counts_as_completed", "on");
+    statusFormData.set("color_hex", " 00AAFF ");
 
     expect(statusColorValue(formData, "short")).toBe("#aabbcc");
     expect(statusColorValue(formData, "long")).toBe("#abcdef");
     expect(statusColorValue(formData, "unsafe")).toBeNull();
     expect(statusColorValue(formData, "missing")).toBeNull();
+    expect(normalizeSettingsStatusEntityType("bad")).toBe("task");
+    expect(normalizeSettingsStatusEntityType("project")).toBe("project");
+    expect(normalizeSettingsStatusPosition("3.9")).toBe(3);
+    expect(normalizeSettingsStatusPosition("0")).toBe(1);
+    expect(buildSettingsStatusFormInput(statusFormData)).toEqual({
+      entityType: "feature_suggestion",
+      value: "needs_checking",
+      isVisible: true,
+      countsAsCompleted: true,
+      rawColorHex: "00AAFF",
+      colorHex: "#00aaff",
+    });
     expect(prefValue(false, true)).toBe(false);
     expect(prefValue(true, false)).toBe(true);
     expect(prefValue(null, true)).toBe(true);

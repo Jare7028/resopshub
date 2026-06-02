@@ -645,6 +645,32 @@ export function statusColorValue(formData: FormData, key: string): string | null
   return normalizeStatusColorHex(raw);
 }
 
+export function normalizeSettingsStatusEntityType(value: unknown): StatusEntityType {
+  const entityTypeRaw = String(value || "").trim().toLowerCase();
+  return entityTypeRaw === "task" ||
+    entityTypeRaw === "project" ||
+    entityTypeRaw === "feature_suggestion"
+    ? entityTypeRaw
+    : "task";
+}
+
+export function buildSettingsStatusFormInput(formData: FormData) {
+  const rawColorHex = String(formData.get("color_hex") || "").trim();
+  return {
+    entityType: normalizeSettingsStatusEntityType(formData.get("entity_type")),
+    value: normalizeStatusValue(String(formData.get("value") || "")),
+    isVisible: checkbox(formData, "is_visible"),
+    countsAsCompleted: checkbox(formData, "counts_as_completed"),
+    rawColorHex,
+    colorHex: rawColorHex ? normalizeStatusColorHex(rawColorHex) : null,
+  };
+}
+
+export function normalizeSettingsStatusPosition(value: unknown): number {
+  const parsed = Number(value || "");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
+}
+
 export function prefValue(
   value: boolean | null | undefined,
   fallback: boolean

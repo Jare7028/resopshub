@@ -14,7 +14,6 @@ import {
   buildStatusOptionsWithMetadata,
   isCoreStatus,
   normalizeStatusValue,
-  type StatusEntityType,
   type StatusOptionRow,
 } from "@/lib/statusOptions";
 import {
@@ -46,6 +45,7 @@ import {
   buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
+  buildSettingsStatusFormInput,
   buildSettingsStatusSummary,
   buildSettingsTaskTemplateUrl,
   buildSettingsTemplateCustomFieldSummary,
@@ -57,7 +57,8 @@ import {
   formatDbError,
   isUuid,
   normalizeSettingsTemplateSearchParams,
-  statusColorValue,
+  normalizeSettingsStatusEntityType,
+  normalizeSettingsStatusPosition,
   type NotificationPrefs,
   type NotificationPrefsDbRow,
   type SettingsUrlMessage,
@@ -1958,16 +1959,8 @@ export default async function SettingsPage(props: {
       );
     }
 
-    const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
-    const entityType: StatusEntityType =
-      entityTypeRaw === "task" || entityTypeRaw === "project" || entityTypeRaw === "feature_suggestion"
-        ? entityTypeRaw
-        : "task";
-    const value = normalizeStatusValue(String(formData.get("value") || ""));
-    const isVisible = checkbox(formData, "is_visible");
-    const countsAsCompleted = checkbox(formData, "counts_as_completed");
-    const rawColorHex = String(formData.get("color_hex") || "").trim();
-    const colorHex = statusColorValue(formData, "color_hex");
+    const { entityType, value, isVisible, countsAsCompleted, rawColorHex, colorHex } =
+      buildSettingsStatusFormInput(formData);
 
     if (!value) {
       redirect("/settings?tab=statuses&error=Status%20is%20required");
@@ -2036,11 +2029,7 @@ export default async function SettingsPage(props: {
     }
 
     const id = String(formData.get("id") || "").trim();
-    const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
-    const entityType: StatusEntityType =
-      entityTypeRaw === "task" || entityTypeRaw === "project" || entityTypeRaw === "feature_suggestion"
-        ? entityTypeRaw
-        : "task";
+    const entityType = normalizeSettingsStatusEntityType(formData.get("entity_type"));
     const value = normalizeStatusValue(String(formData.get("value") || ""));
     if (!id) {
       redirect("/settings?tab=statuses&error=Missing%20status%20id");
@@ -2079,21 +2068,9 @@ export default async function SettingsPage(props: {
     }
 
     const id = String(formData.get("id") || "").trim();
-    const entityTypeRaw = String(formData.get("entity_type") || "").trim().toLowerCase();
-    const entityType: StatusEntityType =
-      entityTypeRaw === "task" || entityTypeRaw === "project" || entityTypeRaw === "feature_suggestion"
-        ? entityTypeRaw
-        : "task";
-    const value = normalizeStatusValue(String(formData.get("value") || ""));
-    const isVisible = checkbox(formData, "is_visible");
-    const countsAsCompleted = checkbox(formData, "counts_as_completed");
-    const rawColorHex = String(formData.get("color_hex") || "").trim();
-    const colorHex = statusColorValue(formData, "color_hex");
-    const requestedPositionRaw = Number(formData.get("position") || "");
-    const requestedPosition =
-      Number.isFinite(requestedPositionRaw) && requestedPositionRaw > 0
-        ? Math.floor(requestedPositionRaw)
-        : 1;
+    const { entityType, value, isVisible, countsAsCompleted, rawColorHex, colorHex } =
+      buildSettingsStatusFormInput(formData);
+    const requestedPosition = normalizeSettingsStatusPosition(formData.get("position"));
 
     if (!value) {
       if (autosave) return { ok: false, error: "Missing status" };
