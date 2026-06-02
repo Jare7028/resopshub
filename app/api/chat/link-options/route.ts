@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type LinkEntityType =
@@ -16,10 +17,8 @@ const DEFAULT_LIMIT = 50;
 
 export async function GET(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.link_options.auth");
+  if (auth.response) return auth.response;
 
   const url = new URL(req.url);
   const typeRaw = String(url.searchParams.get("type") || "").trim() as LinkEntityType;

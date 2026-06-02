@@ -39,7 +39,7 @@ Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
 - 39 test files.
-- 124 direct `supabase.auth.getUser()` calls.
+- 116 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
@@ -76,6 +76,7 @@ Updated 2026-06-02:
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
 - Completed: F-006 admin API helper slice. `lib/api/requireApiAdmin.ts` centralizes admin-only JSON auth for the admin user update/delete endpoints while preserving the existing `{ ok: false, error }` response shape.
 - Completed: F-006 API auth helper hardening slice. `requireApiUser` and `requireApiAdmin` now force Supabase verification instead of trusting forwarded internal user headers, because `/api` routes are not covered by the middleware matcher.
+- Completed: F-006 API user route batch. App nav reorder, search suggestions, mention suggestions, chat uploads, chat link options, chat reactions, and chat read-marker routes now use `requireApiUser` with consistent 401 JSON.
 - Completed: F-006 admin page/action helper slice. `lib/adminAccess.ts` centralizes admin profile checks for the admin landing page, users page, create-user server action, and user-permissions page/action.
 - Completed: F-006 settings page-edit helper slice. `lib/pageEditAccess.ts` centralizes authenticated page-edit checks and the settings assignment-group, status-option, task-template, task-template subtask, project-template, project-template task link/unlink, and template custom-field actions now use it.
 - Completed: F-006 settings current-user helper slice. The settings page, profile update action, and notification-preference action now use `getCurrentRequestUser`, leaving no direct `supabase.auth.getUser()` calls in `app/(app)/settings/page.tsx`.
@@ -110,6 +111,7 @@ Latest implementation validation:
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` redirect with no red error screen; direct HTTP smoke returned 307. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/admin/users/update` and `/api/admin/users/delete` both return `401 {"ok":false,"error":"Unauthorized"}`.
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/briefing/quick-read` still returns `401 {"error":"Unauthorized"}`.
+- Local API smoke on a temporary dev server confirmed unauthenticated `/api/search/suggestions`, `/api/mentions/suggestions`, `/api/chat/conversations/read`, and `/api/app-nav/reorder` return `401 {"error":"Unauthorized"}` after the API user route batch.
 - Local HTTP smoke on a temporary dev server confirmed unauthenticated `/admin` and `/admin/users` redirect to `/login`.
 - Local HTTP smoke on a temporary dev server confirmed unauthenticated `/settings` redirects to `/login`.
 - Local in-app browser smoke for `/forms` reached the expected unauthenticated `/forms` -> `/login` redirect with no red error screen.
@@ -302,6 +304,7 @@ Evidence:
 - Second implementation slice added `lib/api/requireApiAdmin.ts` and converted `/api/admin/users/update` plus `/api/admin/users/delete`. Static scan now finds 149 direct `supabase.auth.getUser()` calls.
 - Third implementation slice added `lib/adminAccess.ts` and converted the admin landing page, admin users page, create-user server action, and user-permissions page/action. Static scan now finds 144 direct `supabase.auth.getUser()` calls.
 - API helper hardening slice updated `getCurrentRequestUser` with an explicit forwarded-header trust option and made `requireApiUser`/`requireApiAdmin` pass `trustForwardedUserHeaders: false`, so API routes continue to verify Supabase sessions even though page helpers can reuse middleware-verified headers.
+- Eleventh implementation slice converted app nav reorder, search suggestions, mention suggestions, chat uploads, chat link options, chat reactions, and chat read-marker API routes to `requireApiUser`. Static scan now finds 116 direct `supabase.auth.getUser()` calls overall and 21 under `app/api`.
 - Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan found 141 direct `supabase.auth.getUser()` calls after that slice.
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.

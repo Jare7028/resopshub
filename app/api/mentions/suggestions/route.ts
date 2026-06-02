@@ -3,6 +3,7 @@ import {
   buildPostgrestIlikeContainsFilter,
   buildPostgrestOrFilter,
 } from "@/lib/postgrestFilters";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type MentionUserRow = {
@@ -126,10 +127,8 @@ async function fetchMentionUsers(
 
 export async function GET(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "mentions.suggestions.auth");
+  if (auth.response) return auth.response;
 
   const { searchParams } = new URL(req.url);
   const rawQuery = String(searchParams.get("q") || "");

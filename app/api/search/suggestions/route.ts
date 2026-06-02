@@ -3,6 +3,7 @@ import {
   buildPostgrestIlikeContainsFilter,
   buildPostgrestOrFilter,
 } from "@/lib/postgrestFilters";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type SearchResult = {
@@ -63,10 +64,8 @@ function compareByDateDesc(a: SearchResult, b: SearchResult) {
 
 export async function GET(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "search.suggestions.auth");
+  if (auth.response) return auth.response;
 
   const { searchParams } = new URL(req.url);
   const query = String(searchParams.get("q") || "").trim();

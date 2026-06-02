@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveConversationReadAt } from "@/lib/chatReadMarker";
 
@@ -6,11 +7,9 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 
 export async function POST(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "chat.conversations.read.auth");
+  if (auth.response) return auth.response;
+  const userId = auth.user.id;
 
   const json = (await req.json().catch(() => null)) as { conversation_id?: string } | null;
   if (!json) {
