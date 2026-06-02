@@ -1731,8 +1731,19 @@ export default async function SettingsPage(props: {
   async function createTaskTemplateSubtask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.task_template_subtasks.create.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const taskTemplateId = String(formData.get("task_template_id") || "").trim();
     const title = String(formData.get("title") || "").trim();
@@ -1805,7 +1816,7 @@ export default async function SettingsPage(props: {
           status,
           priority,
           assignee_user_id: assigneeIds[0] || null,
-          created_by_user_id: authData.user.id,
+          created_by_user_id: editAccess.user.id,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         });
@@ -1866,8 +1877,19 @@ export default async function SettingsPage(props: {
   async function deleteTaskTemplateSubtask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.task_template_subtasks.delete.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     const taskTemplateId = String(formData.get("task_template_id") || "").trim();
@@ -1904,8 +1926,19 @@ export default async function SettingsPage(props: {
   async function updateTaskTemplateSubtask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.task_template_subtasks.update.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     const taskTemplateId = String(formData.get("task_template_id") || "").trim();
@@ -2052,8 +2085,17 @@ export default async function SettingsPage(props: {
   async function addProjectTemplateTask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.project_template_tasks.add.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
 
     const projectTemplateId = String(formData.get("project_template_id") || "").trim();
     const taskTemplateId = String(formData.get("task_template_id") || "").trim();
@@ -2130,8 +2172,17 @@ export default async function SettingsPage(props: {
   async function removeProjectTemplateTask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.project_template_tasks.remove.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&error=${encodeURIComponent(SETTINGS_EDIT_PERMISSION_MESSAGE)}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     const projectTemplateId = String(formData.get("project_template_id") || "").trim();
