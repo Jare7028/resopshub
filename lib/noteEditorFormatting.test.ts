@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   getNextFontSizeValue,
+  getVisibleFontFamilyOptions,
+  getVisibleFontSizeOptions,
   normalizeFontFamilyLabel,
   normalizeFontSizeLabel,
   normalizeImageFloat,
@@ -21,6 +23,19 @@ describe("note editor formatting helpers", () => {
     expect(WORD_FONT_SIZE_OPTIONS.map((option) => option.value)).toEqual([
       "12px",
       "14px",
+      "16px",
+      "18px",
+      "24px",
+      "32px",
+    ]);
+    expect(getVisibleFontFamilyOptions(" arial ").map((option) => option.value)).toEqual([
+      "Verdana",
+      "Georgia",
+      "Times New Roman",
+      "Courier New",
+    ]);
+    expect(getVisibleFontSizeOptions("14").map((option) => option.value)).toEqual([
+      "12px",
       "16px",
       "18px",
       "24px",

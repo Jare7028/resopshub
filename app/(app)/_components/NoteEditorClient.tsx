@@ -61,11 +61,11 @@ import {
 } from "@/lib/noteEditorContent";
 import {
   getNextFontSizeValue,
+  getVisibleFontFamilyOptions,
+  getVisibleFontSizeOptions,
   normalizeFontFamilyLabel,
   normalizeFontSizeLabel,
   normalizeImageFloat,
-  WORD_FONT_OPTIONS,
-  WORD_FONT_SIZE_OPTIONS,
 } from "@/lib/noteEditorFormatting";
 import {
   CONTEXT_MENU_FAVORITE_ACTIONS,
@@ -4534,18 +4534,11 @@ export default function NoteEditorClient({
   const currentFontSize = String(currentTextStyleAttrs.fontSize || "");
   const currentTextAlign = getCurrentTextAlign(editor);
   const fontFamilyOptions = useMemo(
-    () =>
-      WORD_FONT_OPTIONS.filter(
-        (font) =>
-          font.label.toLowerCase() !== defaultFontFamilyLabel.toLowerCase()
-      ),
+    () => getVisibleFontFamilyOptions(defaultFontFamilyLabel),
     [defaultFontFamilyLabel]
   );
   const fontSizeOptions = useMemo(
-    () =>
-      WORD_FONT_SIZE_OPTIONS.filter(
-        (size) => size.label !== defaultFontSizeLabel
-      ),
+    () => getVisibleFontSizeOptions(defaultFontSizeLabel),
     [defaultFontSizeLabel]
   );
 

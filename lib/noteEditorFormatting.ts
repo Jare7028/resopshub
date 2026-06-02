@@ -17,6 +17,20 @@ export const WORD_FONT_SIZE_OPTIONS = [
   { value: "32px", label: "32" },
 ] as const;
 
+export function getVisibleFontFamilyOptions(defaultFontFamilyLabel: string) {
+  const normalizedDefault = String(defaultFontFamilyLabel || "")
+    .trim()
+    .toLowerCase();
+  return WORD_FONT_OPTIONS.filter(
+    (font) => font.label.toLowerCase() !== normalizedDefault
+  );
+}
+
+export function getVisibleFontSizeOptions(defaultFontSizeLabel: string) {
+  const normalizedDefault = String(defaultFontSizeLabel || "");
+  return WORD_FONT_SIZE_OPTIONS.filter((size) => size.label !== normalizedDefault);
+}
+
 export function parseFontSizePx(value: string | null | undefined) {
   const raw = String(value || "")
     .trim()
