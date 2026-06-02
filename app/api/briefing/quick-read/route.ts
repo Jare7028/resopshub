@@ -12,10 +12,10 @@ import {
   type StatusOptionRow,
 } from "@/lib/statusOptions";
 import { LOGIN_QUICK_READ_COOKIE } from "@/lib/loginQuickRead";
+import { fetchLoginQuickReadTaskRows } from "@/lib/loginQuickReadTaskRows";
 import {
   getLoginQuickReadTaskDueDateCutoff,
   summarizeLoginQuickReadTasks,
-  type LoginQuickReadTaskRow,
 } from "@/lib/loginQuickReadSummary";
 
 type MentionSummaryRow = {
@@ -88,56 +88,12 @@ export async function GET() {
     ).map((status) => normalizeStatusValue(status))
   );
 
-  let extraAssigneeTaskIds: string[] = [];
-  const taskAssigneesResult = await supabase
-    .from("task_assignees")
-    .select("task_id")
-    .eq("user_id", user.id)
-    .limit(600);
-
-  if (!taskAssigneesResult.error) {
-    extraAssigneeTaskIds = Array.from(
-      new Set(
-        ((taskAssigneesResult.data || []) as Array<{ task_id: string | null }>)
-          .map((row) => String(row.task_id || "").trim())
-          .filter(Boolean)
-      )
-    );
-  } else if (!isSupabaseMissingTableError(taskAssigneesResult.error)) {
-    console.error("[quickRead.task_assignees]", taskAssigneesResult.error.message);
-  }
-
-  let taskQuery = supabase
-    .from("tasks")
-    .select("id,title,status,due_date,due_time")
-    .not("due_date", "is", null)
-    .lte("due_date", taskDueDateCutoff)
-    .neq("status", "template")
-    .order("due_date", { ascending: true })
-    .order("due_time", { ascending: true })
-    .limit(600);
-
-  if (extraAssigneeTaskIds.length) {
-    const taskIdClause = extraAssigneeTaskIds
-      .map((value) => value.replace(/[^0-9a-f-]/gi, ""))
-      .filter(Boolean)
-      .join(",");
-    if (taskIdClause) {
-      taskQuery = taskQuery.or(`assignee_user_id.eq.${user.id},id.in.(${taskIdClause})`);
-    } else {
-      taskQuery = taskQuery.eq("assignee_user_id", user.id);
-    }
-  } else {
-    taskQuery = taskQuery.eq("assignee_user_id", user.id);
-  }
-
-  const tasksResult = await taskQuery;
-  let taskRows: LoginQuickReadTaskRow[] = [];
-  if (!tasksResult.error) {
-    taskRows = (tasksResult.data || []) as LoginQuickReadTaskRow[];
-  } else if (!isSupabaseMissingTableError(tasksResult.error)) {
-    console.error("[quickRead.tasks]", tasksResult.error.message);
-  }
+  const { taskRows } = await fetchLoginQuickReadTaskRows({
+    supabase,
+    userId: user.id,
+    dueDateCutoff: taskDueDateCutoff,
+    logError: (label, message) => console.error(label, message),
+  });
 
   const { overdueItems, dueSoonItems } = summarizeLoginQuickReadTasks({
     taskRows,

@@ -38,7 +38,7 @@ Top risks:
 Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
-- 36 test files.
+- 37 test files.
 - 149 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
@@ -69,7 +69,7 @@ Updated 2026-06-02:
 - Completed: F-009 personal image/editor observability slice. Personal image upload/save success paths no longer log as errors, personal image upload failures now use the structured server logger, note editor image/save debug output requires explicit public debug flags, and `lib/vercelLogger.test.ts` covers structured output, log-level filtering, redaction, errors, and bigint serialization.
 - Open: F-009 follow-up for the remaining broad console logging inventory outside the personal image/editor path.
 - Completed: F-007 quick-read date-window slice. `/api/briefing/quick-read` now applies a local next-24-hour `due_date` cutoff to the task query before summarizing overdue and due-soon work, and `lib/loginQuickReadSummary.test.ts` covers cutoff, filtering, sorting, URLs, and fallback titles.
-- Open: F-007 follow-up for replacing the remaining broad `task_assignees` lookup with an RPC/view that joins assignments and task due dates directly.
+- Completed: F-007 quick-read assignment RPC slice. `/api/briefing/quick-read` now prefers the bounded `login_quick_read_tasks` RPC, which joins primary and secondary task assignments in SQL with due-date filtering, and falls back to the old bounded compatibility path only when needed.
 - Completed: F-013 build tooling migration. `npm run lint` now runs `eslint .` through an explicit flat config and no longer prints the Next.js `next lint` deprecation warning.
 - Completed: F-014 stale hook-disable cleanup. The remaining `react-hooks/exhaustive-deps` disables in feature suggestions, clients, and projects were removed by making the saved-default-view effects self-contained with complete dependency lists.
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
@@ -86,20 +86,22 @@ Updated 2026-06-02:
 - Open: F-012 follow-up for large-file table refactors plus production timing/EXPLAIN checks after the Forms and Social RPCs are applied.
 - Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns the persisted task-column normalization helpers, and `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
 - Open: F-005 follow-up for `NoteEditorClient`, settings, chat, social detail, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
-- Open: The explicit F-004, F-006, F-007, F-008, F-009, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, observability, docs, scalability, and cleanup backlog.
+- Open: The explicit F-004, F-006, F-008, F-009, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, observability, docs, scalability, and cleanup backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
 - `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 5 tests.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
-- `npm test`: passed, 36 files and 181 tests.
+- `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
+- `npm test`: passed, 37 files and 184 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
-- `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for the linked project. The Forms and Social migrations are tracked, but remote application still needs the correct DB password or another migration path.
+- `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for linked project `tsylrdpxsouptxmjixmu`. The Forms, Social, and Quick Read RPC migrations are tracked, but remote application still needs the correct DB password or another migration path.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` redirect with no red error screen; direct HTTP smoke returned 307. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
 - Local API smoke on a temporary dev server confirmed unauthenticated `/api/admin/users/update` and `/api/admin/users/delete` both return `401 {"ok":false,"error":"Unauthorized"}`.
+- Local API smoke on a temporary dev server confirmed unauthenticated `/api/briefing/quick-read` still returns `401 {"error":"Unauthorized"}`.
 - Local in-app browser smoke for `/forms` reached the expected unauthenticated `/forms` -> `/login` redirect with no red error screen.
 - Local in-app browser smoke for `/social` reached the expected unauthenticated `/social` -> `/login` redirect with no red error screen.
 - Local HTTP smoke on a temporary dev server returned the expected unauthenticated 307 redirects for `/clients`, `/projects`, and `/feature-suggestions` after the hook-disable cleanup.
@@ -316,9 +318,10 @@ Verification needed:
 Evidence:
 
 - `app/(app)/_components/LoginQuickReadPrompt.tsx:105` fetches `/api/briefing/quick-read` after login.
-- `app/api/briefing/quick-read/route.ts:98` reads `task_assignees` and `app/api/briefing/quick-read/route.ts:101` limits to 600 rows.
+- Original `app/api/briefing/quick-read/route.ts` read `task_assignees` first and then queried `tasks`, both capped at 600 rows.
+- Implemented RPC slice adds `supabase/migrations/20260602140000_login_quick_read_tasks_rpc.sql` and `sql/login_quick_read_tasks_rpc.sql`, plus `lib/loginQuickReadTaskRows.ts` to prefer the RPC and fall back only for compatibility.
 - Original task query limited task reads to 600 rows without a due-date cutoff; the implemented date-window slice now applies `.lte("due_date", taskDueDateCutoff)` before summarizing.
-- `app/api/briefing/quick-read/route.ts:195` reads notifications for mentions.
+- `app/api/briefing/quick-read/route.ts:104` still reads notifications for mentions.
 - Recent production timing checks put `/api/briefing/quick-read` around 0.76s to 1.24s.
 
 User/business impact:
@@ -329,7 +332,8 @@ User/business impact:
 Recommended fix:
 
 - Done for the first performance slice: add a local next-24-hour task due-date cutoff before reading task rows.
-- Replace the multi-query route with a small RPC or summary view that returns only counts and the top few items.
+- Done for the assignment lookup slice: replace the multi-query task-assignment read with the bounded `login_quick_read_tasks` SQL RPC, backed by primary-assignee due-date and task-assignee indexes.
+- Further option: move mention counts into the same summary RPC if quick-read still misses the production timing target.
 - Cache the result briefly per user or only fetch when the prompt is eligible to display.
 - Avoid reading large assignment sets just to identify the current user's relevant tasks.
 
@@ -338,6 +342,7 @@ Estimated effort: medium.
 Verification needed:
 
 - Unit coverage exists for quick-read task cutoff, hidden-status filtering, overdue/due-soon splitting, sorting, URLs, and fallback titles.
+- Added for the RPC slice: `lib/loginQuickReadTaskRows.test.ts` covers RPC preference, missing-RPC compatibility fallback, de-duped secondary assignment IDs, bounded query limits, fallback primary-assignee filtering, and RPC error logging.
 - Production timing target below 300 ms p95 for the quick-read route.
 - Verify unread mention counts, overdue tasks, due-soon tasks, and dismissed prompt state.
 
@@ -346,7 +351,7 @@ Verification needed:
 Evidence:
 
 - `npm test` passes 24 files and 138 tests.
-- Latest unit-test suite now passes 32 files and 166 tests after adding the quick task server-action coverage slice.
+- Latest unit-test suite now passes 37 files and 184 tests after the quick task, admin API, task table view-state, and quick-read task RPC coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
