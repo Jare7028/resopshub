@@ -8,6 +8,7 @@ import {
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
   buildSettingsTaskTemplateUrl,
+  buildSettingsTemplateCustomFieldSummary,
   buildSettingsTemplateEntityUrl,
   buildSettingsTemplateRelationshipSummary,
   buildSettingsUserNameLookup,
@@ -304,5 +305,58 @@ describe("settings page helpers", () => {
     expect(summary.availableProjectTemplatesForTaskTemplate.map((project) => project.id)).toEqual([
       "project-m",
     ]);
+  });
+
+  it("builds template custom-field selections, option groups, and values", () => {
+    const summary = buildSettingsTemplateCustomFieldSummary({
+      templateCustomFields: [
+        {
+          id: "field-task",
+          entity_type: "task_template",
+          entity_id: "task-a",
+          label: "Task field",
+        },
+        {
+          id: "field-project",
+          entity_type: "project_template",
+          entity_id: "project-a",
+          label: "Project field",
+        },
+        {
+          id: "field-other",
+          entity_type: "task",
+          entity_id: "task-a",
+          label: "Other field",
+        },
+      ],
+      templateCustomFieldOptions: [
+        { id: "option-1", field_id: "field-task", value: "One" },
+        { id: "option-2", field_id: "field-task", value: "Two" },
+        { id: "option-3", field_id: "field-project", value: "Three" },
+      ],
+      templateCustomFieldValues: [
+        { field_id: "field-task", text_value: "Text fallback", option_value: "Two" },
+        { field_id: "field-project", text_value: "Project text", option_value: null },
+        { field_id: "field-empty", text_value: null, option_value: null },
+      ],
+      selectedTaskTemplateId: "task-a",
+      selectedProjectTemplateId: "project-a",
+    });
+
+    expect(summary.selectedTaskTemplateCustomFields.map((field) => field.id)).toEqual([
+      "field-task",
+    ]);
+    expect(summary.selectedProjectTemplateCustomFields.map((field) => field.id)).toEqual([
+      "field-project",
+    ]);
+    expect(summary.templateCustomFieldOptionsByFieldId["field-task"].map((option) => option.id)).toEqual([
+      "option-1",
+      "option-2",
+    ]);
+    expect(summary.templateCustomFieldValueByFieldId.get("field-task")).toBe("Two");
+    expect(summary.templateCustomFieldValueByFieldId.get("field-project")).toBe(
+      "Project text"
+    );
+    expect(summary.templateCustomFieldValueByFieldId.get("field-empty")).toBe("");
   });
 });

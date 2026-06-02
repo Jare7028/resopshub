@@ -21,6 +21,7 @@ import {
 import {
   normalizeCustomFieldKind,
   toCustomFieldKey,
+  type CustomFieldValueRow,
   type CustomFieldOptionRow,
   type CustomFieldRow,
 } from "@/lib/customFields";
@@ -45,6 +46,7 @@ import {
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
   buildSettingsTaskTemplateUrl,
+  buildSettingsTemplateCustomFieldSummary,
   buildSettingsTemplateEntityUrl,
   buildSettingsTemplateRelationshipSummary,
   buildSettingsUserNameLookup,
@@ -380,8 +382,8 @@ export default async function SettingsPage(props: {
   let selectedProjectTemplate: ProjectTemplateRow | null = null;
   const templateCustomFieldEntityFilters: Array<[string, string]> = [];
   let templateCustomFields: CustomFieldRow[] = [];
-  let templateCustomFieldOptionsByFieldId: Record<string, CustomFieldOptionRow[]> = {};
-  let templateCustomFieldValueByFieldId = new Map<string, string>();
+  let templateCustomFieldOptions: CustomFieldOptionRow[] = [];
+  let templateCustomFieldValues: CustomFieldValueRow[] = [];
   let taskTemplateSubtasks: TaskTemplateSubtaskRow[] = [];
   let projectTemplateTasks: ProjectTemplateTaskRow[] = [];
   let taskTemplateAssignees: TaskTemplateAssigneeRow[] = [];
@@ -455,13 +457,7 @@ export default async function SettingsPage(props: {
           .in("field_id", fieldIds)
           .order("position", { ascending: true })
           .order("value", { ascending: true });
-        templateCustomFieldOptionsByFieldId = ((templateOptionsRaw || []) as CustomFieldOptionRow[]).reduce<
-          Record<string, CustomFieldOptionRow[]>
-        >((acc, option) => {
-          acc[option.field_id] ||= [];
-          acc[option.field_id].push(option);
-          return acc;
-        }, {});
+        templateCustomFieldOptions = (templateOptionsRaw || []) as CustomFieldOptionRow[];
         const templateValueExpr = templateCustomFieldEntityFilters
           .map(
             ([entityType, entityId]) =>
@@ -473,13 +469,7 @@ export default async function SettingsPage(props: {
           .select("field_id,text_value,option_value,entity_type,entity_id")
           .or(templateValueExpr)
           .in("field_id", fieldIds);
-        templateCustomFieldValueByFieldId = new Map<string, string>(
-          ((templateValuesRaw || []) as Array<{
-            field_id: string;
-            text_value: string | null;
-            option_value: string | null;
-          }>).map((row) => [row.field_id, row.option_value || row.text_value || ""])
-        );
+        templateCustomFieldValues = (templateValuesRaw || []) as CustomFieldValueRow[];
       }
     }
 
@@ -527,20 +517,18 @@ export default async function SettingsPage(props: {
       : taskTemplateSubtaskAssigneesResult.data || []) as TaskTemplateSubtaskAssigneeRow[];
   }
 
-  const selectedTaskTemplateCustomFields = selectedTaskTemplate
-    ? templateCustomFields.filter(
-        (field) =>
-          field.entity_type === "task_template" &&
-          field.entity_id === selectedTaskTemplate.id
-      )
-    : [];
-  const selectedProjectTemplateCustomFields = selectedProjectTemplate
-    ? templateCustomFields.filter(
-        (field) =>
-          field.entity_type === "project_template" &&
-          field.entity_id === selectedProjectTemplate.id
-      )
-    : [];
+  const {
+    selectedTaskTemplateCustomFields,
+    selectedProjectTemplateCustomFields,
+    templateCustomFieldOptionsByFieldId,
+    templateCustomFieldValueByFieldId,
+  } = buildSettingsTemplateCustomFieldSummary({
+    templateCustomFields,
+    templateCustomFieldOptions,
+    templateCustomFieldValues,
+    selectedTaskTemplateId: selectedTaskTemplate?.id,
+    selectedProjectTemplateId: selectedProjectTemplate?.id,
+  });
 
   const {
     subtasksByTemplateId,

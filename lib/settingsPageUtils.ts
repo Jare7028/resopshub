@@ -92,6 +92,22 @@ export type SettingsTaskTemplateSubtaskAssigneeRecord = {
   user_id: string;
 };
 
+export type SettingsTemplateCustomFieldRecord = {
+  id: string;
+  entity_type: string;
+  entity_id: string | null;
+};
+
+export type SettingsTemplateCustomFieldOptionRecord = {
+  field_id: string;
+};
+
+export type SettingsTemplateCustomFieldValueRecord = {
+  field_id: string;
+  text_value: string | null;
+  option_value: string | null;
+};
+
 export type SettingsTemplatesTab = "tasks" | "projects";
 export type TaskTemplatePanel = "details" | "custom-fields" | "subtasks";
 export type ProjectTemplatePanel = "details" | "custom-fields" | "tasks";
@@ -302,6 +318,57 @@ export function buildSettingsTemplateRelationshipSummary<
     selectedTaskTemplateProjectLinks,
     selectedTaskTemplateLinkedProjectTemplateIds,
     availableProjectTemplatesForTaskTemplate,
+  };
+}
+
+export function buildSettingsTemplateCustomFieldSummary<
+  Field extends SettingsTemplateCustomFieldRecord,
+  Option extends SettingsTemplateCustomFieldOptionRecord,
+  Value extends SettingsTemplateCustomFieldValueRecord,
+>(params: {
+  templateCustomFields: readonly Field[];
+  templateCustomFieldOptions: readonly Option[];
+  templateCustomFieldValues: readonly Value[];
+  selectedTaskTemplateId?: string | null;
+  selectedProjectTemplateId?: string | null;
+}) {
+  const selectedTaskTemplateId = String(params.selectedTaskTemplateId || "").trim();
+  const selectedProjectTemplateId = String(params.selectedProjectTemplateId || "").trim();
+  const selectedTaskTemplateCustomFields = selectedTaskTemplateId
+    ? params.templateCustomFields.filter(
+        (field) =>
+          field.entity_type === "task_template" &&
+          field.entity_id === selectedTaskTemplateId
+      )
+    : [];
+  const selectedProjectTemplateCustomFields = selectedProjectTemplateId
+    ? params.templateCustomFields.filter(
+        (field) =>
+          field.entity_type === "project_template" &&
+          field.entity_id === selectedProjectTemplateId
+      )
+    : [];
+  const templateCustomFieldOptionsByFieldId =
+    params.templateCustomFieldOptions.reduce<Record<string, Option[]>>(
+      (acc, option) => {
+        acc[option.field_id] ||= [];
+        acc[option.field_id].push(option);
+        return acc;
+      },
+      {}
+    );
+  const templateCustomFieldValueByFieldId = new Map<string, string>(
+    params.templateCustomFieldValues.map((row) => [
+      row.field_id,
+      row.option_value || row.text_value || "",
+    ])
+  );
+
+  return {
+    selectedTaskTemplateCustomFields,
+    selectedProjectTemplateCustomFields,
+    templateCustomFieldOptionsByFieldId,
+    templateCustomFieldValueByFieldId,
   };
 }
 
