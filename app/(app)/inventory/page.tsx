@@ -656,8 +656,8 @@ export default async function EmployeeInfoPage(props: {
   async function createRecord(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "inventory.records.create.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
@@ -669,9 +669,9 @@ export default async function EmployeeInfoPage(props: {
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
-    const actorUserId = currentUser?.id || auth.user.id;
+    const actorUserId = currentUser?.id || actionUser.id;
     const { error } = await supabase.from("inventory_records").insert({
       full_name: fullName,
       client_id: null,
@@ -688,8 +688,8 @@ export default async function EmployeeInfoPage(props: {
   async function deleteRecord(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "inventory.records.delete.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
@@ -710,8 +710,8 @@ export default async function EmployeeInfoPage(props: {
   async function updateCell(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "inventory.cells.update.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
     const recordId = String(formData.get("record_id") || "").trim();
@@ -816,14 +816,14 @@ export default async function EmployeeInfoPage(props: {
   async function createColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "inventory.columns.create.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_inventory_columns");
@@ -902,7 +902,7 @@ export default async function EmployeeInfoPage(props: {
           ? { currency_code: currencyCode }
           : [],
       position: nextPosition,
-      created_by_user_id: currentUser?.id || auth.user.id,
+      created_by_user_id: currentUser?.id || actionUser.id,
     };
 
     const { error } = await supabase.from("inventory_columns").insert(payload);
@@ -917,15 +917,15 @@ export default async function EmployeeInfoPage(props: {
   async function updateColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "inventory.columns.update.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_inventory_columns");
@@ -1182,15 +1182,15 @@ export default async function EmployeeInfoPage(props: {
   async function deleteColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "inventory.columns.delete.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_inventory_columns");
@@ -1221,15 +1221,15 @@ export default async function EmployeeInfoPage(props: {
   async function moveColumn(formData: FormData): Promise<EmployeeInfoActionResult> {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user?.id) {
+    const actionUser = await getCurrentRequestUser(supabase, "inventory.columns.move.auth");
+    if (!actionUser?.id) {
       redirect("/login");
     }
 
     const { data: currentUser } = await supabase
       .from("users")
       .select("id,role")
-      .eq("email", auth.user.email || "")
+      .eq("email", actionUser.email || "")
       .maybeSingle();
     let canManageColumns = currentUser?.role === "admin";
     const canManageColumnsResult = await supabase.rpc("can_manage_inventory_columns");
