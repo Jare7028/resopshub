@@ -116,7 +116,8 @@ Updated 2026-06-02:
 - Completed: F-008 recurrence helper coverage slice. `lib/recurrence.test.ts` now covers YMD conversion, day arithmetic, daily intervals, weekly weekdays/intervals/defaults, monthly day clamps, nth/last weekday monthly recurrence, and yearly leap-day clamps.
 - Open: F-008 follow-up to configure the repository/staging secrets and record the first authenticated task smoke run.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
-- Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
+- Completed: F-010 search-path regression guard slice. `lib/securityDefinerMigrations.test.ts` now scans `supabase/migrations` and fails if any `security definer` declaration lacks a nearby `set search_path` clause.
+- Open: F-010 follow-up for live catalog verification and representative SQL permission tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
 - Completed: F-015 production operations README slice. `README.md` now covers local setup, environment variables, validation commands, Supabase migrations, Vercel deployment, cron, smoke checks, observability, high-risk modules, and related docs.
 - Open: F-015 follow-up for CI/deploy-specific screenshots or Vercel dashboard links if the team wants a more visual runbook.
 - Completed: F-012 Forms list scalability slice. `/forms` now uses a bounded `forms_list_page` RPC with open-submission counts, total count, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602120000_forms_list_page_rpc.sql`, with manual SQL in `sql/forms_list_page_rpc.sql`.
@@ -145,6 +146,7 @@ Latest implementation validation:
 - `npx vitest run lib/noteEditorOverlays.test.ts lib/noteEditorContextMenu.test.ts`: passed, 10 tests.
 - `npx vitest run lib/noteEditorInline.test.ts lib/noteEditorOverlays.test.ts`: passed, 12 tests.
 - `npx vitest run lib/noteEditorSuggestions.test.ts`: passed, 5 tests.
+- `npx vitest run lib/securityDefinerMigrations.test.ts`: passed, 1 test.
 - Workflow YAML parse check for `.github/workflows/validation.yml`: passed.
 - `npx vitest run lib/taskSorting.test.ts`: passed, 6 tests.
 - `npx vitest run lib/tasks/createTaskLikeRoot.test.ts`: passed, 6 tests.
@@ -161,7 +163,7 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 51 files and 275 tests.
+- `npm test`: passed, 52 files and 276 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, inline, and suggestion helper extractions plus the CI workflow and contextual task quick-add slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -476,7 +478,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 51 files and 275 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, and note-editor helper coverage slices.
+- Latest unit-test suite now passes 52 files and 276 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.

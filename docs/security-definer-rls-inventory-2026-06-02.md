@@ -22,6 +22,9 @@ Counts:
 - 52 `enable row level security` migration occurrences.
 - 225 `create policy` migration occurrences.
 - 0 security-definer declarations missing a nearby `set search_path` in the migration scan.
+- Added regression guard: `lib/securityDefinerMigrations.test.ts` scans
+  `supabase/migrations` and fails when a new `security definer` declaration
+  does not include a nearby `set search_path` clause.
 
 Important caveat:
 
@@ -147,8 +150,10 @@ High-traffic app callers from `.rpc(...)` scan include:
 2. Add SQL regression tests for the P1 queue: schedules, quizzes, and time off.
 3. Add representative denied-state tests for social, tasks, inventory, employee
    info, and scout.
-4. Require every new security-definer migration to include `set search_path`,
-   explicit grants, and a short access-model comment.
+4. Done for `set search_path`: require every new security-definer migration to
+   include a nearby `set search_path` clause via
+   `lib/securityDefinerMigrations.test.ts`. Still add explicit grants and a
+   short access-model comment to new security-definer migrations.
 5. Decide whether broad `grant execute ... to anon, authenticated` is necessary
    for each mutation RPC. Prefer `authenticated` only unless anonymous share
    flows genuinely require `anon`.
