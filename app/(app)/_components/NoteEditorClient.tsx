@@ -99,6 +99,16 @@ import {
   normalizeTaskStatusLabel,
   parseTimestampMs,
 } from "@/lib/noteEditorInline";
+import {
+  filterSlashCommands,
+  getMentionMatch,
+  getSlashMatch,
+  type MentionMenuState,
+  type MentionSuggestion,
+  type SlashCommand as BaseSlashCommand,
+  type SlashMenuState as BaseSlashMenuState,
+  type SlashRange,
+} from "@/lib/noteEditorSuggestions";
 
 type OverlayNodeType = "noteShape" | "noteTextBox";
 type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
@@ -129,46 +139,8 @@ export type ContextMenuMode = "full" | "favorites";
 
 export type { ContextMenuFavoriteActionId } from "@/lib/noteEditorContextMenu";
 
-type SlashRange = {
-  from: number;
-  to: number;
-};
-
-type SlashCommand = {
-  id: string;
-  label: string;
-  description: string;
-  keywords: string[];
-  run: (editor: Editor, range: SlashRange) => void;
-};
-
-type SlashMenuState = {
-  open: boolean;
-  query: string;
-  x: number;
-  y: number;
-  index: number;
-  range: SlashRange | null;
-  items: SlashCommand[];
-};
-
-type MentionSuggestion = {
-  id: string;
-  handle: string;
-  full_name: string | null;
-  email: string | null;
-};
-
-type MentionMenuState = {
-  open: boolean;
-  query: string;
-  x: number;
-  y: number;
-  index: number;
-  range: SlashRange | null;
-  items: MentionSuggestion[];
-  loading: boolean;
-};
+type SlashCommand = BaseSlashCommand<Editor>;
+type SlashMenuState = BaseSlashMenuState<Editor>;
 
 export type NoteEditorClientProps = {
   entityId: string;
@@ -1729,82 +1701,6 @@ const FloatingImage = Image.extend({
     };
   },
 });
-
-function getSlashMatch(editor: Editor) {
-  const { state } = editor;
-  if (!state.selection.empty) {
-    return null;
-  }
-
-  const { from } = state.selection;
-  const start = Math.max(0, from - 120);
-  const textBefore = state.doc.textBetween(start, from, "\n", "\n");
-  const slashIndex = textBefore.lastIndexOf("/");
-
-  if (slashIndex === -1) {
-    return null;
-  }
-
-  const charBefore = slashIndex > 0 ? textBefore[slashIndex - 1] : " ";
-  if (charBefore && !/\s/.test(charBefore)) {
-    return null;
-  }
-
-  const query = textBefore.slice(slashIndex + 1);
-  if (query.includes(" ") || query.length > 32) {
-    return null;
-  }
-
-  const fromPos = from - query.length - 1;
-  return {
-    range: { from: fromPos, to: from },
-    query,
-  };
-}
-
-function filterSlashCommands(commands: SlashCommand[], query: string) {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) {
-    return commands;
-  }
-  return commands.filter((command) => {
-    const label = command.label.toLowerCase();
-    if (label.includes(normalized)) {
-      return true;
-    }
-    return command.keywords.some((keyword) => keyword.includes(normalized));
-  });
-}
-
-function getMentionMatch(editor: Editor) {
-  const { state } = editor;
-  if (!state.selection.empty) {
-    return null;
-  }
-
-  const { from } = state.selection;
-  const start = Math.max(0, from - 160);
-  const textBefore = state.doc.textBetween(start, from, "\n", "\n");
-  const match = textBefore.match(/(^|[^a-zA-Z0-9_])@([a-zA-Z0-9._@-]{0,127})$/);
-  if (!match) {
-    return null;
-  }
-
-  const mentionQuery = String(match[2] || "");
-  const mentionToken = `@${mentionQuery}`;
-  const tokenStartInText = textBefore.lastIndexOf(mentionToken);
-  if (tokenStartInText < 0) {
-    return null;
-  }
-
-  return {
-    range: {
-      from: start + tokenStartInText,
-      to: from,
-    },
-    query: mentionQuery.toLowerCase(),
-  };
-}
 
 function isOverlayNodeTypeName(name: string): name is OverlayNodeType {
   return name === "noteShape" || name === "noteTextBox";
