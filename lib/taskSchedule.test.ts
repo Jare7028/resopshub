@@ -49,4 +49,55 @@ describe("parseTaskScheduleFormData", () => {
     expect(result.value?.dueDate).toBe("2026-06-10");
     expect(result.value?.recurrenceConfig?.frequency).toBe("weekly");
   });
+
+  it("defaults weekly recurrence weekdays to the start date weekday", () => {
+    const formData = new FormData();
+    formData.set("due_time", "11:00");
+    formData.set("recurrence_frequency", "weekly");
+    formData.set("recurrence_interval", "1");
+    formData.set("recurrence_start_date", "2026-06-12");
+    formData.set("recurrence_end_mode", "never");
+
+    const result = parseTaskScheduleFormData(formData, "Europe/London");
+
+    expect(result.error).toBeNull();
+    expect(result.value?.dueDate).toBe("2026-06-12");
+    expect(result.value?.recurrenceConfig?.weekdays).toEqual([5]);
+    expect(result.value?.recurrenceNextDate).toBe("2026-06-19");
+  });
+
+  it("rejects recurring tasks when the configured end date is before the first occurrence", () => {
+    const formData = new FormData();
+    formData.set("due_time", "11:00");
+    formData.set("recurrence_frequency", "weekly");
+    formData.set("recurrence_interval", "1");
+    formData.set("recurrence_start_date", "2026-06-10");
+    formData.set("recurrence_end_mode", "on");
+    formData.set("recurrence_end_date", "2026-06-09");
+    formData.append("recurrence_weekdays", "3");
+
+    const result = parseTaskScheduleFormData(formData, "Europe/London");
+
+    expect(result).toEqual({
+      error: "End date must be on or after start date",
+      value: null,
+    });
+  });
+
+  it("bounds the next recurrence when the end date allows only the first occurrence", () => {
+    const formData = new FormData();
+    formData.set("due_time", "11:00");
+    formData.set("recurrence_frequency", "weekly");
+    formData.set("recurrence_interval", "1");
+    formData.set("recurrence_start_date", "2026-06-10");
+    formData.set("recurrence_end_mode", "on");
+    formData.set("recurrence_end_date", "2026-06-10");
+    formData.append("recurrence_weekdays", "3");
+
+    const result = parseTaskScheduleFormData(formData, "Europe/London");
+
+    expect(result.error).toBeNull();
+    expect(result.value?.dueDate).toBe("2026-06-10");
+    expect(result.value?.recurrenceNextDate).toBeNull();
+  });
 });

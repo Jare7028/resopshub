@@ -22,7 +22,7 @@ import { revalidatePath } from "next/cache";
 import { plainTextToTiptapDoc } from "@/lib/plainTextToTiptapDoc";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { quickCreateTaskAction } from "./actions";
+import { quickCreateTaskAction, updateTaskInlineAction } from "./actions";
 
 const mockedCreateSupabaseServerClient = vi.mocked(createSupabaseServerClient);
 const mockedRevalidatePath = vi.mocked(revalidatePath);
@@ -52,6 +52,61 @@ function createQuickTaskForm({
   if (typeof notes !== "undefined") formData.set("notes", notes);
   subtasks.forEach((subtask) => formData.append("subtask_titles", subtask));
   return formData;
+}
+
+const TASK_ID = "00000000-0000-4000-8000-000000000001";
+const USER_A_ID = "00000000-0000-4000-8000-000000000002";
+const USER_B_ID = "00000000-0000-4000-8000-000000000003";
+const GROUP_ID = "00000000-0000-4000-8000-000000000004";
+
+function createInlineTaskForm(entries: Record<string, string | string[] | undefined>) {
+  const formData = new FormData();
+  Object.entries(entries).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((entry) => formData.append(key, entry));
+      return;
+    }
+    if (typeof value !== "undefined") {
+      formData.set(key, value);
+    }
+  });
+  return formData;
+}
+
+function createInlineSupabaseMock({
+  rpcData = [{ id: TASK_ID, title: "Updated task" }],
+  rpcError = null,
+  groupMembers = [],
+  groupMembersError = null,
+}: {
+  rpcData?: unknown;
+  rpcError?: { message: string } | null;
+  groupMembers?: Array<{ group_id: string; user_id: string }>;
+  groupMembersError?: { message: string; code?: string } | null;
+} = {}) {
+  const rpc = vi.fn().mockResolvedValue({ data: rpcData, error: rpcError });
+  const groupMembersResult = {
+    in: vi.fn().mockResolvedValue({
+      data: groupMembers,
+      error: groupMembersError,
+    }),
+  };
+  const supabase = {
+    rpc,
+    from: vi.fn((table: string) => {
+      if (table === "assignment_group_members") {
+        return {
+          select: vi.fn(() => groupMembersResult),
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+  };
+
+  mockedCreateSupabaseServerClient.mockReturnValue(
+    supabase as unknown as ReturnType<typeof createSupabaseServerClient>
+  );
+  return { supabase, rpc, groupMembersResult };
 }
 
 function createSupabaseMock({
@@ -260,5 +315,126 @@ describe("quickCreateTaskAction", () => {
       }))
     );
     expect(mockedRevalidatePath).toHaveBeenCalledWith("/tasks");
+  });
+});
+
+describe("updateTaskInlineAction", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("normalizes status aliases, de-duplicates assignees, and revalidates the safe return path", async () => {
+    const { rpc } = createInlineSupabaseMock();
+
+    const result = await updateTaskInlineAction(
+      createInlineTaskForm({
+        task_id: TASK_ID,
+        status: "Backlog",
+        priority: "high",
+        start_date: "2026-06-03",
+        due_date: "2026-06-04",
+        due_time: "09:15",
+        return_to: "/tasks?status=to_do",
+        assignee_user_ids: [USER_B_ID, USER_A_ID, USER_B_ID, "unassigned"],
+      })
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      task: { id: TASK_ID, title: "Updated task" },
+    });
+    expect(rpc).toHaveBeenCalledWith("update_task_inline", {
+      p_task_id: TASK_ID,
+      p_has_status: true,
+      p_status: "to_do",
+      p_has_priority: true,
+      p_priority: "high",
+      p_has_client_id: false,
+      p_client_id: null,
+      p_has_project_id: false,
+      p_project_id: null,
+      p_has_start_date: true,
+      p_start_date: "2026-06-03",
+      p_has_due_date: true,
+      p_due_date: "2026-06-04",
+      p_has_due_time: true,
+      p_due_time: "09:15",
+      p_has_assignees: true,
+      p_assignee_user_ids: [USER_A_ID, USER_B_ID],
+    });
+    expect(mockedRevalidatePath).toHaveBeenCalledWith("/tasks");
+  });
+
+  it("expands assignment groups before calling the inline update RPC", async () => {
+    const { rpc, groupMembersResult } = createInlineSupabaseMock({
+      groupMembers: [
+        { group_id: GROUP_ID, user_id: USER_B_ID },
+        { group_id: GROUP_ID, user_id: USER_A_ID },
+      ],
+    });
+
+    const result = await updateTaskInlineAction(
+      createInlineTaskForm({
+        task_id: TASK_ID,
+        return_to: "/tasks",
+        assignee_user_ids: [USER_A_ID, `group:${GROUP_ID}`],
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    expect(groupMembersResult.in).toHaveBeenCalledWith("group_id", [GROUP_ID]);
+    expect(rpc).toHaveBeenCalledWith(
+      "update_task_inline",
+      expect.objectContaining({
+        p_has_assignees: true,
+        p_assignee_user_ids: [USER_A_ID, USER_B_ID],
+      })
+    );
+  });
+
+  it("returns assignment resolution errors before mutating", async () => {
+    const { rpc } = createInlineSupabaseMock({
+      groupMembersError: { message: "assignment group lookup failed" },
+    });
+
+    const result = await updateTaskInlineAction(
+      createInlineTaskForm({
+        task_id: TASK_ID,
+        assignee_user_ids: [`group:${GROUP_ID}`],
+      })
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: "assignment group lookup failed",
+    });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(mockedRevalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing task ids before calling the inline update RPC", async () => {
+    const { rpc } = createInlineSupabaseMock();
+
+    const result = await updateTaskInlineAction(createInlineTaskForm({ status: "completed" }));
+
+    expect(result).toEqual({ ok: false, error: "Missing task id" });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(mockedRevalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("returns RPC errors without revalidating", async () => {
+    createInlineSupabaseMock({
+      rpcError: { message: "update failed" },
+    });
+
+    const result = await updateTaskInlineAction(
+      createInlineTaskForm({
+        task_id: TASK_ID,
+        status: "completed",
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: "update failed" });
+    expect(mockedRevalidatePath).not.toHaveBeenCalled();
   });
 });

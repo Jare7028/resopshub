@@ -105,7 +105,8 @@ Updated 2026-06-02:
 - Completed: F-006 remaining app current-user helper sweep. Top-level redirects, login, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export now use `getCurrentRequestUser`; the only direct `.auth.getUser()` calls left are the shared helper and middleware internals.
 - Open: F-006 follow-up is now behavioral permission verification and any deeper access-helper consolidation; the direct auth-call migration is complete.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
-- Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
+- Completed: F-008 task mutation/status/recurrence test slice. `app/(app)/tasks/actions.test.ts` now covers inline task mutation RPC payloads, assignment-group expansion, safe return-path revalidation, missing IDs, assignment errors, and RPC errors; `lib/taskSchedule.test.ts` covers recurrence weekday defaults and bounded end dates; `lib/statusOptions.test.ts` covers status metadata, hidden/completed status derivation, colors, and unsafe color rejection.
+- Open: F-008 follow-up for signed-in browser smoke coverage.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
 - Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
 - Completed: F-015 production operations README slice. `README.md` now covers local setup, environment variables, validation commands, Supabase migrations, Vercel deployment, cron, smoke checks, observability, high-risk modules, and related docs.
@@ -124,9 +125,10 @@ Latest implementation validation:
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
+- `npx vitest run 'app/(app)/tasks/actions.test.ts' lib/taskSchedule.test.ts lib/statusOptions.test.ts`: passed, 18 tests.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 40 files and 192 tests.
+- `npm test`: passed, 41 files and 203 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -426,12 +428,12 @@ Verification needed:
 
 Evidence:
 
-- `npm test` passes 24 files and 138 tests.
-- Latest unit-test suite now passes 39 files and 191 tests after the quick task, admin API/page access, API auth hardening, settings page-edit, task table view-state, and quick-read task RPC coverage slices.
+- Original review found `npm test` passing 24 files and 138 tests.
+- Latest unit-test suite now passes 41 files and 203 tests after the quick task, inline task mutation, recurrence, status-options, admin API/page access, API auth hardening, settings page-edit, task table view-state, quick-read task RPC, and logging coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
-  - `lib/statusOptions.ts`: 12.79% statements.
+  - `lib/statusOptions.ts`: 12.79% statements before the status-options helper test slice.
   - `lib/recurrence.ts`: 42.85% statements.
   - `lib/taskSorting.ts`: 48.8% statements.
   - `lib/tasks/createTaskLikeRoot.ts`: 59.01% statements.
@@ -446,8 +448,8 @@ Recommended fix:
 
 - Add Playwright smoke tests for login, `/tasks`, quick add task, task notes, subtask add, task detail open, and close.
 - Done for the first server-action slice: add direct `quickCreateTaskAction` tests for authorization, disabled users, validation errors, notes, subtasks, assignee rows, and `/tasks` revalidation.
-- Continue server-action tests for recurrence defaults, richer task mutations, permissions, and validation errors outside the quick-create path.
-- Raise coverage around `recurrence`, `taskSorting`, `statusOptions`, and `createTaskLikeRoot`.
+- Done for the second task coverage slice: add inline task mutation tests for normalized RPC payloads, assignment-group expansion/failure, missing IDs, RPC errors, and safe revalidation; add recurrence parser tests for weekday defaults and bounded end dates; add status-options tests for completion/hidden metadata and color normalization.
+- Continue with signed-in browser smoke coverage and remaining lower-level helpers such as `taskSorting`, `recurrence`, and `createTaskLikeRoot`.
 
 Estimated effort: medium.
 
@@ -455,6 +457,7 @@ Verification needed:
 
 - New tests run in CI and locally.
 - Added for the first slice: `app/(app)/tasks/actions.test.ts` runs in the normal Vitest suite.
+- Added for the second slice: focused Vitest run for `app/(app)/tasks/actions.test.ts`, `lib/taskSchedule.test.ts`, and `lib/statusOptions.test.ts` passes 18 tests, and the full suite passes 41 files and 203 tests.
 - At least one browser test fails if `/tasks` renders a red error state.
 
 ### F-009 - P2 - Observability - Console logging is noisy and inconsistent
