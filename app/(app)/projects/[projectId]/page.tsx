@@ -17,6 +17,7 @@ import {
   type CustomFieldValueRow,
 } from "@/lib/customFields";
 import { buildStatusOptions, type StatusOptionRow } from "@/lib/statusOptions";
+import { logError } from "@/lib/vercelLogger";
 
 function formatProjectStatusLabel(value: string) {
   return value
@@ -76,7 +77,10 @@ export default async function ProjectOverviewPage(props: {
       .order("value", { ascending: true });
     projectStatusRows = (legacyProjectStatusResponse.data || []) as StatusOptionRow[];
   } else if (!isSupabaseMissingTableError(projectStatusResponse.error)) {
-    console.error("[projects.overview.status_options]", projectStatusResponse.error.message);
+    logError("projects.overview.status_options_failed", {
+      projectId: params.projectId,
+      message: projectStatusResponse.error.message,
+    });
   }
 
   const projectStatusOptions = buildStatusOptions(

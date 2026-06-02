@@ -21,6 +21,7 @@ import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import { logError } from "@/lib/vercelLogger";
 import {
   loadAssignmentGroups,
   resolveAssignmentTargetsToUserIds,
@@ -554,7 +555,10 @@ export default async function ProjectsPage(props: {
       });
     } else {
       if (!isSupabaseMissingFunctionError(openTaskCountsError)) {
-        console.error("[projects.open_task_counts_by_project]", openTaskCountsError.message);
+        logError("projects.open_task_counts_by_project_failed", {
+          projectCount: projectIdsForCounts.length,
+          message: openTaskCountsError.message,
+        });
       }
       let openTaskCountRowsQuery = supabase
         .from("tasks")
@@ -759,7 +763,10 @@ export default async function ProjectsPage(props: {
             .update(rollbackProjectSnapshot)
             .eq("id", projectId);
           if (rollbackProjectError) {
-            console.error("[projects.inline.rollback.project]", rollbackProjectError.message);
+            logError("projects.inline.rollback_project_failed", {
+              projectId,
+              message: rollbackProjectError.message,
+            });
           }
         }
         redirect(
@@ -785,7 +792,10 @@ export default async function ProjectsPage(props: {
               .update(rollbackProjectSnapshot)
               .eq("id", projectId);
             if (rollbackProjectError) {
-              console.error("[projects.inline.rollback.project]", rollbackProjectError.message);
+              logError("projects.inline.rollback_project_failed", {
+                projectId,
+                message: rollbackProjectError.message,
+              });
             }
           }
           if (clearedProjectAssignees && rollbackAssigneeUserIds.length) {
@@ -798,10 +808,11 @@ export default async function ProjectsPage(props: {
                 }))
               );
             if (rollbackAssigneesError) {
-              console.error(
-                "[projects.inline.rollback.assignees]",
-                rollbackAssigneesError.message
-              );
+              logError("projects.inline.rollback_assignees_failed", {
+                projectId,
+                assigneeCount: rollbackAssigneeUserIds.length,
+                message: rollbackAssigneesError.message,
+              });
             }
           }
           redirect(

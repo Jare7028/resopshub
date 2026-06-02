@@ -9,6 +9,7 @@ import { normalizeAndPersistNoteImages } from "@/lib/noteImagePersistence";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
+import { logError } from "@/lib/vercelLogger";
 
 export async function updateTaskContent(
   taskId: string,
@@ -69,7 +70,7 @@ export async function updateTaskContent(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[tasks.updateTaskContent.mentions.assign]", message);
+      logError("tasks.update_content.mentions_assign_failed", { taskId, message });
     }
 
     try {
@@ -84,7 +85,7 @@ export async function updateTaskContent(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[tasks.updateTaskContent.mentions.notify]", message);
+      logError("tasks.update_content.mentions_notify_failed", { taskId, message });
     }
   }
 

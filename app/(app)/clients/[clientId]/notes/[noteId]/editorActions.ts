@@ -10,6 +10,7 @@ import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
+import { logError } from "@/lib/vercelLogger";
 
 async function assertClientPageEditAccess(
   supabase: ReturnType<typeof createSupabaseServerClient>,
@@ -92,7 +93,11 @@ export async function updateClientNoteContent(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[clientNotes.updateClientNoteContent.mentions.assign]", message);
+      logError("client_notes.update_content.mentions_assign_failed", {
+        clientId,
+        noteId,
+        message,
+      });
     }
 
     try {
@@ -107,7 +112,11 @@ export async function updateClientNoteContent(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[clientNotes.updateClientNoteContent.mentions.notify]", message);
+      logError("client_notes.update_content.mentions_notify_failed", {
+        clientId,
+        noteId,
+        message,
+      });
     }
   }
 

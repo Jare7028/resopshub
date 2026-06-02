@@ -3,6 +3,7 @@ import { DEFAULT_EDITOR_CONTENT } from "../editorContent";
 import { normalizeTaskStatusOrDefault } from "../taskStatus";
 import { extractPlainText } from "../tiptapText";
 import type { createSupabaseServerClient } from "../supabase/server";
+import { logError, logInfo, logWarn } from "../vercelLogger";
 
 const defaultContentText = extractPlainText(DEFAULT_EDITOR_CONTENT);
 
@@ -38,19 +39,17 @@ function logTaskCreate(
     return;
   }
 
-  const entry = {
+  const fields = {
     scope: "task.create",
-    event,
-    at: new Date().toISOString(),
     ...payload,
   };
-  const line = JSON.stringify(entry);
+  const logEvent = `task.create.${event}`;
   if (level === "error") {
-    console.error(line);
+    logError(logEvent, fields);
   } else if (level === "warn") {
-    console.warn(line);
+    logWarn(logEvent, fields);
   } else {
-    console.info(line);
+    logInfo(logEvent, fields);
   }
 }
 

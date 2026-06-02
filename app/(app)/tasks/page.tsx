@@ -29,6 +29,7 @@ import {
   isSupabaseMissingFunctionError,
   isSupabaseMissingTableError,
 } from "@/lib/supabaseErrors";
+import { logError } from "@/lib/vercelLogger";
 import TasksView from "./TasksView";
 import AssigneeMultiSelect from "./_components/AssigneeMultiSelect";
 import CreateTaskSubmitButton from "./_components/CreateTaskSubmitButton";
@@ -483,7 +484,10 @@ async function TasksPageContent({
       if (isSupabaseMissingTableError(error)) {
         taskTablePreferences = null;
       } else {
-        console.error("[tasks.preferences.select]", error.message);
+        logError("tasks.preferences_failed", {
+          userId: currentAppUserId,
+          message: error.message,
+        });
       }
     } else {
       taskTablePreferences = (data || null) as TaskTablePreferenceRow | null;
@@ -621,7 +625,11 @@ async function TasksPageContent({
     memberCount: group.memberCount,
   }));
   if (assignedProjectsResponse.error) {
-    console.error("[tasks.page.project_users.select]", assignedProjectsResponse.error.message);
+    logError("tasks.page.project_users_failed", {
+      userId: currentAppUserId,
+      assignmentUserIds,
+      message: assignedProjectsResponse.error.message,
+    });
   }
   const assignedProjectIds = new Set(
     (assignedProjectsResponse.data || [])

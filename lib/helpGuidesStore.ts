@@ -7,6 +7,7 @@ import {
 } from "@/app/(app)/help/_data/guides";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import { logError } from "@/lib/vercelLogger";
 
 type HelpGuideOverrideRow = {
   slug: string;
@@ -59,7 +60,9 @@ export async function loadHelpGuides(): Promise<LoadedHelpGuides> {
 
   if (error) {
     if (!isSupabaseMissingTableError(error)) {
-      console.error("[help.guides.load]", error.message);
+      logError("help.guides.load_failed", {
+        message: error.message,
+      });
     }
     return {
       guides: HELP_GUIDES.map((guide) => ({

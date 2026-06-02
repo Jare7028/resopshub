@@ -6,6 +6,7 @@ import MentionText from "@/app/(app)/_components/MentionText";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
+import { logError } from "@/lib/vercelLogger";
 import ConfirmSubmitButton from "../../../_components/ConfirmSubmitButton";
 import {
   formSubmissionStatusOptions,
@@ -203,7 +204,11 @@ export default async function FormSubmissionDetailPage(props: {
     } catch (notifyError) {
       const message =
         notifyError instanceof Error ? notifyError.message : String(notifyError);
-      console.error("[forms.submission.addComment.mentions.notify]", message);
+      logError("forms.submission.comment.mentions_notify_failed", {
+        submissionId,
+        commentId: insertedComment?.id || null,
+        message,
+      });
     }
 
     revalidatePath(detailPath);

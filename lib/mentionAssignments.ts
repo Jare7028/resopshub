@@ -5,6 +5,7 @@ import {
   extractMentionHandles,
   resolveMentionHandlesToRecipients,
 } from "@/lib/mentions";
+import { logWarn } from "@/lib/vercelLogger";
 
 type MentionAssignableSourceType = "task" | "client_note" | "personal_page";
 
@@ -140,9 +141,10 @@ export async function syncMentionAssignmentsFromTextChange(
   }
 
   if (!hasServiceRole) {
-    console.warn(
-      "[mentions.assign] Missing SUPABASE_SERVICE_ROLE_KEY; non-task mention assignments skipped."
-    );
+    logWarn("mentions.assign.service_role_missing", {
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+    });
     return;
   }
 

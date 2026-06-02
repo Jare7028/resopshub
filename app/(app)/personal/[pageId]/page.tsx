@@ -21,6 +21,7 @@ import {
   loadPersonalWorkspaceTree,
 } from "../_lib/workspaceData";
 import { togglePersonalPageFavorite } from "../workspaceActions";
+import { logError } from "@/lib/vercelLogger";
 
 export const dynamic = "force-dynamic";
 
@@ -371,10 +372,11 @@ export default async function PersonalPage(props: {
     if (isSupabaseMissingTableError(noteEditorPreferencesError)) {
       persistContextMenuFavorites = false;
     } else {
-      console.error(
-        "[personal.noteEditorPreferences.select]",
-        noteEditorPreferencesError.message
-      );
+      logError("personal.note_editor_preferences_failed", {
+        pageId,
+        userId: user.id,
+        message: noteEditorPreferencesError.message,
+      });
     }
   } else {
     initialContextMenuFavorites = normalizeContextMenuFavorites(
@@ -530,7 +532,10 @@ export default async function PersonalPage(props: {
       .select("id,client_id");
 
     if (linkedTitleSyncError && !isMissingColumnError(linkedTitleSyncError)) {
-      console.error("[personal.updatePageDetails.notes.syncTitle]", linkedTitleSyncError.message);
+      logError("personal.update_details.notes_sync_title_failed", {
+        pageId,
+        message: linkedTitleSyncError.message,
+      });
     }
 
     const linkedNotes = (linkedTitleSyncedNotes || []) as Array<{

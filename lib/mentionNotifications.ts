@@ -4,6 +4,7 @@ import {
   extractMentionHandles,
   resolveMentionHandlesToRecipients,
 } from "@/lib/mentions";
+import { logWarn } from "@/lib/vercelLogger";
 
 type MentionSourceType =
   | "personal_page"
@@ -250,9 +251,10 @@ export async function notifyMentionedUsersFromTextChange(
   }
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.warn(
-      "[mentions.notify] Missing SUPABASE_SERVICE_ROLE_KEY; mention notifications skipped."
-    );
+    logWarn("mentions.notify.service_role_missing", {
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+    });
     return;
   }
 

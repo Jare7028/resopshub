@@ -8,6 +8,7 @@ import { withPerfTiming } from "@/lib/perf";
 import { PAGE_PERMISSION_KEYS, type PagePermissionKey } from "@/lib/pagePermissions";
 import { APP_SIDEBAR_LINKS, type SidebarNavLink } from "@/lib/appSidebarLinks";
 import { LOGIN_QUICK_READ_COOKIE } from "@/lib/loginQuickRead";
+import { logError } from "@/lib/vercelLogger";
 import NotificationBell from "./_components/NotificationBell";
 import GlobalSearchBar from "./_components/GlobalSearchBar";
 import AppResumeRefresh from "./_components/AppResumeRefresh";
@@ -115,7 +116,10 @@ export default async function AppLayout({
     );
     const profileRow = profileData as UserProfileRow | null;
     if (profileError && !isSupabaseMissingTableError(profileError)) {
-      console.error("[layout.profile]", profileError.message);
+      logError("layout.profile_failed", {
+        userId: user.id,
+        message: profileError.message,
+      });
     }
 
     if (!profileRow) {
@@ -175,7 +179,10 @@ export default async function AppLayout({
 
         if (pagePermissionsError) {
           if (!isSupabaseMissingTableError(pagePermissionsError)) {
-            console.error("[layout.page_permissions]", pagePermissionsError.message);
+            logError("layout.page_permissions_failed", {
+              userId: profileRow.id,
+              message: pagePermissionsError.message,
+            });
           }
         } else {
           const pagePermissions = (pagePermissionsData || []) as NavPermissionRow[];
@@ -210,7 +217,10 @@ export default async function AppLayout({
   if (!navOrderError) {
     navLinks = mergeNavLinksByUserOrder(navBaseLinks, (navOrderData || []) as SidebarNavOrderRow[]);
   } else if (!isSupabaseMissingTableError(navOrderError)) {
-    console.error("[layout.app_nav_order]", navOrderError.message);
+    logError("layout.app_nav_order_failed", {
+      userId: user.id,
+      message: navOrderError.message,
+    });
   }
 
   const cookieStore = await cookies();

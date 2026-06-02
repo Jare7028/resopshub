@@ -8,6 +8,7 @@ import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import { isSupabaseMissingColumnError } from "@/lib/supabaseErrors";
+import { logError } from "@/lib/vercelLogger";
 import {
   buildStatusColorMap,
   buildStatusOptionsWithMetadata,
@@ -284,7 +285,10 @@ export default async function FeatureSuggestionDetailPage(props: {
     } catch (notifyError) {
       const message =
         notifyError instanceof Error ? notifyError.message : String(notifyError);
-      console.error("[featureSuggestion.update.mentions.notify]", message);
+      logError("feature_suggestions.update.mentions_notify_failed", {
+        suggestionId,
+        message,
+      });
     }
 
     revalidatePath("/feature-suggestions");
@@ -355,7 +359,11 @@ export default async function FeatureSuggestionDetailPage(props: {
     } catch (notifyError) {
       const message =
         notifyError instanceof Error ? notifyError.message : String(notifyError);
-      console.error("[featureSuggestion.addComment.mentions.notify]", message);
+      logError("feature_suggestions.comment.mentions_notify_failed", {
+        suggestionId,
+        commentId: insertedComment?.id || null,
+        message,
+      });
     }
 
     revalidatePath(`/feature-suggestions/${suggestionId}`);

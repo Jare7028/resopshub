@@ -56,6 +56,8 @@ import {
   resolveAssignmentTargetsToUserIds,
 } from "@/lib/assignmentGroups";
 import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
+import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
+
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 const dueDateFilters = [
   { value: "all", label: "All" },
@@ -139,19 +141,17 @@ function logSubtaskDebug(
   event: string,
   payload: Record<string, unknown>
 ) {
-  const entry = {
+  const fields = {
     scope: "tasks.subtasks",
-    event,
-    at: new Date().toISOString(),
     ...payload,
   };
-  const line = JSON.stringify(entry);
+  const logEvent = `tasks.subtasks.${event}`;
   if (level === "error") {
-    console.error(line);
+    logError(logEvent, fields);
   } else if (level === "warn") {
-    console.warn(line);
+    logWarn(logEvent, fields);
   } else {
-    console.info(line);
+    logInfo(logEvent, fields);
   }
 }
 
@@ -1001,7 +1001,10 @@ export default async function TaskDetailPage(props: {
         p_details: { assignee_count: uniqueIds.length },
       });
       if (auditError) {
-        console.error("[tasks.updateTaskAssignees.audit]", auditError.message);
+        logError("tasks.update_assignees.audit_failed", {
+          taskId,
+          message: auditError.message,
+        });
       }
     }
 
@@ -1048,7 +1051,10 @@ export default async function TaskDetailPage(props: {
         p_details: { watcher_count: uniqueIds.length },
       });
       if (auditError) {
-        console.error("[tasks.updateTaskWatchers.audit]", auditError.message);
+        logError("tasks.update_watchers.audit_failed", {
+          taskId,
+          message: auditError.message,
+        });
       }
     }
 

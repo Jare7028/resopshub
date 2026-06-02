@@ -1,3 +1,5 @@
+import { logError, logInfo } from "@/lib/vercelLogger";
+
 export type OutlookImportTelemetryEvent =
   | "outlook_import_opened"
   | "outlook_import_preview_success"
@@ -25,8 +27,10 @@ export function logOutlookImportTelemetry(
   payload: TelemetryPayload = {},
   options?: TelemetryOptions
 ) {
-  const serialized = JSON.stringify(payload);
-  console.info(`[telemetry.${event}] ${serialized}`);
+  logInfo(`telemetry.${event}`, {
+    payload,
+    userId: options?.userId || null,
+  });
 
   if (!options?.supabase) {
     return;
@@ -41,11 +45,17 @@ export function logOutlookImportTelemetry(
   void Promise.resolve(insertResult)
     .then(({ error }) => {
       if (error) {
-        console.error(`[telemetry.${event}.insert] ${error.message || "unknown error"}`);
+        logError(`telemetry.${event}.insert_failed`, {
+          userId: options.userId || null,
+          message: error.message || "unknown error",
+        });
       }
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[telemetry.${event}.insert] ${message}`);
+      logError(`telemetry.${event}.insert_failed`, {
+        userId: options.userId || null,
+        message,
+      });
     });
 }

@@ -9,6 +9,7 @@ import {
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logError } from "@/lib/vercelLogger";
 import {
   isSupabaseMissingColumnError,
   isSupabaseMissingFunctionError,
@@ -398,7 +399,10 @@ export default async function FeatureSuggestionsPage(props: {
       } catch (notifyError) {
         const message =
           notifyError instanceof Error ? notifyError.message : String(notifyError);
-        console.error("[featureSuggestions.create.mentions.notify]", message);
+        logError("feature_suggestions.create.mentions_notify_failed", {
+          suggestionId: insertedSuggestion.id,
+          message,
+        });
       }
     }
 

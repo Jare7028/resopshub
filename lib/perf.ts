@@ -1,3 +1,5 @@
+import { logInfo } from "@/lib/vercelLogger";
+
 type AsyncWork<T> = () => PromiseLike<T> | T;
 
 function shouldLogPerf() {
@@ -18,7 +20,10 @@ export async function withPerfTiming<T>(label: string, work: AsyncWork<T>): Prom
     if (shouldLogPerf()) {
       const durationMs = Date.now() - start;
       if (durationMs >= minDurationMs()) {
-        console.info(`[perf] ${label} ${durationMs}ms`);
+        logInfo("perf.query_timing", {
+          label,
+          durationMs,
+        });
       }
     }
   }

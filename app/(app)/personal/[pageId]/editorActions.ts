@@ -11,7 +11,7 @@ import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { extractPlainText } from "@/lib/tiptapText";
-import { logDebug } from "@/lib/vercelLogger";
+import { logDebug, logError } from "@/lib/vercelLogger";
 
 function isMissingColumnError(error: unknown) {
   if (!error || typeof error !== "object") {
@@ -184,7 +184,11 @@ export async function updatePersonalPageContent(
   }
 
   if (linkedNotesSyncError && !isMissingColumnError(linkedNotesSyncError)) {
-    console.error("[personal.updatePersonalPageContent.notes.sync]", linkedNotesSyncError.message);
+    logError("personal.update_content.notes_sync_failed", {
+      pageId,
+      message: linkedNotesSyncError.message,
+      code: linkedNotesSyncError.code,
+    });
   }
 
   if (mentionHandles.length) {
@@ -198,7 +202,7 @@ export async function updatePersonalPageContent(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[personal.updatePersonalPageContent.mentions.assign]", message);
+      logError("personal.update_content.mentions_assign_failed", { pageId, message });
     }
 
     try {
@@ -213,7 +217,7 @@ export async function updatePersonalPageContent(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[personal.updatePersonalPageContent.mentions.notify]", message);
+      logError("personal.update_content.mentions_notify_failed", { pageId, message });
     }
   }
 
