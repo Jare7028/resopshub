@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { logClientError } from "@/lib/clientLogger";
 
 const searchFilterKeys = ["type", "section", "client"] as const;
 
@@ -102,7 +103,10 @@ export default function GlobalSearchBar() {
       } catch (error) {
         if (controller.signal.aborted) return;
         if (fetchRequestId.current !== requestId) return;
-        console.error("[global-search.suggestions]", error);
+        logClientError("global_search.suggestions_failed", {
+          queryLength: value.length,
+          message: error instanceof Error ? error.message : String(error),
+        });
         setSuggestions([]);
         setFetchFailed(true);
       } finally {

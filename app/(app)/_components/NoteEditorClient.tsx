@@ -47,6 +47,12 @@ import {
   resolveSaveCompletion,
   shouldSurfaceSaveError,
 } from "@/lib/noteSaveCoordinator";
+import {
+  logClientDebug,
+  logClientError,
+  logClientInfo,
+  logClientWarn,
+} from "@/lib/clientLogger";
 
 type OverlayNodeType = "noteShape" | "noteTextBox";
 type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
@@ -2278,7 +2284,7 @@ function logOverlayCommitDebug(payload: {
   if (!shouldLogOverlayCommitDebug()) {
     return;
   }
-  console.debug("[noteEditor.overlay.commit]", payload);
+  logClientDebug("note_editor.overlay.commit", payload);
 }
 
 function getNodeObjectId(node: ProseMirrorNode | null | undefined) {
@@ -2809,7 +2815,7 @@ export default function NoteEditorClient({
       ) {
         return;
       }
-      console.debug("[noteEditor.save]", {
+      logClientDebug("note_editor.save", {
         event,
         entityId,
         latestScheduledVersion: saveRequestVersionRef.current,
@@ -2860,7 +2866,7 @@ export default function NoteEditorClient({
       }
 
       if (imageDebugEnabled) {
-        console.info("[noteEditor.image.debug] queue_push", {
+        logClientInfo("note_editor.image.queue_push", {
           entityId,
           reason,
           queueSize: queue.length,
@@ -2880,7 +2886,7 @@ export default function NoteEditorClient({
         throw new Error("Image is too large. Use images up to 10 MB.");
       }
       if (imageDebugEnabled) {
-        console.info("[noteEditor.image.debug] resolve_source_start", {
+        logClientInfo("note_editor.image.resolve_source_start", {
           entityId,
           name: file.name,
           type: file.type,
@@ -2894,7 +2900,7 @@ export default function NoteEditorClient({
           if (uploadedSrc) {
             pushUploadedImageSrcToQueue(uploadedSrc, "upload");
             if (imageDebugEnabled) {
-              console.info("[noteEditor.image.debug] resolve_source_uploaded", {
+              logClientInfo("note_editor.image.resolve_source_uploaded", {
                 entityId,
                 src: uploadedSrc.slice(0, 180),
               });
@@ -2903,16 +2909,16 @@ export default function NoteEditorClient({
           }
         } catch (error) {
           if (imageDebugEnabled) {
-            console.warn("[noteEditor.image.debug] resolve_source_upload_failed", {
+            logClientWarn("note_editor.image.resolve_source_upload_failed", {
               entityId,
               message: error instanceof Error ? error.message : String(error),
             });
           }
           if (process.env.NODE_ENV !== "production") {
-            console.warn(
-              "[noteEditor.image.upload]",
-              error instanceof Error ? error.message : String(error)
-            );
+            logClientWarn("note_editor.image.upload_failed", {
+              entityId,
+              message: error instanceof Error ? error.message : String(error),
+            });
           }
           // Fall back to inline insertion so users never lose pasted images if upload fails.
         }
@@ -2922,7 +2928,7 @@ export default function NoteEditorClient({
       assertDataUrlSize(inlineSrc, MAX_INLINE_IMAGE_DATA_URL_BYTES);
       pushUploadedImageSrcToQueue(inlineSrc, "inline");
       if (imageDebugEnabled) {
-        console.info("[noteEditor.image.debug] resolve_source_inline_fallback", {
+        logClientInfo("note_editor.image.resolve_source_inline_fallback", {
           entityId,
           dataUrlLength: inlineSrc.length,
         });
@@ -3045,7 +3051,7 @@ export default function NoteEditorClient({
             -UPLOADED_IMAGE_SRC_QUEUE_LIMIT
           );
           if (imageDebugEnabled) {
-            console.info("[noteEditor.image.debug] save_missing_src_repair", {
+            logClientInfo("note_editor.image.save_missing_src_repair", {
               entityId,
               requestVersion,
               fixedCount: repairedMissingSources.fixedCount,
@@ -3055,7 +3061,7 @@ export default function NoteEditorClient({
           }
           if (repairedMissingSources.unresolvedCount > 0) {
             if (imageDebugEnabled) {
-              console.error("[noteEditor.image.debug] blocked_missing_src_save", {
+              logClientError("note_editor.image.blocked_missing_src_save", {
                 entityId,
                 unresolvedCount: repairedMissingSources.unresolvedCount,
               });
@@ -3066,7 +3072,7 @@ export default function NoteEditorClient({
         if (imageDebugEnabled) {
           const payloadSummary = summarizeImageNodes(savePayload);
           if (payloadSummary.total > 0) {
-            console.info("[noteEditor.image.debug] save_payload", {
+            logClientInfo("note_editor.image.save_payload", {
               entityId,
               requestVersion,
               payloadSummary,
@@ -3086,7 +3092,7 @@ export default function NoteEditorClient({
         if (imageDebugEnabled) {
           const canonicalSummary = summarizeImageNodes(canonicalContent);
           if (canonicalSummary.total > 0) {
-            console.info("[noteEditor.image.debug] save_canonical_content", {
+            logClientInfo("note_editor.image.save_canonical_content", {
               entityId,
               requestVersion,
               canonicalSummary,
@@ -3131,7 +3137,7 @@ export default function NoteEditorClient({
         if (imageDebugEnabled) {
           const payloadSummary = summarizeImageNodes(json);
           if (payloadSummary.total > 0) {
-            console.error("[noteEditor.image.debug] save_error_with_images", {
+            logClientError("note_editor.image.save_error_with_images", {
               entityId,
               requestVersion,
               message,
@@ -3150,7 +3156,10 @@ export default function NoteEditorClient({
         setSaveError(message);
         setSaveWarning("");
         setSaveState("error");
-        console.error("[noteEditor.save]", message);
+        logClientError("note_editor.save_failed", {
+          entityId,
+          message,
+        });
         logSaveDebug("request_error_acknowledged", { requestVersion, message });
       } finally {
         inFlightSaveCountRef.current = Math.max(0, inFlightSaveCountRef.current - 1);
@@ -3871,10 +3880,10 @@ export default function NoteEditorClient({
           if (controller.signal.aborted || mentionRequestIdRef.current !== requestId) {
             return;
           }
-          console.error(
-            "[noteEditor.mentions.fetch]",
-            error instanceof Error ? error.message : String(error)
-          );
+          logClientError("note_editor.mentions_fetch_failed", {
+            entityId,
+            message: error instanceof Error ? error.message : String(error),
+          });
           setMentionMenu((prev) => (prev.open ? { ...prev, items: [], loading: false } : prev));
         });
     }, 110);
@@ -3889,7 +3898,7 @@ export default function NoteEditorClient({
         mentionFetchAbortRef.current = null;
       }
     };
-  }, [mentionMenu.open, mentionMenu.query]);
+  }, [entityId, mentionMenu.open, mentionMenu.query]);
 
   const insertImageWithCriticalSave = useCallback((src: string) => {
     const nextSrc = String(src || "").trim();
@@ -3897,7 +3906,7 @@ export default function NoteEditorClient({
       return false;
     }
     if (imageDebugEnabled) {
-      console.info("[noteEditor.image.debug] insert_image", {
+      logClientInfo("note_editor.image.insert_image", {
         entityId,
         src: nextSrc.slice(0, 180),
       });
@@ -3905,7 +3914,7 @@ export default function NoteEditorClient({
     const currentEditor = editorRef.current;
     if (!currentEditor) {
       if (imageDebugEnabled) {
-        console.warn("[noteEditor.image.debug] insert_image_no_editor", { entityId });
+        logClientWarn("note_editor.image.insert_image_no_editor", { entityId });
       }
       return false;
     }
@@ -3917,7 +3926,7 @@ export default function NoteEditorClient({
       null;
 
     if (imageDebugEnabled) {
-      console.info("[noteEditor.image.debug] insert_image_node_type", {
+      logClientInfo("note_editor.image.insert_image_node_type", {
         entityId,
         imageNodeTypeName,
       });
@@ -3954,7 +3963,7 @@ export default function NoteEditorClient({
         })
         .run();
       if (imageDebugEnabled) {
-        console.info("[noteEditor.image.debug] repair_missing_src_attempt", {
+        logClientInfo("note_editor.image.repair_missing_src_attempt", {
           entityId,
           missingPos,
           repaired,
@@ -3989,7 +3998,7 @@ export default function NoteEditorClient({
         } else {
           inserted = false;
           if (imageDebugEnabled) {
-            console.warn("[noteEditor.image.debug] set_image_no_matching_src", {
+            logClientWarn("note_editor.image.set_image_no_matching_src", {
               entityId,
               nextSrc: nextSrc.slice(0, 180),
               imageCountBeforeInsert,
@@ -4023,7 +4032,7 @@ export default function NoteEditorClient({
         .insertContentAt(docEndPos, baseImageNode)
         .run();
       if (imageDebugEnabled) {
-        console.info("[noteEditor.image.debug] insert_image_fallback", {
+        logClientInfo("note_editor.image.insert_image_fallback", {
           entityId,
           docEndPos,
           inserted,
@@ -4043,7 +4052,7 @@ export default function NoteEditorClient({
           } else {
             inserted = false;
             if (imageDebugEnabled) {
-              console.warn("[noteEditor.image.debug] fallback_no_matching_src", {
+              logClientWarn("note_editor.image.fallback_no_matching_src", {
                 entityId,
                 nextSrc: nextSrc.slice(0, 180),
                 imageCountBeforeInsert,
@@ -4058,7 +4067,7 @@ export default function NoteEditorClient({
     }
 
     if (!inserted && imageDebugEnabled) {
-      console.error("[noteEditor.image.debug] insert_image_failed", {
+      logClientError("note_editor.image.insert_image_failed", {
         entityId,
         src: nextSrc.slice(0, 180),
       });
@@ -4378,7 +4387,7 @@ export default function NoteEditorClient({
       } removed from this page. Re-paste images if needed.`
     );
     if (imageDebugEnabled) {
-      console.warn("[noteEditor.image.debug] load_removed_missing_src", {
+      logClientWarn("note_editor.image.load_removed_missing_src", {
         entityId,
         removedCount: initialImageIntegrity.removedCount,
       });

@@ -43,7 +43,7 @@ Important counts from static review:
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
-- 33 `console.log/error/warn/info/debug` calls in `app`, `lib`, and `supabase`; 0 remain under `app/api`.
+- 9 `console.log/error/warn/info/debug` calls in `app`, `lib`, and `supabase`; all are centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`; 0 remain under `app/api`.
 - 0 `react-hooks/exhaustive-deps` lint disables.
 
 ## Quick Wins
@@ -69,7 +69,7 @@ Updated 2026-06-02:
 - Completed: F-009 personal image/editor observability slice. Personal image upload/save success paths no longer log as errors, personal image upload failures now use the structured server logger, note editor image/save debug output requires explicit public debug flags, and `lib/vercelLogger.test.ts` covers structured output, log-level filtering, redaction, errors, and bigint serialization.
 - Completed: F-009 API route logging slice. `app/api` now has no direct `console.*` calls; quick-read, chat message mention failures, project task lookups, and subtask lookup diagnostics use `logError` with structured context.
 - Completed: F-009 server logging slice. Mention assignment/notification failures, task creation/subtask diagnostics, task/project/page query failures, rollback/audit failures, Outlook import telemetry, perf timing, help-guide loading, and layout profile/nav failures now use the structured logger with context fields instead of raw console calls.
-- Open: F-009 follow-up for the remaining browser-side console inventory, especially note-editor image debug handlers, global search suggestions, billing editors, and route error boundaries.
+- Completed: F-009 browser logging slice. Note-editor debug/error output, global search suggestions, billing editors, and the social route error boundary now use `lib/clientLogger.ts`; direct console calls remain only in the client/server logger modules.
 - Completed: F-007 quick-read date-window slice. `/api/briefing/quick-read` now applies a local next-24-hour `due_date` cutoff to the task query before summarizing overdue and due-soon work, and `lib/loginQuickReadSummary.test.ts` covers cutoff, filtering, sorting, URLs, and fallback titles.
 - Completed: F-007 quick-read assignment RPC slice. `/api/briefing/quick-read` now prefers the bounded `login_quick_read_tasks` RPC, which joins primary and secondary task assignments in SQL with due-date filtering, and falls back to the old bounded compatibility path only when needed.
 - Completed: F-013 build tooling migration. `npm run lint` now runs `eslint .` through an explicit flat config and no longer prints the Next.js `next lint` deprecation warning.
@@ -115,7 +115,7 @@ Updated 2026-06-02:
 - Open: F-012 follow-up for large-file table refactors plus production timing/EXPLAIN checks after the Forms and Social RPCs are applied.
 - Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns the persisted task-column normalization helpers, and `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
 - Open: F-005 follow-up for `NoteEditorClient`, settings, chat, social detail, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
-- Open: The explicit F-004, F-006, F-008, F-009, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, observability, docs, scalability, and cleanup backlog.
+- Open: The explicit F-004, F-006, F-008, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, docs, scalability, and cleanup backlog.
 
 Latest implementation validation:
 
@@ -123,13 +123,14 @@ Latest implementation validation:
 - `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 5 tests.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
+- `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 39 files and 191 tests.
+- `npm test`: passed, 40 files and 192 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
-- Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 33 calls.
+- Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
 - `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for linked project `tsylrdpxsouptxmjixmu`. The Forms, Social, and Quick Read RPC migrations are tracked, but remote application still needs the correct DB password or another migration path.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` redirect with no red error screen; direct HTTP smoke returned 307. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
@@ -460,12 +461,14 @@ Verification needed:
 
 Evidence:
 
-- Original static scan found 93 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`; after the personal image/editor, API route, and server logging slices this is down to 33, with 0 direct `console.*` calls remaining under `app/api`.
+- Original static scan found 93 `console.log/error/warn/info` calls in `app`, `lib`, and `supabase`; after the personal image/editor, API route, server logging, and browser logging slices this is down to 9, all centralized in the logger modules, with 0 direct `console.*` calls remaining under `app/api`.
 - `app/(app)/_components/NoteEditorClient.tsx` still contains image debug log call sites, but they now require `NEXT_PUBLIC_NOTE_IMAGE_DEBUG=1`; save-coordinator debug logging now requires `NEXT_PUBLIC_NOTE_SAVE_DEBUG=1`.
 - `app/api/personal/pages/[pageId]/images/route.ts` no longer logs successful uploads via `console.error`; upload failure paths now use `logWarn`/`logError` from `lib/vercelLogger.ts`.
 - `app/api/briefing/quick-read/route.ts`, `app/api/chat/messages/route.ts`, `app/api/projects/[projectId]/tasks/route.ts`, and `app/api/tasks/[taskId]/subtasks/route.ts` now use structured `logError` diagnostics instead of direct `console.error`.
 - Server-side page/action/helper diagnostics for mentions, task creation, subtasks, task/project/page queries, rollback/audit failures, Outlook import telemetry, perf timing, help guides, and app layout failures now use `logError`, `logWarn`, or `logInfo` with structured fields.
+- Browser-side note-editor debug/error output, global search suggestion failures, billing editor runtime failures, and the social route error boundary now use `lib/clientLogger.ts`.
 - `lib/vercelLogger.test.ts` now covers structured output, redaction, log-level filtering, errors, and bigint serialization.
+- `lib/clientLogger.test.ts` covers browser structured output, redaction, error serialization, and bigint serialization.
 
 User/business impact:
 
@@ -480,7 +483,7 @@ Recommended fix:
 - Done for the logger core: add tests for logger formatting, redaction, level filtering, error serialization, and bigint serialization.
 - Done for the API route slice: remove direct `console.*` calls from `app/api` and preserve customer-critical failure context as structured event fields.
 - Done for the server logging slice: convert customer-critical page/action/helper diagnostics to the central logger while preserving useful IDs/counts.
-- Continue migrating the remaining browser-side console inventory by product area instead of doing one risky mechanical rewrite.
+- Done for the browser logging slice: move direct component console calls into `lib/clientLogger.ts` while preserving existing note-editor debug gates.
 
 Estimated effort: small to medium.
 
@@ -489,7 +492,8 @@ Verification needed:
 - Production log sample shows no expected-success `error` events for personal image uploads.
 - Simulated personal image upload failures emit one structured warning/error with enough context to debug it.
 - API route static scan stays at 0 direct `console.*` calls.
-- Browser-side logging cleanup keeps note-editor and billing/global-search workflows debuggable without noisy default production console output.
+- Static console scan remains centralized in `lib/clientLogger.ts` and `lib/vercelLogger.ts`.
+- Browser-side logging cleanup keeps note-editor and billing/global-search workflows debuggable without noisy scattered component console output.
 
 ### F-010 - P2 - Security and Scalability - Security-definer and RLS surface needs an inventory and regression tests
 

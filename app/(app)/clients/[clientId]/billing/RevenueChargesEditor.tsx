@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEmployeeInfoCurrencyAmount, type EmployeeInfoCurrencyCode } from "@/lib/employeeInfo";
+import { logClientError } from "@/lib/clientLogger";
 
 type BillingRevenueChargeMode = "per_user" | "monthly";
 
@@ -124,7 +125,9 @@ export default function RevenueChargesEditor({
         action();
         if (runtimeError) setRuntimeError("");
       } catch (error) {
-        console.error("[billing.revenue_charges_editor]", error);
+        logClientError("billing.revenue_charges_editor_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
         setRuntimeError("Something went wrong while editing charges. Please refresh and try again.");
       }
     },

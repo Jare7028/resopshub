@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEmployeeInfoCurrencyAmount, type EmployeeInfoCurrencyCode } from "@/lib/employeeInfo";
+import { logClientError } from "@/lib/clientLogger";
 
 type BillingMonthlyCostSourceKind = "employee_column" | "custom";
 type BillingMonthlyCostCustomMode = "per_user" | "monthly";
@@ -166,7 +167,9 @@ export default function MonthlyCostSourcesEditor({
         action();
         if (runtimeError) setRuntimeError("");
       } catch (error) {
-        console.error("[billing.monthly_cost_sources_editor]", error);
+        logClientError("billing.monthly_cost_sources_editor_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
         setRuntimeError("Something went wrong while editing cost sources. Please refresh and try again.");
       }
     },

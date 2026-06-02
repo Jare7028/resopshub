@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { logClientError } from "@/lib/clientLogger";
 
 export default function SocialError({
   error,
@@ -11,7 +12,10 @@ export default function SocialError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[social.route.error]", error);
+    logClientError("social.route_error", {
+      digest: error.digest || null,
+      message: error.message,
+    });
   }, [error]);
 
   return (
