@@ -91,6 +91,14 @@ import {
   type NoteShapeKind,
   type NoteTextBoxAttrs,
 } from "@/lib/noteEditorOverlays";
+import {
+  extractTaskIdFromHref,
+  normalizeInlineText,
+  normalizeMentionHandle,
+  normalizePastedLink,
+  normalizeTaskStatusLabel,
+  parseTimestampMs,
+} from "@/lib/noteEditorInline";
 
 type OverlayNodeType = "noteShape" | "noteTextBox";
 type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
@@ -363,18 +371,6 @@ const TABLE_COLUMN_TYPES = [
 ] as const;
 
 type TableColumnType = (typeof TABLE_COLUMN_TYPES)[number]["id"];
-
-function parseTimestampMs(value: unknown) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const normalized = value.trim();
-  if (!normalized) {
-    return null;
-  }
-  const parsed = Date.parse(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 type WordTextAlign = "left" | "center" | "right" | "justify";
 type WordBlockStyle = "paragraph" | "h1" | "h2" | "h3" | "quote";
@@ -696,20 +692,6 @@ function extractImageSourcesFromHtml(htmlValue: string) {
   } catch {
     return [] as string[];
   }
-}
-
-function normalizePastedLink(value: string) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed || /\s/.test(trimmed)) {
-    return null;
-  }
-  if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) {
-    return trimmed;
-  }
-  if (/^\/[^\s]+$/.test(trimmed)) {
-    return trimmed;
-  }
-  return null;
 }
 
 function extractSingleLinkFromHtml(htmlValue: string) {
@@ -1794,17 +1776,6 @@ function filterSlashCommands(commands: SlashCommand[], query: string) {
   });
 }
 
-function normalizeMentionHandle(value: string) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^@+/, "")
-    .replace(/[^a-z0-9._@-]/g, "")
-    .replace(/^[._-]+|[._-]+$/g, "");
-
-  return normalized.length >= 2 ? normalized : "";
-}
-
 function getMentionMatch(editor: Editor) {
   const { state } = editor;
   if (!state.selection.empty) {
@@ -1833,26 +1804,6 @@ function getMentionMatch(editor: Editor) {
     },
     query: mentionQuery.toLowerCase(),
   };
-}
-
-function normalizeInlineText(value: string) {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function normalizeTaskStatusLabel(value: string | null | undefined) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (!normalized) return "To Do";
-  return normalized
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function extractTaskIdFromHref(href: string) {
-  const match = href.match(/^\/tasks\/([a-z0-9-]+)/i);
-  return match?.[1] || null;
 }
 
 function isOverlayNodeTypeName(name: string): name is OverlayNodeType {

@@ -123,6 +123,7 @@ Updated 2026-06-02:
 - Completed: F-005 note-editor formatting helper extraction slice. `lib/noteEditorFormatting.ts` now owns Word-style font options, font-size stepping, toolbar label normalization, and image-float normalization with focused unit coverage.
 - Completed: F-005 note-editor context-menu favorite contract slice. `lib/noteEditorContextMenu.ts` now owns the favorite action list, storage key, and normalization used by the editor UI, personal page load, and personal favorite save action; this prevents formatting favorites like bold/font-size/insert-arrow from being dropped by narrower personal-page validators.
 - Completed: F-005 note-editor overlay helper extraction slice. `lib/noteEditorOverlays.ts` now owns shape/text-box attribute normalization, default sizes, insert options, equality checks, and SVG markup generation with focused unit coverage.
+- Completed: F-005 note-editor inline helper extraction slice. `lib/noteEditorInline.ts` now owns timestamp parsing, pasted-link normalization, mention handle cleanup, inline text cleanup, task status labels, and task-link ID extraction with focused unit coverage.
 - Open: F-005 follow-up for `NoteEditorClient`, settings, chat, social detail, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
 - Open: The explicit F-004, F-006, F-008, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, docs, scalability, and cleanup backlog.
 
@@ -135,6 +136,7 @@ Latest implementation validation:
 - `npx vitest run lib/noteEditorFormatting.test.ts lib/noteEditorContent.test.ts`: passed, 12 tests.
 - `npx vitest run lib/noteEditorContextMenu.test.ts lib/noteEditorFormatting.test.ts`: passed, 9 tests.
 - `npx vitest run lib/noteEditorOverlays.test.ts lib/noteEditorContextMenu.test.ts`: passed, 10 tests.
+- `npx vitest run lib/noteEditorInline.test.ts lib/noteEditorOverlays.test.ts`: passed, 12 tests.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
@@ -145,9 +147,9 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 48 files and 247 tests.
+- `npm test`: passed, 49 files and 253 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu and overlay helper extractions also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, and inline helper extractions also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -305,7 +307,7 @@ Verification needed:
 
 Evidence:
 
-- `app/(app)/_components/NoteEditorClient.tsx`: 6402 lines after the content, formatting, context-menu, and overlay helper extractions.
+- `app/(app)/_components/NoteEditorClient.tsx`: 6360 lines after the content, formatting, context-menu, overlay, and inline helper extractions.
 - `app/(app)/settings/page.tsx`: 4304 lines.
 - `app/(app)/chat/ChatPageClient.tsx`: 2682 lines.
 - `app/(app)/tasks/TasksView.tsx`: 2416 lines after the task table view-state, URL/query, view-model, and timeline extraction slices, down from 2646 after the quick-add UX slice.
@@ -334,6 +336,7 @@ Recommended fix:
 - Done for the note-editor formatting-helper slice: `lib/noteEditorFormatting.ts` extracts font option lists, font-size stepping, toolbar label normalization, and image-float normalization; `lib/noteEditorFormatting.test.ts` covers the extracted behavior.
 - Done for the note-editor context-menu slice: `lib/noteEditorContextMenu.ts` extracts the favorite action contract and normalizer; editor UI, personal page load, and server-side favorite persistence now use the same action set.
 - Done for the note-editor overlay-helper slice: `lib/noteEditorOverlays.ts` extracts shape/text-box defaults, normalization, equality checks, and SVG rendering; `lib/noteEditorOverlays.test.ts` covers the extracted behavior.
+- Done for the note-editor inline-helper slice: `lib/noteEditorInline.ts` extracts timestamp parsing, pasted-link validation, mention handle cleanup, inline text normalization, task status labels, and task-link ID extraction; `lib/noteEditorInline.test.ts` covers the extracted behavior.
 
 Estimated effort: large.
 
