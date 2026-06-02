@@ -763,6 +763,7 @@ export default async function ScheduleTimeOffPage({
             {canManage ? (
               <Link
                 href={buildTimeOffPath({ year: selectedYear, status: selectedStatus, tab: "codes" })}
+                prefetch={false}
                 className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
               >
                 Clear edit mode
@@ -814,6 +815,7 @@ export default async function ScheduleTimeOffPage({
                                 tab: "codes",
                                 editCodeId: code.id,
                               })}
+                              prefetch={false}
                               className="font-semibold text-slate-700 hover:underline"
                             >
                               Edit
