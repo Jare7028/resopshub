@@ -142,7 +142,8 @@ Updated 2026-06-02:
 - Completed: F-005 note-editor ribbon primitives extraction slice. `app/(app)/_components/NoteEditorRibbonPrimitives.tsx` now owns ribbon tabs, table-column type options, toolbar group/button primitives, and the small toolbar SVG icons used by `NoteEditorClient`.
 - Completed: F-005 chat client helper extraction slice. `lib/chatClientUtils.ts` now owns message sorting/merging, sync cursors, conversation-member normalization, display labels, reply parsing, snippets, and link URL helpers used by `ChatPageClient`, with focused unit coverage.
 - Completed: F-005 social detail helper extraction slice. `lib/socialDetailUtils.ts` now owns social row types, reaction constants, post-image JSON normalization, filter/panel/role normalization, user/view labels, date helpers, and social detail URL construction with focused unit coverage.
-- Open: F-005 follow-up for `NoteEditorClient`, settings, remaining chat/social detail splits, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
+- Completed: F-005 settings page utility extraction slice. `lib/settingsPageUtils.ts` now owns settings notification preference defaults/types, avatar/status constants, checkbox/status-color/UUID helpers, preference fallback handling, initials, default content text, and DB error formatting with focused unit coverage.
+- Open: F-005 follow-up for `NoteEditorClient`, remaining settings server-action/form splits, remaining chat/social detail splits, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
 - Open: The explicit F-004, F-006, F-008, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, docs, scalability, and cleanup backlog.
 
 Latest implementation validation:
@@ -160,6 +161,7 @@ Latest implementation validation:
 - `npx vitest run lib/noteEditorSuggestions.test.ts`: passed, 5 tests.
 - `npm test -- --run lib/chatClientUtils.test.ts`: passed, 8 tests.
 - `npm test -- --run lib/socialDetailUtils.test.ts`: passed, 5 tests.
+- `npm test -- --run lib/settingsPageUtils.test.ts`: passed, 5 tests.
 - `npx vitest run lib/securityDefinerMigrations.test.ts`: passed, 1 test.
 - `npx vitest run lib/projectAccess.test.ts`: passed, 5 tests.
 - `npx vitest run 'app/(app)/projects/projectTableViewState.test.ts'`: passed, 9 tests.
@@ -182,9 +184,9 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 60 files and 333 tests.
+- `npm test`: passed, 61 files and 338 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/chat` built at 14.8 kB route JS and 130 kB first load JS after the chat client helper extraction; `/social/[pageId]` built at 3.41 kB route JS and 119 kB first load JS after the social detail helper extraction; `/inventory` built at 12.2 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.7 kB route JS and 117 kB first load JS after the shared table utility and preference-state extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; route-modal prefetch cleanup, note-editor context-menu, overlay, inline, image, ribbon primitive, suggestion helper, chat client helper, and social detail helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/chat` built at 14.8 kB route JS and 130 kB first load JS after the chat client helper extraction; `/social/[pageId]` built at 3.41 kB route JS and 119 kB first load JS after the social detail helper extraction; `/inventory` built at 12.2 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.7 kB route JS and 117 kB first load JS after the shared table utility and preference-state extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard and settings utility extraction slices; route-modal prefetch cleanup, note-editor context-menu, overlay, inline, image, ribbon primitive, suggestion helper, chat client helper, social detail helper, and settings utility extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -347,7 +349,7 @@ Verification needed:
 Evidence:
 
 - `app/(app)/_components/NoteEditorClient.tsx`: 5994 lines after the content, formatting, context-menu, overlay, inline, image, ribbon primitive, and suggestion helper extractions.
-- `app/(app)/settings/page.tsx`: 4487 lines.
+- `app/(app)/settings/page.tsx`: 4398 lines after the settings page utility extraction.
 - `app/(app)/chat/ChatPageClient.tsx`: 2461 lines after the chat client helper extraction, down from 2682 in the latest large-file scan.
 - `app/(app)/social/[pageId]/page.tsx`: 2277 lines after the social detail helper extraction.
 - `app/(app)/tasks/TasksView.tsx`: 2414 lines after the task table view-state, URL/query, view-model, and timeline extraction slices, down from 2646 after the quick-add UX slice.
@@ -386,6 +388,7 @@ Recommended fix:
 - Done for the note-editor ribbon-primitives slice: `app/(app)/_components/NoteEditorRibbonPrimitives.tsx` extracts ribbon tabs, table-column type options, ribbon group/button components, and toolbar SVG icon components; `npx tsc --noEmit`, `npm run lint`, and `npm run build` cover the split.
 - Done for the chat client helper slice: `lib/chatClientUtils.ts` extracts deterministic message/conversation helpers from `ChatPageClient`; `lib/chatClientUtils.test.ts` covers sorting, merging, sync cursors, user display labels, URL construction, reply parsing, snippets, and invalid date handling.
 - Done for the social detail helper slice: `lib/socialDetailUtils.ts` extracts deterministic social detail helpers from `app/(app)/social/[pageId]/page.tsx`; `lib/socialDetailUtils.test.ts` covers image JSON normalization, people/view labels, filter/role/panel normalization, URL construction, reaction constants, and date guards.
+- Done for the settings page utility slice: `lib/settingsPageUtils.ts` extracts deterministic settings helpers from `app/(app)/settings/page.tsx`; `lib/settingsPageUtils.test.ts` covers defaults/constants, checkbox parsing, status color normalization, preference fallbacks, UUID validation, initials, and DB error formatting.
 - Done for the inventory/employee-info shared table utility slice: `lib/employeeInfoTableUtils.ts` extracts duplicated option parsing, date/number parsing, empty-cell styling helpers, column token matching, and sort comparison used by both editable table components; `lib/employeeInfoTableUtils.test.ts` covers the extracted behavior.
 - Done for the inventory/employee-info preference-state slice: `lib/tablePreferenceState.ts` extracts duplicated localStorage visibility/filter normalization and serialization; the two feature wrappers now preserve their separate keys/events and inventory's legacy new-column visibility behavior.
 
@@ -512,7 +515,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 58 files and 320 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility and preference-state, task view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
+- Latest unit-test suite now passes 61 files and 338 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility and preference-state, task view-model/timeline, quick-read task RPC, logging, security-definer migration guard, note-editor helper coverage, chat/social helpers, and settings utility slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -651,7 +654,7 @@ Verification needed:
 Evidence:
 
 - Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 2090 lines after the shared table utility extraction, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1915 lines after the shared table utility extraction, `app/(app)/tasks/TasksView.tsx` at 2527 lines, `app/(app)/projects/ProjectsView.tsx` at 1901 lines after the project table view-state extraction, and `app/(app)/clients/ClientsTable.tsx` at 1248 lines after the client table view-state extraction.
-- `app/(app)/settings/page.tsx` is 4304 lines and contains many management forms/actions.
+- `app/(app)/settings/page.tsx` is 4398 lines after the settings utility extraction and still contains many management forms/actions.
 - Quick-read already uses 600-row caps, showing that unbounded or broad reads have become a product concern.
 - Implemented Forms slice: `app/(app)/forms/page.tsx` now calls `forms_list_page` with `p_limit`/`p_offset` and no longer pulls all forms plus all open submissions into application memory for the list view.
 - Implemented Social slice: `app/(app)/social/page.tsx` now calls `social_landing_page` with `p_limit`/`p_offset` and no longer pulls every accessible social page plus membership/summary/post data across the full page ID set for the landing view.
