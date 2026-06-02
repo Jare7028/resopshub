@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import {
   safeUploadImageFilename,
   validateUploadImageFile,
@@ -74,11 +75,9 @@ export async function POST(
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "personal.pages.images.auth");
+  if (auth.response) return auth.response;
+  const { user } = auth;
 
   const formData = await request.formData().catch(() => null);
   if (!formData) {

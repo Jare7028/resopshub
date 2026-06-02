@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function isMissingColumnError(error: unknown) {
@@ -34,12 +35,9 @@ async function fetchOwnedPagesBySection(
 
 export async function POST(req: Request) {
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "personal.pages.reorder.auth");
+  if (auth.response) return auth.response;
+  const { user } = auth;
 
   let payload: {
     pageId?: string;

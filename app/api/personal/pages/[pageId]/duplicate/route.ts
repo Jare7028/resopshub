@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPlainText } from "@/lib/tiptapText";
 
@@ -23,11 +24,9 @@ export async function POST(
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireApiUser(supabase, "personal.pages.duplicate.auth");
+  if (auth.response) return auth.response;
+  const { user } = auth;
 
   const { data: sourcePage, error: sourceError } = await supabase
     .from("personal_pages")

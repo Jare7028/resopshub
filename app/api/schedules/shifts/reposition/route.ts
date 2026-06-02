@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -41,10 +42,8 @@ function normalizeMode(value: unknown): RepositionMode | null {
 export async function POST(request: Request) {
   try {
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireApiUser(supabase, "schedules.shifts.reposition.auth");
+    if (auth.response) return auth.response;
 
     const body = (await request.json().catch(() => null)) as RepositionRequestBody | null;
     if (!body) {

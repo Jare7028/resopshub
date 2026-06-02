@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { logError, logWarn } from "@/lib/vercelLogger";
@@ -32,9 +33,10 @@ export async function POST(
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = String(authData.user?.id || "").trim();
-  const authEmail = authData.user?.email;
+  const auth = await requireApiUser(supabase, "social.pages.read.auth");
+  if (auth.response) return auth.response;
+  const authUserId = String(auth.user.id || "").trim();
+  const authEmail = auth.user.email;
 
   if (!authUserId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

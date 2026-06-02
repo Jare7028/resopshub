@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { requireApiUser } from "@/lib/api/requireApiUser";
 import {
   safeUploadImageFilename,
   validateUploadImageFile,
@@ -33,10 +34,10 @@ export async function POST(
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const user = authData.user;
+  const auth = await requireApiUser(supabase, "social.pages.images.auth");
+  const user = auth.user;
 
-  if (!user) {
+  if (auth.response || !user) {
     logWarn("social.image.upload.unauthorized", {
       request_id: requestId,
       page_id: pageId,
