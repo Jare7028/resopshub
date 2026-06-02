@@ -194,6 +194,18 @@ export function buildTaskListUrl(
   return query ? `${basePath}?${query}` : basePath;
 }
 
+export function getNextTaskSortDir({
+  currentSortKey,
+  currentSortDir,
+  nextSortKey,
+}: {
+  currentSortKey: TaskSortKey;
+  currentSortDir: TaskSortDir;
+  nextSortKey: TaskSortKey;
+}): TaskSortDir {
+  return currentSortKey === nextSortKey && currentSortDir === "asc" ? "desc" : "asc";
+}
+
 export function buildTaskPreferenceFormData({
   filters,
   sortKey,

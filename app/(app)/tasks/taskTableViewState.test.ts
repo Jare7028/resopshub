@@ -5,6 +5,7 @@ import {
   buildTaskListUrl,
   buildTaskPreferenceFormData,
   filterAllowedValues,
+  getNextTaskSortDir,
   normalizePersistedTaskFilters,
   normalizeStorageList,
   normalizeVisibleTaskColumns,
@@ -105,6 +106,32 @@ describe("task table view state helpers", () => {
         includeWatching: false,
       })
     ).toBe("/tasks?assignee=all");
+  });
+
+  it("toggles the current sort direction and resets new sort keys to ascending", () => {
+    expect(
+      getNextTaskSortDir({
+        currentSortKey: "due",
+        currentSortDir: "asc",
+        nextSortKey: "due",
+      })
+    ).toBe("desc");
+
+    expect(
+      getNextTaskSortDir({
+        currentSortKey: "due",
+        currentSortDir: "desc",
+        nextSortKey: "due",
+      })
+    ).toBe("asc");
+
+    expect(
+      getNextTaskSortDir({
+        currentSortKey: "due",
+        currentSortDir: "asc",
+        nextSortKey: "priority",
+      })
+    ).toBe("asc");
   });
 
   it("builds task preference form data with normalized CSV fields", () => {

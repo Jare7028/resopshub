@@ -46,6 +46,7 @@ import {
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
   buildTaskPreferenceFormData,
+  getNextTaskSortDir,
   normalizePersistedTaskFilters,
   normalizeVisibleTaskColumns,
   type PersistedTaskFilterState,
@@ -986,15 +987,21 @@ export default function TasksView({
   };
 
   const buildSortUrl = (key: TaskSortKey) => {
-    const nextDir: TaskSortDir =
-      sortKey === key && sortDir === "asc" ? "desc" : "asc";
+    const nextDir = getNextTaskSortDir({
+      currentSortKey: sortKey,
+      currentSortDir: sortDir,
+      nextSortKey: key,
+    });
     const query = buildQuery(filters, key, nextDir, view, hideCompleted);
     return query ? `${basePath}?${query}` : basePath;
   };
 
   const applySort = (key: TaskSortKey) => {
-    const nextDir: TaskSortDir =
-      sortKey === key && sortDir === "asc" ? "desc" : "asc";
+    const nextDir = getNextTaskSortDir({
+      currentSortKey: sortKey,
+      currentSortDir: sortDir,
+      nextSortKey: key,
+    });
     const query = buildQuery(filters, key, nextDir, view, hideCompleted);
     saveTaskPreferences(filters, key, nextDir, view, hideCompleted, includeWatching);
     startTransition(() => {
