@@ -3,6 +3,11 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
+import {
+  getProjectReadAccess,
+  getProjectRequesterProfile,
+  projectAccessRedirectError,
+} from "@/lib/projectAccess";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import { DEFAULT_EDITOR_CONTENT } from "@/lib/editorContent";
 import { extractPlainText } from "@/lib/tiptapText";
@@ -685,6 +690,32 @@ export default async function ProjectsPage(props: {
       );
     }
 
+    const requester = await getProjectRequesterProfile(
+      supabase,
+      "projects.inline.action.auth"
+    );
+    if (requester.ok !== true) {
+      if (requester.reason === "unauthenticated") {
+        redirect("/login");
+      }
+      redirect(
+        buildProjectsRedirectUrl(returnTo, {
+          error: projectAccessRedirectError(requester),
+        })
+      );
+    }
+    const projectAccess = await getProjectReadAccess(supabase, {
+      projectId,
+      profile: requester.profile,
+    });
+    if (!projectAccess.ok) {
+      redirect(
+        buildProjectsRedirectUrl(returnTo, {
+          error: projectAccessRedirectError(projectAccess),
+        })
+      );
+    }
+
     if (formData.has("client_id")) {
       updates.client_id = clientId || null;
     }
@@ -829,11 +860,6 @@ export default async function ProjectsPage(props: {
   async function createProject(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const authUser = await getCurrentRequestUser(supabase, "projects.create.auth");
-    const creatorId = authUser?.id;
-    if (!creatorId) {
-      redirect("/login");
-    }
     const name = String(formData.get("name") || "").trim();
     const clientId = String(formData.get("client_id") || "").trim();
     const status = String(formData.get("status") || "planned");
@@ -843,8 +869,7 @@ export default async function ProjectsPage(props: {
     const createModeFromForm: "new" | "template" = templateProjectIdFromForm
       ? "template"
       : "new";
-    const defaultTaskAssigneeId = currentUserId || null;
-    const redirectCreateError = (message: string) => {
+    const redirectCreateError = (message: string): never => {
       redirect(
         buildProjectsRedirectUrl(returnTo, {
           tab: "add",
@@ -854,6 +879,22 @@ export default async function ProjectsPage(props: {
         })
       );
     };
+    const requester = await getProjectRequesterProfile(supabase, "projects.create.auth");
+    if (!requester.ok) {
+      if (requester.reason === "unauthenticated") {
+        redirect("/login");
+      }
+      redirectCreateError(projectAccessRedirectError(requester));
+    }
+    const requesterUser = requester.user;
+    const requesterProfile = requester.profile;
+    if (!requesterUser || !requesterProfile) {
+      redirectCreateError("User profile missing");
+      throw new Error("User profile missing");
+    }
+    const creatorId = requesterUser.id;
+    const requesterProfileId = requesterProfile.id;
+    const defaultTaskAssigneeId = requesterProfileId;
 
     const cloneTemplateCustomFields = async (
       templateEntityType: "task_template" | "project_template",
@@ -1010,10 +1051,10 @@ export default async function ProjectsPage(props: {
       redirectCreateError(error.message);
     }
 
-    if (created?.id && currentUserId) {
+    if (created?.id && requesterProfileId) {
       await supabase.from("project_users").insert({
         project_id: created.id,
-        user_id: currentUserId,
+        user_id: requesterProfileId,
       });
     }
 
