@@ -44,13 +44,21 @@ import {
   formatOptionsInput,
   getCellFieldClassName,
   getCellToneClass,
+  getElementFromEventTarget,
+  hasEditablePopoverOpen,
   isEmptyCellValue,
+  isEditableCurrencySelectorTarget,
+  isEditableFormDirty,
+  isEditableMenuInteractionTarget,
   isLeaveDateColumn,
   parseOptionsJson,
   parseSortableDateStamp,
   parseSortableNumber,
+  resetEditableFormControlsToDefault,
   shouldHighlightEmptyStateForColumn,
+  syncEditableCellHighlight,
   toDateInputValue,
+  type EditableTableInteractionConfig,
   type EmployeeInfoTableSortDir,
 } from "@/lib/employeeInfoTableUtils";
 import {
@@ -102,89 +110,13 @@ const CURRENCY_SWITCH_INTENT_WINDOW_MS = 1500;
 const INITIAL_VISIBLE_ROW_COUNT = 100;
 const VISIBLE_ROW_INCREMENT = 100;
 const LOAD_MORE_ROWS_THRESHOLD_PX = 240;
-
-function syncEditableCellHighlight(
-  control: HTMLInputElement | HTMLSelectElement,
-  shouldHighlight = true
-) {
-  const form = control.form;
-  const primaryValueControl =
-    form?.querySelector<HTMLInputElement | HTMLSelectElement>(
-      'input[name="value"], select[name="value"]'
-    ) || control;
-  const isEmpty = shouldHighlight && isEmptyCellValue(primaryValueControl.value);
-
-  const visibleControls = form
-    ? Array.from(
-        form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-          'input[name="value"], select[name="value"], select[name="currency_code"]'
-        )
-      )
-    : [control];
-
-  visibleControls.forEach((field) => {
-    field.classList.toggle("border-red-200", isEmpty);
-    field.classList.toggle("bg-red-50/70", isEmpty);
-    field.classList.toggle("border-slate-300", !isEmpty);
-    field.classList.toggle("bg-white", !isEmpty);
-  });
-
-  const cell = control.closest("td");
-  if (cell) {
-    cell.classList.toggle("bg-red-50/60", isEmpty);
-  }
-}
-
-function getEditableFormControls(form: HTMLFormElement) {
-  return Array.from(
-    form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-      'input[name="value"], select[name="value"], select[name="currency_code"]'
-    )
-  );
-}
-
-function getEditableControlDefaultValue(control: HTMLInputElement | HTMLSelectElement) {
-  if (control instanceof HTMLInputElement) {
-    return control.defaultValue;
-  }
-
-  const defaultOption = Array.from(control.options).find((option) => option.defaultSelected);
-  if (defaultOption) return defaultOption.value;
-  return control.options.item(0)?.value ?? "";
-}
-
-function isEditableFormDirty(form: HTMLFormElement) {
-  return getEditableFormControls(form).some(
-    (field) => field.value !== getEditableControlDefaultValue(field)
-  );
-}
-
-function resetEditableFormControlsToDefault(form: HTMLFormElement) {
-  getEditableFormControls(form).forEach((field) => {
-    field.value = getEditableControlDefaultValue(field);
-  });
-}
-
-function hasEmployeeInfoPopoverOpen() {
-  if (typeof document === "undefined") return false;
-  return Boolean(document.querySelector('details[data-employee-info-popover="true"][open]'));
-}
-
-function getElementFromEventTarget(target: EventTarget | null) {
-  if (!target) return null;
-  if (target instanceof Element) return target;
-  if (target instanceof Node) return target.parentElement;
-  return null;
-}
-
-function isEmployeeInfoMenuInteractionTarget(target: Element | null) {
-  if (!target) return false;
-  return Boolean(
-    target.closest(
-      'button, a, summary, [role="button"], [role="menuitem"], [data-employee-info-popover="true"], [data-employee-info-currency-selector="true"]'
-    )
-  );
-}
+const EMPLOYEE_INFO_POPOVER_DATA_ATTRIBUTE = "data-employee-info-popover";
+const EMPLOYEE_INFO_CURRENCY_SELECTOR_DATA_ATTRIBUTE =
+  "data-employee-info-currency-selector";
+const EMPLOYEE_INFO_MENU_INTERACTION_CONFIG = {
+  popoverDataAttribute: EMPLOYEE_INFO_POPOVER_DATA_ATTRIBUTE,
+  currencySelectorDataAttribute: EMPLOYEE_INFO_CURRENCY_SELECTOR_DATA_ATTRIBUTE,
+} satisfies EditableTableInteractionConfig;
 
 function ColumnEditPanel({
   column,
@@ -932,7 +864,7 @@ export default function EmployeeInfoTable({
 
   const queueTableRefresh = useCallback(() => {
     const attemptRefresh = () => {
-      if (openMenuRef.current || hasEmployeeInfoPopoverOpen()) {
+      if (openMenuRef.current || hasEditablePopoverOpen(EMPLOYEE_INFO_POPOVER_DATA_ATTRIBUTE)) {
         refreshTimeoutRef.current = setTimeout(attemptRefresh, 180);
         return;
       }
@@ -980,10 +912,14 @@ export default function EmployeeInfoTable({
     const relatedTarget = event.relatedTarget instanceof Element ? event.relatedTarget : null;
     const pointerTarget = lastPointerDownTargetRef.current;
     const blurIntentTarget = relatedTarget || pointerTarget;
-    const isCurrencySelectorTarget = Boolean(
-      blurIntentTarget?.closest('[data-employee-info-currency-selector="true"]')
+    const isCurrencySelectorTarget = isEditableCurrencySelectorTarget(
+      blurIntentTarget,
+      EMPLOYEE_INFO_CURRENCY_SELECTOR_DATA_ATTRIBUTE
     );
-    const isMenuInteractionTarget = isEmployeeInfoMenuInteractionTarget(blurIntentTarget);
+    const isMenuInteractionTarget = isEditableMenuInteractionTarget(
+      blurIntentTarget,
+      EMPLOYEE_INFO_MENU_INTERACTION_CONFIG
+    );
     const isLeavingTableArea = Boolean(
       blurIntentTarget && tableRootRef.current && !tableRootRef.current.contains(blurIntentTarget)
     );

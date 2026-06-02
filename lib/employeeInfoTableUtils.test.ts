@@ -5,7 +5,15 @@ import {
   formatOptionsInput,
   getCellFieldClassName,
   getCellToneClass,
+  getEditableControlDefaultValue,
+  getEditableCurrencySelector,
+  getEditableMenuInteractionSelector,
+  getEditablePopoverSelector,
   isEmptyCellValue,
+  isEditableCurrencySelectorTarget,
+  isEditableMenuInteractionTarget,
+  hasEditablePopoverOpen,
+  getElementFromEventTarget,
   isLeaveDateColumn,
   normalizeColumnToken,
   parseOptionsJson,
@@ -51,6 +59,64 @@ describe("employeeInfoTableUtils", () => {
         extraClassName: "font-medium",
       })
     ).toContain("border-red-200 bg-red-50/70");
+  });
+
+  it("normalizes editable form defaults and selectors", () => {
+    const selectOptions = [
+      { value: "first", defaultSelected: false },
+      { value: "second", defaultSelected: true },
+    ];
+    const selectOptionsCollection = Object.assign(selectOptions, {
+      item(index: number): (typeof selectOptions)[number] | null {
+        return selectOptions[index] ?? null;
+      },
+    });
+
+    expect(
+      getEditableControlDefaultValue({
+        defaultValue: "Original",
+      } as HTMLInputElement)
+    ).toBe("Original");
+
+    expect(
+      getEditableControlDefaultValue({
+        options: selectOptionsCollection,
+      } as unknown as HTMLSelectElement)
+    ).toBe("second");
+
+    expect(getEditablePopoverSelector("data-inventory-popover")).toBe(
+      'details[data-inventory-popover="true"][open]'
+    );
+    expect(getEditableCurrencySelector("data-inventory-currency-selector")).toBe(
+      '[data-inventory-currency-selector="true"]'
+    );
+    expect(
+      getEditableMenuInteractionSelector({
+        popoverDataAttribute: "data-inventory-popover",
+        currencySelectorDataAttribute: "data-inventory-currency-selector",
+      })
+    ).toContain('[data-inventory-popover="true"]');
+  });
+
+  it("handles editable menu target checks without a browser document", () => {
+    expect(hasEditablePopoverOpen("data-inventory-popover")).toBe(false);
+    expect(getElementFromEventTarget(null)).toBeNull();
+
+    const target = {
+      closest(selector: string) {
+        return selector.includes("data-inventory-popover") ? this : null;
+      },
+    } as unknown as Element;
+
+    expect(
+      isEditableMenuInteractionTarget(target, {
+        popoverDataAttribute: "data-inventory-popover",
+        currencySelectorDataAttribute: "data-inventory-currency-selector",
+      })
+    ).toBe(true);
+    expect(isEditableCurrencySelectorTarget(target, "data-inventory-currency-selector")).toBe(
+      false
+    );
   });
 
   it("parses sortable numbers from formatted values", () => {

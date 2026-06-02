@@ -75,6 +75,114 @@ export function getCellToneClass(isEmpty: boolean) {
   return isEmpty ? "bg-red-50/60" : "";
 }
 
+export type EditableCellControl = HTMLInputElement | HTMLSelectElement;
+
+const EDITABLE_CELL_CONTROL_SELECTOR =
+  'input[name="value"], select[name="value"], select[name="currency_code"]';
+const EDITABLE_CELL_PRIMARY_VALUE_SELECTOR = 'input[name="value"], select[name="value"]';
+
+export type EditableTableInteractionConfig = {
+  popoverDataAttribute: string;
+  currencySelectorDataAttribute: string;
+};
+
+export function syncEditableCellHighlight(
+  control: EditableCellControl,
+  shouldHighlight = true
+) {
+  const form = control.form;
+  const primaryValueControl =
+    form?.querySelector<EditableCellControl>(EDITABLE_CELL_PRIMARY_VALUE_SELECTOR) || control;
+  const isEmpty = shouldHighlight && isEmptyCellValue(primaryValueControl.value);
+
+  const visibleControls = form ? getEditableFormControls(form) : [control];
+
+  visibleControls.forEach((field) => {
+    field.classList.toggle("border-red-200", isEmpty);
+    field.classList.toggle("bg-red-50/70", isEmpty);
+    field.classList.toggle("border-slate-300", !isEmpty);
+    field.classList.toggle("bg-white", !isEmpty);
+  });
+
+  const cell = control.closest("td");
+  if (cell) {
+    cell.classList.toggle("bg-red-50/60", isEmpty);
+  }
+}
+
+export function getEditableFormControls(form: HTMLFormElement) {
+  return Array.from(form.querySelectorAll<EditableCellControl>(EDITABLE_CELL_CONTROL_SELECTOR));
+}
+
+export function getEditableControlDefaultValue(control: EditableCellControl) {
+  if (!("options" in control)) {
+    return control.defaultValue;
+  }
+
+  const defaultOption = Array.from(control.options).find((option) => option.defaultSelected);
+  if (defaultOption) return defaultOption.value;
+  return control.options.item(0)?.value ?? "";
+}
+
+export function isEditableFormDirty(form: HTMLFormElement) {
+  return getEditableFormControls(form).some(
+    (field) => field.value !== getEditableControlDefaultValue(field)
+  );
+}
+
+export function resetEditableFormControlsToDefault(form: HTMLFormElement) {
+  getEditableFormControls(form).forEach((field) => {
+    field.value = getEditableControlDefaultValue(field);
+  });
+}
+
+export function getEditablePopoverSelector(popoverDataAttribute: string) {
+  return `details[${popoverDataAttribute}="true"][open]`;
+}
+
+export function hasEditablePopoverOpen(popoverDataAttribute: string) {
+  if (typeof document === "undefined") return false;
+  return Boolean(document.querySelector(getEditablePopoverSelector(popoverDataAttribute)));
+}
+
+export function getElementFromEventTarget(target: EventTarget | null) {
+  if (!target) return null;
+  if (typeof Element !== "undefined" && target instanceof Element) return target;
+  if (typeof Node !== "undefined" && target instanceof Node) return target.parentElement;
+  return null;
+}
+
+export function getEditableCurrencySelector(currencySelectorDataAttribute: string) {
+  return `[${currencySelectorDataAttribute}="true"]`;
+}
+
+export function isEditableCurrencySelectorTarget(
+  target: Element | null,
+  currencySelectorDataAttribute: string
+) {
+  return Boolean(target?.closest(getEditableCurrencySelector(currencySelectorDataAttribute)));
+}
+
+export function getEditableMenuInteractionSelector(config: EditableTableInteractionConfig) {
+  return [
+    "button",
+    "a",
+    "summary",
+    '[role="button"]',
+    '[role="menuitem"]',
+    `[${config.popoverDataAttribute}="true"]`,
+    getEditableCurrencySelector(config.currencySelectorDataAttribute),
+  ].join(", ");
+}
+
+export function isEditableMenuInteractionTarget(
+  target: Element | null,
+  config: EditableTableInteractionConfig
+) {
+  if (!target) return false;
+  return Boolean(target.closest(getEditableMenuInteractionSelector(config)));
+}
+
 export function parseSortableNumber(value: string | null | undefined) {
   const normalized = String(value || "")
     .trim()
