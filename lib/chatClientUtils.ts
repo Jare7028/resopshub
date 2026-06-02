@@ -410,6 +410,38 @@ export function buildSearchableConversationTextById({
   }, {});
 }
 
+export function filterConversationsBySearchTerm({
+  conversations,
+  searchableConversationTextById,
+  searchTerm,
+}: {
+  conversations: readonly ConversationRow[];
+  searchableConversationTextById: Record<string, string | undefined>;
+  searchTerm: string;
+}) {
+  const term = searchTerm.trim().toLowerCase();
+  if (!term) {
+    return conversations;
+  }
+  return conversations.filter((conversation) =>
+    (searchableConversationTextById[conversation.id] || "").includes(term)
+  );
+}
+
+export function buildMessagesById(messages: readonly MessageRow[]) {
+  return messages.reduce<Record<string, MessageRow>>((acc, message) => {
+    acc[message.id] = message;
+    return acc;
+  }, {});
+}
+
+export function splitReadReceiptsByStatus(receipts: readonly MessageReadReceipt[]) {
+  return {
+    read: receipts.filter((receipt) => receipt.hasRead),
+    unread: receipts.filter((receipt) => !receipt.hasRead),
+  };
+}
+
 export function buildExistingDirectConversationIdByUserId({
   conversations,
   membersByConversationId,

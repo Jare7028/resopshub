@@ -12,11 +12,13 @@ import {
   CHAT_LINK_TYPE_LABELS,
   buildExistingDirectConversationIdByUserId,
   buildMembersByConversationId,
+  buildMessagesById,
   buildMyMembershipByConversationId,
   buildReadReceiptsByMessageId,
   buildSearchableConversationTextById,
   buildUserLookup,
   chatUrl,
+  filterConversationsBySearchTerm,
   formatConversationTime,
   formatMessageDayLabel,
   formatMessageTime,
@@ -34,6 +36,7 @@ import {
   renderPreviewText,
   sortConversationsByPinnedPriority,
   sortMessagesAsc,
+  splitReadReceiptsByStatus,
   toMessageSnippet,
   toMs,
   type AssignmentGroupOption,
@@ -184,11 +187,11 @@ export default function ChatPageClient(props: {
   ]);
 
   const filteredConversations = useMemo(() => {
-    const term = searchChats.trim().toLowerCase();
-    if (!term) return conversationsByPriority;
-    return conversationsByPriority.filter((conversation) =>
-      (searchableConversationTextById[conversation.id] || "").includes(term)
-    );
+    return filterConversationsBySearchTerm({
+      conversations: conversationsByPriority,
+      searchableConversationTextById,
+      searchTerm: searchChats,
+    });
   }, [conversationsByPriority, searchChats, searchableConversationTextById]);
 
   const existingDirectConversationIdByUserId = useMemo(() => {
@@ -244,10 +247,7 @@ export default function ChatPageClient(props: {
   );
 
   const selectedMessagesById = useMemo(() => {
-    return selectedMessages.reduce<Record<string, MessageRow>>((acc, message) => {
-      acc[message.id] = message;
-      return acc;
-    }, {});
+    return buildMessagesById(selectedMessages);
   }, [selectedMessages]);
 
   const firstUnreadMessageId = useMemo(() => {
@@ -285,8 +285,8 @@ export default function ChatPageClient(props: {
 
   const seenByMessage = seenByMessageId ? selectedMessagesById[seenByMessageId] || null : null;
   const seenByReceipts = seenByMessageId ? readReceiptsByMessageId[seenByMessageId] || [] : [];
-  const seenByReadReceipts = seenByReceipts.filter((receipt) => receipt.hasRead);
-  const seenByUnreadReceipts = seenByReceipts.filter((receipt) => !receipt.hasRead);
+  const { read: seenByReadReceipts, unread: seenByUnreadReceipts } =
+    splitReadReceiptsByStatus(seenByReceipts);
 
   function getConversationTitle(conversation: ConversationRow) {
     return getConversationDisplayTitle({

@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildExistingDirectConversationIdByUserId,
   buildMembersByConversationId,
+  buildMessagesById,
   buildMyMembershipByConversationId,
   buildReadReceiptsByMessageId,
   buildSearchableConversationTextById,
   buildUserLookup,
   chatUrl,
+  filterConversationsBySearchTerm,
   formatConversationTime,
   formatMessageDayLabel,
   formatMessageTime,
@@ -24,6 +26,7 @@ import {
   renderPreviewText,
   sortConversationsByPinnedPriority,
   sortMessagesAsc,
+  splitReadReceiptsByStatus,
   toMessageSnippet,
   toMs,
   type ConversationMemberRow,
@@ -308,6 +311,26 @@ describe("chat client helpers", () => {
       "direct-2": "lee@example.com  ",
       "group-1": "untitled group current user message deleted",
     });
+
+    const searchableTextById = {
+      "direct-1": "sam teammate callback",
+      "direct-2": "lee@example.com",
+      "group-1": "untitled group",
+    };
+    expect(
+      filterConversationsBySearchTerm({
+        conversations,
+        searchableConversationTextById: searchableTextById,
+        searchTerm: " CALLBACK ",
+      }).map((row) => row.id)
+    ).toEqual(["direct-1"]);
+    expect(
+      filterConversationsBySearchTerm({
+        conversations,
+        searchableConversationTextById: searchableTextById,
+        searchTerm: "",
+      })
+    ).toBe(conversations);
   });
 
   it("finds unread anchors and builds read receipts for sent messages", () => {
@@ -350,42 +373,41 @@ describe("chat client helpers", () => {
       })
     ).toBeNull();
 
-    expect(
-      buildReadReceiptsByMessageId({
-        messages: [
-          messages[0],
-          message({
-            id: "failed",
-            sender_id: "user-1",
-            client_status: "failed",
-          }),
-          message({
-            id: "received",
-            sender_id: "user-2",
-          }),
-        ],
-        members: [
-          member({ user_id: "user-1" }),
-          member({
-            user_id: "user-3",
-            last_read_at: "2026-06-02T09:30:00.000Z",
-          }),
-          member({
-            user_id: "user-2",
-            last_read_at: "2026-06-02T08:30:00.000Z",
-          }),
-        ],
-        currentUserId: "user-1",
-        userById: {
-          "user-2": user({ id: "user-2", full_name: "Ben Reader" }),
-          "user-3": user({
-            id: "user-3",
-            full_name: "Amy Reader",
-            avatar_url: " https://example.com/amy.png ",
-          }),
-        },
-      })
-    ).toEqual({
+    const readReceiptsByMessageId = buildReadReceiptsByMessageId({
+      messages: [
+        messages[0],
+        message({
+          id: "failed",
+          sender_id: "user-1",
+          client_status: "failed",
+        }),
+        message({
+          id: "received",
+          sender_id: "user-2",
+        }),
+      ],
+      members: [
+        member({ user_id: "user-1" }),
+        member({
+          user_id: "user-3",
+          last_read_at: "2026-06-02T09:30:00.000Z",
+        }),
+        member({
+          user_id: "user-2",
+          last_read_at: "2026-06-02T08:30:00.000Z",
+        }),
+      ],
+      currentUserId: "user-1",
+      userById: {
+        "user-2": user({ id: "user-2", full_name: "Ben Reader" }),
+        "user-3": user({
+          id: "user-3",
+          full_name: "Amy Reader",
+          avatar_url: " https://example.com/amy.png ",
+        }),
+      },
+    });
+    expect(readReceiptsByMessageId).toEqual({
       mine: [
         {
           userId: "user-3",
@@ -402,6 +424,38 @@ describe("chat client helpers", () => {
           lastReadAt: "2026-06-02T08:30:00.000Z",
         },
       ],
+    });
+    expect(splitReadReceiptsByStatus(readReceiptsByMessageId.mine)).toEqual({
+      read: [
+        {
+          userId: "user-3",
+          name: "Amy Reader",
+          avatarUrl: "https://example.com/amy.png",
+          hasRead: true,
+          lastReadAt: "2026-06-02T09:30:00.000Z",
+        },
+      ],
+      unread: [
+        {
+          userId: "user-2",
+          name: "Ben Reader",
+          avatarUrl: "",
+          hasRead: false,
+          lastReadAt: "2026-06-02T08:30:00.000Z",
+        },
+      ],
+    });
+  });
+
+  it("builds message lookup maps", () => {
+    const messages = [
+      message({ id: "first", body: "One" }),
+      message({ id: "second", body: "Two" }),
+    ];
+
+    expect(buildMessagesById(messages)).toMatchObject({
+      first: { body: "One" },
+      second: { body: "Two" },
     });
   });
 
