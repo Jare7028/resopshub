@@ -42,6 +42,8 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsProjectTemplateUrl,
+  buildSettingsTaskTemplateUrl,
   buildSettingsTemplateEntityUrl,
   buildSettingsUserNameLookup,
   checkbox,
@@ -55,6 +57,7 @@ import {
   toInitials,
   type NotificationPrefs,
   type NotificationPrefsDbRow,
+  type SettingsUrlMessage,
   type StatusOptionsResult,
 } from "@/lib/settingsPageUtils";
 import ConfirmSubmitButton from "../_components/ConfirmSubmitButton";
@@ -970,6 +973,12 @@ export default async function SettingsPage(props: {
     if (!id) {
       redirect("/settings?tab=templates&templates=tasks&error=Missing%20template%20id");
     }
+    const taskTemplateReturnUrl = (message: SettingsUrlMessage) =>
+      buildSettingsTaskTemplateUrl({
+        taskTemplateId: id,
+        taskTemplatePanelQuery,
+        message,
+      });
 
     const { error } = await supabase
       .from("task_templates")
@@ -987,9 +996,7 @@ export default async function SettingsPage(props: {
 
     if (error) {
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          id
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(error.message)}`
+        taskTemplateReturnUrl({ kind: "error", value: error.message })
       );
     }
 
@@ -1025,11 +1032,10 @@ export default async function SettingsPage(props: {
     }
     if (templateTaskError) {
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          id
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
-          formatDbError("settings.updateTaskTemplate.tasks.update", templateTaskError)
-        )}`
+        taskTemplateReturnUrl({
+          kind: "error",
+          value: formatDbError("settings.updateTaskTemplate.tasks.update", templateTaskError),
+        })
       );
     }
 
@@ -1042,9 +1048,7 @@ export default async function SettingsPage(props: {
         ? "Run sql/templates.sql to enable template assignees."
         : clearAssigneesError.message;
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          id
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
+        taskTemplateReturnUrl({ kind: "error", value: message })
       );
     }
 
@@ -1054,9 +1058,10 @@ export default async function SettingsPage(props: {
       .eq("task_id", id);
     if (clearTaskAssigneesError) {
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          id
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(clearTaskAssigneesError.message)}`
+        taskTemplateReturnUrl({
+          kind: "error",
+          value: clearTaskAssigneesError.message,
+        })
       );
     }
 
@@ -1075,9 +1080,7 @@ export default async function SettingsPage(props: {
           ? "Run sql/templates.sql to enable template assignees."
           : assigneeError.message;
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            id
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
+          taskTemplateReturnUrl({ kind: "error", value: message })
         );
       }
 
@@ -1089,18 +1092,17 @@ export default async function SettingsPage(props: {
       );
       if (taskAssigneeError) {
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            id
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(taskAssigneeError.message)}`
+          taskTemplateReturnUrl({
+            kind: "error",
+            value: taskAssigneeError.message,
+          })
         );
       }
     }
 
     revalidatePath("/settings");
     redirect(
-      `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-        id
-      )}${taskTemplatePanelQuery}&success=Task%20template%20updated`
+      taskTemplateReturnUrl({ kind: "success", value: "Task template updated" })
     );
   }
 
@@ -1233,6 +1235,12 @@ export default async function SettingsPage(props: {
     if (!id) {
       redirect("/settings?tab=templates&templates=projects&error=Missing%20template%20id");
     }
+    const projectTemplateReturnUrl = (message: SettingsUrlMessage) =>
+      buildSettingsProjectTemplateUrl({
+        projectTemplateId: id,
+        projectTemplatePanelQuery,
+        message,
+      });
 
     const { error } = await supabase
       .from("project_templates")
@@ -1245,17 +1253,13 @@ export default async function SettingsPage(props: {
 
     if (error) {
       redirect(
-        `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
-          id
-        )}${projectTemplatePanelQuery}&error=${encodeURIComponent(error.message)}`
+        projectTemplateReturnUrl({ kind: "error", value: error.message })
       );
     }
 
     revalidatePath("/settings");
     redirect(
-      `/settings?tab=templates&templates=projects&project_template_id=${encodeURIComponent(
-        id
-      )}${projectTemplatePanelQuery}&success=Project%20template%20updated`
+      projectTemplateReturnUrl({ kind: "success", value: "Project template updated" })
     );
   }
 
@@ -1325,10 +1329,7 @@ export default async function SettingsPage(props: {
     if (!label) {
       redirect("/settings?tab=templates&error=Custom%20field%20label%20is%20required");
     }
-    const customFieldReturnUrl = (message: {
-      kind: "error" | "success";
-      value: string;
-    }) =>
+    const customFieldReturnUrl = (message: SettingsUrlMessage) =>
       buildSettingsTemplateEntityUrl({
         entityType,
         entityId,
@@ -1467,10 +1468,7 @@ export default async function SettingsPage(props: {
     ) {
       redirect("/settings?tab=templates&error=Invalid%20template%20custom%20field%20save");
     }
-    const customFieldReturnUrl = (message: {
-      kind: "error" | "success";
-      value: string;
-    }) =>
+    const customFieldReturnUrl = (message: SettingsUrlMessage) =>
       buildSettingsTemplateEntityUrl({
         entityType,
         entityId,

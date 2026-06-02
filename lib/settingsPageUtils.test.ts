@@ -5,6 +5,8 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsProjectTemplateUrl,
+  buildSettingsTaskTemplateUrl,
   buildSettingsTemplateEntityUrl,
   buildSettingsUserNameLookup,
   checkbox,
@@ -190,5 +192,22 @@ describe("settings page helpers", () => {
     ).toBe(
       "/settings?tab=templates&templates=projects&project_template_id=project-1&project_template_panel=custom-fields&error=Bad%20value%3A%20A%26B"
     );
+
+    expect(
+      buildSettingsTaskTemplateUrl({
+        taskTemplateId: " task-1 ",
+        taskTemplatePanelQuery: "&task_template_panel=subtasks",
+        message: { kind: "success", value: "Subtask updated" },
+      })
+    ).toBe(
+      "/settings?tab=templates&templates=tasks&task_template_id=task-1&task_template_panel=subtasks&success=Subtask%20updated"
+    );
+
+    expect(
+      buildSettingsProjectTemplateUrl({
+        projectTemplateId: "",
+        projectTemplatePanelQuery: "&project_template_panel=tasks",
+      })
+    ).toBe("/settings?tab=templates&templates=projects&project_template_panel=tasks");
   });
 });

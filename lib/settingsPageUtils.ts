@@ -67,6 +67,10 @@ export type SettingsAssignmentGroupRow = {
 export type SettingsTemplatesTab = "tasks" | "projects";
 export type TaskTemplatePanel = "details" | "custom-fields" | "subtasks";
 export type ProjectTemplatePanel = "details" | "custom-fields" | "tasks";
+export type SettingsUrlMessage = {
+  kind: "error" | "success";
+  value: string;
+};
 
 export type SettingsTemplateSearchParams = {
   templates?: string | null;
@@ -173,10 +177,7 @@ export function buildSettingsTemplateEntityUrl(params: {
   entityId: string;
   taskTemplatePanelQuery?: string;
   projectTemplatePanelQuery?: string;
-  message?: {
-    kind: "error" | "success";
-    value: string;
-  };
+  message?: SettingsUrlMessage;
 }) {
   const isTaskTemplate = params.entityType === "task_template";
   const templatesTab = isTaskTemplate ? "tasks" : "projects";
@@ -184,13 +185,45 @@ export function buildSettingsTemplateEntityUrl(params: {
   const panelQuery = isTaskTemplate
     ? params.taskTemplatePanelQuery || ""
     : params.projectTemplatePanelQuery || "";
-  const messageQuery = params.message
-    ? `&${params.message.kind}=${encodeURIComponent(params.message.value)}`
-    : "";
+  const messageQuery = buildSettingsMessageQuery(params.message);
 
   return `/settings?tab=templates&templates=${templatesTab}&${idParam}=${encodeURIComponent(
     params.entityId
   )}${panelQuery}${messageQuery}`;
+}
+
+function buildSettingsMessageQuery(
+  message: SettingsUrlMessage | null | undefined
+) {
+  return message ? `&${message.kind}=${encodeURIComponent(message.value)}` : "";
+}
+
+export function buildSettingsTaskTemplateUrl(params: {
+  taskTemplateId?: string | null;
+  taskTemplatePanelQuery?: string;
+  message?: SettingsUrlMessage;
+}) {
+  const taskTemplateId = String(params.taskTemplateId || "").trim();
+  const idQuery = taskTemplateId
+    ? `&task_template_id=${encodeURIComponent(taskTemplateId)}`
+    : "";
+  return `/settings?tab=templates&templates=tasks${idQuery}${
+    params.taskTemplatePanelQuery || ""
+  }${buildSettingsMessageQuery(params.message)}`;
+}
+
+export function buildSettingsProjectTemplateUrl(params: {
+  projectTemplateId?: string | null;
+  projectTemplatePanelQuery?: string;
+  message?: SettingsUrlMessage;
+}) {
+  const projectTemplateId = String(params.projectTemplateId || "").trim();
+  const idQuery = projectTemplateId
+    ? `&project_template_id=${encodeURIComponent(projectTemplateId)}`
+    : "";
+  return `/settings?tab=templates&templates=projects${idQuery}${
+    params.projectTemplatePanelQuery || ""
+  }${buildSettingsMessageQuery(params.message)}`;
 }
 
 export const defaultPrefs: Omit<NotificationPrefs, "user_id"> = {
