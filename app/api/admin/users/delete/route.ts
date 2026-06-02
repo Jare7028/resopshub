@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAdmin } from "@/lib/api/requireApiAdmin";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -17,23 +18,9 @@ export async function POST(req: Request) {
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email || "";
-  const authUserId = authData.user?.id || "";
-
-  if (!authEmail || !authUserId) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-
-  if (currentUser?.role !== "admin") {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-  }
+  const adminAuth = await requireApiAdmin(supabase, "admin.users.delete.auth");
+  if (adminAuth.response) return adminAuth.response;
+  const authUserId = adminAuth.user.id;
 
   const json = (await req.json().catch(() => null)) as DeletePayload | null;
   if (!json) {

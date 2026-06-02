@@ -38,8 +38,8 @@ Top risks:
 Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
-- 32 test files.
-- 151 direct `supabase.auth.getUser()` calls.
+- 36 test files.
+- 149 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
@@ -73,7 +73,8 @@ Updated 2026-06-02:
 - Completed: F-013 build tooling migration. `npm run lint` now runs `eslint .` through an explicit flat config and no longer prints the Next.js `next lint` deprecation warning.
 - Completed: F-014 stale hook-disable cleanup. The remaining `react-hooks/exhaustive-deps` disables in feature suggestions, clients, and projects were removed by making the saved-default-view effects self-contained with complete dependency lists.
 - Completed: F-006 API auth helper slice. `lib/api/requireApiUser.ts` now wraps the middleware-header-aware `getCurrentRequestUser` helper with a consistent 401 JSON response, and `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks` now use it instead of direct auth calls.
-- Open: F-006 follow-up for page/server-action permission helpers, especially settings, admin, personal/social pages, and task mutations.
+- Completed: F-006 admin API helper slice. `lib/api/requireApiAdmin.ts` centralizes admin-only JSON auth for the admin user update/delete endpoints while preserving the existing `{ ok: false, error }` response shape.
+- Open: F-006 follow-up for page/server-action permission helpers, especially settings, admin page actions, personal/social pages, and task mutations.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
@@ -91,12 +92,14 @@ Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
 - `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 5 tests.
-- `npm test`: passed, 35 files and 177 tests.
+- `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
+- `npm test`: passed, 36 files and 181 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for the linked project. The Forms and Social migrations are tracked, but remote application still needs the correct DB password or another migration path.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` redirect with no red error screen; direct HTTP smoke returned 307. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
+- Local API smoke on a temporary dev server confirmed unauthenticated `/api/admin/users/update` and `/api/admin/users/delete` both return `401 {"ok":false,"error":"Unauthorized"}`.
 - Local in-app browser smoke for `/forms` reached the expected unauthenticated `/forms` -> `/login` redirect with no red error screen.
 - Local in-app browser smoke for `/social` reached the expected unauthenticated `/social` -> `/login` redirect with no red error screen.
 - Local HTTP smoke on a temporary dev server returned the expected unauthenticated 307 redirects for `/clients`, `/projects`, and `/feature-suggestions` after the hook-disable cleanup.
@@ -284,6 +287,7 @@ Evidence:
 - Middleware does useful page permission work in `lib/supabase/middleware.ts:107` via `can_edit_page`.
 - `lib/supabase/currentUser.ts` already provides a middleware-header-aware helper, but the pattern is not consistently used everywhere.
 - First implementation slice added `lib/api/requireApiUser.ts` and converted `/api/briefing/quick-read`, `/api/tasks/[taskId]/hover`, and `/api/tasks/[taskId]/subtasks`. Static scan now finds 151 direct `supabase.auth.getUser()` calls, down from the original 155.
+- Second implementation slice added `lib/api/requireApiAdmin.ts` and converted `/api/admin/users/update` plus `/api/admin/users/delete`. Static scan now finds 149 direct `supabase.auth.getUser()` calls.
 
 User/business impact:
 
@@ -296,6 +300,7 @@ Recommended fix:
 - Return consistent error shapes from API routes.
 - Use middleware-injected request user data where appropriate, while preserving Supabase `auth.getUser()` verification at trust boundaries.
 - Done for the first API route slice: create `requireApiUser`, keep unauthorized route-handler responses consistent, and test middleware-header short-circuiting plus Supabase fallback behavior.
+- Done for the admin API slice: create `requireApiAdmin`, keep admin route-handler 401/403 responses in the existing `{ ok: false, error }` shape, and convert the admin user update/delete endpoints.
 
 Estimated effort: medium.
 
@@ -303,6 +308,7 @@ Verification needed:
 
 - Tests for unauthenticated, authenticated/no-permission, and authenticated/allowed states across pages, server actions, and API routes.
 - Added for the first slice: `lib/supabase/currentUser.test.ts` and `lib/api/requireApiUser.test.ts` cover trusted middleware headers, invalid-header fallback, missing users, consistent 401 JSON, and custom unauthorized messages.
+- Added for the admin API slice: `lib/api/requireApiAdmin.test.ts` covers admin success, unauthenticated requests, non-admin requests, email-based profile lookup, and response shape. Local smoke confirmed both changed admin endpoints still return the expected unauthenticated 401 JSON.
 - Manual checks for admin, tasks, projects, employee info, inventory, personal pages, social pages, and chat.
 
 ### F-007 - P2 - Performance - Login quick-read does multiple broad reads immediately after sign-in
