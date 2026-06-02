@@ -186,6 +186,154 @@ export function toTime(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
+export function buildSocialUserMap({
+  participantUsers,
+  allUsers,
+}: {
+  participantUsers: readonly SocialUserRow[];
+  allUsers: readonly SocialUserRow[];
+}) {
+  const userById = new Map<string, SocialUserRow>();
+  participantUsers.forEach((user) => userById.set(user.id, user));
+  allUsers.forEach((user) => {
+    if (!userById.has(user.id)) {
+      userById.set(user.id, user);
+    }
+  });
+  return userById;
+}
+
+export function buildSocialMemberUserIdSet({
+  members,
+  ownerUserId,
+}: {
+  members: readonly Pick<SocialPageMemberRow, "user_id">[];
+  ownerUserId: string;
+}) {
+  const memberUserIds = new Set<string>(members.map((member) => member.user_id));
+  if (ownerUserId) {
+    memberUserIds.add(ownerUserId);
+  }
+  return memberUserIds;
+}
+
+export function getAvailableSocialUsers({
+  canManagePage,
+  allUsers,
+  ownerUserId,
+  memberUserIds,
+}: {
+  canManagePage: boolean;
+  allUsers: readonly SocialUserRow[];
+  ownerUserId: string;
+  memberUserIds: ReadonlySet<string>;
+}) {
+  if (!canManagePage) return [];
+  return allUsers
+    .filter((user) => user.id !== ownerUserId)
+    .filter((user) => !memberUserIds.has(user.id))
+    .sort((left, right) =>
+      toUserLabel(left).toLowerCase().localeCompare(toUserLabel(right).toLowerCase())
+    );
+}
+
+export function getAvailableSocialGroups<
+  T extends { memberUserIds: readonly string[] },
+>({
+  canManagePage,
+  groups,
+  ownerUserId,
+  memberUserIds,
+}: {
+  canManagePage: boolean;
+  groups: readonly T[];
+  ownerUserId: string;
+  memberUserIds: ReadonlySet<string>;
+}) {
+  if (!canManagePage) return [];
+  return groups.filter((group) =>
+    group.memberUserIds.some(
+      (memberUserId) => memberUserId !== ownerUserId && !memberUserIds.has(memberUserId)
+    )
+  );
+}
+
+export function groupSocialRowsByKey<T>(
+  rows: readonly T[],
+  getKey: (row: T) => string | null | undefined
+) {
+  const grouped = new Map<string, T[]>();
+  rows.forEach((row) => {
+    const key = String(getKey(row) || "").trim();
+    if (!key) return;
+    const bucket = grouped.get(key) || [];
+    bucket.push(row);
+    grouped.set(key, bucket);
+  });
+  return grouped;
+}
+
+export function buildSocialReactionSummary<
+  T extends { emoji: string; user_id: string },
+>(
+  rows: readonly T[],
+  currentUserId: string,
+  options: { includeUnknown?: boolean } = {}
+) {
+  const reactionCounts = rows.reduce<Record<string, number>>((acc, reaction) => {
+    acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+    return acc;
+  }, {});
+  const myReactionSet = new Set(
+    rows
+      .filter((reaction) => reaction.user_id === currentUserId)
+      .map((reaction) => reaction.emoji)
+  );
+  const visibleReactions = SOCIAL_REACTION_OPTIONS.map((emoji) => ({
+    emoji,
+    count: reactionCounts[emoji] || 0,
+    active: myReactionSet.has(emoji),
+  })).filter((reaction) => reaction.count > 0);
+
+  if (!options.includeUnknown) {
+    return visibleReactions;
+  }
+
+  return [
+    ...visibleReactions,
+    ...Object.entries(reactionCounts)
+      .filter(
+        ([emoji, count]) =>
+          Number(count) > 0 && !SOCIAL_REACTION_OPTION_SET.has(emoji)
+      )
+      .map(([emoji, count]) => ({
+        emoji,
+        count: Number(count),
+        active: myReactionSet.has(emoji),
+      })),
+  ];
+}
+
+export function buildSocialViewerLabels({
+  views,
+  postId,
+  currentUserId,
+  userById,
+}: {
+  views: readonly SocialPostViewRow[];
+  postId: string;
+  currentUserId: string;
+  userById: ReadonlyMap<string, SocialUserRow>;
+}) {
+  return Array.from(
+    new Set(
+      [...views, { post_id: postId, user_id: currentUserId, viewed_at: "" }]
+        .sort((left, right) => right.viewed_at.localeCompare(left.viewed_at))
+        .map((view) => toUserLabel(userById.get(view.user_id)))
+    )
+  );
+}
+
 export function normalizePostFilter(value: string): SocialPostFilter {
   if (value === "pinned") return "pinned";
   if (value === "mine") return "mine";

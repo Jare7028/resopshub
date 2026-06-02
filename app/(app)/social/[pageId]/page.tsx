@@ -17,9 +17,15 @@ import { encodeAssignmentTarget } from "@/lib/assignmentTargets";
 import { logError, logInfo, logWarn } from "@/lib/vercelLogger";
 import {
   SOCIAL_POSTS_PAGE_SIZE,
-  SOCIAL_REACTION_OPTION_SET,
   SOCIAL_REACTION_OPTIONS,
   buildSocialDetailUrl,
+  buildSocialMemberUserIdSet,
+  buildSocialReactionSummary,
+  buildSocialUserMap,
+  buildSocialViewerLabels,
+  getAvailableSocialGroups,
+  getAvailableSocialUsers,
+  groupSocialRowsByKey,
   normalizePostFilter,
   normalizeRole,
   normalizeSocialPanel,
@@ -312,72 +318,40 @@ export default async function SocialPageDetail(props: {
   const participantUsers = (participantsResult.data || []) as SocialUserRow[];
   const allUsers = (allUsersResult.data || []) as SocialUserRow[];
 
-  const userById = new Map<string, SocialUserRow>();
-  participantUsers.forEach((user) => userById.set(user.id, user));
-  allUsers.forEach((user) => {
-    if (!userById.has(user.id)) {
-      userById.set(user.id, user);
-    }
+  const userById = buildSocialUserMap({ participantUsers, allUsers });
+  const memberUserIds = buildSocialMemberUserIdSet({
+    members,
+    ownerUserId: socialPage.created_by,
   });
 
-  const memberUserIds = new Set<string>(members.map((member) => member.user_id));
-  memberUserIds.add(socialPage.created_by);
-
-  const availableUsers = canManagePage
-    ? allUsers
-        .filter((user) => user.id !== socialPage.created_by)
-        .filter((user) => !memberUserIds.has(user.id))
-        .sort((left, right) =>
-          toUserLabel(left).toLowerCase().localeCompare(toUserLabel(right).toLowerCase())
-        )
-    : [];
+  const availableUsers = getAvailableSocialUsers({
+    canManagePage,
+    allUsers,
+    ownerUserId: socialPage.created_by,
+    memberUserIds,
+  });
 
   const assignmentGroupsResult = canManagePage
     ? await loadAssignmentGroups(supabase)
     : { groups: [], schemaMissing: false, error: null };
-  const availableGroups = canManagePage
-    ? assignmentGroupsResult.groups.filter((group) =>
-        group.memberUserIds.some(
-          (memberUserId) =>
-            memberUserId !== socialPage.created_by && !memberUserIds.has(memberUserId)
-        )
-      )
-    : [];
-
-  const imagesByPostId = new Map<string, SocialPostImageRow[]>();
-  postImages.forEach((image) => {
-    const bucket = imagesByPostId.get(image.post_id) || [];
-    bucket.push(image);
-    imagesByPostId.set(image.post_id, bucket);
+  const availableGroups = getAvailableSocialGroups({
+    canManagePage,
+    groups: assignmentGroupsResult.groups,
+    ownerUserId: socialPage.created_by,
+    memberUserIds,
   });
 
-  const commentsByPostId = new Map<string, SocialPostCommentRow[]>();
-  postComments.forEach((comment) => {
-    const bucket = commentsByPostId.get(comment.post_id) || [];
-    bucket.push(comment);
-    commentsByPostId.set(comment.post_id, bucket);
-  });
-
-  const viewsByPostId = new Map<string, SocialPostViewRow[]>();
-  postViews.forEach((view) => {
-    const bucket = viewsByPostId.get(view.post_id) || [];
-    bucket.push(view);
-    viewsByPostId.set(view.post_id, bucket);
-  });
-
-  const postReactionsByPostId = new Map<string, SocialPostReactionRow[]>();
-  postReactions.forEach((reaction) => {
-    const bucket = postReactionsByPostId.get(reaction.post_id) || [];
-    bucket.push(reaction);
-    postReactionsByPostId.set(reaction.post_id, bucket);
-  });
-
-  const commentReactionsByCommentId = new Map<string, SocialCommentReactionRow[]>();
-  commentReactions.forEach((reaction) => {
-    const bucket = commentReactionsByCommentId.get(reaction.comment_id) || [];
-    bucket.push(reaction);
-    commentReactionsByCommentId.set(reaction.comment_id, bucket);
-  });
+  const imagesByPostId = groupSocialRowsByKey(postImages, (image) => image.post_id);
+  const commentsByPostId = groupSocialRowsByKey(postComments, (comment) => comment.post_id);
+  const viewsByPostId = groupSocialRowsByKey(postViews, (view) => view.post_id);
+  const postReactionsByPostId = groupSocialRowsByKey(
+    postReactions,
+    (reaction) => reaction.post_id
+  );
+  const commentReactionsByCommentId = groupSocialRowsByKey(
+    commentReactions,
+    (reaction) => reaction.comment_id
+  );
 
   const filteredPosts = posts;
   const hasPreviousPage = postPageNumber > 1;
@@ -1798,37 +1772,23 @@ export default async function SocialPageDetail(props: {
                 const commentsForPost = commentsByPostId.get(post.id) || [];
                 const postViewsForItem = viewsByPostId.get(post.id) || [];
                 const postReactionRows = postReactionsByPostId.get(post.id) || [];
-                const postReactionCounts = postReactionRows.reduce<Record<string, number>>((acc, reaction) => {
-                  acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-                  return acc;
-                }, {});
-                const myPostReactionSet = new Set(
-                  postReactionRows
-                    .filter((reaction) => reaction.user_id === currentUser.id)
-                    .map((reaction) => reaction.emoji)
+                const visiblePostReactions = buildSocialReactionSummary(
+                  postReactionRows,
+                  currentUser.id
                 );
-                const visiblePostReactions = SOCIAL_REACTION_OPTIONS.map((emoji) => ({
-                  emoji,
-                  count: postReactionCounts[emoji] || 0,
-                  active: myPostReactionSet.has(emoji),
-                })).filter((reaction) => reaction.count > 0);
-                const viewerLabels = Array.from(
-                  new Set(
-                    [...postViewsForItem, { post_id: post.id, user_id: currentUser.id, viewed_at: "" }]
-                      .sort((left, right) => right.viewed_at.localeCompare(left.viewed_at))
-                      .map((view) => toUserLabel(userById.get(view.user_id)))
-                  )
-                );
+                const viewerLabels = buildSocialViewerLabels({
+                  views: postViewsForItem,
+                  postId: post.id,
+                  currentUserId: currentUser.id,
+                  userById,
+                });
                 const canManagePost = canManagePage || post.user_id === currentUser.id;
                 const isUnread = previousPageReadAt ? toTime(post.created_at) > toTime(previousPageReadAt) : false;
                 const topLevelComments = commentsForPost.filter((comment) => !comment.parent_comment_id);
-                const repliesByParentId = new Map<string, SocialPostCommentRow[]>();
-                commentsForPost.forEach((comment) => {
-                  if (!comment.parent_comment_id) return;
-                  const bucket = repliesByParentId.get(comment.parent_comment_id) || [];
-                  bucket.push(comment);
-                  repliesByParentId.set(comment.parent_comment_id, bucket);
-                });
+                const repliesByParentId = groupSocialRowsByKey(
+                  commentsForPost,
+                  (comment) => comment.parent_comment_id
+                );
 
                 return (
                   <article
@@ -2062,35 +2022,11 @@ export default async function SocialPageDetail(props: {
                               const replies = repliesByParentId.get(comment.id) || [];
                               const canManageComment = canManagePage || comment.user_id === currentUser.id;
                               const commentReactionRows = commentReactionsByCommentId.get(comment.id) || [];
-                              const commentReactionCounts = commentReactionRows.reduce<Record<string, number>>(
-                                (acc, reaction) => {
-                                  acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-                                  return acc;
-                                },
-                                {}
+                              const visibleCommentReactions = buildSocialReactionSummary(
+                                commentReactionRows,
+                                currentUser.id,
+                                { includeUnknown: true }
                               );
-                              const myCommentReactionSet = new Set(
-                                commentReactionRows
-                                  .filter((reaction) => reaction.user_id === currentUser.id)
-                                  .map((reaction) => reaction.emoji)
-                              );
-                              const visibleCommentReactions = [
-                                ...SOCIAL_REACTION_OPTIONS.map((emoji) => ({
-                                  emoji,
-                                  count: commentReactionCounts[emoji] || 0,
-                                  active: myCommentReactionSet.has(emoji),
-                                })).filter((reaction) => reaction.count > 0),
-                                ...Object.entries(commentReactionCounts)
-                                  .filter(
-                                    ([emoji, count]) =>
-                                      Number(count) > 0 && !SOCIAL_REACTION_OPTION_SET.has(emoji)
-                                  )
-                                  .map(([emoji, count]) => ({
-                                    emoji,
-                                    count: Number(count),
-                                    active: myCommentReactionSet.has(emoji),
-                                  })),
-                              ];
 
                               return (
                                 <article
@@ -2249,36 +2185,11 @@ export default async function SocialPageDetail(props: {
                                             const canManageReply = canManagePage || reply.user_id === currentUser.id;
                                             const replyReactionRows =
                                               commentReactionsByCommentId.get(reply.id) || [];
-                                            const replyReactionCounts = replyReactionRows.reduce<Record<string, number>>(
-                                              (acc, reaction) => {
-                                                acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-                                                return acc;
-                                              },
-                                              {}
+                                            const visibleReplyReactions = buildSocialReactionSummary(
+                                              replyReactionRows,
+                                              currentUser.id,
+                                              { includeUnknown: true }
                                             );
-                                            const myReplyReactionSet = new Set(
-                                              replyReactionRows
-                                                .filter((reaction) => reaction.user_id === currentUser.id)
-                                                .map((reaction) => reaction.emoji)
-                                            );
-                                            const visibleReplyReactions = [
-                                              ...SOCIAL_REACTION_OPTIONS.map((emoji) => ({
-                                                emoji,
-                                                count: replyReactionCounts[emoji] || 0,
-                                                active: myReplyReactionSet.has(emoji),
-                                              })).filter((reaction) => reaction.count > 0),
-                                              ...Object.entries(replyReactionCounts)
-                                                .filter(
-                                                  ([emoji, count]) =>
-                                                    Number(count) > 0 &&
-                                                    !SOCIAL_REACTION_OPTION_SET.has(emoji)
-                                                )
-                                                .map(([emoji, count]) => ({
-                                                  emoji,
-                                                  count: Number(count),
-                                                  active: myReplyReactionSet.has(emoji),
-                                                })),
-                                            ];
                                             return (
                                               <article
                                                 id={`comment-${reply.id}`}

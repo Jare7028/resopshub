@@ -3,7 +3,14 @@ import {
   SOCIAL_POSTS_PAGE_SIZE,
   SOCIAL_REACTION_OPTION_SET,
   SOCIAL_REACTION_OPTIONS,
+  buildSocialMemberUserIdSet,
+  buildSocialReactionSummary,
   buildSocialDetailUrl,
+  buildSocialUserMap,
+  buildSocialViewerLabels,
+  getAvailableSocialGroups,
+  getAvailableSocialUsers,
+  groupSocialRowsByKey,
   normalizePostFilter,
   normalizeRole,
   normalizeSocialPanel,
@@ -128,5 +135,157 @@ describe("social detail helpers", () => {
     expect(toTime("2026-06-02T10:00:00.000Z")).toBe(
       Date.parse("2026-06-02T10:00:00.000Z")
     );
+  });
+
+  it("builds social user maps and available member options", () => {
+    const owner = {
+      id: "owner",
+      full_name: "Owner",
+      email: "owner@example.com",
+      status: "active",
+      avatar_url: null,
+    };
+    const participant = {
+      id: "participant",
+      full_name: "Participant",
+      email: "participant@example.com",
+      status: "active",
+      avatar_url: null,
+    };
+    const available = {
+      id: "available",
+      full_name: "Available",
+      email: "available@example.com",
+      status: "active",
+      avatar_url: null,
+    };
+
+    const userById = buildSocialUserMap({
+      participantUsers: [participant],
+      allUsers: [owner, participant, available],
+    });
+    expect(userById.get("participant")).toBe(participant);
+    expect(userById.get("available")).toBe(available);
+
+    const memberUserIds = buildSocialMemberUserIdSet({
+      members: [{ user_id: "participant" }],
+      ownerUserId: "owner",
+    });
+    expect(Array.from(memberUserIds).sort()).toEqual(["owner", "participant"]);
+    expect(
+      getAvailableSocialUsers({
+        canManagePage: true,
+        allUsers: [participant, available, owner],
+        ownerUserId: "owner",
+        memberUserIds,
+      }).map((user) => user.id)
+    ).toEqual(["available"]);
+    expect(
+      getAvailableSocialUsers({
+        canManagePage: false,
+        allUsers: [available],
+        ownerUserId: "owner",
+        memberUserIds,
+      })
+    ).toEqual([]);
+
+    expect(
+      getAvailableSocialGroups({
+        canManagePage: true,
+        groups: [
+          { id: "covered", memberUserIds: ["owner", "participant"] },
+          { id: "open", memberUserIds: ["participant", "available"] },
+        ],
+        ownerUserId: "owner",
+        memberUserIds,
+      }).map((group) => group.id)
+    ).toEqual(["open"]);
+  });
+
+  it("groups social rows and summarizes reactions/viewers", () => {
+    expect(
+      Array.from(
+        groupSocialRowsByKey(
+          [
+            { post_id: "post-1", value: "a" },
+            { post_id: "post-1", value: "b" },
+            { post_id: "", value: "ignored" },
+            { post_id: "post-2", value: "c" },
+          ],
+          (row) => row.post_id
+        ).entries()
+      )
+    ).toEqual([
+      [
+        "post-1",
+        [
+          { post_id: "post-1", value: "a" },
+          { post_id: "post-1", value: "b" },
+        ],
+      ],
+      ["post-2", [{ post_id: "post-2", value: "c" }]],
+    ]);
+
+    expect(
+      buildSocialReactionSummary(
+        [
+          { emoji: SOCIAL_REACTION_OPTIONS[0], user_id: "current" },
+          { emoji: SOCIAL_REACTION_OPTIONS[0], user_id: "other" },
+          { emoji: SOCIAL_REACTION_OPTIONS[1], user_id: "other" },
+          { emoji: "not-rendered", user_id: "other" },
+        ],
+        "current"
+      )
+    ).toEqual([
+      { emoji: SOCIAL_REACTION_OPTIONS[0], count: 2, active: true },
+      { emoji: SOCIAL_REACTION_OPTIONS[1], count: 1, active: false },
+    ]);
+    expect(
+      buildSocialReactionSummary(
+        [
+          { emoji: SOCIAL_REACTION_OPTIONS[0], user_id: "current" },
+          { emoji: "not-rendered", user_id: "current" },
+        ],
+        "current",
+        { includeUnknown: true }
+      )
+    ).toEqual([
+      { emoji: SOCIAL_REACTION_OPTIONS[0], count: 1, active: true },
+      { emoji: "not-rendered", count: 1, active: true },
+    ]);
+
+    const userById = new Map([
+      [
+        "current",
+        {
+          id: "current",
+          full_name: "Current User",
+          email: "current@example.com",
+          status: "active",
+          avatar_url: null,
+        },
+      ],
+      [
+        "other",
+        {
+          id: "other",
+          full_name: "Other User",
+          email: "other@example.com",
+          status: "active",
+          avatar_url: null,
+        },
+      ],
+    ]);
+    expect(
+      buildSocialViewerLabels({
+        views: [
+          { post_id: "post-1", user_id: "other", viewed_at: "2026-06-02T11:00:00.000Z" },
+          { post_id: "post-1", user_id: "current", viewed_at: "2026-06-02T10:00:00.000Z" },
+        ],
+        postId: "post-1",
+        currentUserId: "current",
+        userById,
+      })
+    ).toEqual(["Other User", "Current User"]);
   });
 });
