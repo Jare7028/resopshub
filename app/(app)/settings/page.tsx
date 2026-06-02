@@ -1592,6 +1592,12 @@ export default async function SettingsPage(props: {
         "/settings?tab=templates&templates=tasks&error=Template%20and%20subtask%20title%20are%20required"
       );
     }
+    const subtaskReturnUrl = (message: SettingsUrlMessage) =>
+      buildSettingsTaskTemplateUrl({
+        taskTemplateId,
+        taskTemplatePanelQuery,
+        message,
+      });
 
     const { data: last } = await supabase
       .from("task_template_subtasks")
@@ -1621,11 +1627,7 @@ export default async function SettingsPage(props: {
         ? " Run `sql/templates.sql` in Supabase SQL editor, then refresh."
         : "";
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          taskTemplateId
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
-          `${error.message}${hint}`
-        )}`
+        subtaskReturnUrl({ kind: "error", value: `${error.message}${hint}` })
       );
     }
 
@@ -1646,11 +1648,13 @@ export default async function SettingsPage(props: {
         });
       if (createSubtaskTaskError) {
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            taskTemplateId
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
-            formatDbError("settings.addTaskTemplateSubtask.tasks.insert", createSubtaskTaskError)
-          )}`
+          subtaskReturnUrl({
+            kind: "error",
+            value: formatDbError(
+              "settings.addTaskTemplateSubtask.tasks.insert",
+              createSubtaskTaskError
+            ),
+          })
         );
       }
     }
@@ -1669,9 +1673,7 @@ export default async function SettingsPage(props: {
           ? "Run sql/templates.sql to enable subtask template assignees."
           : assigneeError.message;
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            taskTemplateId
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
+          subtaskReturnUrl({ kind: "error", value: message })
         );
       }
 
@@ -1683,19 +1685,13 @@ export default async function SettingsPage(props: {
       );
       if (taskAssigneeError) {
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            taskTemplateId
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(taskAssigneeError.message)}`
+          subtaskReturnUrl({ kind: "error", value: taskAssigneeError.message })
         );
       }
     }
 
     revalidatePath("/settings");
-    redirect(
-      `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-        taskTemplateId
-      )}${taskTemplatePanelQuery}&success=Subtask%20added`
-    );
+    redirect(subtaskReturnUrl({ kind: "success", value: "Subtask added" }));
   }
 
   async function deleteTaskTemplateSubtask(formData: FormData) {
@@ -1739,11 +1735,12 @@ export default async function SettingsPage(props: {
     }
 
     revalidatePath("/settings");
-    const nextId = taskTemplateId
-      ? `&task_template_id=${encodeURIComponent(taskTemplateId)}`
-      : "";
     redirect(
-      `/settings?tab=templates&templates=tasks${nextId}${taskTemplatePanelQuery}&success=Subtask%20deleted`
+      buildSettingsTaskTemplateUrl({
+        taskTemplateId,
+        taskTemplatePanelQuery,
+        message: { kind: "success", value: "Subtask deleted" },
+      })
     );
   }
 
@@ -1788,6 +1785,12 @@ export default async function SettingsPage(props: {
         "/settings?tab=templates&templates=tasks&error=Subtask%20id,%20template%20id,%20and%20title%20are%20required"
       );
     }
+    const subtaskReturnUrl = (message: SettingsUrlMessage) =>
+      buildSettingsTaskTemplateUrl({
+        taskTemplateId,
+        taskTemplatePanelQuery,
+        message,
+      });
 
     const { error } = await supabase
       .from("task_template_subtasks")
@@ -1802,9 +1805,7 @@ export default async function SettingsPage(props: {
 
     if (error) {
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          taskTemplateId
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(error.message)}`
+        subtaskReturnUrl({ kind: "error", value: error.message })
       );
     }
 
@@ -1820,11 +1821,13 @@ export default async function SettingsPage(props: {
       .eq("id", id);
     if (updateSubtaskTaskError) {
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          taskTemplateId
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
-          formatDbError("settings.updateTaskTemplateSubtask.tasks.update", updateSubtaskTaskError)
-        )}`
+        subtaskReturnUrl({
+          kind: "error",
+          value: formatDbError(
+            "settings.updateTaskTemplateSubtask.tasks.update",
+            updateSubtaskTaskError
+          ),
+        })
       );
     }
 
@@ -1835,9 +1838,7 @@ export default async function SettingsPage(props: {
 
     if (clearAssigneesError && !isSupabaseMissingTableError(clearAssigneesError)) {
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          taskTemplateId
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(clearAssigneesError.message)}`
+        subtaskReturnUrl({ kind: "error", value: clearAssigneesError.message })
       );
     }
 
@@ -1847,20 +1848,20 @@ export default async function SettingsPage(props: {
       .eq("task_id", id);
     if (clearTaskAssigneesError) {
       redirect(
-        `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-          taskTemplateId
-        )}${taskTemplatePanelQuery}&error=${encodeURIComponent(clearTaskAssigneesError.message)}`
+        subtaskReturnUrl({
+          kind: "error",
+          value: clearTaskAssigneesError.message,
+        })
       );
     }
 
     if (assigneeIds.length) {
       if (clearAssigneesError && isSupabaseMissingTableError(clearAssigneesError)) {
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            taskTemplateId
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(
-            "Run sql/templates.sql to enable subtask template assignees."
-          )}`
+          subtaskReturnUrl({
+            kind: "error",
+            value: "Run sql/templates.sql to enable subtask template assignees.",
+          })
         );
       }
 
@@ -1877,9 +1878,7 @@ export default async function SettingsPage(props: {
           ? "Run sql/templates.sql to enable subtask template assignees."
           : assigneeError.message;
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            taskTemplateId
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(message)}`
+          subtaskReturnUrl({ kind: "error", value: message })
         );
       }
 
@@ -1891,19 +1890,13 @@ export default async function SettingsPage(props: {
       );
       if (taskAssigneeError) {
         redirect(
-          `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-            taskTemplateId
-          )}${taskTemplatePanelQuery}&error=${encodeURIComponent(taskAssigneeError.message)}`
+          subtaskReturnUrl({ kind: "error", value: taskAssigneeError.message })
         );
       }
     }
 
     revalidatePath("/settings");
-    redirect(
-      `/settings?tab=templates&templates=tasks&task_template_id=${encodeURIComponent(
-        taskTemplateId
-      )}${taskTemplatePanelQuery}&success=Subtask%20updated`
-    );
+    redirect(subtaskReturnUrl({ kind: "success", value: "Subtask updated" }));
   }
 
   async function addProjectTemplateTask(formData: FormData) {
