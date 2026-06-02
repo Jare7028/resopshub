@@ -49,6 +49,10 @@ export type NotificationPrefs = {
   schedule_updates: boolean;
 };
 
+export type NotificationPrefsUpdatePayload = NotificationPrefs & {
+  updated_at: string;
+};
+
 export type StatusOptionsResult = {
   data: SettingsStatusOptionRow[] | null;
   error: {
@@ -438,6 +442,47 @@ export function buildSettingsNotificationPrefs(
     ),
     mention_quiz: prefValue(prefsDb?.mention_quiz, defaultPrefs.mention_quiz),
     schedule_updates: prefValue(prefsDb?.schedule_updates, defaultPrefs.schedule_updates),
+  };
+}
+
+export function buildSettingsNotificationPrefsUpdate(
+  userId: string,
+  formData: FormData,
+  updatedAt = new Date().toISOString()
+): NotificationPrefsUpdatePayload {
+  return {
+    user_id: userId,
+    task_assigned: checkbox(formData, "task_assigned"),
+    task_updated: checkbox(formData, "task_updated"),
+    task_due_today: checkbox(formData, "task_due_today"),
+    task_overdue: checkbox(formData, "task_overdue"),
+    feature_suggestion_comment: checkbox(formData, "feature_suggestion_comment"),
+    feature_suggestion_status: checkbox(formData, "feature_suggestion_status"),
+    mentions_enabled: checkbox(formData, "mentions_enabled"),
+    mention_task: checkbox(formData, "mention_task"),
+    mention_notes: checkbox(formData, "mention_notes"),
+    mention_chat: checkbox(formData, "mention_chat"),
+    mention_social: checkbox(formData, "mention_social"),
+    mention_feature_suggestion: checkbox(formData, "mention_feature_suggestion"),
+    mention_form_submission: checkbox(formData, "mention_form_submission"),
+    mention_quiz: checkbox(formData, "mention_quiz"),
+    schedule_updates: checkbox(formData, "schedule_updates"),
+    updated_at: updatedAt,
+  };
+}
+
+export function buildSettingsLegacyNotificationPrefsUpdate(
+  prefs: NotificationPrefsUpdatePayload
+) {
+  return {
+    user_id: prefs.user_id,
+    task_assigned: prefs.task_assigned,
+    task_updated: prefs.task_updated,
+    task_due_today: prefs.task_due_today,
+    task_overdue: prefs.task_overdue,
+    feature_suggestion_comment: prefs.feature_suggestion_comment,
+    feature_suggestion_status: prefs.feature_suggestion_status,
+    updated_at: prefs.updated_at,
   };
 }
 

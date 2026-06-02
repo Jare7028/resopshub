@@ -5,7 +5,9 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsLegacyNotificationPrefsUpdate,
   buildSettingsNotificationPrefs,
+  buildSettingsNotificationPrefsUpdate,
   buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
@@ -88,6 +90,10 @@ describe("settings page helpers", () => {
     statusFormData.set("is_visible", "on");
     statusFormData.set("counts_as_completed", "on");
     statusFormData.set("color_hex", " 00AAFF ");
+    const prefsFormData = new FormData();
+    prefsFormData.set("task_assigned", "on");
+    prefsFormData.set("feature_suggestion_status", "on");
+    prefsFormData.set("mention_chat", "on");
 
     expect(statusColorValue(formData, "short")).toBe("#aabbcc");
     expect(statusColorValue(formData, "long")).toBe("#abcdef");
@@ -138,6 +144,30 @@ describe("settings page helpers", () => {
       mention_task: false,
       mention_form_submission: false,
       schedule_updates: true,
+    });
+    const prefsUpdate = buildSettingsNotificationPrefsUpdate(
+      "user-1",
+      prefsFormData,
+      "2026-06-02T10:00:00.000Z"
+    );
+    expect(prefsUpdate).toMatchObject({
+      user_id: "user-1",
+      task_assigned: true,
+      task_updated: false,
+      feature_suggestion_status: true,
+      mention_chat: true,
+      schedule_updates: false,
+      updated_at: "2026-06-02T10:00:00.000Z",
+    });
+    expect(buildSettingsLegacyNotificationPrefsUpdate(prefsUpdate)).toEqual({
+      user_id: "user-1",
+      task_assigned: true,
+      task_updated: false,
+      task_due_today: false,
+      task_overdue: false,
+      feature_suggestion_comment: false,
+      feature_suggestion_status: true,
+      updated_at: "2026-06-02T10:00:00.000Z",
     });
   });
 

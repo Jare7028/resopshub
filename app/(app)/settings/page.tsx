@@ -41,7 +41,9 @@ import {
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
   buildSettingsAssignmentGroupSummary,
+  buildSettingsLegacyNotificationPrefsUpdate,
   buildSettingsNotificationPrefs,
+  buildSettingsNotificationPrefsUpdate,
   buildSettingsProfileDisplay,
   buildSettingsProjectTemplateUrl,
   buildSettingsProjectTemplateTaskReturnUrl,
@@ -627,43 +629,15 @@ export default async function SettingsPage(props: {
     );
     if (!user) redirect("/login");
 
-    const next = {
-      user_id: user.id,
-      task_assigned: checkbox(formData, "task_assigned"),
-      task_updated: checkbox(formData, "task_updated"),
-      task_due_today: checkbox(formData, "task_due_today"),
-      task_overdue: checkbox(formData, "task_overdue"),
-      feature_suggestion_comment: checkbox(formData, "feature_suggestion_comment"),
-      feature_suggestion_status: checkbox(formData, "feature_suggestion_status"),
-      mentions_enabled: checkbox(formData, "mentions_enabled"),
-      mention_task: checkbox(formData, "mention_task"),
-      mention_notes: checkbox(formData, "mention_notes"),
-      mention_chat: checkbox(formData, "mention_chat"),
-      mention_social: checkbox(formData, "mention_social"),
-      mention_feature_suggestion: checkbox(formData, "mention_feature_suggestion"),
-      mention_form_submission: checkbox(formData, "mention_form_submission"),
-      mention_quiz: checkbox(formData, "mention_quiz"),
-      schedule_updates: checkbox(formData, "schedule_updates"),
-      updated_at: new Date().toISOString(),
-    };
+    const next = buildSettingsNotificationPrefsUpdate(user.id, formData);
 
     let { error } = await supabase
       .from("user_notification_preferences")
       .upsert(next, { onConflict: "user_id" });
     if (error && isSupabaseMissingColumnError(error)) {
-      const legacyNext = {
-        user_id: user.id,
-        task_assigned: next.task_assigned,
-        task_updated: next.task_updated,
-        task_due_today: next.task_due_today,
-        task_overdue: next.task_overdue,
-        feature_suggestion_comment: next.feature_suggestion_comment,
-        feature_suggestion_status: next.feature_suggestion_status,
-        updated_at: next.updated_at,
-      };
       const retry = await supabase
         .from("user_notification_preferences")
-        .upsert(legacyNext, { onConflict: "user_id" });
+        .upsert(buildSettingsLegacyNotificationPrefsUpdate(next), { onConflict: "user_id" });
       error = retry.error;
     }
 
