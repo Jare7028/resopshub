@@ -83,17 +83,20 @@ Updated 2026-06-02:
 - Completed: F-012 Forms list scalability slice. `/forms` now uses a bounded `forms_list_page` RPC with open-submission counts, total count, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602120000_forms_list_page_rpc.sql`, with manual SQL in `sql/forms_list_page_rpc.sql`.
 - Completed: F-012 Social landing scalability slice. `/social` now uses a bounded `social_landing_page` RPC with page summaries, owner display data, total page count, 7-day counters, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602130000_social_landing_page_rpc.sql`, with manual SQL in `sql/social_landing_page_rpc.sql`.
 - Open: F-012 follow-up for large-file table refactors plus production timing/EXPLAIN checks after the Forms and Social RPCs are applied.
-- Open: F-005 plus the explicit F-004, F-006, F-007, F-008, F-009, F-010, F-012, and F-015 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, scalability, and cleanup backlog.
+- Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns the persisted task-column normalization helpers, and `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
+- Open: F-005 follow-up for `NoteEditorClient`, settings, chat, social detail, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
+- Open: The explicit F-004, F-006, F-007, F-008, F-009, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, observability, docs, scalability, and cleanup backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npm test`: passed, 34 files and 172 tests.
+- `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 5 tests.
+- `npm test`: passed, 35 files and 177 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for the linked project. The Forms and Social migrations are tracked, but remote application still needs the correct DB password or another migration path.
-- Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` 307 redirect. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
+- Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` redirect with no red error screen; direct HTTP smoke returned 307. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
 - Local in-app browser smoke for `/forms` reached the expected unauthenticated `/forms` -> `/login` redirect with no red error screen.
 - Local in-app browser smoke for `/social` reached the expected unauthenticated `/social` -> `/login` redirect with no red error screen.
 - Local HTTP smoke on a temporary dev server returned the expected unauthenticated 307 redirects for `/clients`, `/projects`, and `/feature-suggestions` after the hook-disable cleanup.
@@ -104,11 +107,11 @@ Latest implementation validation:
 2. F-002 raw Supabase filter composition.
 3. F-003 image upload and SVG handling.
 4. F-004 task and route-modal performance.
-5. F-005 auth/permission helper consolidation.
-6. F-006 tests for task creation and critical server actions.
+5. F-006 auth/permission helper consolidation.
+6. F-008 tests for task creation and critical server actions.
 7. F-007 quick-read endpoint performance.
-8. F-008 large-file refactors, starting with the task and note editor areas.
-9. F-009 security-definer/RLS inventory.
+8. F-005 large-file refactors, starting with the task and note editor areas.
+9. F-010 security-definer/RLS inventory.
 10. P3 cleanup items as part of surrounding feature work.
 
 ## Findings
@@ -244,7 +247,7 @@ Evidence:
 - `app/(app)/_components/NoteEditorClient.tsx`: 6751 lines.
 - `app/(app)/settings/page.tsx`: 4304 lines.
 - `app/(app)/chat/ChatPageClient.tsx`: 2682 lines.
-- `app/(app)/tasks/TasksView.tsx`: 2492 lines.
+- `app/(app)/tasks/TasksView.tsx`: 2646 lines after the quick-add UX slice, before further large-file decomposition.
 - `app/(app)/social/[pageId]/page.tsx`: 2433 lines.
 - `app/(app)/inventory/InventoryTable.tsx`: 2044 lines.
 - `app/(app)/employee-info/page.tsx`: 2034 lines.
@@ -263,6 +266,7 @@ Recommended fix:
 - Split large files by responsibility: data loading, mutation actions, view state, table/list rows, dialogs, advanced controls, and reusable helpers.
 - Move repeated server action validation/auth patterns into shared helpers.
 - Add tests around extracted units before changing behavior.
+- Done for the first task-list slice: `app/(app)/tasks/taskTableViewState.ts` extracts persisted table-column normalization, and `app/(app)/tasks/taskTableViewState.test.ts` covers storage normalization, allowed-value filtering, required-column handling, and the current fallback behavior.
 
 Estimated effort: large.
 

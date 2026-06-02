@@ -54,6 +54,14 @@ import { getNextSubtaskDueDate } from "@/lib/taskNextSubtaskDueDate";
 import TableColumnConfigButton, {
   type TableColumnOption,
 } from "../_components/TableColumnConfigButton";
+import {
+  filterAllowedValues,
+  normalizeStorageList,
+  normalizeVisibleTaskColumns,
+  TASK_FILTER_PERSISTENCE_KEY_PREFIX,
+  type PersistedTaskFilterState,
+  type TaskTableColumnId,
+} from "./taskTableViewState";
 
 type UserOption = {
   id: string;
@@ -164,34 +172,6 @@ type TasksViewProps = {
 };
 
 type HeaderMenuKey = "client" | "project" | "status" | "priority" | "assignees" | "due";
-const TASK_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.task-filters.v1";
-type TaskTableColumnId =
-  | "task"
-  | "open_subtasks"
-  | "client"
-  | "project"
-  | "status"
-  | "priority"
-  | "assignees"
-  | "start"
-  | "next_subtask_due"
-  | "due";
-
-const TASK_REQUIRED_COLUMN_IDS = new Set<TaskTableColumnId>(["task"]);
-
-type PersistedTaskFilterState = {
-  status: string[];
-  priority: string[];
-  assignee: string[];
-  due: string;
-  client: string[];
-  project: string[];
-  hideCompleted: boolean;
-  includeWatching: boolean;
-  sortKey: TaskSortKey;
-  sortDir: TaskSortDir;
-  view: "table" | "gantt" | "board";
-};
 
 type TaskHoverAnchor = {
   left: number;
@@ -219,47 +199,8 @@ const TASK_NOTES_HOVER_CLOSE_DELAY_MS = 120;
 const TASK_NOTES_HOVER_WIDTH = 320;
 const TASK_NOTES_HOVER_HEIGHT = 220;
 
-function normalizeStorageList(value: unknown) {
-  if (!Array.isArray(value)) return [] as string[];
-  return Array.from(
-    new Set(
-      value
-        .map((item) => String(item || "").trim())
-        .filter(Boolean)
-    )
-  );
-}
-
-function filterAllowedValues(values: string[], allowedValues: Set<string>) {
-  return values.filter((value) => allowedValues.has(value));
-}
-
 function normalizeTaskStatusKey(value: string | null | undefined) {
   return normalizeTaskStatus(value) || String(value || "").trim().toLowerCase();
-}
-
-function normalizeVisibleTaskColumns(
-  values: string[],
-  knownColumnIds: TaskTableColumnId[]
-) {
-  const knownColumnIdSet = new Set<TaskTableColumnId>(knownColumnIds);
-  const normalized = Array.from(
-    new Set(
-      values.filter((value): value is TaskTableColumnId =>
-        knownColumnIdSet.has(value as TaskTableColumnId)
-      )
-    )
-  );
-
-  const withRequiredColumns = normalized.slice();
-  TASK_REQUIRED_COLUMN_IDS.forEach((requiredColumnId) => {
-    if (!knownColumnIdSet.has(requiredColumnId)) return;
-    if (!withRequiredColumns.includes(requiredColumnId)) {
-      withRequiredColumns.unshift(requiredColumnId);
-    }
-  });
-
-  return withRequiredColumns.length ? withRequiredColumns : knownColumnIds.slice();
 }
 
 function toDate(value?: string | null) {
