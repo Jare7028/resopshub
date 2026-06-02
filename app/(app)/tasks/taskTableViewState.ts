@@ -191,7 +191,21 @@ export function buildTaskListUrl(
   input: BuildTaskListQueryInput
 ) {
   const query = buildTaskListQuery(input);
-  return query ? `${basePath}?${query}` : basePath;
+  return buildTaskListUrlFromQuery({ basePath, query });
+}
+
+export function buildTaskListUrlFromQuery({
+  basePath,
+  query,
+  fallbackPath,
+}: {
+  basePath: string;
+  query: string;
+  fallbackPath?: string;
+}) {
+  const normalizedQuery = query.startsWith("?") ? query.slice(1) : query;
+  if (normalizedQuery) return `${basePath}?${normalizedQuery}`;
+  return fallbackPath || basePath;
 }
 
 export function getNextTaskSortDir({

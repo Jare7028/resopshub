@@ -45,6 +45,7 @@ import TableColumnConfigButton from "../_components/TableColumnConfigButton";
 import {
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
+  buildTaskListUrlFromQuery,
   buildTaskPreferenceFormData,
   getNextTaskSortDir,
   normalizePersistedTaskFilters,
@@ -897,7 +898,7 @@ export default function TasksView({
           setFilters(nextFilters);
           setView(nextView);
           startTransition(() => {
-            router.replace(restoredQuery ? `${basePath}?${restoredQuery}` : basePath, {
+            router.replace(buildTaskListUrlFromQuery({ basePath, query: restoredQuery }), {
               scroll: false,
             });
           });
@@ -975,14 +976,18 @@ export default function TasksView({
     taskSearchQuery,
     currentPage
   );
-  const inlineReturnTo = inlineReturnToQuery ? `${basePath}?${inlineReturnToQuery}` : returnTo;
+  const inlineReturnTo = buildTaskListUrlFromQuery({
+    basePath,
+    query: inlineReturnToQuery,
+    fallbackPath: returnTo,
+  });
 
   const applyFilters = (next: typeof filters) => {
     setFilters(next);
     const query = buildQuery(next, sortKey, sortDir, view, hideCompleted);
     saveTaskPreferences(next, sortKey, sortDir, view, hideCompleted, includeWatching);
     startTransition(() => {
-      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
+      router.replace(buildTaskListUrlFromQuery({ basePath, query }), { scroll: false });
     });
   };
 
@@ -993,7 +998,7 @@ export default function TasksView({
       nextSortKey: key,
     });
     const query = buildQuery(filters, key, nextDir, view, hideCompleted);
-    return query ? `${basePath}?${query}` : basePath;
+    return buildTaskListUrlFromQuery({ basePath, query });
   };
 
   const applySort = (key: TaskSortKey) => {
@@ -1005,7 +1010,7 @@ export default function TasksView({
     const query = buildQuery(filters, key, nextDir, view, hideCompleted);
     saveTaskPreferences(filters, key, nextDir, view, hideCompleted, includeWatching);
     startTransition(() => {
-      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
+      router.replace(buildTaskListUrlFromQuery({ basePath, query }), { scroll: false });
     });
   };
 
@@ -1014,7 +1019,7 @@ export default function TasksView({
     const query = buildQuery(filters, sortKey, sortDir, nextView, hideCompleted);
     saveTaskPreferences(filters, sortKey, sortDir, nextView, hideCompleted, includeWatching);
     startTransition(() => {
-      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
+      router.replace(buildTaskListUrlFromQuery({ basePath, query }), { scroll: false });
     });
   };
 
@@ -1295,7 +1300,7 @@ export default function TasksView({
       searchQuery,
       page
     );
-    return query ? `${basePath}?${query}` : basePath;
+    return buildTaskListUrlFromQuery({ basePath, query });
   };
   const applySearch = (nextSearchQuery: string) => {
     const query = buildQuery(
@@ -1309,7 +1314,7 @@ export default function TasksView({
       1
     );
     startTransition(() => {
-      router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
+      router.replace(buildTaskListUrlFromQuery({ basePath, query }), { scroll: false });
     });
   };
   const handleAddTaskClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
@@ -1392,7 +1397,7 @@ export default function TasksView({
                 includeWatching
               );
               startTransition(() => {
-                router.replace(query ? `${basePath}?${query}` : basePath, { scroll: false });
+                router.replace(buildTaskListUrlFromQuery({ basePath, query }), { scroll: false });
               });
             }}
             className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
@@ -1427,7 +1432,7 @@ export default function TasksView({
                   !includeWatching
                 );
                 startTransition(() => {
-                  router.replace(nextQuery ? `${basePath}?${nextQuery}` : basePath, { scroll: false });
+                  router.replace(buildTaskListUrlFromQuery({ basePath, query: nextQuery }), { scroll: false });
                 });
               }}
               className={`inline-flex min-h-11 items-center rounded-md border px-3 py-1.5 text-xs font-semibold ${

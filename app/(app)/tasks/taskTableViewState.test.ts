@@ -3,6 +3,7 @@ import {
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
   buildTaskListUrl,
+  buildTaskListUrlFromQuery,
   buildTaskPreferenceFormData,
   filterAllowedValues,
   getNextTaskSortDir,
@@ -106,6 +107,22 @@ describe("task table view state helpers", () => {
         includeWatching: false,
       })
     ).toBe("/tasks?assignee=all");
+  });
+
+  it("joins task list URLs from query strings and supports an empty-query fallback", () => {
+    expect(buildTaskListUrlFromQuery({ basePath: "/tasks", query: "page=2" })).toBe(
+      "/tasks?page=2"
+    );
+    expect(buildTaskListUrlFromQuery({ basePath: "/tasks", query: "?page=2" })).toBe(
+      "/tasks?page=2"
+    );
+    expect(
+      buildTaskListUrlFromQuery({
+        basePath: "/tasks",
+        query: "",
+        fallbackPath: "/tasks?return=1",
+      })
+    ).toBe("/tasks?return=1");
   });
 
   it("toggles the current sort direction and resets new sort keys to ascending", () => {
