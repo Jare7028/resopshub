@@ -80,16 +80,20 @@ Updated 2026-06-02:
 - Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
 - Completed: F-015 production operations README slice. `README.md` now covers local setup, environment variables, validation commands, Supabase migrations, Vercel deployment, cron, smoke checks, observability, high-risk modules, and related docs.
 - Open: F-015 follow-up for CI/deploy-specific screenshots or Vercel dashboard links if the team wants a more visual runbook.
-- Open: F-005, F-012 plus the explicit F-004, F-006, F-007, F-008, F-009, F-010, and F-015 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
+- Completed: F-012 Forms list scalability slice. `/forms` now uses a bounded `forms_list_page` RPC with open-submission counts, total count, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602120000_forms_list_page_rpc.sql`, with manual SQL in `sql/forms_list_page_rpc.sql`.
+- Open: F-012 follow-up for Social landing pagination/summary scoping, large-file table refactors, and production timing/EXPLAIN checks after the Forms RPC is applied.
+- Open: F-005 plus the explicit F-004, F-006, F-007, F-008, F-009, F-010, F-012, and F-015 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, scalability, and cleanup backlog.
 
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npm test`: passed, 32 files and 166 tests.
+- `npm test`: passed, 33 files and 170 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
+- `npx supabase migration list --linked`: blocked by remote database authentication; the current shell has `SUPABASE_DB_PASSWORD`, but the value fails password auth for the linked project. The Forms migration is tracked, but remote application still needs the correct DB password or another migration path.
 - Local browser smoke on a clean port reached the expected unauthenticated `/tasks` -> `/login` 307 redirect. Modal interaction still needs a signed-in browser smoke test or Playwright-auth fixture.
+- Local in-app browser smoke for `/forms` reached the expected unauthenticated `/forms` -> `/login` redirect with no red error screen.
 - Local HTTP smoke on a temporary dev server returned the expected unauthenticated 307 redirects for `/clients`, `/projects`, and `/feature-suggestions` after the hook-disable cleanup.
 
 ## Suggested Order of Implementation
@@ -456,6 +460,8 @@ Evidence:
 - Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 2044 lines, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1880 lines, `app/(app)/tasks/TasksView.tsx` at 2492 lines, and `app/(app)/projects/ProjectsView.tsx` at 1876 lines.
 - `app/(app)/settings/page.tsx` is 4304 lines and contains many management forms/actions.
 - Quick-read already uses 600-row caps, showing that unbounded or broad reads have become a product concern.
+- Implemented Forms slice: `app/(app)/forms/page.tsx` now calls `forms_list_page` with `p_limit`/`p_offset` and no longer pulls all forms plus all open submissions into application memory for the list view.
+- Remaining open example: `app/(app)/social/page.tsx` still reads every accessible social page, then requests membership/summary/post data across the full page ID set.
 
 User/business impact:
 
@@ -467,6 +473,8 @@ Recommended fix:
 - Audit every list page for pagination, indexed sort columns, count strategy, and search strategy.
 - Use server-side pagination or cursor pagination by default.
 - Move expensive counts into RPCs or cached summary tables where exact live counts are not necessary.
+- Done for Forms: add `forms_list_page`, indexed open-submission counts, page controls, and a bounded fallback.
+- Continue with Social landing pagination and summary scoping before broader table refactors.
 
 Estimated effort: medium to large.
 
@@ -475,6 +483,7 @@ Verification needed:
 - Seed or staging account with large datasets.
 - Timing budgets for inventory, employee info, tasks, projects, forms, social, and chat.
 - Query plans for the slowest Supabase queries.
+- Forms RPC migration needs to be applied to the remote Supabase database before production stops using the compatibility fallback.
 
 ### F-013 - P3 - Build Tooling - `next lint` is deprecated
 

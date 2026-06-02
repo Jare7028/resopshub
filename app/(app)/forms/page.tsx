@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
+import {
+  isSupabaseMissingFunctionError,
+  isSupabaseMissingTableError,
+} from "@/lib/supabaseErrors";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import {
   loadAssignmentGroups,
@@ -11,8 +14,16 @@ import {
   buildPostgrestIlikeContainsFilter,
   buildPostgrestOrFilter,
 } from "@/lib/postgrestFilters";
+import { withPerfTiming } from "@/lib/perf";
 import FormCreateAutosave from "./FormCreateAutosave";
 import FormsTable from "./FormsTable";
+import {
+  buildFormsListUrl,
+  FORMS_PAGE_SIZE,
+  normalizeFormsPageNumber,
+  normalizeFormsSortDir,
+  normalizeFormsSortKey,
+} from "./formsListPageUtils";
 import FormsTabs, {
   normalizeFormsTabKey,
   type FormsTabKey,
@@ -30,23 +41,6 @@ import {
   type FormField,
   type FormStatus,
 } from "./types";
-
-type SortKey = "title" | "status" | "open_submissions" | "updated_at";
-type SortDir = "asc" | "desc";
-
-function normalizeSortKey(value: string | undefined): SortKey {
-  if (value === "title" || value === "status" || value === "open_submissions") {
-    return value;
-  }
-  return "updated_at";
-}
-
-function normalizeSortDir(value: string | undefined, sortKey: SortKey): SortDir {
-  if (value === "asc" || value === "desc") {
-    return value;
-  }
-  return sortKey === "title" || sortKey === "status" ? "asc" : "desc";
-}
 
 function sanitizeSearch(value: string) {
   return value
@@ -201,6 +195,7 @@ export default async function FormsPage(props: {
     status?: string | string[];
     sort?: string;
     dir?: string;
+    page?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -221,8 +216,10 @@ export default async function FormsPage(props: {
     redirect("/tasks?error=Missing%20user%20profile");
   }
 
-  const sortKey = normalizeSortKey((searchParams?.sort || "").trim());
-  const sortDir = normalizeSortDir((searchParams?.dir || "").trim(), sortKey);
+  const sortKey = normalizeFormsSortKey((searchParams?.sort || "").trim());
+  const sortDir = normalizeFormsSortDir((searchParams?.dir || "").trim(), sortKey);
+  const currentPage = normalizeFormsPageNumber(searchParams?.page);
+  const formsOffset = (currentPage - 1) * FORMS_PAGE_SIZE;
   const activeTab = normalizeFormsTabKey(searchParams?.tab);
   const selectedStatuses = parseCsvParam(searchParams?.status).filter((status) =>
     formStatusOptions.includes(status as FormStatus)
@@ -237,7 +234,11 @@ export default async function FormsPage(props: {
   if (activeTab !== "list") {
     params.set("tab", activeTab);
   }
-  const returnTo = params.toString() ? `/forms?${params}` : "/forms";
+  const returnParams = new URLSearchParams(params);
+  if (currentPage > 1) {
+    returnParams.set("page", String(currentPage));
+  }
+  const returnTo = returnParams.toString() ? `/forms?${returnParams}` : "/forms";
   const buildFormsUrl = (
     tab: FormsTabKey,
     extra?: { error?: string; success?: string }
@@ -266,38 +267,103 @@ export default async function FormsPage(props: {
     create: buildFormsUrl("create"),
   };
 
-  let formsQuery = supabase.from("forms").select("id,title,description,status,created_at,updated_at");
+  type FormListRpcRow = {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string | null;
+    created_at: string;
+    updated_at: string;
+    open_submissions: number | string | null;
+    total_count: number | string | null;
+  };
+  type FormTableRow = {
+    id: string;
+    title: string;
+    description: string | null;
+    status: FormStatus;
+    created_at: string;
+    updated_at: string;
+    openSubmissions: number;
+  };
 
-  if (sortKey === "title" || sortKey === "status") {
-    formsQuery = formsQuery.order(sortKey, { ascending: sortDir === "asc" });
-  } else if (sortKey === "updated_at") {
-    formsQuery = formsQuery.order("updated_at", { ascending: sortDir === "asc" });
-  } else {
-    // Keep a deterministic default order when open submission count sort is selected.
-    formsQuery = formsQuery.order("updated_at", { ascending: false });
-  }
+  let tableRows: FormTableRow[] = [];
+  let totalFormCount = 0;
+  let formsError: { message: string } | null = null;
+  let formsPerfWarning: string | null = null;
+  let formsSchemaMissing = false;
 
-  if (selectedStatuses.length) {
-    formsQuery = formsQuery.in("status", selectedStatuses);
-  }
-  if (query) {
-    formsQuery = formsQuery.or(
-      buildPostgrestOrFilter([
-        buildPostgrestIlikeContainsFilter("title", query),
-        buildPostgrestIlikeContainsFilter("description", query),
-      ])
+  const formsListResult = await withPerfTiming("forms.page.forms_list_page", () =>
+    supabase.rpc("forms_list_page", {
+      p_statuses: selectedStatuses,
+      p_query: query,
+      p_sort_key: sortKey,
+      p_sort_dir: sortDir,
+      p_limit: FORMS_PAGE_SIZE,
+      p_offset: formsOffset,
+    })
+  );
+
+  const canUseFallback =
+    formsListResult.error &&
+    (isSupabaseMissingFunctionError(formsListResult.error) ||
+      isSupabaseMissingTableError(formsListResult.error));
+
+  if (!formsListResult.error) {
+    const rows = (formsListResult.data || []) as FormListRpcRow[];
+    tableRows = rows.map((form) => ({
+      id: form.id,
+      title: form.title,
+      description: form.description,
+      status: normalizeFormStatus(form.status),
+      created_at: form.created_at,
+      updated_at: form.updated_at,
+      openSubmissions: Number(form.open_submissions || 0),
+    }));
+    totalFormCount = Number(rows[0]?.total_count || 0);
+  } else if (canUseFallback) {
+    formsSchemaMissing = isSupabaseMissingTableError(formsListResult.error);
+    if (!formsSchemaMissing) {
+      formsPerfWarning =
+        "Forms are running in compatibility mode. Run sql/forms_list_page_rpc.sql in Supabase to speed up the Forms list.";
+    }
+
+    let formsQuery = supabase
+      .from("forms")
+      .select("id,title,description,status,created_at,updated_at", { count: "exact" });
+
+    if (sortKey === "title" || sortKey === "status") {
+      formsQuery = formsQuery.order(sortKey, { ascending: sortDir === "asc" });
+    } else if (sortKey === "updated_at") {
+      formsQuery = formsQuery.order("updated_at", { ascending: sortDir === "asc" });
+    } else {
+      formsQuery = formsQuery.order("updated_at", { ascending: false });
+    }
+
+    if (selectedStatuses.length) {
+      formsQuery = formsQuery.in("status", selectedStatuses);
+    }
+    if (query) {
+      formsQuery = formsQuery.or(
+        buildPostgrestOrFilter([
+          buildPostgrestIlikeContainsFilter("title", query),
+          buildPostgrestIlikeContainsFilter("description", query),
+        ])
+      );
+    }
+
+    const fallbackResult = await withPerfTiming(
+      "forms.page.fallback.rows",
+      () => formsQuery.range(formsOffset, formsOffset + FORMS_PAGE_SIZE - 1)
     );
-  }
+    formsSchemaMissing = formsSchemaMissing || isSupabaseMissingTableError(fallbackResult.error);
+    if (fallbackResult.error && !formsSchemaMissing) {
+      formsError = fallbackResult.error;
+    }
 
-  const formsResult = await formsQuery;
-  const formsError =
-    formsResult.error && isSupabaseMissingTableError(formsResult.error)
-      ? null
-      : formsResult.error;
-  const forms =
-    formsResult.error && isSupabaseMissingTableError(formsResult.error)
+    const forms = formsSchemaMissing
       ? []
-      : ((formsResult.data || []) as Array<{
+      : ((fallbackResult.data || []) as Array<{
           id: string;
           title: string;
           description: string | null;
@@ -305,36 +371,76 @@ export default async function FormsPage(props: {
           created_at: string;
           updated_at: string;
         }>);
+    totalFormCount = fallbackResult.count || forms.length;
 
-  const formIds = forms.map((form) => form.id);
-  const submissionCounts = new Map<string, number>();
-  if (formIds.length) {
-    const { data: submissions } = await supabase
-      .from("form_submissions")
-      .select("form_id")
-      .in("form_id", formIds)
-      .not("status", "in", "(completed,rejected)");
-    (submissions || []).forEach((row) => {
-      if (!row.form_id) return;
-      submissionCounts.set(row.form_id, (submissionCounts.get(row.form_id) || 0) + 1);
-    });
+    const formIds = forms.map((form) => form.id);
+    const submissionCounts = new Map<string, number>();
+    if (formIds.length) {
+      const { data: submissions } = await withPerfTiming(
+        "forms.page.fallback.open_submissions",
+        () =>
+          supabase
+            .from("form_submissions")
+            .select("form_id")
+            .in("form_id", formIds)
+            .not("status", "in", "(completed,rejected)")
+      );
+      (submissions || []).forEach((row) => {
+        if (!row.form_id) return;
+        submissionCounts.set(row.form_id, (submissionCounts.get(row.form_id) || 0) + 1);
+      });
+    }
+
+    tableRows = forms.map((form) => ({
+      id: form.id,
+      title: form.title,
+      description: form.description,
+      status: normalizeFormStatus(form.status),
+      created_at: form.created_at,
+      updated_at: form.updated_at,
+      openSubmissions: submissionCounts.get(form.id) || 0,
+    }));
+    if (sortKey === "open_submissions") {
+      tableRows.sort((a, b) => {
+        const result = a.openSubmissions - b.openSubmissions;
+        return sortDir === "asc" ? result : -result;
+      });
+    }
+  } else {
+    formsError = formsListResult.error;
   }
 
-  const tableRows = forms.map((form) => ({
-    id: form.id,
-    title: form.title,
-    description: form.description,
-    status: normalizeFormStatus(form.status),
-    created_at: form.created_at,
-    updated_at: form.updated_at,
-    openSubmissions: submissionCounts.get(form.id) || 0,
-  }));
-  if (sortKey === "open_submissions") {
-    tableRows.sort((a, b) => {
-      const result = a.openSubmissions - b.openSubmissions;
-      return sortDir === "asc" ? result : -result;
-    });
+  if (!tableRows.length && currentPage > 1) {
+    redirect(
+      buildFormsListUrl({
+        q: query,
+        statuses: selectedStatuses,
+        sortKey,
+        sortDir,
+      })
+    );
   }
+
+  const previousPageUrl =
+    currentPage > 1
+      ? buildFormsListUrl({
+          q: query,
+          statuses: selectedStatuses,
+          sortKey,
+          sortDir,
+          page: currentPage - 1,
+        })
+      : null;
+  const nextPageUrl =
+    currentPage * FORMS_PAGE_SIZE < totalFormCount
+      ? buildFormsListUrl({
+          q: query,
+          statuses: selectedStatuses,
+          sortKey,
+          sortDir,
+          page: currentPage + 1,
+        })
+      : null;
 
   const { data: taskTemplatesRaw, error: taskTemplatesError } = await supabase
     .from("task_templates")
@@ -545,8 +651,13 @@ export default async function FormsPage(props: {
         </p>
       </section>
 
-      {(searchParams?.error || searchParams?.success || formsError) && (
+      {(searchParams?.error || searchParams?.success || formsError || formsPerfWarning) && (
         <div className="space-y-2">
+          {formsPerfWarning ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+              {formsPerfWarning}
+            </p>
+          ) : null}
           {formsError ? (
             <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
               {formsError.message}
@@ -565,7 +676,7 @@ export default async function FormsPage(props: {
         </div>
       )}
 
-      {isSupabaseMissingTableError(formsResult.error) ? (
+      {formsSchemaMissing ? (
         <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           Forms are not set up yet. Run `sql/forms.sql` in Supabase SQL Editor, then refresh.
         </section>
@@ -593,6 +704,11 @@ export default async function FormsPage(props: {
           initialFilters={{ q: query, status: selectedStatuses }}
           statusOptions={formStatusOptions}
           fixedParams={{ tab: "list" }}
+          currentPage={currentPage}
+          pageSize={FORMS_PAGE_SIZE}
+          totalRowCount={totalFormCount}
+          previousPageUrl={previousPageUrl}
+          nextPageUrl={nextPageUrl}
         />
       ) : null}
     </div>

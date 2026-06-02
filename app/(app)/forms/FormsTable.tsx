@@ -16,6 +16,7 @@ import {
   FilterMenuMulti,
   FilterMenuText,
 } from "../_components/TableHeaderFilters";
+import type { FormsSortDir, FormsSortKey } from "./formsListPageUtils";
 import { formatFormLabel, type FormStatus } from "./types";
 
 type FormRow = {
@@ -33,8 +34,6 @@ type FilterState = {
   status: string[];
 };
 
-type SortKey = "title" | "status" | "open_submissions" | "updated_at";
-type SortDir = "asc" | "desc";
 type HeaderMenuKey = "title" | "status";
 
 function summarizeDescription(value: string | null, maxLength = 120) {
@@ -57,13 +56,23 @@ export default function FormsTable({
   initialFilters,
   statusOptions,
   fixedParams = {},
+  currentPage,
+  pageSize,
+  totalRowCount,
+  previousPageUrl,
+  nextPageUrl,
 }: {
   rows: FormRow[];
-  sortKey: SortKey;
-  sortDir: SortDir;
+  sortKey: FormsSortKey;
+  sortDir: FormsSortDir;
   initialFilters: FilterState;
   statusOptions: readonly FormStatus[];
   fixedParams?: Record<string, string | null | undefined>;
+  currentPage: number;
+  pageSize: number;
+  totalRowCount: number;
+  previousPageUrl: string | null;
+  nextPageUrl: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -117,7 +126,12 @@ export default function FormsTable({
     };
   }, [openMenu]);
 
-  const buildQuery = (nextFilters: FilterState, nextSortKey: SortKey, nextSortDir: SortDir) => {
+  const buildQuery = (
+    nextFilters: FilterState,
+    nextSortKey: FormsSortKey,
+    nextSortDir: FormsSortDir,
+    page?: number
+  ) => {
     const params = new URLSearchParams();
     Object.entries(fixedParams).forEach(([key, value]) => {
       const normalized = String(value || "").trim();
@@ -131,6 +145,9 @@ export default function FormsTable({
     setCsvParam(params, "status", nextFilters.status);
     params.set("sort", nextSortKey);
     params.set("dir", nextSortDir);
+    if (page && page > 1) {
+      params.set("page", String(page));
+    }
     return params.toString();
   };
 
@@ -153,24 +170,24 @@ export default function FormsTable({
     }, 250);
   };
 
-  const buildSortUrl = (key: SortKey) => {
-    const nextDir: SortDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
+  const buildSortUrl = (key: FormsSortKey) => {
+    const nextDir: FormsSortDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
     const query = buildQuery(filters, key, nextDir);
     return query ? `/forms?${query}` : "/forms";
   };
 
-  const headerClass = (key: SortKey) =>
+  const headerClass = (key: FormsSortKey) =>
     `inline-flex items-center gap-2 hover:text-slate-900 ${
       sortKey === key ? "text-slate-900" : "text-slate-500"
     }`;
-  const sortIndicator = (key: SortKey) =>
+  const sortIndicator = (key: FormsSortKey) =>
     sortKey === key ? (
       <span aria-hidden="true" className="text-[10px] text-slate-400">
         {sortDir === "asc" ? "^" : "v"}
       </span>
     ) : null;
 
-  const currentQuery = buildQuery(filters, sortKey, sortDir);
+  const currentQuery = buildQuery(filters, sortKey, sortDir, currentPage);
   const detailQuery = currentQuery
     ? `?return_to=${encodeURIComponent(`/forms?${currentQuery}`)}`
     : "";
@@ -206,6 +223,9 @@ export default function FormsTable({
     setIsNavigating(false);
     setNavigationHref(null);
   }, [pathname, searchKey]);
+
+  const firstRowNumber = rows.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const lastRowNumber = rows.length ? firstRowNumber + rows.length - 1 : 0;
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white">
@@ -357,7 +377,7 @@ export default function FormsTable({
       </div>
       <div className="mobile-list-stack md:hidden">
         {rows.length ? (
-            rows.map((row) => (
+          rows.map((row) => (
             <article
               key={`mobile-${row.id}`}
               role="button"
@@ -386,6 +406,31 @@ export default function FormsTable({
             No forms found.
           </p>
         )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 text-sm">
+        <p className="text-slate-500">
+          {totalRowCount > 0
+            ? `Showing ${firstRowNumber}-${lastRowNumber} of ${totalRowCount}`
+            : "No forms to show"}
+        </p>
+        <div className="flex items-center gap-2">
+          {previousPageUrl ? (
+            <a
+              href={previousPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Previous
+            </a>
+          ) : null}
+          {nextPageUrl ? (
+            <a
+              href={nextPageUrl}
+              className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Next
+            </a>
+          ) : null}
+        </div>
       </div>
       {isNavigating && navigationHref ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-slate-900/10">
