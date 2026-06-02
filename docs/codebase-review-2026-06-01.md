@@ -39,7 +39,7 @@ Important counts from static review:
 
 - 56 App Router pages and 37 API route files under `app`.
 - 39 test files.
-- 72 direct `supabase.auth.getUser()` calls.
+- 68 direct `supabase.auth.getUser()` calls.
 - 41 `createSupabaseAdminClient` references.
 - 128 `security definer` migration occurrences.
 - 52 `enable row level security` migration occurrences.
@@ -87,7 +87,8 @@ Updated 2026-06-02:
 - Completed: F-006 inventory current-user helper slice. Inventory record/cell/column server actions now use `getCurrentRequestUser` while keeping the existing inventory access and column-management RPC checks.
 - Completed: F-006 employee-info current-user helper slice. Employee-info record/cell/column and visibility-rule server actions now use `getCurrentRequestUser` while keeping the existing visibility, admin, and column-management checks.
 - Completed: F-006 personal page current-user helper slice. Personal page load and details/delete/template/client-note/external-share actions now use `getCurrentRequestUser`; the details update action now explicitly redirects unauthenticated requests instead of writing with a null editor id.
-- Open: F-006 follow-up for the remaining page/server-action permission helpers, especially personal editor actions, social pages, task mutations, client pages, forms, and quizzes.
+- Completed: F-006 client overview current-user helper slice. Client overview page load, member/page-access actions, and legacy note creation now use `getCurrentRequestUser` while preserving client page edit/access checks.
+- Open: F-006 follow-up for the remaining page/server-action permission helpers, especially personal editor actions, social pages, task mutations, remaining client subpages, forms, feature suggestions, and quizzes.
 - Completed: F-008 quick task server-action test slice. `app/(app)/tasks/actions.test.ts` now covers quick-create authorization, disabled profiles, validation limits, note preservation, subtask creation, assignee rows, and `/tasks` revalidation.
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
@@ -320,6 +321,7 @@ Evidence:
 - Sixteenth implementation slice converted inventory record/cell/column server actions to `getCurrentRequestUser`. Static scan now finds 88 direct `supabase.auth.getUser()` calls overall and none in `app/(app)/inventory/page.tsx`.
 - Seventeenth implementation slice converted employee-info record/cell/column and visibility-rule server actions to `getCurrentRequestUser`. Static scan now finds 80 direct `supabase.auth.getUser()` calls overall and none in `app/(app)/employee-info/page.tsx`.
 - Eighteenth implementation slice converted personal page load and server actions to `getCurrentRequestUser`. Static scan now finds 72 direct `supabase.auth.getUser()` calls overall and none in `app/(app)/personal/[pageId]/page.tsx`.
+- Nineteenth implementation slice converted client overview page load, member/page-access actions, and legacy note creation to `getCurrentRequestUser`. Static scan now finds 68 direct `supabase.auth.getUser()` calls overall and none in `app/(app)/clients/[clientId]/page.tsx`.
 - Fourth implementation slice added `lib/pageEditAccess.ts` and converted the settings assignment-group create/update/delete server actions. Static scan found 141 direct `supabase.auth.getUser()` calls after that slice.
 - Fifth implementation slice extended `lib/pageEditAccess.ts` usage to settings status-option create/update/delete server actions. Static scan now finds 138 direct `supabase.auth.getUser()` calls.
 - Sixth implementation slice extended `lib/pageEditAccess.ts` usage to settings task-template create/update/delete server actions. Static scan now finds 135 direct `supabase.auth.getUser()` calls.

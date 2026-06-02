@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ClientTabs from "./_components/ClientTabs";
 import ClientDetailsAutosaveForm from "./_components/ClientDetailsAutosaveForm";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 import { withPerfTiming } from "@/lib/perf";
@@ -116,10 +117,8 @@ export default async function ClientOverviewPage(props: {
   const clientId = params.clientId;
   const showAddFieldModal = searchParams?.add_field === "1";
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await withPerfTiming("clients.overview.auth", () =>
-    supabase.auth.getUser()
-  );
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "clients.overview.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }
@@ -315,8 +314,8 @@ export default async function ClientOverviewPage(props: {
   async function updateClientMembers(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
+    const authUser = await getCurrentRequestUser(supabase, "clients.members.update.auth");
+    const authEmail = authUser?.email;
     if (!authEmail) {
       redirect("/login");
     }
@@ -388,8 +387,8 @@ export default async function ClientOverviewPage(props: {
   async function updateClientPageAccess(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
+    const authUser = await getCurrentRequestUser(supabase, "clients.page_access.update.auth");
+    const authEmail = authUser?.email;
     if (!authEmail) {
       redirect("/login");
     }
@@ -760,9 +759,7 @@ export default async function ClientOverviewPage(props: {
       redirect(`/clients/${clientId}?error=Note%20content%20is%20required`);
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authUser = authData.user;
-
+    const authUser = await getCurrentRequestUser(supabase, "clients.notes.create.auth");
     if (!authUser) {
       redirect(`/clients/${clientId}?error=You%20must%20be%20signed%20in%20to%20add%20notes`);
     }
