@@ -21,6 +21,31 @@ export type NoteTextBoxAttrs = {
   zIndex: number;
 };
 
+type OverlayInsertEditorNode = {
+  type: {
+    name: string;
+  };
+};
+
+export type OverlayInsertEditorLike = {
+  state: {
+    doc: {
+      descendants: (callback: (node: OverlayInsertEditorNode) => boolean | void) => void;
+    };
+    selection: {
+      from: number;
+    };
+  };
+  view: {
+    coordsAtPos: (position: number) => { left: number; top: number };
+    dom: {
+      getBoundingClientRect: () => { left: number; top: number };
+      scrollLeft?: number;
+      scrollTop?: number;
+    };
+  };
+};
+
 export const NOTE_SHAPE_DEFAULT_STROKE = "#0f172a";
 export const NOTE_SHAPE_DEFAULT_FILL = "#ffffff";
 export const NOTE_TEXTBOX_DEFAULT_WIDTH = 260;
@@ -92,6 +117,74 @@ export function getDefaultShapeSize(kind: NoteShapeKind) {
     return { width: 150, height: 104 };
   }
   return { width: 110, height: 110 };
+}
+
+function countEditorNodesByType(editor: OverlayInsertEditorLike, typeName: string) {
+  let count = 0;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === typeName) {
+      count += 1;
+    }
+    return true;
+  });
+  return count;
+}
+
+function getOverlayInsertPosition(editor: OverlayInsertEditorLike, offset: number) {
+  let x = 24 + offset;
+  let y = 24 + offset;
+  try {
+    const cursor = editor.view.coordsAtPos(editor.state.selection.from);
+    const editorRect = editor.view.dom.getBoundingClientRect();
+    x = Math.max(
+      8,
+      Math.round(cursor.left - editorRect.left + (editor.view.dom.scrollLeft || 0) + offset)
+    );
+    y = Math.max(
+      8,
+      Math.round(cursor.top - editorRect.top + (editor.view.dom.scrollTop || 0) + offset)
+    );
+  } catch {
+    // Keep fallback placement when selection coordinates are unavailable.
+  }
+  return { x, y };
+}
+
+export function buildInsertNoteShapeAttrs(
+  editor: OverlayInsertEditorLike,
+  kind: NoteShapeKind
+) {
+  const { width, height } = getDefaultShapeSize(kind);
+  const existingShapeCount = countEditorNodesByType(editor, "noteShape");
+  const offset = (existingShapeCount % 6) * 18;
+  const { x, y } = getOverlayInsertPosition(editor, offset);
+
+  return normalizeNoteShapeAttrs({
+    objectId: createOverlayObjectId(),
+    kind,
+    x,
+    y,
+    width,
+    height,
+    stroke: NOTE_SHAPE_DEFAULT_STROKE,
+    fill: kind === "arrow" ? "transparent" : NOTE_SHAPE_DEFAULT_FILL,
+    zIndex: 20 + existingShapeCount,
+  });
+}
+
+export function buildInsertNoteTextBoxAttrs(editor: OverlayInsertEditorLike) {
+  const existingTextBoxCount = countEditorNodesByType(editor, "noteTextBox");
+  const offset = (existingTextBoxCount % 6) * 20;
+  const { x, y } = getOverlayInsertPosition(editor, offset);
+
+  return normalizeNoteTextBoxAttrs({
+    objectId: createOverlayObjectId(),
+    x,
+    y,
+    width: NOTE_TEXTBOX_DEFAULT_WIDTH,
+    height: NOTE_TEXTBOX_DEFAULT_HEIGHT,
+    zIndex: 24 + existingTextBoxCount,
+  });
 }
 
 export function normalizeNoteShapeAttrs(

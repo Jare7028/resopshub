@@ -5,12 +5,59 @@ import {
   NOTE_SHAPE_INSERT_OPTIONS,
   areNoteShapeAttrsEqual,
   areNoteTextBoxAttrsEqual,
+  buildInsertNoteShapeAttrs,
+  buildInsertNoteTextBoxAttrs,
   getDefaultShapeSize,
   getShapeSvgMarkup,
   normalizeNoteShapeAttrs,
   normalizeNoteShapeKind,
   normalizeNoteTextBoxAttrs,
+  type OverlayInsertEditorLike,
 } from "./noteEditorOverlays";
+
+function createOverlayInsertEditor({
+  nodeTypeNames = [],
+  coords = { left: 100, top: 80 },
+  rect = { left: 10, top: 20 },
+  scrollLeft = 5,
+  scrollTop = 7,
+  shouldThrowCoords = false,
+}: {
+  nodeTypeNames?: string[];
+  coords?: { left: number; top: number };
+  rect?: { left: number; top: number };
+  scrollLeft?: number;
+  scrollTop?: number;
+  shouldThrowCoords?: boolean;
+}): OverlayInsertEditorLike {
+  return {
+    state: {
+      doc: {
+        descendants(callback) {
+          nodeTypeNames.forEach((name) => {
+            callback({ type: { name } });
+          });
+        },
+      },
+      selection: { from: 3 },
+    },
+    view: {
+      coordsAtPos() {
+        if (shouldThrowCoords) {
+          throw new Error("No coordinates");
+        }
+        return coords;
+      },
+      dom: {
+        getBoundingClientRect() {
+          return rect;
+        },
+        scrollLeft,
+        scrollTop,
+      },
+    },
+  };
+}
 
 describe("note editor overlay helpers", () => {
   it("exposes stable insert options and default shape sizes", () => {
@@ -87,6 +134,45 @@ describe("note editor overlay helpers", () => {
       height: 1400,
       zIndex: 1,
     });
+  });
+
+  it("builds inserted shape defaults from editor coordinates and existing objects", () => {
+    const shape = buildInsertNoteShapeAttrs(
+      createOverlayInsertEditor({
+        nodeTypeNames: ["noteShape", "paragraph", "noteShape"],
+      }),
+      "rectangle"
+    );
+
+    expect(shape).toMatchObject({
+      kind: "rectangle",
+      x: 131,
+      y: 103,
+      width: 150,
+      height: 104,
+      stroke: NOTE_SHAPE_DEFAULT_STROKE,
+      fill: NOTE_SHAPE_DEFAULT_FILL,
+      zIndex: 22,
+    });
+    expect(shape.objectId).toBeTruthy();
+  });
+
+  it("builds inserted text-box defaults and falls back when coordinates are unavailable", () => {
+    const textBox = buildInsertNoteTextBoxAttrs(
+      createOverlayInsertEditor({
+        nodeTypeNames: ["noteTextBox", "noteTextBox", "noteTextBox"],
+        shouldThrowCoords: true,
+      })
+    );
+
+    expect(textBox).toMatchObject({
+      x: 84,
+      y: 84,
+      width: 260,
+      height: 150,
+      zIndex: 27,
+    });
+    expect(textBox.objectId).toBeTruthy();
   });
 
   it("compares persisted shape and text-box attrs", () => {

@@ -81,9 +81,9 @@ import {
   NOTE_TEXTBOX_DEFAULT_WIDTH,
   areNoteShapeAttrsEqual,
   areNoteTextBoxAttrsEqual,
-  createOverlayObjectId,
-  getDefaultShapeSize,
   getShapeSvgMarkup,
+  buildInsertNoteShapeAttrs,
+  buildInsertNoteTextBoxAttrs,
   normalizeNoteShapeAttrs,
   normalizeNoteTextBoxAttrs,
   type NoteShapeAttrs,
@@ -380,44 +380,8 @@ const NOTE_OVERLAY_SAVE_ERROR_MESSAGE = "Could not save object position. Move it
 const DRAFT_STORAGE_PREFIX = "note-editor-draft-v2:";
 const MAX_UPLOADED_IMAGE_BYTES = 10 * 1024 * 1024;
 
-function getInsertShapeDefaults(editor: Editor, kind: NoteShapeKind) {
-  const { width, height } = getDefaultShapeSize(kind);
-  let existingShapeCount = 0;
-  editor.state.doc.descendants((node) => {
-    if (node.type.name === "noteShape") {
-      existingShapeCount += 1;
-    }
-    return true;
-  });
-
-  const offset = (existingShapeCount % 6) * 18;
-  let x = 24 + offset;
-  let y = 24 + offset;
-  try {
-    const cursor = editor.view.coordsAtPos(editor.state.selection.from);
-    const editorRect = editor.view.dom.getBoundingClientRect();
-    const editorElement = editor.view.dom as HTMLElement;
-    x = Math.max(8, Math.round(cursor.left - editorRect.left + editorElement.scrollLeft + offset));
-    y = Math.max(8, Math.round(cursor.top - editorRect.top + editorElement.scrollTop + offset));
-  } catch {
-    // Keep fallback placement when selection coordinates are unavailable.
-  }
-
-  return normalizeNoteShapeAttrs({
-    objectId: createOverlayObjectId(),
-    kind,
-    x,
-    y,
-    width,
-    height,
-    stroke: NOTE_SHAPE_DEFAULT_STROKE,
-    fill: kind === "arrow" ? "transparent" : NOTE_SHAPE_DEFAULT_FILL,
-    zIndex: 20 + existingShapeCount,
-  });
-}
-
 function insertNoteShapeAtSelection(editor: Editor, kind: NoteShapeKind) {
-  const attrs = getInsertShapeDefaults(editor, kind);
+  const attrs = buildInsertNoteShapeAttrs(editor, kind);
   editor
     .chain()
     .focus()
@@ -429,40 +393,8 @@ function insertNoteShapeAtSelection(editor: Editor, kind: NoteShapeKind) {
     .run();
 }
 
-function getInsertTextBoxDefaults(editor: Editor) {
-  let existingTextBoxCount = 0;
-  editor.state.doc.descendants((node) => {
-    if (node.type.name === "noteTextBox") {
-      existingTextBoxCount += 1;
-    }
-    return true;
-  });
-
-  const offset = (existingTextBoxCount % 6) * 20;
-  let x = 24 + offset;
-  let y = 24 + offset;
-  try {
-    const cursor = editor.view.coordsAtPos(editor.state.selection.from);
-    const editorRect = editor.view.dom.getBoundingClientRect();
-    const editorElement = editor.view.dom as HTMLElement;
-    x = Math.max(8, Math.round(cursor.left - editorRect.left + editorElement.scrollLeft + offset));
-    y = Math.max(8, Math.round(cursor.top - editorRect.top + editorElement.scrollTop + offset));
-  } catch {
-    // Keep fallback placement when selection coordinates are unavailable.
-  }
-
-  return normalizeNoteTextBoxAttrs({
-    objectId: createOverlayObjectId(),
-    x,
-    y,
-    width: NOTE_TEXTBOX_DEFAULT_WIDTH,
-    height: NOTE_TEXTBOX_DEFAULT_HEIGHT,
-    zIndex: 24 + existingTextBoxCount,
-  });
-}
-
 function insertNoteTextBoxAtSelection(editor: Editor) {
-  const attrs = getInsertTextBoxDefaults(editor);
+  const attrs = buildInsertNoteTextBoxAttrs(editor);
   editor
     .chain()
     .focus()
