@@ -24,7 +24,7 @@ import {
   getTaskHoverFetchUrl,
   normalizeTaskHoverNotesPreview,
 } from "@/lib/taskHover";
-import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
+import { duePillClasses, priorityPillClasses } from "@/lib/taskIndicators";
 import {
   statusBarStyle,
   statusDotStyle,
@@ -81,6 +81,7 @@ import {
   TASK_NOTES_HOVER_CLOSE_DELAY_MS,
   TASK_NOTES_HOVER_OPEN_DELAY_MS,
   buildTaskEntityNameLookup,
+  buildTaskCardMeta,
   buildTaskPaginationSummary,
   buildTaskStatusColorLookup,
   buildTaskTableColumns,
@@ -2083,17 +2084,14 @@ export default function TasksView({
           {visibleTasks.length ? (
             visibleTasks.map((task) => {
               const assigneeIds = effectiveAssigneesByTask[task.id] || [];
-              const clientName = task.client_id ? clientNameById[task.client_id] || null : null;
-              const projectName = task.project_id
-                ? projectNameById[task.project_id] || null
-                : null;
+              const cardMeta = buildTaskCardMeta({
+                task,
+                clientNameById,
+                projectNameById,
+              });
               const effectiveStatus =
                 effectiveStatusByTaskId.get(task.id) ||
                 normalizeTaskStatusOrDefault(task.status);
-              const dueLabel = task.due_date
-                ? new Date(task.due_date).toLocaleDateString("en-US")
-                : "No due date";
-              const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
               return (
                 <article
                   key={`mobile-${task.id}`}
@@ -2120,14 +2118,14 @@ export default function TasksView({
                         task.priority
                       )}`}
                     >
-                      {(task.priority || "medium").toLowerCase()}
+                      {cardMeta.priorityLabel}
                     </span>
                     <span
                       className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${duePillClasses(
-                        dueUrgency
+                        cardMeta.dueUrgency
                       )}`}
                     >
-                      {dueLabel}
+                      {cardMeta.dueLabel}
                     </span>
                     <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
                       {effectiveOpenSubtaskCountByTaskId[task.id] ?? 0} open subtasks
@@ -2136,11 +2134,11 @@ export default function TasksView({
                   <div className="grid gap-1 text-sm text-slate-600">
                     <p>
                       <span className="font-semibold text-slate-700">Client:</span>{" "}
-                      {clientName || "-"}
+                      {cardMeta.clientName || "-"}
                     </p>
                     <p>
                       <span className="font-semibold text-slate-700">Project:</span>{" "}
-                      {projectName || "-"}
+                      {cardMeta.projectName || "-"}
                     </p>
                     <p>
                       <span className="font-semibold text-slate-700">Assignees:</span>{" "}
@@ -2331,17 +2329,12 @@ export default function TasksView({
                       <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
                         {columnTasks.length ? (
                           columnTasks.map((task) => {
-                            const priority = (task.priority || "medium").toLowerCase();
-                            const dueLabel = task.due_date
-                              ? new Date(task.due_date).toLocaleDateString("en-US")
-                              : "";
-                            const dueUrgency = getDueUrgency(task.due_date, task.due_time ?? null);
-                            const clientName = task.client_id
-                              ? clientNameById[task.client_id] || null
-                              : null;
-                            const projectName = task.project_id
-                              ? projectNameById[task.project_id] || null
-                              : null;
+                            const cardMeta = buildTaskCardMeta({
+                              task,
+                              clientNameById,
+                              projectNameById,
+                              noDueDateLabel: "",
+                            });
 
                             return (
                               <div
@@ -2375,10 +2368,10 @@ export default function TasksView({
                                   {task.title}
                                 </Link>
 
-                                {(clientName || projectName) ? (
+                                {(cardMeta.clientName || cardMeta.projectName) ? (
                                   <p className="mt-1 text-xs text-slate-500">
-                                    {clientName || "Client N/A"}
-                                    {projectName ? ` - ${projectName}` : ""}
+                                    {cardMeta.clientName || "Client N/A"}
+                                    {cardMeta.projectName ? ` - ${cardMeta.projectName}` : ""}
                                   </p>
                                 ) : null}
 
@@ -2388,14 +2381,14 @@ export default function TasksView({
                                       task.priority
                                     )}`}
                                   >
-                                    {priority}
+                                    {cardMeta.priorityLabel}
                                   </span>
                                   <span
                                     className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${duePillClasses(
-                                      dueUrgency
+                                      cardMeta.dueUrgency
                                     )}`}
                                   >
-                                    {dueLabel ? `Due ${dueLabel}` : "No due date"}
+                                    {cardMeta.dueLabel ? `Due ${cardMeta.dueLabel}` : "No due date"}
                                   </span>
                                 </div>
                               </div>

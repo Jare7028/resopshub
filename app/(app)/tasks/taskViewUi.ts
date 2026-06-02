@@ -1,4 +1,5 @@
 import { defaultStatusColorHex } from "@/lib/statusOptions";
+import { getDueUrgency, type DueUrgency } from "@/lib/taskIndicators";
 import type { TaskTableColumnId } from "./taskTableViewState";
 import { normalizeTaskStatusKey } from "./taskViewModel";
 
@@ -25,6 +26,22 @@ export type TaskUserLabelRow = {
 export type TaskEntityNameRow = {
   id: string;
   name: string;
+};
+
+export type TaskCardMetaRow = {
+  priority: string | null;
+  due_date: string | null;
+  due_time?: string | null;
+  client_id: string | null;
+  project_id: string | null;
+};
+
+export type TaskCardMeta = {
+  priorityLabel: string;
+  dueLabel: string;
+  dueUrgency: DueUrgency;
+  clientName: string | null;
+  projectName: string | null;
 };
 
 export type TaskHoverAnchor = {
@@ -114,6 +131,28 @@ export function getTaskAssigneeLabel(
     return `${usersById[userIds[0]] || "Assigned"} +${userIds.length - 1}`;
   }
   return usersById[userIds[0]] || "Assigned";
+}
+
+export function buildTaskCardMeta({
+  task,
+  clientNameById,
+  projectNameById,
+  noDueDateLabel = "No due date",
+}: {
+  task: TaskCardMetaRow;
+  clientNameById: Record<string, string>;
+  projectNameById: Record<string, string>;
+  noDueDateLabel?: string;
+}): TaskCardMeta {
+  return {
+    priorityLabel: (task.priority || "medium").toLowerCase(),
+    dueLabel: task.due_date
+      ? new Date(task.due_date).toLocaleDateString("en-US")
+      : noDueDateLabel,
+    dueUrgency: getDueUrgency(task.due_date, task.due_time ?? null),
+    clientName: task.client_id ? clientNameById[task.client_id] || null : null,
+    projectName: task.project_id ? projectNameById[task.project_id] || null : null,
+  };
 }
 
 export function buildTaskTableColumns({

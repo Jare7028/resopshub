@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildTaskCardMeta,
   buildTaskEntityNameLookup,
   buildTaskPaginationSummary,
   buildTaskStatusColorLookup,
@@ -154,6 +155,47 @@ describe("task view UI helpers", () => {
     expect(getTaskAssigneeLabel(["u1"], usersById)).toBe("Ada Lovelace");
     expect(getTaskAssigneeLabel(["missing"], usersById)).toBe("Assigned");
     expect(getTaskAssigneeLabel(["u2", "u1"], usersById)).toBe("grace@example.com +1");
+  });
+
+  it("builds reusable task card display metadata", () => {
+    expect(
+      buildTaskCardMeta({
+        task: {
+          priority: null,
+          due_date: null,
+          due_time: null,
+          client_id: "c1",
+          project_id: "p1",
+        },
+        clientNameById: { c1: "Acme" },
+        projectNameById: { p1: "Migration" },
+      })
+    ).toEqual({
+      priorityLabel: "medium",
+      dueLabel: "No due date",
+      dueUrgency: "none",
+      clientName: "Acme",
+      projectName: "Migration",
+    });
+
+    expect(
+      buildTaskCardMeta({
+        task: {
+          priority: "HIGH",
+          due_date: null,
+          client_id: "missing",
+          project_id: null,
+        },
+        clientNameById: {},
+        projectNameById: {},
+        noDueDateLabel: "",
+      })
+    ).toMatchObject({
+      priorityLabel: "high",
+      dueLabel: "",
+      clientName: null,
+      projectName: null,
+    });
   });
 
   it("builds table columns with optional next-subtask due support", () => {
