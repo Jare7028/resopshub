@@ -1335,6 +1335,7 @@ export default async function ProjectsPage(props: {
                     <div className="flex flex-wrap gap-2 text-sm">
                       <Link
                         href={addProjectModeUrls.new}
+                        prefetch={false}
                         className={`inline-flex min-h-11 items-center rounded-md px-3 py-1.5 font-medium ${
                           createMode === "new"
                             ? "tab-active"
@@ -1349,6 +1350,7 @@ export default async function ProjectsPage(props: {
                             ? buildAddProjectUrl("template", templateProjectId)
                             : addProjectModeUrls.template
                         }
+                        prefetch={false}
                         className={`inline-flex min-h-11 items-center rounded-md px-3 py-1.5 font-medium ${
                           createMode === "template"
                             ? "tab-active"

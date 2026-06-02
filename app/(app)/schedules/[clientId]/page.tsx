@@ -1490,7 +1490,7 @@ export default async function ClientSchedulePage({
                       ) : null}
 
                       {canViewAudit && week ? (
-                        <Link href={scheduleActionPath("view_audit")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">View audit log</Link>
+                        <Link href={scheduleActionPath("view_audit")} prefetch={false} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">View audit log</Link>
                       ) : null}
 
                       <Link href="/schedules/time-off" className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">
@@ -1498,25 +1498,25 @@ export default async function ClientSchedulePage({
                       </Link>
 
                       {canEdit && week ? (
-                        <Link href={scheduleActionPath("create_shift")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</Link>
+                        <Link href={scheduleActionPath("create_shift")} prefetch={false} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Create shift</Link>
                       ) : null}
 
                       {canEdit ? (
-                        <Link href={scheduleActionPath("add_user")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Add user</Link>
+                        <Link href={scheduleActionPath("add_user")} prefetch={false} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Add user</Link>
                       ) : null}
 
                       {canEdit && week && canManageTemplates ? (
                         <>
                           <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Templates</p>
-                          <Link href={scheduleActionPath("save_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Save week as template</Link>
-                          <Link href={scheduleActionPath("load_template")} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Load week template</Link>
+                          <Link href={scheduleActionPath("save_template")} prefetch={false} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Save week as template</Link>
+                          <Link href={scheduleActionPath("load_template")} prefetch={false} className="mb-1 block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Load week template</Link>
                         </>
                       ) : null}
 
                       {canManageJobCodes ? (
                         <>
                           <p className="mt-2 px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Job codes</p>
-                          <Link href={scheduleActionPath("manage_job_codes")} className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Manage job codes</Link>
+                          <Link href={scheduleActionPath("manage_job_codes")} prefetch={false} className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100">Manage job codes</Link>
                         </>
                       ) : null}
                     </div>
@@ -1595,6 +1595,7 @@ export default async function ClientSchedulePage({
                         {canEdit && week ? (
                           <Link
                             href={scheduleActionPath("create_shift", { createDate: day, createOpen: true })}
+                            prefetch={false}
                             className="absolute inset-0 z-0 block rounded-sm hover:bg-sky-50/40"
                             aria-label={`Create open shift on ${day}`}
                           />
@@ -1633,6 +1634,7 @@ export default async function ClientSchedulePage({
                                 <Link
                                   key={shift.id}
                                   href={editShiftPath}
+                                  prefetch={false}
                                   className={`block select-none rounded-lg border border-slate-200 bg-white p-1.5 text-xs shadow-sm transition-[transform,box-shadow,opacity] duration-150 ${
                                     canDragShiftCards
                                       ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md"
@@ -1762,6 +1764,7 @@ export default async function ClientSchedulePage({
                           {canEdit && week ? (
                             <Link
                               href={scheduleActionPath("create_shift", { createDate: day, createRosterEntryId: row.id })}
+                              prefetch={false}
                               className="absolute inset-0 z-0 block rounded-sm hover:bg-sky-50/40"
                               aria-label={`Create shift for ${row.display_name} on ${day}`}
                             />
@@ -1820,6 +1823,7 @@ export default async function ClientSchedulePage({
                                   <Link
                                     key={shift.id}
                                     href={editShiftPath}
+                                    prefetch={false}
                                     className={`block select-none rounded-md p-0 text-xs transition-[transform,box-shadow,opacity] duration-150 ${
                                       canDragShiftCards
                                         ? "cursor-grab hover:-translate-y-0.5 hover:shadow-sm"

@@ -1626,6 +1626,7 @@ export default async function SocialPageDetail(props: {
           {canManagePage ? (
             <Link
               href={buildSocialDetailUrl(pageId, undefined, { ...listQueryState, panel: "edit" })}
+              prefetch={false}
               className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
             >
               Edit page
@@ -1958,6 +1959,7 @@ export default async function SocialPageDetail(props: {
                 ...listQueryState,
                 panel: "compose",
               })}
+              prefetch={false}
               className="rounded-md btn-primary px-4 py-2 text-sm font-semibold text-white"
             >
               Share an update

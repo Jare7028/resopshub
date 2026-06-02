@@ -1049,6 +1049,7 @@ export default function ProjectsView({
           {addProjectUrl ? (
             <Link
               href={addProjectUrl}
+              prefetch={false}
               className="inline-flex min-h-11 items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
             >
               Add project
