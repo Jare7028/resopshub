@@ -924,8 +924,19 @@ export default async function SettingsPage(props: {
   async function createTaskTemplate(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.task_templates.create.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const name = String(formData.get("name") || "").trim();
     const title = String(formData.get("title") || "").trim();
@@ -961,7 +972,7 @@ export default async function SettingsPage(props: {
         due_time: dueTime || null,
         recurrence_frequency: null,
         recurrence_lead_days: 7,
-        created_by: authData.user.id,
+        created_by: editAccess.user.id,
       })
       .select("id")
       .single();
@@ -983,7 +994,7 @@ export default async function SettingsPage(props: {
           priority,
           due_time: dueTime || null,
           assignee_user_id: assigneeIds[0] || null,
-          created_by_user_id: authData.user.id,
+          created_by_user_id: editAccess.user.id,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         });
@@ -1001,7 +1012,7 @@ export default async function SettingsPage(props: {
           priority,
           due_time: dueTime || null,
           assignee_user_id: assigneeIds[0] || null,
-          created_by_user_id: authData.user.id,
+          created_by_user_id: editAccess.user.id,
           content: DEFAULT_EDITOR_CONTENT,
           content_text: defaultContentText,
         });
@@ -1062,8 +1073,19 @@ export default async function SettingsPage(props: {
   async function updateTaskTemplate(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.task_templates.update.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     const name = String(formData.get("name") || "").trim();
@@ -1225,8 +1247,19 @@ export default async function SettingsPage(props: {
   async function deleteTaskTemplate(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) redirect("/login");
+    const editAccess = await getPageEditAccess(
+      supabase,
+      "settings",
+      "settings.task_templates.delete.auth"
+    );
+    if (!editAccess.ok && editAccess.reason === "unauthenticated") redirect("/login");
+    if (!editAccess.ok) {
+      redirect(
+        `/settings?tab=templates&templates=tasks&error=${encodeURIComponent(
+          SETTINGS_EDIT_PERMISSION_MESSAGE
+        )}`
+      );
+    }
 
     const id = String(formData.get("id") || "").trim();
     if (!id) {
