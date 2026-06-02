@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import MentionCommentForm from "@/app/(app)/_components/MentionCommentForm";
 import MentionText from "@/app/(app)/_components/MentionText";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notifyMentionedUsersFromTextChange } from "@/lib/mentionNotifications";
 import ConfirmSubmitButton from "../../../_components/ConfirmSubmitButton";
@@ -22,8 +23,11 @@ export default async function FormSubmissionDetailPage(props: {
   const returnTo = returnToRaw.startsWith("/forms") ? returnToRaw : "/forms";
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(
+    supabase,
+    "forms.submission_detail.auth"
+  );
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }
@@ -151,9 +155,12 @@ export default async function FormSubmissionDetailPage(props: {
       redirect(`${detailPath}?${detailParams.toString()}`);
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
-    const authUserId = authData.user?.id || null;
+    const authUser = await getCurrentRequestUser(
+      supabase,
+      "forms.submission_detail.comment.auth"
+    );
+    const authEmail = authUser?.email;
+    const authUserId = authUser?.id || null;
     if (!authEmail) {
       redirect("/login");
     }

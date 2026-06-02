@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   buildFieldKey,
@@ -132,15 +133,15 @@ export async function GET(
   const submissionSortDir = normalizeSubmissionSortDir(requestUrl.searchParams.get("dir"));
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user?.email) {
+  const authUser = await getCurrentRequestUser(supabase, "forms.export.auth");
+  if (!authUser?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { data: currentUser } = await supabase
     .from("users")
     .select("id")
-    .eq("email", authData.user.email)
+    .eq("email", authUser.email)
     .maybeSingle();
   if (!currentUser?.id) {
     return NextResponse.json({ error: "Missing user profile" }, { status: 400 });

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isSupabaseMissingFunctionError,
@@ -200,8 +201,8 @@ export default async function FormsPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "forms.list.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }
@@ -504,8 +505,8 @@ export default async function FormsPage(props: {
       return { ok: false, error: "Add at least one field" };
     }
 
-    const { data: authData } = await supabase.auth.getUser();
-    const authEmail = authData.user?.email;
+    const authUser = await getCurrentRequestUser(supabase, "forms.upsert.auth");
+    const authEmail = authUser?.email;
     if (!authEmail) {
       return { ok: false, error: "Please log in again" };
     }

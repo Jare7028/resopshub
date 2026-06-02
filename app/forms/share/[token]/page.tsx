@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingFunctionError } from "@/lib/supabaseErrors";
 import FormSubmissionBuilder from "@/app/(app)/forms/FormSubmissionBuilder";
@@ -123,8 +124,8 @@ export default async function SharedFormPage(props: {
   }
 
   const accessMode = normalizeShareAccessMode(resolved.access_mode);
-  const { data: authData } = await supabase.auth.getUser();
-  const isAuthenticated = Boolean(authData.user);
+  const authUser = await getCurrentRequestUser(supabase, "forms.share.auth");
+  const isAuthenticated = Boolean(authUser);
 
   if (accessMode === "authenticated" && !isAuthenticated) {
     redirect(`/login?return_to=${encodeURIComponent(detailPath)}`);
@@ -157,8 +158,8 @@ export default async function SharedFormPage(props: {
     }
 
     const accessMode = normalizeShareAccessMode(resolved.access_mode);
-    const { data: authData } = await supabase.auth.getUser();
-    if (accessMode === "authenticated" && !authData.user) {
+    const authUser = await getCurrentRequestUser(supabase, "forms.share.submit.auth");
+    if (accessMode === "authenticated" && !authUser) {
       redirect(`/login?return_to=${encodeURIComponent(detailPath)}`);
     }
 
