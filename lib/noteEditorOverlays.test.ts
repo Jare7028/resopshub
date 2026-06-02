@@ -8,7 +8,9 @@ import {
   buildInsertNoteShapeAttrs,
   buildInsertNoteTextBoxAttrs,
   getDefaultShapeSize,
+  getOverlayNodeObjectId,
   getShapeSvgMarkup,
+  isOverlayNodeTypeName,
   normalizeNoteShapeAttrs,
   normalizeNoteShapeKind,
   normalizeNoteTextBoxAttrs,
@@ -96,6 +98,15 @@ describe("note editor overlay helpers", () => {
       fill: NOTE_SHAPE_DEFAULT_FILL,
       zIndex: 200,
     });
+  });
+
+  it("detects overlay node types and trims overlay object ids", () => {
+    expect(isOverlayNodeTypeName("noteShape")).toBe(true);
+    expect(isOverlayNodeTypeName("noteTextBox")).toBe(true);
+    expect(isOverlayNodeTypeName("paragraph")).toBe(false);
+    expect(getOverlayNodeObjectId({ attrs: { objectId: " object-1 " } })).toBe("object-1");
+    expect(getOverlayNodeObjectId({ attrs: { objectId: 123 } })).toBe("");
+    expect(getOverlayNodeObjectId(null)).toBe("");
   });
 
   it("forces arrows to transparent fill and clamps dimensions", () => {

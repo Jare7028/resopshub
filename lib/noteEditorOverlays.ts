@@ -1,4 +1,5 @@
 export type NoteShapeKind = "rectangle" | "square" | "circle" | "arrow";
+export type OverlayNodeType = "noteShape" | "noteTextBox";
 
 export type NoteShapeAttrs = {
   objectId: string;
@@ -76,6 +77,17 @@ export function normalizeNoteShapeKind(value: string | null | undefined): NoteSh
     return normalized as NoteShapeKind;
   }
   return "rectangle";
+}
+
+export function isOverlayNodeTypeName(name: string): name is OverlayNodeType {
+  return name === "noteShape" || name === "noteTextBox";
+}
+
+export function getOverlayNodeObjectId(
+  node: { attrs?: Record<string, unknown> | null } | null | undefined
+) {
+  const attrs = node?.attrs;
+  return typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
 }
 
 function normalizeShapeNumber(

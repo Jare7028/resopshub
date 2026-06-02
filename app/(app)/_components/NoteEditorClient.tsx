@@ -84,8 +84,11 @@ import {
   getShapeSvgMarkup,
   buildInsertNoteShapeAttrs,
   buildInsertNoteTextBoxAttrs,
+  getOverlayNodeObjectId,
+  isOverlayNodeTypeName,
   normalizeNoteShapeAttrs,
   normalizeNoteTextBoxAttrs,
+  type OverlayNodeType,
   type NoteShapeAttrs,
   type NoteShapeKind,
   type NoteTextBoxAttrs,
@@ -156,7 +159,6 @@ import {
   readBlobAsDataUrl,
 } from "@/lib/noteEditorImages";
 
-type OverlayNodeType = "noteShape" | "noteTextBox";
 type OverlayCommitResult = "saved" | "no_change" | "resolve_failed";
 type OverlayResolveStrategy =
   | "known_pos"
@@ -1258,10 +1260,6 @@ const FloatingImage = Image.extend({
   },
 });
 
-function isOverlayNodeTypeName(name: string): name is OverlayNodeType {
-  return name === "noteShape" || name === "noteTextBox";
-}
-
 function shouldLogOverlayCommitDebug() {
   if (process.env.NODE_ENV === "production" || typeof window === "undefined") {
     return false;
@@ -1286,11 +1284,6 @@ function logOverlayCommitDebug(payload: {
     return;
   }
   logClientDebug("note_editor.overlay.commit", payload);
-}
-
-function getNodeObjectId(node: ProseMirrorNode | null | undefined) {
-  const attrs = node?.attrs as Record<string, unknown> | null | undefined;
-  return typeof attrs?.objectId === "string" ? attrs.objectId.trim() : "";
 }
 
 function findNearestNodePositionByType(
@@ -1347,7 +1340,7 @@ function resolveNodePositionByType(
     if (!hasTargetObjectId) {
       return true;
     }
-    const nodeObjectId = getNodeObjectId(node);
+    const nodeObjectId = getOverlayNodeObjectId(node);
     if (nodeObjectId === targetObjectId) {
       return true;
     }
@@ -1417,7 +1410,10 @@ function resolveNodePositionByType(
   if (hasTargetObjectId) {
     let matchedPos: number | null = null;
     editor.state.doc.descendants((node, pos) => {
-      if (node.type.name !== nodeType || getNodeObjectId(node) !== targetObjectId) {
+      if (
+        node.type.name !== nodeType ||
+        getOverlayNodeObjectId(node) !== targetObjectId
+      ) {
         return true;
       }
       matchedPos = pos;

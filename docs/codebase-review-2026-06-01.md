@@ -29,7 +29,7 @@ Top risks:
 | --- | --- | --- |
 | `npm audit --json` | Passed | 0 vulnerabilities across 573 dependencies after the Next/Vitest upgrades. |
 | `npx tsc --noEmit` | Passed | TypeScript completed with exit code 0. |
-| `npm test` | Passed | 65 test files, 384 tests passed. |
+| `npm test` | Passed | 65 test files, 385 tests passed. |
 | `npm run test:coverage` | Passed | Overall: 73.26% statements, 60.34% branches, 78.52% functions, 76.51% lines. |
 | `npm run build` | Passed | Next.js 15.5.18 build completed. `/tasks` built at 4.36 kB route JS and 130 kB first load JS; `/settings` built at 4.71 kB route JS and 116 kB first load JS; middleware bundle was 82 kB. |
 | `npm run lint` | Passed | `npm run lint` now runs `eslint .` through the flat config. |
@@ -141,7 +141,7 @@ Updated 2026-06-02:
 - Completed: F-005 note-editor content helper extraction slice. `lib/noteEditorContent.ts` now owns Tiptap doc normalization, save-warning normalization, JSON cloning, object-record checks, and ephemeral image-source detection with focused unit coverage.
 - Completed: F-005 note-editor formatting helper extraction slice. `lib/noteEditorFormatting.ts` now owns Word-style font options, font-size stepping, toolbar label normalization, and image-float normalization with focused unit coverage.
 - Completed: F-005 note-editor context-menu favorite contract slice. `lib/noteEditorContextMenu.ts` now owns the favorite action list, storage key, and normalization used by the editor UI, personal page load, and personal favorite save action; this prevents formatting favorites like bold/font-size/insert-arrow from being dropped by narrower personal-page validators.
-- Completed: F-005 note-editor overlay helper extraction slice. `lib/noteEditorOverlays.ts` now owns shape/text-box attribute normalization, insert default builders, default sizes, insert options, equality checks, and SVG markup generation with focused unit coverage.
+- Completed: F-005 note-editor overlay helper extraction slice. `lib/noteEditorOverlays.ts` now owns shape/text-box attribute normalization, insert default builders, overlay node type/object-id helpers, default sizes, insert options, equality checks, and SVG markup generation with focused unit coverage.
 - Completed: F-005 note-editor inline helper extraction slice. `lib/noteEditorInline.ts` now owns timestamp parsing, pasted-link normalization, mention handle cleanup, inline text cleanup, task status labels, and task-link ID extraction with focused unit coverage.
 - Completed: F-005 note-editor suggestion helper extraction slice. `lib/noteEditorSuggestions.ts` now owns slash-command trigger matching, command filtering, mention trigger matching, and the related suggestion state types with focused unit coverage.
 - Completed: F-005 note-editor image helper extraction slice. `lib/noteEditorImages.ts` now owns inline image limits, pasted image file creation, pasted HTML image/link extraction, image data URL sizing, and browser image/canvas helpers with focused unit coverage for the deterministic guards.
@@ -163,7 +163,7 @@ Latest implementation validation:
 - `npx vitest run lib/noteEditorContent.test.ts`: passed, 7 tests.
 - `npx vitest run lib/noteEditorFormatting.test.ts lib/noteEditorContent.test.ts`: passed, 12 tests.
 - `npx vitest run lib/noteEditorContextMenu.test.ts lib/noteEditorFormatting.test.ts`: passed, 9 tests.
-- `npm test -- --run lib/noteEditorOverlays.test.ts`: passed, 8 tests.
+- `npm test -- --run lib/noteEditorOverlays.test.ts`: passed, 9 tests.
 - `npx vitest run lib/noteEditorOverlays.test.ts lib/noteEditorContextMenu.test.ts`: passed, 10 tests.
 - `npx vitest run lib/noteEditorInline.test.ts lib/noteEditorOverlays.test.ts`: passed, 12 tests.
 - `npx vitest run lib/noteEditorImages.test.ts`: passed, 4 tests.
@@ -197,7 +197,7 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 65 files and 384 tests.
+- `npm test`: passed, 65 files and 385 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 130 kB first load JS after the task view UI and task page utility extractions; `/tasks/[taskId]` built at 3.18 kB route JS and 133 kB first load JS after the task detail utility extraction; `/clients/[clientId]/notes/[noteId]` built at 2.99 kB route JS and 166 kB first load JS after the note-editor state-helper extraction; `/personal/[pageId]` built at 3.05 kB route JS and 170 kB first load JS; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/chat` built at 15 kB route JS and 130 kB first load JS after the chat lookup/priority helper extraction; `/social/[pageId]` built at 3.41 kB route JS and 119 kB first load JS after the expanded social detail helper extraction; `/inventory` built at 11.6 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.1 kB route JS and 118 kB first load JS after the shared table utility, editable-cell helper, preference-state, and filter/sort pipeline extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard and settings utility extraction slices; route-modal prefetch cleanup, note-editor context-menu, overlay, inline, image, ribbon primitive, state helper, suggestion helper, chat client/derived-state helpers, social detail helper, settings utility, task page/detail utility, and task view UI helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -361,7 +361,7 @@ Verification needed:
 
 Evidence:
 
-- `app/(app)/_components/NoteEditorClient.tsx`: 6241 lines after the content, formatting, context-menu, overlay, inline, image, ribbon primitive, state helper, and suggestion helper extractions. The file remains a major F-005 follow-up target even after the overlay insert-default extraction.
+- `app/(app)/_components/NoteEditorClient.tsx`: 6237 lines after the content, formatting, context-menu, overlay, inline, image, ribbon primitive, state helper, and suggestion helper extractions. The file remains a major F-005 follow-up target even after the overlay insert-default and overlay node-helper extractions.
 - `app/(app)/settings/page.tsx`: 4398 lines after the settings page utility extraction.
 - `app/(app)/chat/ChatPageClient.tsx`: 2417 lines after the chat client helper and derived-state extraction slices, down from 2682 in the latest large-file scan.
 - `app/(app)/social/[pageId]/page.tsx`: 2193 lines after the latest social detail helper extraction.
@@ -395,7 +395,7 @@ Recommended fix:
 - Done for the note-editor content-helper slice: `lib/noteEditorContent.ts` extracts content normalization, save-warning cleanup, JSON cloning, and ephemeral image-source detection; `lib/noteEditorContent.test.ts` covers the extracted behavior.
 - Done for the note-editor formatting-helper slice: `lib/noteEditorFormatting.ts` extracts font option lists, font-size stepping, toolbar label normalization, and image-float normalization; `lib/noteEditorFormatting.test.ts` covers the extracted behavior.
 - Done for the note-editor context-menu slice: `lib/noteEditorContextMenu.ts` extracts the favorite action contract and normalizer; editor UI, personal page load, and server-side favorite persistence now use the same action set.
-- Done for the note-editor overlay-helper slice: `lib/noteEditorOverlays.ts` extracts shape/text-box defaults, insert default builders, normalization, equality checks, and SVG rendering; `lib/noteEditorOverlays.test.ts` covers the extracted behavior.
+- Done for the note-editor overlay-helper slice: `lib/noteEditorOverlays.ts` extracts shape/text-box defaults, insert default builders, overlay node type/object-id helpers, normalization, equality checks, and SVG rendering; `lib/noteEditorOverlays.test.ts` covers the extracted behavior.
 - Done for the note-editor inline-helper slice: `lib/noteEditorInline.ts` extracts timestamp parsing, pasted-link validation, mention handle cleanup, inline text normalization, task status labels, and task-link ID extraction; `lib/noteEditorInline.test.ts` covers the extracted behavior.
 - Done for the note-editor suggestion-helper slice: `lib/noteEditorSuggestions.ts` extracts slash-command matching, command filtering, mention matching, and suggestion state types; `lib/noteEditorSuggestions.test.ts` covers trigger boundaries, filtering, and invalid matches.
 - Done for the note-editor image-helper slice: `lib/noteEditorImages.ts` extracts inline image constants, pasted image file creation, pasted HTML image/link extraction, data URL sizing, and browser image/canvas helpers; `lib/noteEditorImages.test.ts` covers MIME extension fallback, unsupported image rejection, data URL size guards, and no-DOM parser fallbacks.
@@ -530,7 +530,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 65 files and 384 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard and error coverage, task/project/client table view-state, inventory/employee table utility/editable-cell/filter-sort helpers and preference-state, task preference payloads, persisted task filter restore/payload cloning, task sort-direction and URL-joining extractions, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/overlay-default/state coverage, chat lookup/social detail helpers, and settings utility/template search-param slices.
+- Latest unit-test suite now passes 65 files and 385 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard and error coverage, task/project/client table view-state, inventory/employee table utility/editable-cell/filter-sort helpers and preference-state, task preference payloads, persisted task filter restore/payload cloning, task sort-direction and URL-joining extractions, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/overlay-default/overlay-node/state coverage, chat lookup/social detail helpers, and settings utility/template search-param slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
