@@ -78,7 +78,9 @@ Updated 2026-06-02:
 - Open: F-008 follow-up for signed-in browser smoke coverage plus recurrence, status-options, and deeper task mutation tests.
 - Completed: F-010 migration-backed security-definer/RLS inventory slice. `docs/security-definer-rls-inventory-2026-06-02.md` now groups the migration surface, confirms every security-definer declaration has nearby `set search_path`, ranks the highest-risk modules, and lists live-database verification queries.
 - Open: F-010 follow-up for live catalog verification and SQL regression tests for schedules, quizzes, time off, social, tasks, inventory, employee info, and scout.
-- Open: F-005, F-012, F-015 plus the explicit F-004, F-006, F-007, F-008, F-009, and F-010 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
+- Completed: F-015 production operations README slice. `README.md` now covers local setup, environment variables, validation commands, Supabase migrations, Vercel deployment, cron, smoke checks, observability, high-risk modules, and related docs.
+- Open: F-015 follow-up for CI/deploy-specific screenshots or Vercel dashboard links if the team wants a more visual runbook.
+- Open: F-005, F-012 plus the explicit F-004, F-006, F-007, F-008, F-009, F-010, and F-015 follow-ups. These remain the main route-modal, large-file, RLS, test, observability, docs, and cleanup backlog.
 
 Latest implementation validation:
 
@@ -528,6 +530,7 @@ Evidence:
 
 - `README.md` still reads like a generic Next.js project starter rather than an operational guide.
 - Existing docs cover specific areas such as Vercel logging, browser extension, social scope, and responsive QA, but not the main setup/deploy/runbook path.
+- The first implementation slice replaced the starter README with a ResOpsHub operations runbook.
 
 User/business impact:
 
@@ -536,21 +539,14 @@ User/business impact:
 
 Recommended fix:
 
-- Replace the generic README with a ResOpsHub runbook:
-  - local setup
-  - required environment variables
-  - Supabase migration process
-  - Vercel deploy/promotion steps
-  - cron route setup
-  - smoke test checklist
-  - known high-risk modules
+- Done: replace the generic README with a ResOpsHub runbook covering local setup, required environment variables, Supabase migration process, Vercel deployment, cron route setup, smoke checks, observability, and known high-risk modules.
 
 Estimated effort: small.
 
 Verification needed:
 
-- A fresh checkout can be configured from the README.
-- A deploy can be verified using the documented smoke checklist.
+- README now includes setup, deploy, cron, and smoke-test checklists.
+- Follow-up: a fresh-checkout dry run and production deploy dry run can validate whether any team-specific dashboard steps are missing.
 
 ## Larger Refactor Roadmap
 
