@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isSupabaseMissingColumnError,
@@ -205,10 +206,7 @@ export default async function SettingsPage(props: {
   )}`;
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await withPerfTiming("settings.auth", () =>
-    supabase.auth.getUser()
-  );
-  const user = authData.user;
+  const user = await getCurrentRequestUser(supabase, "settings.auth");
 
   if (!user) {
     redirect("/login");
@@ -756,8 +754,7 @@ export default async function SettingsPage(props: {
   async function updateProfile(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData.user;
+    const user = await getCurrentRequestUser(supabase, "settings.update_profile.auth");
     if (!user) redirect("/login");
 
     const fullName = String(formData.get("full_name") || "").trim();
@@ -867,8 +864,10 @@ export default async function SettingsPage(props: {
   async function updateNotificationPrefs(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData.user;
+    const user = await getCurrentRequestUser(
+      supabase,
+      "settings.update_notification_prefs.auth"
+    );
     if (!user) redirect("/login");
 
     const next = {
