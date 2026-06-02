@@ -5,6 +5,7 @@ import {
   buildTaskListUrl,
   buildTaskPreferenceFormData,
   filterAllowedValues,
+  normalizePersistedTaskFilters,
   normalizeStorageList,
   normalizeVisibleTaskColumns,
   type TaskFilterState,
@@ -132,6 +133,87 @@ describe("task table view state helpers", () => {
     expect(formData.get("sort_key")).toBe("due");
     expect(formData.get("sort_dir")).toBe("asc");
     expect(formData.get("view_mode")).toBe("board");
+  });
+
+  it("normalizes persisted task filters against currently allowed values", () => {
+    const restored = normalizePersistedTaskFilters({
+      parsed: {
+        status: ["open", "stale"],
+        priority: ["high", "missing"],
+        assignee: ["user-1", "unknown", "unassigned"],
+        due: "overdue",
+        client: ["client-1", "missing"],
+        project: ["project-1"],
+        hideCompleted: false,
+        includeWatching: true,
+        sortKey: "due",
+        sortDir: "asc",
+        view: "board",
+      },
+      initialFilters: emptyFilters,
+      statusOptions: ["open", "closed"],
+      priorityOptions: ["high"],
+      users: [{ id: "user-1" }],
+      dueOptions: [{ value: "all" }, { value: "overdue" }],
+      clients: [{ id: "client-1" }],
+      projects: [{ id: "project-1" }],
+      fallbackHideCompleted: true,
+      fallbackIncludeWatching: false,
+      fallbackSortKey: "created",
+      fallbackSortDir: "desc",
+      fallbackView: "table",
+    });
+
+    expect(restored).toEqual({
+      filters: {
+        status: ["open"],
+        priority: ["high"],
+        assignee: ["user-1", "unassigned"],
+        due: "overdue",
+        client: ["client-1"],
+        project: ["project-1"],
+      },
+      hideCompleted: false,
+      includeWatching: true,
+      sortKey: "due",
+      sortDir: "asc",
+      view: "board",
+    });
+  });
+
+  it("falls back when persisted task filters are missing or invalid", () => {
+    const restored = normalizePersistedTaskFilters({
+      parsed: {
+        assignee: ["unknown"],
+        due: "missing",
+        sortKey: "bad-key",
+        sortDir: "bad-dir",
+        view: "bad-view",
+      },
+      initialFilters: {
+        ...emptyFilters,
+        assignee: ["fallback-user"],
+      },
+      statusOptions: ["open"],
+      priorityOptions: ["high"],
+      users: [{ id: "user-1" }],
+      dueOptions: [{ value: "all" }],
+      clients: [{ id: "client-1" }],
+      projects: [{ id: "project-1" }],
+      fallbackHideCompleted: true,
+      fallbackIncludeWatching: false,
+      fallbackSortKey: "created",
+      fallbackSortDir: "desc",
+      fallbackView: "gantt",
+    });
+
+    expect(restored.filters.assignee).toEqual(["fallback-user"]);
+    expect(restored.filters.due).toBe("all");
+    expect(restored.hideCompleted).toBe(true);
+    expect(restored.includeWatching).toBe(false);
+    expect(restored.sortKey).toBe("created");
+    expect(restored.sortDir).toBe("desc");
+    expect(restored.view).toBe("gantt");
   });
 
   it("normalizes task filter persistence keys", () => {

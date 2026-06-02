@@ -29,7 +29,7 @@ Top risks:
 | --- | --- | --- |
 | `npm audit --json` | Passed | 0 vulnerabilities across 573 dependencies after the Next/Vitest upgrades. |
 | `npx tsc --noEmit` | Passed | TypeScript completed with exit code 0. |
-| `npm test` | Passed | 65 test files, 371 tests passed. |
+| `npm test` | Passed | 65 test files, 373 tests passed. |
 | `npm run test:coverage` | Passed | Overall: 73.26% statements, 60.34% branches, 78.52% functions, 76.51% lines. |
 | `npm run build` | Passed | Next.js 15.5.18 build completed. `/tasks` built at 4.36 kB route JS and 130 kB first load JS; `/settings` built at 4.71 kB route JS and 116 kB first load JS; middleware bundle was 82 kB. |
 | `npm run lint` | Passed | `npm run lint` now runs `eslint .` through the flat config. |
@@ -125,7 +125,7 @@ Updated 2026-06-02:
 - Completed: F-012 Forms list scalability slice. `/forms` now uses a bounded `forms_list_page` RPC with open-submission counts, total count, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602120000_forms_list_page_rpc.sql`, with manual SQL in `sql/forms_list_page_rpc.sql`.
 - Completed: F-012 Social landing scalability slice. `/social` now uses a bounded `social_landing_page` RPC with page summaries, owner display data, total page count, 7-day counters, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602130000_social_landing_page_rpc.sql`, with manual SQL in `sql/social_landing_page_rpc.sql`.
 - Open: F-012 follow-up for large-file table refactors plus production timing/EXPLAIN checks after the Forms and Social RPCs are applied.
-- Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns persisted task-column normalization, task-list query/persistence-key helpers, and task preference form-data normalization; `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
+- Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns persisted task-column normalization, persisted filter restore, task-list query/persistence-key helpers, and task preference form-data normalization; `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
 - Completed: F-005 project table view-state extraction slice. `app/(app)/projects/projectTableViewState.ts` now owns project filter persistence keys, persisted-list cleanup, table-column normalization, project sort normalization, and project list query/URL building with focused unit coverage.
 - Completed: F-005 client table view-state extraction slice. `app/(app)/clients/clientTableViewState.ts` now owns client filter persistence keys, persisted-list cleanup, table-column normalization, client sort normalization, and client list query/URL building with focused unit coverage.
 - Completed: F-005 inventory/employee-info table utility extraction slice. `lib/employeeInfoTableUtils.ts` now owns shared option parsing, date/number sort parsing, empty-cell class helpers, editable-cell DOM helpers, column token handling, and sortable value comparison used by both large editable tables.
@@ -359,7 +359,7 @@ Evidence:
 - `app/(app)/settings/page.tsx`: 4398 lines after the settings page utility extraction.
 - `app/(app)/chat/ChatPageClient.tsx`: 2417 lines after the chat client helper and derived-state extraction slices, down from 2682 in the latest large-file scan.
 - `app/(app)/social/[pageId]/page.tsx`: 2193 lines after the latest social detail helper extraction.
-- `app/(app)/tasks/TasksView.tsx`: 2354 lines after the task table view-state, URL/query, preference form-data, view-model, timeline, and UI helper extraction slices, down from 2646 after the quick-add UX slice.
+- `app/(app)/tasks/TasksView.tsx`: 2339 lines after the task table view-state, persisted filter restore, URL/query, preference form-data, view-model, timeline, and UI helper extraction slices, down from 2646 after the quick-add UX slice.
 - `app/(app)/employee-info/page.tsx`: 2040 lines.
 - `app/(app)/inventory/InventoryTable.tsx`: 1898 lines after the shared table utility, editable-cell helper, and preference-state extractions.
 - `app/(app)/tasks/page.tsx`: 1955 lines.
@@ -380,7 +380,7 @@ Recommended fix:
 - Split large files by responsibility: data loading, mutation actions, view state, table/list rows, dialogs, advanced controls, and reusable helpers.
 - Move repeated server action validation/auth patterns into shared helpers.
 - Add tests around extracted units before changing behavior.
-- Done for the task-list view-state slices: `app/(app)/tasks/taskTableViewState.ts` extracts persisted table-column normalization, URL/query building, persistence-key normalization, and task preference form-data building; `app/(app)/tasks/taskTableViewState.test.ts` covers storage normalization, allowed-value filtering, required-column handling, query assembly, URLs, filter-key behavior, and preference payload normalization.
+- Done for the task-list view-state slices: `app/(app)/tasks/taskTableViewState.ts` extracts persisted table-column normalization, persisted filter restore, URL/query building, persistence-key normalization, and task preference form-data building; `app/(app)/tasks/taskTableViewState.test.ts` covers storage normalization, allowed-value filtering, required-column handling, persisted restore fallback behavior, query assembly, URLs, filter-key behavior, and preference payload normalization.
 - Done for the project-list view-state slice: `app/(app)/projects/projectTableViewState.ts` extracts persisted filter-key normalization, stored-list cleanup, allowed-value filtering, required-column handling, project sort normalization, and query/URL assembly; `app/(app)/projects/projectTableViewState.test.ts` covers the extracted behavior.
 - Done for the client-list view-state slice: `app/(app)/clients/clientTableViewState.ts` extracts persisted filter-key normalization, stored-list cleanup, allowed-value filtering, required-column handling, client sort normalization, and query/URL assembly; `app/(app)/clients/clientTableViewState.test.ts` covers the extracted behavior.
 - Done for the task timeline slice: `app/(app)/tasks/taskTimeline.ts` extracts Gantt date parsing, range, tick, day-diff, and today-marker helpers, and `app/(app)/tasks/taskTimeline.test.ts` covers the current behavior before larger `TasksView` splits.
@@ -524,7 +524,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 65 files and 371 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility/editable-cell helpers and preference-state, task preference payloads, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/state coverage, chat lookup/social detail helpers, and settings utility/template search-param slices.
+- Latest unit-test suite now passes 65 files and 373 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility/editable-cell helpers and preference-state, task preference payloads, persisted task filter restore, task view-model/timeline/UI helpers, quick-read task RPC, logging, security-definer migration guard, note-editor helper/state coverage, chat lookup/social detail helpers, and settings utility/template search-param slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -662,7 +662,7 @@ Verification needed:
 
 Evidence:
 
-- Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 1898 lines after the shared table utility, editable-cell helper, and preference-state extractions, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1735 lines after the shared table utility, editable-cell helper, and preference-state extractions, `app/(app)/tasks/TasksView.tsx` at 2354 lines after task helper extractions, `app/(app)/projects/ProjectsView.tsx` at 1817 lines after the project table view-state extraction, and `app/(app)/clients/ClientsTable.tsx` at 1185 lines after the client table view-state extraction.
+- Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 1898 lines after the shared table utility, editable-cell helper, and preference-state extractions, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1735 lines after the shared table utility, editable-cell helper, and preference-state extractions, `app/(app)/tasks/TasksView.tsx` at 2339 lines after task helper extractions, `app/(app)/projects/ProjectsView.tsx` at 1817 lines after the project table view-state extraction, and `app/(app)/clients/ClientsTable.tsx` at 1185 lines after the client table view-state extraction.
 - `app/(app)/settings/page.tsx` is 4379 lines after the settings utility extraction and still contains many management forms/actions.
 - Quick-read already uses 600-row caps, showing that unbounded or broad reads have become a product concern.
 - Implemented Forms slice: `app/(app)/forms/page.tsx` now calls `forms_list_page` with `p_limit`/`p_offset` and no longer pulls all forms plus all open submissions into application memory for the list view.

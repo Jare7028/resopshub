@@ -1,4 +1,9 @@
-import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
+import {
+  normalizeTaskSortDir,
+  normalizeTaskSortKey,
+  type TaskSortDir,
+  type TaskSortKey,
+} from "@/lib/taskSorting";
 import { setCsvParam } from "@/lib/queryParams";
 
 export const TASK_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.task-filters.v1";
@@ -55,7 +60,41 @@ type BuildTaskPreferenceFormDataInput = {
   includeWatching: boolean;
 };
 
+type TaskOptionId = {
+  id: string | null | undefined;
+};
+
+type TaskDueOptionValue = {
+  value: string | null | undefined;
+};
+
+type NormalizePersistedTaskFiltersInput = {
+  parsed: Partial<Record<keyof PersistedTaskFilterState, unknown>>;
+  initialFilters: TaskFilterState;
+  statusOptions: readonly string[];
+  priorityOptions: readonly string[];
+  users: readonly TaskOptionId[];
+  dueOptions: readonly TaskDueOptionValue[];
+  clients: readonly TaskOptionId[];
+  projects: readonly TaskOptionId[];
+  fallbackHideCompleted: boolean;
+  fallbackIncludeWatching: boolean;
+  fallbackSortKey: TaskSortKey;
+  fallbackSortDir: TaskSortDir;
+  fallbackView: TaskViewMode;
+};
+
+export type NormalizedPersistedTaskFilters = {
+  filters: TaskFilterState;
+  hideCompleted: boolean;
+  includeWatching: boolean;
+  sortKey: TaskSortKey;
+  sortDir: TaskSortDir;
+  view: TaskViewMode;
+};
+
 const TASK_REQUIRED_COLUMN_IDS = new Set<TaskTableColumnId>(["task"]);
+const TASK_VIEW_MODES = new Set<TaskViewMode>(["table", "gantt", "board"]);
 
 export function normalizeStorageList(value: unknown) {
   if (!Array.isArray(value)) return [] as string[];
@@ -70,6 +109,18 @@ export function normalizeStorageList(value: unknown) {
 
 export function filterAllowedValues(values: string[], allowedValues: Set<string>) {
   return values.filter((value) => allowedValues.has(value));
+}
+
+function buildAllowedValueSet(values: readonly string[]) {
+  return new Set(values.map((value) => String(value).trim()).filter(Boolean));
+}
+
+function buildAllowedIdSet(rows: readonly TaskOptionId[]) {
+  return buildAllowedValueSet(rows.map((row) => row.id || ""));
+}
+
+function isTaskViewMode(value: string): value is TaskViewMode {
+  return TASK_VIEW_MODES.has(value as TaskViewMode);
 }
 
 export function buildTaskFilterPersistenceKey({
@@ -170,6 +221,59 @@ export function buildTaskPreferenceFormData({
   formData.set("view_mode", view);
 
   return formData;
+}
+
+export function normalizePersistedTaskFilters({
+  parsed,
+  initialFilters,
+  statusOptions,
+  priorityOptions,
+  users,
+  dueOptions,
+  clients,
+  projects,
+  fallbackHideCompleted,
+  fallbackIncludeWatching,
+  fallbackSortKey,
+  fallbackSortDir,
+  fallbackView,
+}: NormalizePersistedTaskFiltersInput): NormalizedPersistedTaskFilters {
+  const statusSet = buildAllowedValueSet(statusOptions);
+  const prioritySet = buildAllowedValueSet(priorityOptions);
+  const assigneeSet = buildAllowedIdSet(users);
+  assigneeSet.add("unassigned");
+  const dueSet = buildAllowedValueSet(dueOptions.map((value) => value.value || ""));
+  const clientSet = buildAllowedIdSet(clients);
+  const projectSet = buildAllowedIdSet(projects);
+
+  const restoredAssignees = filterAllowedValues(
+    normalizeStorageList(parsed.assignee),
+    assigneeSet
+  );
+  const parsedDue = String(parsed.due || "").trim();
+  const parsedView = String(parsed.view || "").trim();
+
+  return {
+    filters: {
+      status: filterAllowedValues(normalizeStorageList(parsed.status), statusSet),
+      priority: filterAllowedValues(normalizeStorageList(parsed.priority), prioritySet),
+      assignee: restoredAssignees.length > 0 ? restoredAssignees : initialFilters.assignee,
+      due: dueSet.has(parsedDue) && parsedDue ? parsedDue : "all",
+      client: filterAllowedValues(normalizeStorageList(parsed.client), clientSet),
+      project: filterAllowedValues(normalizeStorageList(parsed.project), projectSet),
+    },
+    hideCompleted:
+      typeof parsed.hideCompleted === "boolean"
+        ? parsed.hideCompleted
+        : fallbackHideCompleted,
+    includeWatching:
+      typeof parsed.includeWatching === "boolean"
+        ? parsed.includeWatching
+        : fallbackIncludeWatching,
+    sortKey: normalizeTaskSortKey(String(parsed.sortKey || fallbackSortKey || "")),
+    sortDir: normalizeTaskSortDir(String(parsed.sortDir || fallbackSortDir || "")),
+    view: isTaskViewMode(parsedView) ? parsedView : fallbackView,
+  };
 }
 
 export function normalizeVisibleTaskColumns(

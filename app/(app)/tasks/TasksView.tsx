@@ -15,12 +15,7 @@ import { useRouter } from "next/navigation";
 import TaskInlineRow from "./TaskInlineRow";
 import QuickAddTaskModal from "./_components/QuickAddTaskModal";
 import type { QuickCreateTaskResult } from "./actions";
-import {
-  normalizeTaskSortDir,
-  normalizeTaskSortKey,
-  type TaskSortDir,
-  type TaskSortKey,
-} from "@/lib/taskSorting";
+import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
 import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
@@ -32,7 +27,6 @@ import {
   statusPillStyle,
 } from "@/lib/statusColorStyles";
 import {
-  isViewMode,
   readDefaultViewMode,
   writeDefaultViewMode,
   type ViewPreferenceScope,
@@ -52,8 +46,7 @@ import {
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
   buildTaskPreferenceFormData,
-  filterAllowedValues,
-  normalizeStorageList,
+  normalizePersistedTaskFilters,
   normalizeVisibleTaskColumns,
   type PersistedTaskFilterState,
   type TaskFilterState,
@@ -867,37 +860,28 @@ export default function TasksView({
       const raw = window.localStorage.getItem(taskFilterPersistenceKey);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<PersistedTaskFilterState>;
-        const statusSet = new Set(statusOptions.map((value) => String(value).trim()));
-        const prioritySet = new Set(priorityOptions.map((value) => String(value).trim()));
-        const assigneeSet = new Set(users.map((value) => String(value.id).trim()));
-        assigneeSet.add("unassigned");
-        const dueSet = new Set(dueOptions.map((value) => String(value.value).trim()));
-        const clientSet = new Set(clients.map((value) => String(value.id).trim()));
-        const projectSet = new Set(projects.map((value) => String(value.id).trim()));
-
-        const restoredAssignees = filterAllowedValues(
-          normalizeStorageList(parsed.assignee),
-          assigneeSet
-        );
-        const nextFilters = {
-          status: filterAllowedValues(normalizeStorageList(parsed.status), statusSet),
-          priority: filterAllowedValues(normalizeStorageList(parsed.priority), prioritySet),
-          assignee: restoredAssignees.length > 0 ? restoredAssignees : initialFilters.assignee,
-          due:
-            dueSet.has(String(parsed.due || "").trim()) && String(parsed.due || "").trim()
-              ? String(parsed.due || "").trim()
-              : "all",
-          client: filterAllowedValues(normalizeStorageList(parsed.client), clientSet),
-          project: filterAllowedValues(normalizeStorageList(parsed.project), projectSet),
-        };
-        const nextHideCompleted =
-          typeof parsed.hideCompleted === "boolean" ? parsed.hideCompleted : hideCompleted;
-        const nextIncludeWatching =
-          typeof parsed.includeWatching === "boolean" ? parsed.includeWatching : includeWatching;
-        const nextSortKey = normalizeTaskSortKey(String(parsed.sortKey || sortKey || ""));
-        const nextSortDir = normalizeTaskSortDir(String(parsed.sortDir || sortDir || ""));
-        const parsedView = String(parsed.view || "").trim();
-        const nextView = isViewMode(parsedView) ? parsedView : view;
+        const {
+          filters: nextFilters,
+          hideCompleted: nextHideCompleted,
+          includeWatching: nextIncludeWatching,
+          sortKey: nextSortKey,
+          sortDir: nextSortDir,
+          view: nextView,
+        } = normalizePersistedTaskFilters({
+          parsed,
+          initialFilters,
+          statusOptions,
+          priorityOptions,
+          users,
+          dueOptions,
+          clients,
+          projects,
+          fallbackHideCompleted: hideCompleted,
+          fallbackIncludeWatching: includeWatching,
+          fallbackSortKey: sortKey,
+          fallbackSortDir: sortDir,
+          fallbackView: view,
+        });
         const currentQuery = buildQuery(filters, sortKey, sortDir, view, hideCompleted);
         const restoredQuery = buildQuery(
           nextFilters,
@@ -933,7 +917,7 @@ export default function TasksView({
     hasLoadedPersistedFilters,
     hideCompleted,
     includeWatching,
-    initialFilters.assignee,
+    initialFilters,
     priorityOptions,
     projects,
     router,
