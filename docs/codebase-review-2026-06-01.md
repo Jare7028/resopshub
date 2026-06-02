@@ -120,6 +120,7 @@ Updated 2026-06-02:
 - Completed: F-005 task timeline extraction slice. `app/(app)/tasks/taskTimeline.ts` now owns Gantt date parsing, range calculation, ticks, day diffs, and today-marker helpers, with `app/(app)/tasks/taskTimeline.test.ts` covering empty timelines, backwards due dates, tick spacing, marker bounds, and calendar-day diffs.
 - Completed: F-005 task view-model extraction slice. `app/(app)/tasks/taskViewModel.ts` now owns hidden-status filtering, effective status maps, and board grouping, with focused tests for optimistic status behavior and fallback buckets.
 - Completed: F-005 note-editor content helper extraction slice. `lib/noteEditorContent.ts` now owns Tiptap doc normalization, save-warning normalization, JSON cloning, object-record checks, and ephemeral image-source detection with focused unit coverage.
+- Completed: F-005 note-editor formatting helper extraction slice. `lib/noteEditorFormatting.ts` now owns Word-style font options, font-size stepping, toolbar label normalization, and image-float normalization with focused unit coverage.
 - Open: F-005 follow-up for `NoteEditorClient`, settings, chat, social detail, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
 - Open: The explicit F-004, F-006, F-008, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, docs, scalability, and cleanup backlog.
 
@@ -129,6 +130,7 @@ Latest implementation validation:
 - `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 9 tests.
 - `npx vitest run 'app/(app)/tasks/taskViewModel.test.ts' 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 15 tests.
 - `npx vitest run lib/noteEditorContent.test.ts`: passed, 7 tests.
+- `npx vitest run lib/noteEditorFormatting.test.ts lib/noteEditorContent.test.ts`: passed, 12 tests.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
@@ -139,9 +141,9 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 45 files and 232 tests.
+- `npm test`: passed, 46 files and 237 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor helper extraction also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor formatting helper extraction also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -299,7 +301,7 @@ Verification needed:
 
 Evidence:
 
-- `app/(app)/_components/NoteEditorClient.tsx`: 6708 lines after the content-helper extraction.
+- `app/(app)/_components/NoteEditorClient.tsx`: 6639 lines after the content and formatting helper extractions.
 - `app/(app)/settings/page.tsx`: 4304 lines.
 - `app/(app)/chat/ChatPageClient.tsx`: 2682 lines.
 - `app/(app)/tasks/TasksView.tsx`: 2416 lines after the task table view-state, URL/query, view-model, and timeline extraction slices, down from 2646 after the quick-add UX slice.
@@ -325,6 +327,7 @@ Recommended fix:
 - Done for the task timeline slice: `app/(app)/tasks/taskTimeline.ts` extracts Gantt date parsing, range, tick, day-diff, and today-marker helpers, and `app/(app)/tasks/taskTimeline.test.ts` covers the current behavior before larger `TasksView` splits.
 - Done for the task view-model slice: `app/(app)/tasks/taskViewModel.ts` extracts hidden-status filtering, effective status maps, and board status grouping; `app/(app)/tasks/taskViewModel.test.ts` covers optimistic status filtering and unknown-status fallback behavior.
 - Done for the note-editor content-helper slice: `lib/noteEditorContent.ts` extracts content normalization, save-warning cleanup, JSON cloning, and ephemeral image-source detection; `lib/noteEditorContent.test.ts` covers the extracted behavior.
+- Done for the note-editor formatting-helper slice: `lib/noteEditorFormatting.ts` extracts font option lists, font-size stepping, toolbar label normalization, and image-float normalization; `lib/noteEditorFormatting.test.ts` covers the extracted behavior.
 
 Estimated effort: large.
 
