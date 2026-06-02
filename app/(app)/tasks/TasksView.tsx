@@ -21,7 +21,6 @@ import {
   type TaskSortDir,
   type TaskSortKey,
 } from "@/lib/taskSorting";
-import { setCsvParam } from "@/lib/queryParams";
 import {
   formatTaskStatusLabel,
   normalizeTaskStatus,
@@ -55,12 +54,15 @@ import TableColumnConfigButton, {
   type TableColumnOption,
 } from "../_components/TableColumnConfigButton";
 import {
+  buildTaskFilterPersistenceKey,
+  buildTaskListQuery,
   filterAllowedValues,
   normalizeStorageList,
   normalizeVisibleTaskColumns,
-  TASK_FILTER_PERSISTENCE_KEY_PREFIX,
   type PersistedTaskFilterState,
+  type TaskFilterState,
   type TaskTableColumnId,
+  type TaskViewMode,
 } from "./taskTableViewState";
 import {
   buildTaskTimelineData,
@@ -139,16 +141,9 @@ type TasksViewProps = {
   statusOptions: readonly string[];
   priorityOptions: readonly string[];
   dueOptions: readonly { value: string; label: string }[];
-  initialView?: "table" | "gantt" | "board";
+  initialView?: TaskViewMode;
   returnTo: string;
-  initialFilters: {
-    status: string[];
-    priority: string[];
-    assignee: string[];
-    due: string;
-    client: string[];
-    project: string[];
-  };
+  initialFilters: TaskFilterState;
   onUpdate: (formData: FormData) => Promise<unknown> | void;
   hideCompleted: boolean;
   hiddenStatusValues?: readonly string[];
@@ -252,8 +247,8 @@ export default function TasksView({
   onSavePreferences,
   onQuickCreate,
 }: TasksViewProps) {
-  const [view, setView] = useState<"table" | "gantt" | "board">(initialView);
-  const [defaultView, setDefaultView] = useState<"table" | "gantt" | "board" | null>(null);
+  const [view, setView] = useState<TaskViewMode>(initialView);
+  const [defaultView, setDefaultView] = useState<TaskViewMode | null>(null);
   const [isOpeningAddTask, setIsOpeningAddTask] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const router = useRouter();
@@ -394,13 +389,10 @@ export default function TasksView({
   );
 
   const taskFilterPersistenceKey = useMemo(() => {
-    const userId = String(filterPersistenceUserId || "").trim();
-    if (!userId) return null;
-    const rawScope = String(filterPersistenceScope || basePath || "/tasks")
-      .trim()
-      .toLowerCase();
-    const scope = rawScope || "/tasks";
-    return `${TASK_FILTER_PERSISTENCE_KEY_PREFIX}:${userId}:${scope}`;
+    return buildTaskFilterPersistenceKey({
+      userId: filterPersistenceUserId,
+      scope: filterPersistenceScope || basePath,
+    });
   }, [basePath, filterPersistenceScope, filterPersistenceUserId]);
 
   const usersById = useMemo(
@@ -854,44 +846,17 @@ export default function TasksView({
       nextSearchQuery: string = taskSearchQuery,
       nextPage: number = 1
     ) => {
-      const params = new URLSearchParams();
-      Object.entries(fixedParams).forEach(([key, value]) => {
-        const normalized = String(value || "").trim();
-        if (normalized) {
-          params.set(key, normalized);
-        }
+      return buildTaskListQuery({
+        filters: next,
+        sortKey: nextSortKey,
+        sortDir: nextSortDir,
+        view: nextView,
+        hideCompleted: nextHideCompleted,
+        includeWatching: nextIncludeWatching,
+        searchQuery: nextSearchQuery,
+        page: nextPage,
+        fixedParams,
       });
-      setCsvParam(params, "status", next.status);
-      setCsvParam(params, "priority", next.priority);
-      if (next.assignee.length) {
-        setCsvParam(params, "assignee", next.assignee);
-      } else {
-        params.set("assignee", "all");
-      }
-      setCsvParam(params, "client", next.client);
-      setCsvParam(params, "project", next.project);
-      if (next.due && next.due !== "all") params.set("due", next.due);
-      if (!nextHideCompleted) {
-        params.set("hide", "0");
-      }
-      if (nextIncludeWatching) {
-        params.set("watch", "1");
-      }
-      if (nextSortKey !== "created" || nextSortDir !== "desc") {
-        params.set("sort", nextSortKey);
-        params.set("dir", nextSortDir);
-      }
-      if (nextView !== "table") {
-        params.set("view", nextView);
-      }
-      const normalizedSearchQuery = String(nextSearchQuery || "").trim();
-      if (normalizedSearchQuery) {
-        params.set("q", normalizedSearchQuery);
-      }
-      if (nextPage > 1) {
-        params.set("page", String(nextPage));
-      }
-      return params.toString();
     },
     [fixedParams, includeWatching, taskSearchQuery]
   );

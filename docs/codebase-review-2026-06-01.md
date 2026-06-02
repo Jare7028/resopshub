@@ -116,7 +116,7 @@ Updated 2026-06-02:
 - Completed: F-012 Forms list scalability slice. `/forms` now uses a bounded `forms_list_page` RPC with open-submission counts, total count, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602120000_forms_list_page_rpc.sql`, with manual SQL in `sql/forms_list_page_rpc.sql`.
 - Completed: F-012 Social landing scalability slice. `/social` now uses a bounded `social_landing_page` RPC with page summaries, owner display data, total page count, 7-day counters, timing labels, previous/next pagination, and a bounded compatibility fallback. The migration is tracked at `supabase/migrations/20260602130000_social_landing_page_rpc.sql`, with manual SQL in `sql/social_landing_page_rpc.sql`.
 - Open: F-012 follow-up for large-file table refactors plus production timing/EXPLAIN checks after the Forms and Social RPCs are applied.
-- Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns the persisted task-column normalization helpers, and `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
+- Completed: F-005 task table view-state extraction slice. `app/(app)/tasks/taskTableViewState.ts` now owns persisted task-column normalization plus task-list query/persistence-key helpers, and `app/(app)/tasks/taskTableViewState.test.ts` pins the current behavior before larger `TasksView` splits.
 - Completed: F-005 task timeline extraction slice. `app/(app)/tasks/taskTimeline.ts` now owns Gantt date parsing, range calculation, ticks, day diffs, and today-marker helpers, with `app/(app)/tasks/taskTimeline.test.ts` covering empty timelines, backwards due dates, tick spacing, marker bounds, and calendar-day diffs.
 - Open: F-005 follow-up for `NoteEditorClient`, settings, chat, social detail, inventory/employee tables, task page/detail, and additional `TasksView` responsibility splits.
 - Open: The explicit F-004, F-006, F-008, F-010, F-012, and F-015 follow-ups remain the main route-modal, permission, RLS, test, docs, scalability, and cleanup backlog.
@@ -124,7 +124,7 @@ Updated 2026-06-02:
 Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
-- `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 5 tests.
+- `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 9 tests.
 - `npx vitest run lib/api/requireApiAdmin.test.ts`: passed, 4 tests.
 - `npx vitest run lib/loginQuickReadTaskRows.test.ts`: passed, 3 tests.
 - `npx vitest run lib/clientLogger.test.ts`: passed, 1 test.
@@ -135,9 +135,9 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 43 files and 215 tests.
+- `npm test`: passed, 43 files and 219 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the table view-state extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task URL/query extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -298,7 +298,7 @@ Evidence:
 - `app/(app)/_components/NoteEditorClient.tsx`: 6751 lines.
 - `app/(app)/settings/page.tsx`: 4304 lines.
 - `app/(app)/chat/ChatPageClient.tsx`: 2682 lines.
-- `app/(app)/tasks/TasksView.tsx`: 2470 lines after the task table view-state and timeline extraction slices, down from 2646 after the quick-add UX slice.
+- `app/(app)/tasks/TasksView.tsx`: 2435 lines after the task table view-state, URL/query, and timeline extraction slices, down from 2646 after the quick-add UX slice.
 - `app/(app)/social/[pageId]/page.tsx`: 2433 lines.
 - `app/(app)/inventory/InventoryTable.tsx`: 2044 lines.
 - `app/(app)/employee-info/page.tsx`: 2034 lines.
@@ -317,7 +317,7 @@ Recommended fix:
 - Split large files by responsibility: data loading, mutation actions, view state, table/list rows, dialogs, advanced controls, and reusable helpers.
 - Move repeated server action validation/auth patterns into shared helpers.
 - Add tests around extracted units before changing behavior.
-- Done for the first task-list slice: `app/(app)/tasks/taskTableViewState.ts` extracts persisted table-column normalization, and `app/(app)/tasks/taskTableViewState.test.ts` covers storage normalization, allowed-value filtering, required-column handling, and the current fallback behavior.
+- Done for the task-list view-state slices: `app/(app)/tasks/taskTableViewState.ts` extracts persisted table-column normalization, URL/query building, and persistence-key normalization; `app/(app)/tasks/taskTableViewState.test.ts` covers storage normalization, allowed-value filtering, required-column handling, query assembly, URLs, and filter-key behavior.
 - Done for the task timeline slice: `app/(app)/tasks/taskTimeline.ts` extracts Gantt date parsing, range, tick, day-diff, and today-marker helpers, and `app/(app)/tasks/taskTimeline.test.ts` covers the current behavior before larger `TasksView` splits.
 
 Estimated effort: large.

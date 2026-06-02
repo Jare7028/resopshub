@@ -1,6 +1,18 @@
 import type { TaskSortDir, TaskSortKey } from "@/lib/taskSorting";
+import { setCsvParam } from "@/lib/queryParams";
 
 export const TASK_FILTER_PERSISTENCE_KEY_PREFIX = "resolvable.task-filters.v1";
+
+export type TaskViewMode = "table" | "gantt" | "board";
+
+export type TaskFilterState = {
+  status: string[];
+  priority: string[];
+  assignee: string[];
+  due: string;
+  client: string[];
+  project: string[];
+};
 
 export type TaskTableColumnId =
   | "task"
@@ -14,18 +26,24 @@ export type TaskTableColumnId =
   | "next_subtask_due"
   | "due";
 
-export type PersistedTaskFilterState = {
-  status: string[];
-  priority: string[];
-  assignee: string[];
-  due: string;
-  client: string[];
-  project: string[];
+export type PersistedTaskFilterState = TaskFilterState & {
   hideCompleted: boolean;
   includeWatching: boolean;
   sortKey: TaskSortKey;
   sortDir: TaskSortDir;
-  view: "table" | "gantt" | "board";
+  view: TaskViewMode;
+};
+
+type BuildTaskListQueryInput = {
+  filters: TaskFilterState;
+  sortKey: TaskSortKey;
+  sortDir: TaskSortDir;
+  view: TaskViewMode;
+  hideCompleted: boolean;
+  includeWatching: boolean;
+  searchQuery?: string;
+  page?: number;
+  fixedParams?: Record<string, string | null | undefined>;
 };
 
 const TASK_REQUIRED_COLUMN_IDS = new Set<TaskTableColumnId>(["task"]);
@@ -43,6 +61,77 @@ export function normalizeStorageList(value: unknown) {
 
 export function filterAllowedValues(values: string[], allowedValues: Set<string>) {
   return values.filter((value) => allowedValues.has(value));
+}
+
+export function buildTaskFilterPersistenceKey({
+  userId,
+  scope,
+}: {
+  userId: string | null | undefined;
+  scope: string | null | undefined;
+}) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return null;
+
+  const rawScope = String(scope || "/tasks")
+    .trim()
+    .toLowerCase();
+  const normalizedScope = rawScope || "/tasks";
+  return `${TASK_FILTER_PERSISTENCE_KEY_PREFIX}:${normalizedUserId}:${normalizedScope}`;
+}
+
+export function buildTaskListQuery({
+  filters,
+  sortKey,
+  sortDir,
+  view,
+  hideCompleted,
+  includeWatching,
+  searchQuery = "",
+  page = 1,
+  fixedParams = {},
+}: BuildTaskListQueryInput) {
+  const params = new URLSearchParams();
+
+  Object.entries(fixedParams).forEach(([key, value]) => {
+    const normalized = String(value || "").trim();
+    if (normalized) {
+      params.set(key, normalized);
+    }
+  });
+
+  setCsvParam(params, "status", filters.status);
+  setCsvParam(params, "priority", filters.priority);
+  if (filters.assignee.length) {
+    setCsvParam(params, "assignee", filters.assignee);
+  } else {
+    params.set("assignee", "all");
+  }
+  setCsvParam(params, "client", filters.client);
+  setCsvParam(params, "project", filters.project);
+
+  if (filters.due && filters.due !== "all") params.set("due", filters.due);
+  if (!hideCompleted) params.set("hide", "0");
+  if (includeWatching) params.set("watch", "1");
+  if (sortKey !== "created" || sortDir !== "desc") {
+    params.set("sort", sortKey);
+    params.set("dir", sortDir);
+  }
+  if (view !== "table") params.set("view", view);
+
+  const normalizedSearchQuery = String(searchQuery || "").trim();
+  if (normalizedSearchQuery) params.set("q", normalizedSearchQuery);
+  if (page > 1) params.set("page", String(page));
+
+  return params.toString();
+}
+
+export function buildTaskListUrl(
+  basePath: string,
+  input: BuildTaskListQueryInput
+) {
+  const query = buildTaskListQuery(input);
+  return query ? `${basePath}?${query}` : basePath;
 }
 
 export function normalizeVisibleTaskColumns(
