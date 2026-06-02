@@ -51,6 +51,7 @@ import TableColumnConfigButton from "../_components/TableColumnConfigButton";
 import {
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
+  buildTaskPreferenceFormData,
   filterAllowedValues,
   normalizeStorageList,
   normalizeVisibleTaskColumns,
@@ -834,24 +835,14 @@ export default function TasksView({
       nextIncludeWatching: boolean
     ) => {
       if (!onSavePreferences) return;
-      const formData = new FormData();
-      const setCsvField = (key: string, values: string[]) => {
-        const cleaned = Array.from(
-          new Set(values.map((value) => value.trim()).filter(Boolean))
-        );
-        formData.set(key, cleaned.join(","));
-      };
-      setCsvField("status", nextFilters.status);
-      setCsvField("priority", nextFilters.priority);
-      setCsvField("assignee", nextFilters.assignee);
-      setCsvField("client", nextFilters.client);
-      setCsvField("project", nextFilters.project);
-      formData.set("due", nextFilters.due || "all");
-      formData.set("hide_completed", nextHideCompleted ? "1" : "0");
-      formData.set("include_watching", nextIncludeWatching ? "1" : "0");
-      formData.set("sort_key", nextSortKey);
-      formData.set("sort_dir", nextSortDir);
-      formData.set("view_mode", nextView);
+      const formData = buildTaskPreferenceFormData({
+        filters: nextFilters,
+        sortKey: nextSortKey,
+        sortDir: nextSortDir,
+        view: nextView,
+        hideCompleted: nextHideCompleted,
+        includeWatching: nextIncludeWatching,
+      });
       void Promise.resolve(onSavePreferences(formData)).catch(() => {
         // Preference writes should never block navigation or inline work.
       });

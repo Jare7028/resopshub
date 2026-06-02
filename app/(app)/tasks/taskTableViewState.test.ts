@@ -3,6 +3,7 @@ import {
   buildTaskFilterPersistenceKey,
   buildTaskListQuery,
   buildTaskListUrl,
+  buildTaskPreferenceFormData,
   filterAllowedValues,
   normalizeStorageList,
   normalizeVisibleTaskColumns,
@@ -103,6 +104,34 @@ describe("task table view state helpers", () => {
         includeWatching: false,
       })
     ).toBe("/tasks?assignee=all");
+  });
+
+  it("builds task preference form data with normalized CSV fields", () => {
+    const formData = buildTaskPreferenceFormData({
+      filters: {
+        status: [" open ", "open", ""],
+        priority: ["high", " medium "],
+        assignee: ["user-1", "user-1", " user-2 "],
+        due: "",
+        client: ["client-1"],
+        project: [" project-1 "],
+      },
+      sortKey: "due",
+      sortDir: "asc",
+      view: "board",
+      hideCompleted: false,
+      includeWatching: true,
+    });
+
+    expect(formData.get("status")).toBe("open");
+    expect(formData.get("priority")).toBe("high,medium");
+    expect(formData.get("assignee")).toBe("user-1,user-2");
+    expect(formData.get("due")).toBe("all");
+    expect(formData.get("hide_completed")).toBe("0");
+    expect(formData.get("include_watching")).toBe("1");
+    expect(formData.get("sort_key")).toBe("due");
+    expect(formData.get("sort_dir")).toBe("asc");
+    expect(formData.get("view_mode")).toBe("board");
   });
 
   it("normalizes task filter persistence keys", () => {

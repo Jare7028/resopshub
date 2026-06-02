@@ -46,6 +46,15 @@ type BuildTaskListQueryInput = {
   fixedParams?: Record<string, string | null | undefined>;
 };
 
+type BuildTaskPreferenceFormDataInput = {
+  filters: TaskFilterState;
+  sortKey: TaskSortKey;
+  sortDir: TaskSortDir;
+  view: TaskViewMode;
+  hideCompleted: boolean;
+  includeWatching: boolean;
+};
+
 const TASK_REQUIRED_COLUMN_IDS = new Set<TaskTableColumnId>(["task"]);
 
 export function normalizeStorageList(value: unknown) {
@@ -132,6 +141,35 @@ export function buildTaskListUrl(
 ) {
   const query = buildTaskListQuery(input);
   return query ? `${basePath}?${query}` : basePath;
+}
+
+export function buildTaskPreferenceFormData({
+  filters,
+  sortKey,
+  sortDir,
+  view,
+  hideCompleted,
+  includeWatching,
+}: BuildTaskPreferenceFormDataInput) {
+  const formData = new FormData();
+  const setCsvField = (key: string, values: string[]) => {
+    const cleaned = Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+    formData.set(key, cleaned.join(","));
+  };
+
+  setCsvField("status", filters.status);
+  setCsvField("priority", filters.priority);
+  setCsvField("assignee", filters.assignee);
+  setCsvField("client", filters.client);
+  setCsvField("project", filters.project);
+  formData.set("due", filters.due || "all");
+  formData.set("hide_completed", hideCompleted ? "1" : "0");
+  formData.set("include_watching", includeWatching ? "1" : "0");
+  formData.set("sort_key", sortKey);
+  formData.set("sort_dir", sortDir);
+  formData.set("view_mode", view);
+
+  return formData;
 }
 
 export function normalizeVisibleTaskColumns(
