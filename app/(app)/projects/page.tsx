@@ -818,8 +818,8 @@ export default async function ProjectsPage(props: {
   async function createProject(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-    const creatorId = authData.user?.id;
+    const authUser = await getCurrentRequestUser(supabase, "projects.create.auth");
+    const creatorId = authUser?.id;
     if (!creatorId) {
       redirect("/login");
     }

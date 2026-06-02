@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ProjectTabs from "../_components/ProjectTabs";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   loadAssignmentGroups,
@@ -15,8 +16,8 @@ export default async function ProjectAssigneesPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "projects.assignees.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }

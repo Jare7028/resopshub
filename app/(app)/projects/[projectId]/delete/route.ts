@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseMissingTableError } from "@/lib/supabaseErrors";
 
@@ -13,8 +14,8 @@ export async function POST(
   }
 
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "projects.delete.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     return NextResponse.redirect(new URL("/login", req.url));
   }

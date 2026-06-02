@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ProjectTabs from "./_components/ProjectTabs";
 import ConfirmDelete from "../../_components/ConfirmDelete";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   isSupabaseMissingColumnError,
@@ -32,8 +33,8 @@ export default async function ProjectOverviewPage(props: {
   const searchParams = await props.searchParams;
   const showAddFieldModal = searchParams?.add_field === "1";
   const supabase = createSupabaseServerClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "projects.detail.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }

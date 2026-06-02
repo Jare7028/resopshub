@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import ProjectTabs from "../_components/ProjectTabs";
+import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "@/app/(app)/tasks/TasksView";
@@ -109,8 +110,8 @@ export default async function ProjectTasksPage(props: {
   const createMode: "new" | "template" =
     createModeRaw === "template" ? "template" : "new";
   const templateTaskId = String(searchParams?.template_task_id || "").trim();
-  const { data: authData } = await supabase.auth.getUser();
-  const authEmail = authData.user?.email;
+  const authUser = await getCurrentRequestUser(supabase, "projects.tasks.auth");
+  const authEmail = authUser?.email;
   if (!authEmail) {
     redirect("/login");
   }
@@ -438,7 +439,7 @@ export default async function ProjectTasksPage(props: {
           }}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
-          filterPersistenceUserId={currentUserId || authData.user?.id || null}
+          filterPersistenceUserId={currentUserId || authUser?.id || null}
           filterPersistenceScope={`project:${projectId}`}
           hasExplicitFilterParams={hasExplicitFilterParams}
         />
