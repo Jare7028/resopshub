@@ -48,7 +48,6 @@ import {
   FilterMenuSingle,
 } from "../_components/TableHeaderFilters";
 import MultiSelect from "../_components/MultiSelect";
-import { getNextSubtaskDueDate } from "@/lib/taskNextSubtaskDueDate";
 import TableColumnConfigButton, {
   type TableColumnOption,
 } from "../_components/TableColumnConfigButton";
@@ -70,10 +69,13 @@ import {
   buildTodayMarker,
 } from "./taskTimeline";
 import {
+  buildEffectiveTaskList,
   buildEffectiveTaskStatusMap,
   buildHiddenTaskStatusSet,
+  buildNextSubtaskDueDateMap,
   filterTasksByHiddenStatus,
   groupTasksByStatus,
+  mergeServerTaskRecordMap,
   normalizeTaskStatusKey,
   shouldHideHiddenTaskStatuses,
 } from "./taskViewModel";
@@ -280,28 +282,33 @@ export default function TasksView({
   const [quickCreatedSubtasksByParentId, setQuickCreatedSubtasksByParentId] = useState<
     Record<string, OpenSubtaskRow[]>
   >({});
-  const serverTaskIdSet = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
-  const locallyVisibleQuickTasks = useMemo(
-    () => quickCreatedTasks.filter((task) => !serverTaskIdSet.has(task.id)),
-    [quickCreatedTasks, serverTaskIdSet]
-  );
   const effectiveTasks = useMemo(
-    () =>
-      locallyVisibleQuickTasks.length
-        ? [...locallyVisibleQuickTasks, ...tasks]
-        : tasks,
-    [locallyVisibleQuickTasks, tasks]
+    () => buildEffectiveTaskList({ quickCreatedTasks, serverTasks: tasks }),
+    [quickCreatedTasks, tasks]
   );
+  const locallyVisibleQuickTaskCount = Math.max(0, effectiveTasks.length - tasks.length);
   const effectiveAssigneesByTask = useMemo(
-    () => ({ ...quickCreatedAssigneesByTask, ...assigneesByTask }),
+    () =>
+      mergeServerTaskRecordMap({
+        quickCreatedValues: quickCreatedAssigneesByTask,
+        serverValues: assigneesByTask,
+      }),
     [assigneesByTask, quickCreatedAssigneesByTask]
   );
   const effectiveOpenSubtaskCountByTaskId = useMemo(
-    () => ({ ...quickCreatedOpenSubtaskCountByTaskId, ...openSubtaskCountByTaskId }),
+    () =>
+      mergeServerTaskRecordMap({
+        quickCreatedValues: quickCreatedOpenSubtaskCountByTaskId,
+        serverValues: openSubtaskCountByTaskId,
+      }),
     [openSubtaskCountByTaskId, quickCreatedOpenSubtaskCountByTaskId]
   );
   const effectiveOpenSubtasksByParentId = useMemo(
-    () => ({ ...quickCreatedSubtasksByParentId, ...openSubtasksByParentId }),
+    () =>
+      mergeServerTaskRecordMap({
+        quickCreatedValues: quickCreatedSubtasksByParentId,
+        serverValues: openSubtasksByParentId,
+      }),
     [openSubtasksByParentId, quickCreatedSubtasksByParentId]
   );
   const [loadedSubtasksByParentId, setLoadedSubtasksByParentId] = useState<
@@ -1161,22 +1168,13 @@ export default function TasksView({
   }, [effectiveTasks, optimisticStatusByTaskId]);
 
   const nextSubtaskDueDateByTaskId = useMemo(() => {
-    if (!showNextSubtaskDueDateColumn) {
-      return {} as Record<string, string | null>;
-    }
-    const nextDueByTaskId: Record<string, string | null> = {
-      ...initialNextSubtaskDueDateByTaskId,
-    };
-    visibleTasks.forEach((task) => {
-      if (!Object.prototype.hasOwnProperty.call(loadedSubtasksByParentId, task.id)) {
-        return;
-      }
-      nextDueByTaskId[task.id] = getNextSubtaskDueDate({
-        subtasks: loadedSubtasksByParentId[task.id] || [],
-        effectiveStatusByTaskId,
-      });
+    return buildNextSubtaskDueDateMap({
+      enabled: showNextSubtaskDueDateColumn,
+      initialNextSubtaskDueDateByTaskId,
+      visibleTasks,
+      loadedSubtasksByParentId,
+      effectiveStatusByTaskId,
     });
-    return nextDueByTaskId;
   }, [
     effectiveStatusByTaskId,
     initialNextSubtaskDueDateByTaskId,
@@ -1353,7 +1351,7 @@ export default function TasksView({
   }, 0);
   const normalizedPage = Math.max(1, currentPage);
   const normalizedPageSize = Math.max(1, pageSize);
-  const normalizedTotalCount = Math.max(0, totalTaskCount + locallyVisibleQuickTasks.length);
+  const normalizedTotalCount = Math.max(0, totalTaskCount + locallyVisibleQuickTaskCount);
   const showingFrom = normalizedTotalCount
     ? (normalizedPage - 1) * normalizedPageSize + 1
     : 0;

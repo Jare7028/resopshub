@@ -131,7 +131,7 @@ Updated 2026-06-02:
 - Completed: F-005 inventory/employee-info table utility extraction slice. `lib/employeeInfoTableUtils.ts` now owns shared option parsing, date/number sort parsing, empty-cell class helpers, column token handling, and sortable value comparison used by both large editable tables.
 - Completed: F-005 inventory/employee-info preference-state extraction slice. `lib/tablePreferenceState.ts` now owns shared visibility/filter persistence normalization and serialization, while inventory and employee-info keep their own storage keys, event names, and legacy new-column behavior.
 - Completed: F-005 task timeline extraction slice. `app/(app)/tasks/taskTimeline.ts` now owns Gantt date parsing, range calculation, ticks, day diffs, and today-marker helpers, with `app/(app)/tasks/taskTimeline.test.ts` covering empty timelines, backwards due dates, tick spacing, marker bounds, and calendar-day diffs.
-- Completed: F-005 task view-model extraction slice. `app/(app)/tasks/taskViewModel.ts` now owns hidden-status filtering, effective status maps, and board grouping, with focused tests for optimistic status behavior and fallback buckets.
+- Completed: F-005 task view-model extraction slice. `app/(app)/tasks/taskViewModel.ts` now owns hidden-status filtering, quick-created task merging, effective task maps, next-subtask due-date recalculation, and board grouping, with focused tests for optimistic status behavior, local quick tasks, server precedence, due dates, and fallback buckets.
 - Completed: F-005 note-editor content helper extraction slice. `lib/noteEditorContent.ts` now owns Tiptap doc normalization, save-warning normalization, JSON cloning, object-record checks, and ephemeral image-source detection with focused unit coverage.
 - Completed: F-005 note-editor formatting helper extraction slice. `lib/noteEditorFormatting.ts` now owns Word-style font options, font-size stepping, toolbar label normalization, and image-float normalization with focused unit coverage.
 - Completed: F-005 note-editor context-menu favorite contract slice. `lib/noteEditorContextMenu.ts` now owns the favorite action list, storage key, and normalization used by the editor UI, personal page load, and personal favorite save action; this prevents formatting favorites like bold/font-size/insert-arrow from being dropped by narrower personal-page validators.
@@ -145,7 +145,8 @@ Latest implementation validation:
 
 - `npx tsc --noEmit`: passed.
 - `npx vitest run 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 9 tests.
-- `npx vitest run 'app/(app)/tasks/taskViewModel.test.ts' 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 15 tests.
+- `npx vitest run 'app/(app)/tasks/taskViewModel.test.ts'`: passed, 10 tests.
+- `npx vitest run 'app/(app)/tasks/taskViewModel.test.ts' 'app/(app)/tasks/taskTableViewState.test.ts'`: passed, 19 tests.
 - `npx vitest run lib/noteEditorContent.test.ts`: passed, 7 tests.
 - `npx vitest run lib/noteEditorFormatting.test.ts lib/noteEditorContent.test.ts`: passed, 12 tests.
 - `npx vitest run lib/noteEditorContextMenu.test.ts lib/noteEditorFormatting.test.ts`: passed, 9 tests.
@@ -174,7 +175,7 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 57 files and 312 tests.
+- `npm test`: passed, 57 files and 316 tests.
 - `npm run lint`: passed.
 - `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/projects` built at 10.5 kB route JS and 120 kB first load JS after the project table view-state extraction; `/clients` built at 6.76 kB route JS and 116 kB first load JS after the client table view-state extraction; `/inventory` built at 12.2 kB route JS and 118 kB first load JS, and `/employee-info` built at 11.7 kB route JS and 117 kB first load JS after the shared table utility and preference-state extractions; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; route-modal prefetch cleanup, note-editor context-menu, overlay, inline, and suggestion helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
@@ -341,7 +342,7 @@ Evidence:
 - `app/(app)/_components/NoteEditorClient.tsx`: 6702 lines after the content, formatting, context-menu, overlay, inline, and suggestion helper extractions.
 - `app/(app)/settings/page.tsx`: 4774 lines.
 - `app/(app)/chat/ChatPageClient.tsx`: 2857 lines.
-- `app/(app)/tasks/TasksView.tsx`: 2529 lines after the task table view-state, URL/query, view-model, and timeline extraction slices, down from 2646 after the quick-add UX slice.
+- `app/(app)/tasks/TasksView.tsx`: 2527 lines after the task table view-state, URL/query, view-model, and timeline extraction slices, down from 2646 after the quick-add UX slice.
 - `app/(app)/social/[pageId]/page.tsx`: 2657 lines.
 - `app/(app)/inventory/InventoryTable.tsx`: 2090 lines after the shared table utility extraction.
 - `app/(app)/employee-info/page.tsx`: 2194 lines.
@@ -367,7 +368,7 @@ Recommended fix:
 - Done for the project-list view-state slice: `app/(app)/projects/projectTableViewState.ts` extracts persisted filter-key normalization, stored-list cleanup, allowed-value filtering, required-column handling, project sort normalization, and query/URL assembly; `app/(app)/projects/projectTableViewState.test.ts` covers the extracted behavior.
 - Done for the client-list view-state slice: `app/(app)/clients/clientTableViewState.ts` extracts persisted filter-key normalization, stored-list cleanup, allowed-value filtering, required-column handling, client sort normalization, and query/URL assembly; `app/(app)/clients/clientTableViewState.test.ts` covers the extracted behavior.
 - Done for the task timeline slice: `app/(app)/tasks/taskTimeline.ts` extracts Gantt date parsing, range, tick, day-diff, and today-marker helpers, and `app/(app)/tasks/taskTimeline.test.ts` covers the current behavior before larger `TasksView` splits.
-- Done for the task view-model slice: `app/(app)/tasks/taskViewModel.ts` extracts hidden-status filtering, effective status maps, and board status grouping; `app/(app)/tasks/taskViewModel.test.ts` covers optimistic status filtering and unknown-status fallback behavior.
+- Done for the task view-model slice: `app/(app)/tasks/taskViewModel.ts` extracts hidden-status filtering, quick-created task merging, effective task maps, next-subtask due-date recalculation, and board status grouping; `app/(app)/tasks/taskViewModel.test.ts` covers optimistic status filtering, local quick-task visibility, server-precedence map merging, next-subtask due dates, and unknown-status fallback behavior.
 - Done for the note-editor content-helper slice: `lib/noteEditorContent.ts` extracts content normalization, save-warning cleanup, JSON cloning, and ephemeral image-source detection; `lib/noteEditorContent.test.ts` covers the extracted behavior.
 - Done for the note-editor formatting-helper slice: `lib/noteEditorFormatting.ts` extracts font option lists, font-size stepping, toolbar label normalization, and image-float normalization; `lib/noteEditorFormatting.test.ts` covers the extracted behavior.
 - Done for the note-editor context-menu slice: `lib/noteEditorContextMenu.ts` extracts the favorite action contract and normalizer; editor UI, personal page load, and server-side favorite persistence now use the same action set.
@@ -500,7 +501,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 57 files and 312 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility and preference-state, task view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
+- Latest unit-test suite now passes 57 files and 316 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task/project/client table view-state, inventory/employee table utility and preference-state, task view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
@@ -638,7 +639,7 @@ Verification needed:
 
 Evidence:
 
-- Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 2090 lines after the shared table utility extraction, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1915 lines after the shared table utility extraction, `app/(app)/tasks/TasksView.tsx` at 2529 lines, `app/(app)/projects/ProjectsView.tsx` at 1901 lines after the project table view-state extraction, and `app/(app)/clients/ClientsTable.tsx` at 1248 lines after the client table view-state extraction.
+- Large list/table surfaces include `app/(app)/inventory/InventoryTable.tsx` at 2090 lines after the shared table utility extraction, `app/(app)/employee-info/EmployeeInfoTable.tsx` at 1915 lines after the shared table utility extraction, `app/(app)/tasks/TasksView.tsx` at 2527 lines, `app/(app)/projects/ProjectsView.tsx` at 1901 lines after the project table view-state extraction, and `app/(app)/clients/ClientsTable.tsx` at 1248 lines after the client table view-state extraction.
 - `app/(app)/settings/page.tsx` is 4304 lines and contains many management forms/actions.
 - Quick-read already uses 600-row caps, showing that unbounded or broad reads have become a product concern.
 - Implemented Forms slice: `app/(app)/forms/page.tsx` now calls `forms_list_page` with `p_limit`/`p_offset` and no longer pulls all forms plus all open submissions into application memory for the list view.

@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEffectiveTaskList,
   buildEffectiveTaskStatusMap,
   buildHiddenTaskStatusSet,
+  buildLocallyVisibleQuickTasks,
+  buildNextSubtaskDueDateMap,
   filterTasksByHiddenStatus,
   groupTasksByStatus,
+  mergeServerTaskRecordMap,
   normalizeTaskStatusKey,
   shouldHideHiddenTaskStatuses,
 } from "./taskViewModel";
@@ -101,5 +105,81 @@ describe("task view model helpers", () => {
       "task-3",
     ]);
     expect(buckets.get("completed")?.map((task) => task.id)).toEqual(["task-2"]);
+  });
+
+  it("keeps locally-created quick tasks visible until the server returns them", () => {
+    const quickCreatedTasks = [
+      { id: "task-4", title: "Quick task", status: "to_do" },
+      { id: "task-2", title: "Already returned", status: "completed" },
+    ];
+
+    expect(
+      buildLocallyVisibleQuickTasks({
+        quickCreatedTasks,
+        serverTasks: tasks,
+      }).map((task) => task.id)
+    ).toEqual(["task-4"]);
+
+    expect(
+      buildEffectiveTaskList({
+        quickCreatedTasks,
+        serverTasks: tasks,
+      }).map((task) => task.id)
+    ).toEqual(["task-4", "task-1", "task-2", "task-3"]);
+  });
+
+  it("returns the original server task array when no local quick tasks are visible", () => {
+    const effectiveTasks = buildEffectiveTaskList({
+      quickCreatedTasks: [{ id: "task-1", title: "Already returned", status: "to_do" }],
+      serverTasks: tasks,
+    });
+
+    expect(effectiveTasks).toBe(tasks);
+  });
+
+  it("merges quick-created maps while letting server values win", () => {
+    expect(
+      mergeServerTaskRecordMap({
+        quickCreatedValues: { "task-1": ["local-user"], "task-4": ["new-user"] },
+        serverValues: { "task-1": ["server-user"], "task-2": [] },
+      })
+    ).toEqual({
+      "task-1": ["server-user"],
+      "task-2": [],
+      "task-4": ["new-user"],
+    });
+  });
+
+  it("builds next-subtask due dates from loaded subtasks only when enabled", () => {
+    const effectiveStatusByTaskId = new Map<string, string>([
+      ["subtask-2", "completed"],
+    ]);
+    const nextDueDateMap = buildNextSubtaskDueDateMap({
+      enabled: true,
+      initialNextSubtaskDueDateByTaskId: { "task-1": "2026-06-10", "task-2": "2026-06-09" },
+      visibleTasks: tasks,
+      loadedSubtasksByParentId: {
+        "task-1": [
+          { id: "subtask-1", status: "to_do", due_date: "2026-06-08" },
+          { id: "subtask-2", status: "to_do", due_date: "2026-06-01" },
+          { id: "subtask-3", status: "cancelled", due_date: "2026-06-02" },
+        ],
+      },
+      effectiveStatusByTaskId,
+    });
+
+    expect(nextDueDateMap).toEqual({
+      "task-1": "2026-06-08",
+      "task-2": "2026-06-09",
+    });
+    expect(
+      buildNextSubtaskDueDateMap({
+        enabled: false,
+        initialNextSubtaskDueDateByTaskId: { "task-1": "2026-06-10" },
+        visibleTasks: tasks,
+        loadedSubtasksByParentId: {},
+        effectiveStatusByTaskId,
+      })
+    ).toEqual({});
   });
 });
