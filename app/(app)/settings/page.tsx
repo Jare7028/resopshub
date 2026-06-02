@@ -41,6 +41,8 @@ import {
   SETTINGS_EDIT_PERMISSION_MESSAGE,
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
+  buildSettingsAssignmentGroupSummary,
+  buildSettingsUserNameLookup,
   checkbox,
   defaultContentText,
   defaultPrefs,
@@ -155,10 +157,7 @@ export default async function SettingsPage(props: {
     full_name: string | null;
     email: string | null;
   }>;
-  const userNameById = users.reduce<Record<string, string>>((acc, row) => {
-    acc[row.id] = row.full_name || row.email || "Unknown user";
-    return acc;
-  }, {});
+  const userNameById = buildSettingsUserNameLookup(users);
 
   const assignmentGroupsResult = shouldLoadAssignmentGroups
     ? await withPerfTiming("settings.assignment_groups", () =>
@@ -172,34 +171,13 @@ export default async function SettingsPage(props: {
   const assignmentGroups = assignmentGroupsResult.groups;
   const assignmentGroupsSchemaMissing = assignmentGroupsResult.schemaMissing;
   const assignmentGroupsError = assignmentGroupsResult.error;
-  const assignmentGroupOptions = assignmentGroups.map((group) => ({
-    id: group.id,
-    name: group.name,
-    memberCount: group.memberCount,
-  }));
-  const assignmentGroupMemberIdsByGroupId = assignmentGroups.reduce<
-    Record<string, Set<string>>
-  >((acc, group) => {
-    acc[group.id] = new Set(group.memberUserIds);
-    return acc;
-  }, {});
-  const assignmentGroupMemberLabelsByGroupId = assignmentGroups.reduce<
-    Record<string, string[]>
-  >((acc, group) => {
-    const labels = group.memberUserIds
-      .map((memberId) => userNameById[memberId] || "")
-      .filter(Boolean)
-      .sort((left, right) => left.localeCompare(right));
-    acc[group.id] = labels;
-    return acc;
-  }, {});
-  const assignmentGroupTotalMemberSlots = assignmentGroups.reduce(
-    (total, group) => total + group.memberCount,
-    0
-  );
-  const assignmentGroupUniqueMemberCount = new Set(
-    assignmentGroups.flatMap((group) => group.memberUserIds)
-  ).size;
+  const {
+    options: assignmentGroupOptions,
+    memberIdsByGroupId: assignmentGroupMemberIdsByGroupId,
+    memberLabelsByGroupId: assignmentGroupMemberLabelsByGroupId,
+    totalMemberSlots: assignmentGroupTotalMemberSlots,
+    uniqueMemberCount: assignmentGroupUniqueMemberCount,
+  } = buildSettingsAssignmentGroupSummary(assignmentGroups, userNameById);
 
   let prefsResult = shouldLoadNotificationPrefs
     ? ((await withPerfTiming("settings.notification_prefs", () =>

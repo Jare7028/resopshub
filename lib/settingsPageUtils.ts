@@ -51,6 +51,19 @@ export type StatusOptionsResult = {
   } | null;
 };
 
+export type SettingsUserRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
+export type SettingsAssignmentGroupRow = {
+  id: string;
+  name: string;
+  memberCount: number;
+  memberUserIds: readonly string[];
+};
+
 export type SettingsTemplatesTab = "tasks" | "projects";
 export type TaskTemplatePanel = "details" | "custom-fields" | "subtasks";
 export type ProjectTemplatePanel = "details" | "custom-fields" | "tasks";
@@ -102,6 +115,56 @@ export function normalizeSettingsTemplateSearchParams(
     projectTemplatePanelQuery: `&project_template_panel=${encodeURIComponent(
       projectTemplatePanel
     )}`,
+  };
+}
+
+export function buildSettingsUserNameLookup(users: readonly SettingsUserRow[]) {
+  return users.reduce<Record<string, string>>((acc, row) => {
+    acc[row.id] = row.full_name || row.email || "Unknown user";
+    return acc;
+  }, {});
+}
+
+export function buildSettingsAssignmentGroupSummary(
+  assignmentGroups: readonly SettingsAssignmentGroupRow[],
+  userNameById: Record<string, string>
+) {
+  const options = assignmentGroups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    memberCount: group.memberCount,
+  }));
+  const memberIdsByGroupId = assignmentGroups.reduce<Record<string, Set<string>>>(
+    (acc, group) => {
+      acc[group.id] = new Set(group.memberUserIds);
+      return acc;
+    },
+    {}
+  );
+  const memberLabelsByGroupId = assignmentGroups.reduce<Record<string, string[]>>(
+    (acc, group) => {
+      acc[group.id] = group.memberUserIds
+        .map((memberId) => userNameById[memberId] || "")
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right));
+      return acc;
+    },
+    {}
+  );
+  const totalMemberSlots = assignmentGroups.reduce(
+    (total, group) => total + group.memberCount,
+    0
+  );
+  const uniqueMemberCount = new Set(
+    assignmentGroups.flatMap((group) => group.memberUserIds)
+  ).size;
+
+  return {
+    options,
+    memberIdsByGroupId,
+    memberLabelsByGroupId,
+    totalMemberSlots,
+    uniqueMemberCount,
   };
 }
 

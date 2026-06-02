@@ -4,6 +4,8 @@ import {
   SETTINGS_EDIT_PERMISSION_MESSAGE,
   TASK_STATUS_OPTION_VALIDATION_MESSAGE,
   USER_AVATARS_BUCKET,
+  buildSettingsAssignmentGroupSummary,
+  buildSettingsUserNameLookup,
   checkbox,
   defaultContentText,
   defaultPrefs,
@@ -113,5 +115,53 @@ describe("settings page helpers", () => {
       taskTemplatePanel: "details",
       projectTemplatePanel: "custom-fields",
     });
+  });
+
+  it("builds user and assignment group display summaries", () => {
+    const userNameById = buildSettingsUserNameLookup([
+      { id: "user-1", full_name: "Morgan Lane", email: "morgan@example.com" },
+      { id: "user-2", full_name: null, email: "alex@example.com" },
+      { id: "user-3", full_name: null, email: null },
+    ]);
+
+    expect(userNameById).toEqual({
+      "user-1": "Morgan Lane",
+      "user-2": "alex@example.com",
+      "user-3": "Unknown user",
+    });
+
+    const summary = buildSettingsAssignmentGroupSummary(
+      [
+        {
+          id: "group-1",
+          name: "Support",
+          memberCount: 3,
+          memberUserIds: ["user-2", "user-1", "missing-user"],
+        },
+        {
+          id: "group-2",
+          name: "Escalations",
+          memberCount: 1,
+          memberUserIds: ["user-1"],
+        },
+      ],
+      userNameById
+    );
+
+    expect(summary.options).toEqual([
+      { id: "group-1", name: "Support", memberCount: 3 },
+      { id: "group-2", name: "Escalations", memberCount: 1 },
+    ]);
+    expect(Array.from(summary.memberIdsByGroupId["group-1"])).toEqual([
+      "user-2",
+      "user-1",
+      "missing-user",
+    ]);
+    expect(summary.memberLabelsByGroupId["group-1"]).toEqual([
+      "alex@example.com",
+      "Morgan Lane",
+    ]);
+    expect(summary.totalMemberSlots).toBe(4);
+    expect(summary.uniqueMemberCount).toBe(3);
   });
 });
