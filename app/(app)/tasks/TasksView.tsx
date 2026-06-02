@@ -72,9 +72,9 @@ import {
   buildHiddenTaskStatusSet,
   buildNextSubtaskDueDateMap,
   filterTasksByHiddenStatus,
+  filterSubtasksByHiddenStatus,
   groupTasksByStatus,
   mergeServerTaskRecordMap,
-  normalizeTaskStatusKey,
   shouldHideHiddenTaskStatuses,
 } from "./taskViewModel";
 import {
@@ -1955,14 +1955,12 @@ export default function TasksView({
                 visibleTasks.map((task) => {
                   const isExpanded = expandedTaskIds.has(task.id);
                   const openSubtasks = loadedSubtasksByParentId[task.id] || [];
-                  const visibleOpenSubtasks = shouldHideHiddenStatuses
-                    ? openSubtasks.filter((subtask) => {
-                        const subtaskStatus =
-                          effectiveStatusByTaskId.get(subtask.id) ||
-                          normalizeTaskStatusKey(subtask.status);
-                        return !hiddenStatusSet.has(subtaskStatus);
-                      })
-                    : openSubtasks;
+                  const visibleOpenSubtasks = filterSubtasksByHiddenStatus({
+                    subtasks: openSubtasks,
+                    hiddenStatusSet,
+                    effectiveStatusByTaskId,
+                    shouldHideHiddenStatuses,
+                  });
                   const isSubtasksLoading = Boolean(subtasksLoadingByTaskId[task.id]);
                   const subtaskLoadError = subtasksErrorByTaskId[task.id] || "";
                   const nextSubtaskDueDateIso = nextSubtaskDueDateByTaskId[task.id] || null;

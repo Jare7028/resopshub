@@ -68,6 +68,29 @@ export function filterTasksByHiddenStatus<T extends TaskStatusLike>({
   });
 }
 
+export function filterSubtasksByHiddenStatus<T extends TaskStatusLike>({
+  subtasks,
+  hiddenStatusSet,
+  effectiveStatusByTaskId,
+  shouldHideHiddenStatuses,
+}: {
+  subtasks: T[];
+  hiddenStatusSet: ReadonlySet<string>;
+  effectiveStatusByTaskId: ReadonlyMap<string, string>;
+  shouldHideHiddenStatuses: boolean;
+}) {
+  if (!shouldHideHiddenStatuses) {
+    return subtasks;
+  }
+
+  return subtasks.filter((subtask) => {
+    const status =
+      effectiveStatusByTaskId.get(subtask.id) ||
+      normalizeTaskStatusKey(subtask.status);
+    return !hiddenStatusSet.has(status);
+  });
+}
+
 export function buildLocallyVisibleQuickTasks<T extends TaskIdLike>({
   quickCreatedTasks,
   serverTasks,

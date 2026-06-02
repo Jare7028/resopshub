@@ -6,6 +6,7 @@ import {
   buildLocallyVisibleQuickTasks,
   buildNextSubtaskDueDateMap,
   filterTasksByHiddenStatus,
+  filterSubtasksByHiddenStatus,
   groupTasksByStatus,
   mergeServerTaskRecordMap,
   normalizeTaskStatusKey,
@@ -80,6 +81,39 @@ describe("task view model helpers", () => {
         shouldHideHiddenStatuses: false,
       })
     ).toBe(tasks);
+  });
+
+  it("filters subtasks by hidden status while respecting effective status changes", () => {
+    const hiddenStatusSet = buildHiddenTaskStatusSet(["completed", "cancelled"]);
+    const subtasks = [
+      { id: "subtask-1", title: "Open subtask", status: "to_do" },
+      { id: "subtask-2", title: "Done subtask", status: "completed" },
+      { id: "subtask-3", title: "Locally completed", status: "to_do" },
+      { id: "subtask-4", title: "Cancelled subtask", status: "Cancelled" },
+    ];
+
+    expect(
+      filterSubtasksByHiddenStatus({
+        subtasks,
+        hiddenStatusSet,
+        effectiveStatusByTaskId: new Map([["subtask-3", "completed"]]),
+        shouldHideHiddenStatuses: true,
+      }).map((subtask) => subtask.id)
+    ).toEqual(["subtask-1"]);
+  });
+
+  it("returns the original subtask array when hidden-status filtering is off", () => {
+    const hiddenStatusSet = buildHiddenTaskStatusSet(["completed"]);
+    const subtasks = [{ id: "subtask-1", title: "Done subtask", status: "completed" }];
+
+    expect(
+      filterSubtasksByHiddenStatus({
+        subtasks,
+        hiddenStatusSet,
+        effectiveStatusByTaskId: new Map(),
+        shouldHideHiddenStatuses: false,
+      })
+    ).toBe(subtasks);
   });
 
   it("builds effective status maps with optimistic overrides", () => {
