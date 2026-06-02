@@ -1,8 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ProjectTabs from "../_components/ProjectTabs";
-import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getProjectReadAccess,
+  getProjectRequesterProfile,
+  projectAccessRedirectError,
+} from "@/lib/projectAccess";
 import {
   loadAssignmentGroups,
   resolveAssignmentTargetsToUserIds,
@@ -16,19 +20,13 @@ export default async function ProjectAssigneesPage(props: {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
-  const authUser = await getCurrentRequestUser(supabase, "projects.assignees.auth");
-  const authEmail = authUser?.email;
-  if (!authEmail) {
-    redirect("/login");
+  const requester = await getProjectRequesterProfile(supabase, "projects.assignees.auth");
+  if (!requester.ok) {
+    if (requester.reason === "unauthenticated") {
+      redirect("/login");
+    }
+    redirect(`/projects?error=${encodeURIComponent(projectAccessRedirectError(requester))}`);
   }
-
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-  const currentUserId = currentUser?.id;
-  const isAdmin = currentUser?.role === "admin";
 
   const { data: project } = await supabase
     .from("projects")
@@ -42,24 +40,12 @@ export default async function ProjectAssigneesPage(props: {
 
   const projectId = project.id;
 
-  if (!isAdmin && currentUserId) {
-    const { data: assignment } = await supabase
-      .from("project_users")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-    const { data: watching } = await supabase
-      .from("project_watchers")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-    if (!assignment && !watching) {
-      redirect("/projects?error=Not%20assigned%20to%20that%20project");
-    }
-  } else if (!isAdmin && !currentUserId) {
-    redirect("/projects?error=User%20profile%20missing");
+  const projectAccess = await getProjectReadAccess(supabase, {
+    projectId,
+    profile: requester.profile,
+  });
+  if (!projectAccess.ok) {
+    redirect(`/projects?error=${encodeURIComponent(projectAccessRedirectError(projectAccess))}`);
   }
 
   const { data: users } = await supabase
@@ -89,9 +75,27 @@ export default async function ProjectAssigneesPage(props: {
     (projectWatchers || []).map((row) => row.user_id).filter(Boolean)
   );
 
+  async function ensureProjectActionAccess(supabase: ReturnType<typeof createSupabaseServerClient>) {
+    const requester = await getProjectRequesterProfile(
+      supabase,
+      "projects.assignees.action.auth"
+    );
+    if (!requester.ok) {
+      redirect(`/projects/${projectId}/assignees?error=${encodeURIComponent(projectAccessRedirectError(requester))}`);
+    }
+    const projectAccess = await getProjectReadAccess(supabase, {
+      projectId,
+      profile: requester.profile,
+    });
+    if (!projectAccess.ok) {
+      redirect(`/projects/${projectId}/assignees?error=${encodeURIComponent(projectAccessRedirectError(projectAccess))}`);
+    }
+  }
+
   async function updateProjectAssignments(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureProjectActionAccess(supabase);
     const assignmentResolution = await resolveAssignmentTargetsToUserIds(
       supabase,
       formData.getAll("assigned_user_ids")
@@ -122,6 +126,7 @@ export default async function ProjectAssigneesPage(props: {
   async function updateProjectWatchers(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureProjectActionAccess(supabase);
     const watcherResolution = await resolveAssignmentTargetsToUserIds(
       supabase,
       formData.getAll("watcher_user_ids")

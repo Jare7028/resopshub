@@ -3,8 +3,12 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import ProjectTabs from "./_components/ProjectTabs";
 import ConfirmDelete from "../../_components/ConfirmDelete";
-import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getProjectReadAccess,
+  getProjectRequesterProfile,
+  projectAccessRedirectError,
+} from "@/lib/projectAccess";
 import {
   isSupabaseMissingColumnError,
   isSupabaseMissingTableError,
@@ -34,18 +38,16 @@ export default async function ProjectOverviewPage(props: {
   const searchParams = await props.searchParams;
   const showAddFieldModal = searchParams?.add_field === "1";
   const supabase = createSupabaseServerClient();
-  const authUser = await getCurrentRequestUser(supabase, "projects.detail.auth");
-  const authEmail = authUser?.email;
-  if (!authEmail) {
-    redirect("/login");
+  const requester = await getProjectRequesterProfile(supabase, "projects.detail.auth");
+  if (!requester.ok) {
+    if (requester.reason === "unauthenticated") {
+      redirect("/login");
+    }
+    redirect(`/projects?error=${encodeURIComponent(projectAccessRedirectError(requester))}`);
   }
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-  const currentUserId = currentUser?.id;
-  const isAdmin = currentUser?.role === "admin";
+  const currentUser = requester.profile;
+  const currentUserId = currentUser.id;
+  const isAdmin = currentUser.role === "admin";
   const { data: project } = await supabase
     .from("projects")
     .select(
@@ -138,24 +140,12 @@ export default async function ProjectOverviewPage(props: {
   const canDeleteProject =
     isAdmin || (currentUserId && project.created_by_user_id === currentUserId);
 
-  if (!isAdmin && currentUserId) {
-    const { data: assignment } = await supabase
-      .from("project_users")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-    const { data: watching } = await supabase
-      .from("project_watchers")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-    if (!assignment && !watching) {
-      redirect("/projects?error=Not%20assigned%20to%20that%20project");
-    }
-  } else if (!isAdmin && !currentUserId) {
-    redirect("/projects?error=User%20profile%20missing");
+  const projectAccess = await getProjectReadAccess(supabase, {
+    projectId,
+    profile: requester.profile,
+  });
+  if (!projectAccess.ok) {
+    redirect(`/projects?error=${encodeURIComponent(projectAccessRedirectError(projectAccess))}`);
   }
 
   const getRelationName = (
@@ -172,9 +162,27 @@ export default async function ProjectOverviewPage(props: {
     return relation?.name ?? fallback;
   };
 
+  async function ensureProjectActionAccess(supabase: ReturnType<typeof createSupabaseServerClient>) {
+    const requester = await getProjectRequesterProfile(
+      supabase,
+      "projects.detail.action.auth"
+    );
+    if (!requester.ok) {
+      redirect(`/projects/${projectId}?error=${encodeURIComponent(projectAccessRedirectError(requester))}`);
+    }
+    const projectAccess = await getProjectReadAccess(supabase, {
+      projectId,
+      profile: requester.profile,
+    });
+    if (!projectAccess.ok) {
+      redirect(`/projects/${projectId}?error=${encodeURIComponent(projectAccessRedirectError(projectAccess))}`);
+    }
+  }
+
   async function updateProject(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureProjectActionAccess(supabase);
     const name = String(formData.get("name") || "").trim();
     const code = String(formData.get("code") || projectCode).trim();
     const status = String(formData.get("status") || currentProjectStatus).trim();
@@ -270,6 +278,7 @@ export default async function ProjectOverviewPage(props: {
   async function createProjectCustomField(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureProjectActionAccess(supabase);
     const label = String(formData.get("label") || "").trim();
     const fieldKind = normalizeCustomFieldKind(
       String(formData.get("field_kind") || "").trim().toLowerCase()
@@ -348,6 +357,7 @@ export default async function ProjectOverviewPage(props: {
   async function deleteProjectCustomField(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
+    await ensureProjectActionAccess(supabase);
     const id = String(formData.get("id") || "").trim();
     if (!id) {
       redirect(`/projects/${projectId}?error=Missing%20custom%20field%20id`);

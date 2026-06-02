@@ -1,8 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import ProjectTabs from "../_components/ProjectTabs";
-import { getCurrentRequestUser } from "@/lib/supabase/currentUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getProjectReadAccess,
+  getProjectRequesterProfile,
+  projectAccessRedirectError,
+} from "@/lib/projectAccess";
 import { parseCsvParam, setCsvParam } from "@/lib/queryParams";
 import TasksView from "@/app/(app)/tasks/TasksView";
 import {
@@ -111,18 +115,15 @@ export default async function ProjectTasksPage(props: {
   const createMode: "new" | "template" =
     createModeRaw === "template" ? "template" : "new";
   const templateTaskId = String(searchParams?.template_task_id || "").trim();
-  const authUser = await getCurrentRequestUser(supabase, "projects.tasks.auth");
-  const authEmail = authUser?.email;
-  if (!authEmail) {
-    redirect("/login");
+  const requester = await getProjectRequesterProfile(supabase, "projects.tasks.auth");
+  if (!requester.ok) {
+    if (requester.reason === "unauthenticated") {
+      redirect("/login");
+    }
+    redirect(`/projects?error=${encodeURIComponent(projectAccessRedirectError(requester))}`);
   }
-  const { data: currentUser } = await supabase
-    .from("users")
-    .select("id,role")
-    .eq("email", authEmail)
-    .maybeSingle();
-  const currentUserId = currentUser?.id;
-  const isAdmin = currentUser?.role === "admin";
+  const currentUser = requester.profile;
+  const currentUserId = currentUser.id;
   const { data: project } = await supabase
     .from("projects")
     .select("id,name,client_id")
@@ -151,24 +152,12 @@ export default async function ProjectTasksPage(props: {
   }
   const sharedAddTaskUrl = `/tasks?${sharedAddTaskParams.toString()}`;
 
-  if (!isAdmin && currentUserId) {
-    const { data: assignment } = await supabase
-      .from("project_users")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-    const { data: watching } = await supabase
-      .from("project_watchers")
-      .select("user_id")
-      .eq("project_id", projectId)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-    if (!assignment && !watching) {
-      redirect("/projects?error=Not%20assigned%20to%20that%20project");
-    }
-  } else if (!isAdmin && !currentUserId) {
-    redirect("/projects?error=User%20profile%20missing");
+  const projectAccess = await getProjectReadAccess(supabase, {
+    projectId,
+    profile: requester.profile,
+  });
+  if (!projectAccess.ok) {
+    redirect(`/projects?error=${encodeURIComponent(projectAccessRedirectError(projectAccess))}`);
   }
 
   if (activeTab === "add" || hasLegacyProjectAddParams) {
@@ -376,43 +365,19 @@ export default async function ProjectTasksPage(props: {
   async function quickCreateProjectTask(formData: FormData) {
     "use server";
     const supabase = createSupabaseServerClient();
-    const authUser = await getCurrentRequestUser(
+    const requester = await getProjectRequesterProfile(
       supabase,
       "projects.tasks.quickCreate.access.auth"
     );
-    const authEmail = String(authUser?.email || "").trim();
-    if (!authEmail) {
-      return { ok: false as const, error: "Unauthorized" };
+    if (!requester.ok) {
+      return { ok: false as const, error: projectAccessRedirectError(requester) };
     }
-    const { data: profile, error: profileError } = await supabase
-      .from("users")
-      .select("id,role")
-      .eq("email", authEmail)
-      .maybeSingle();
-    if (profileError) {
-      return { ok: false as const, error: profileError.message };
-    }
-    const profileId = profile?.id || null;
-    const profileIsAdmin = profile?.role === "admin";
-    if (!profileIsAdmin) {
-      if (!profileId) {
-        return { ok: false as const, error: "User profile missing" };
-      }
-      const { data: assignment } = await supabase
-        .from("project_users")
-        .select("user_id")
-        .eq("project_id", projectId)
-        .eq("user_id", profileId)
-        .maybeSingle();
-      const { data: watching } = await supabase
-        .from("project_watchers")
-        .select("user_id")
-        .eq("project_id", projectId)
-        .eq("user_id", profileId)
-        .maybeSingle();
-      if (!assignment && !watching) {
-        return { ok: false as const, error: "Not assigned to that project" };
-      }
+    const projectAccess = await getProjectReadAccess(supabase, {
+      projectId,
+      profile: requester.profile,
+    });
+    if (!projectAccess.ok) {
+      return { ok: false as const, error: projectAccessRedirectError(projectAccess) };
     }
 
     return quickCreateTaskFromForm(formData, {
@@ -483,7 +448,7 @@ export default async function ProjectTasksPage(props: {
           }}
           hasExplicitView={hasExplicitView}
           viewPreferenceScope="tasks"
-          filterPersistenceUserId={currentUserId || authUser?.id || null}
+          filterPersistenceUserId={currentUserId || requester.user.id || null}
           filterPersistenceScope={`project:${projectId}`}
           hasExplicitFilterParams={hasExplicitFilterParams}
         />

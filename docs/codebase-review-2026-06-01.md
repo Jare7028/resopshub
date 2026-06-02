@@ -103,6 +103,7 @@ Updated 2026-06-02:
 - Completed: F-006 personal workspace current-user helper slice. Personal workspace page load, page creation, and workspace state updates now use `getCurrentRequestUser`.
 - Completed: F-006 remaining forms current-user helper slice. Forms list/upsert, submission detail/comment, shared form access checks, shared form submit checks, and form export auth now use `getCurrentRequestUser` while preserving public shared-form access.
 - Completed: F-006 projects current-user helper slice. Project list creation, project detail, project task list, project assignees, and project delete route auth now use `getCurrentRequestUser`.
+- Completed: F-006 project access helper/action guard slice. `lib/projectAccess.ts` now centralizes project requester profile lookup and admin/assignee/watcher read access checks. Project overview, task, and assignee pages use it, and project overview/custom-field plus assignee/watcher server actions now re-check access before mutating.
 - Completed: F-006 quizzes current-user helper slice. Quiz list/detail, assigned quizzes, attempt detail, and review pages now use `getCurrentRequestUser`.
 - Completed: F-006 remaining app current-user helper sweep. Top-level redirects, login, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export now use `getCurrentRequestUser`; the only direct `.auth.getUser()` calls left are the shared helper and middleware internals.
 - Completed: F-006 middleware permission verification slice. `lib/supabase/middleware.test.ts` now covers public-route skips, prefetch skips, read requests without edit checks, allowed mutation checks, denied mutation 403s, and fail-closed unexpected permission RPC errors.
@@ -147,6 +148,7 @@ Latest implementation validation:
 - `npx vitest run lib/noteEditorInline.test.ts lib/noteEditorOverlays.test.ts`: passed, 12 tests.
 - `npx vitest run lib/noteEditorSuggestions.test.ts`: passed, 5 tests.
 - `npx vitest run lib/securityDefinerMigrations.test.ts`: passed, 1 test.
+- `npx vitest run lib/projectAccess.test.ts`: passed, 5 tests.
 - Workflow YAML parse check for `.github/workflows/validation.yml`: passed.
 - `npx vitest run lib/taskSorting.test.ts`: passed, 6 tests.
 - `npx vitest run lib/tasks/createTaskLikeRoot.test.ts`: passed, 6 tests.
@@ -163,9 +165,9 @@ Latest implementation validation:
 - `npm run test:e2e`: not run in local validation because no authenticated `E2E_STORAGE_STATE` or E2E credential secrets were available in this shell.
 - `npx vitest run lib/adminAccess.test.ts`: passed, 3 tests.
 - `npx vitest run lib/pageEditAccess.test.ts`: passed, 3 tests.
-- `npm test`: passed, 52 files and 276 tests.
+- `npm test`: passed, 53 files and 281 tests.
 - `npm run lint`: passed.
-- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, inline, and suggestion helper extractions plus the CI workflow and contextual task quick-add slices also passed the production build.
+- `npm run build`: passed on Next.js 15.5.18. `/tasks` built at 4.36 kB route JS and 129 kB first load JS after the task view-model extraction; `/forms` built at 5.84 kB route JS and 118 kB first load JS after the list pagination slice; `/settings` built at 4.71 kB route JS and 116 kB first load JS after the latest page-edit guard slice; note-editor context-menu, overlay, inline, and suggestion helper extractions plus the CI workflow, contextual task quick-add, and project access guard slices also passed the production build.
 - `npm audit --json`: passed with 0 vulnerabilities.
 - Static console scan: `app/api` has 0 direct `console.*` calls; the broader `app`, `lib`, and `supabase` inventory is down to 9 calls, all centralized in `lib/clientLogger.ts` or `lib/vercelLogger.ts`.
 - Static API auth scan: `app/api` has 0 direct `supabase.auth.getUser()` calls; route-handler auth now goes through `requireApiUser`, `requireApiAdmin`, or an explicit `getCurrentRequestUser(..., { trustForwardedUserHeaders: false })` call.
@@ -398,6 +400,7 @@ Evidence:
 - Twenty-ninth implementation slice converted personal workspace page load, page creation, and workspace state updates to `getCurrentRequestUser`. Static scan now finds 33 direct `.auth.getUser()` calls overall and none in `app/(app)/personal/page.tsx` or `workspaceActions.ts`.
 - Thirtieth implementation slice converted forms list/upsert, submission detail/comment, shared form access/submit checks, and form export auth to `getCurrentRequestUser`. Static scan now finds 26 direct `.auth.getUser()` calls overall and none under `app/(app)/forms` or `app/forms/share`.
 - Thirty-first implementation slice converted project list creation, project detail, project task list, project assignees, and project delete route auth to `getCurrentRequestUser`. Static scan now finds 21 direct `.auth.getUser()` calls overall and none under `app/(app)/projects`.
+- Project access helper/action guard slice added `lib/projectAccess.ts` and focused tests. Project overview, task, and assignee pages now share admin/assignee/watcher access checks, and project overview/custom-field plus assignee/watcher server actions re-check access before mutating instead of relying only on page-load authorization.
 - Thirty-second implementation slice converted quiz list/detail, assigned quizzes, attempt detail, and review pages to `getCurrentRequestUser`. Static scan now finds 16 direct `.auth.getUser()` calls overall and none under `app/(app)/quizzes`.
 - Thirty-third implementation slice converted the remaining app-level auth checks to `getCurrentRequestUser`, including root/login redirects, dashboard, search history, scout, schedules, client list/new, task creation, help guide admin mode, employee-info export, and inventory export. Static scan now finds only 2 direct `.auth.getUser()` calls, both intentionally inside `lib/supabase/currentUser.ts` and `lib/supabase/middleware.ts`.
 - Middleware permission verification slice added `lib/supabase/middleware.test.ts`, covering public-route skips, router-prefetch skips, read requests without edit checks, allowed mutation checks, denied mutation 403 responses, and fail-closed unexpected permission RPC errors.
@@ -425,6 +428,7 @@ Recommended fix:
 - Done for the admin page/action slice: create `getAdminAccess`, keep page-level redirect/not-found behavior at the call sites, and convert admin landing, user-management, create-user, and page-permission flows.
 - Done for the settings action slices: create `getPageEditAccess`, keep unauthenticated and no-permission redirects or autosave errors at the call sites, and convert assignment-group, status-option, task-template, task-template subtask, project-template, project-template task link/unlink, and template custom-field actions.
 - Done for the settings current-user slice: convert settings page/profile/notification auth gates to `getCurrentRequestUser` instead of direct Supabase auth calls.
+- Done for the project access slice: create `getProjectRequesterProfile` and `getProjectReadAccess`, share admin/assignee/watcher checks on project overview/tasks/assignees, and re-check sensitive project server actions before writes.
 - Done for the middleware verification slice: test the App Router permission boundary around mutation methods and fail-closed RPC errors.
 
 Estimated effort: medium.
@@ -478,7 +482,7 @@ Verification needed:
 Evidence:
 
 - Original review found `npm test` passing 24 files and 138 tests.
-- Latest unit-test suite now passes 52 files and 276 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, task table/view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
+- Latest unit-test suite now passes 53 files and 281 tests after the quick task, scoped quick task, inline task mutation, recurrence, status-options, task-sorting, shared task creation, admin API/page access, API auth hardening, settings page-edit, project access guard, task table/view-model/timeline, quick-read task RPC, logging, security-definer migration guard, and note-editor helper coverage slices.
 - Coverage is useful but uneven: overall branch coverage is 60.34%.
 - Low-coverage examples from `npm run test:coverage`:
   - `lib/vercelLogger.ts`: 7.14% statements.
