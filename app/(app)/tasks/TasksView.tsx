@@ -20,6 +20,10 @@ import {
   formatTaskStatusLabel,
   normalizeTaskStatusOrDefault,
 } from "@/lib/taskStatus";
+import {
+  getTaskHoverFetchUrl,
+  normalizeTaskHoverNotesPreview,
+} from "@/lib/taskHover";
 import { duePillClasses, getDueUrgency, priorityPillClasses } from "@/lib/taskIndicators";
 import {
   statusBarStyle,
@@ -644,7 +648,7 @@ export default function TasksView({
       notesPreview: null,
     }));
 
-    void fetch(`/api/tasks/${taskId}/hover`, { cache: "no-store" })
+    void fetch(getTaskHoverFetchUrl(taskId), { cache: "no-store" })
       .then(async (response) => {
         const payload = (await response.json().catch(() => ({}))) as {
           notesPreview?: unknown;
@@ -660,10 +664,7 @@ export default function TasksView({
         if (taskNotesHoverRequestIdRef.current !== requestId) {
           return;
         }
-        const notesPreview =
-          typeof payload.notesPreview === "string"
-            ? payload.notesPreview.trim() || null
-            : null;
+        const notesPreview = normalizeTaskHoverNotesPreview(payload.notesPreview);
         const nextPayload: TaskNotesHoverPayload = { notesPreview };
         taskNotesHoverCacheRef.current[taskId] = nextPayload;
         setTaskNotesHover((prev) => ({

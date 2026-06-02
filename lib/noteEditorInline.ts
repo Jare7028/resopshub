@@ -57,10 +57,6 @@ export function extractTaskIdFromHref(href: string) {
   return match?.[1] || null;
 }
 
-export function getTaskHoverFetchUrl(taskId: string) {
-  return `/api/tasks/${encodeURIComponent(String(taskId || "").trim())}/hover`;
-}
-
 export function getTaskHoverPosition(
   anchorRect: { left: number; bottom: number },
   viewport: { width: number; height: number },

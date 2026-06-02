@@ -95,7 +95,6 @@ import {
 } from "@/lib/noteEditorOverlays";
 import {
   extractTaskIdFromHref,
-  getTaskHoverFetchUrl,
   getTaskHoverPosition,
   normalizeInlineText,
   normalizeMentionHandle,
@@ -103,6 +102,7 @@ import {
   normalizeTaskStatusLabel,
   parseTimestampMs,
 } from "@/lib/noteEditorInline";
+import { getTaskHoverFetchUrl } from "@/lib/taskHover";
 import {
   filterSlashCommands,
   getMentionMatch,
